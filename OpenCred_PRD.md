@@ -203,7 +203,7 @@ sequenceDiagram
 
 ## 4. Issuer -- Self-Verifiable Credentials
 
-A credential is "self-verifiable" when a verifier can authenticate it without relying on a proprietary lookup or out-of-band trust establishment. There are two primary approaches for making the public key available to verifiers.
+A credential is "self-verifiable" when a verifier can authenticate it without relying on a proprietary lookup or out-of-band trust establishment. There are three primary approaches for making the public key available to verifiers.
 
 ### 4.1 Option A: Publish Public Key to a Web-Accessible Endpoint
 
@@ -312,25 +312,65 @@ The public key is encoded directly within the credential itself, either via a `d
 - Credential size increases (a JWK adds approximately 200-400 bytes).
 - Trust anchoring is weaker -- the verifier must trust the key in the credential itself without an external trust root (unless a delegation certificate chain is embedded alongside it).
 
-### 4.3 Comparative Analysis
+### 4.3 Option C: KERI -- Key Event Receipt Infrastructure
 
-| Criterion | Option A (did:web) | Option B (did:key / inline JWK) |
-|---|---|---|
-| Network dependency at verification | Yes (DID resolution) | No (offline capable) |
-| Key rotation | Supported | Not supported |
-| Issuer infrastructure | Web server + TLS cert | None |
-| Credential size | Smaller (key not embedded) | Larger (+200-400 bytes) |
-| Trust anchoring | Domain-bound (TLS + DID doc) | Self-asserted (or delegation cert) |
-| Revocation of compromised key | Update DID document | No mechanism (must revoke all affected credentials) |
-| Standards maturity | W3C CCG did:web spec | W3C CCG did:key v0.9 |
+KERI provides a third model for self-verifiable credentials built on **self-certifying identifiers (SCIDs)** rather than web-hosted documents or embedded keys. The issuer's identifier is cryptographically derived from its inception key and is bound to an append-only **Key Event Log (KEL)** that records every key rotation, delegation, and revocation event.
 
-### 4.4 Recommendation
+**Mechanism**: The issuer creates an Autonomic Identifier (AID) whose root of trust is a cryptographic keypair, not a domain name or a registry. The AID is strongly bound at inception to the controlling keypair through a self-certifying prefix. Key state changes (rotations, delegations) are recorded as signed events in the KEL. Witnesses (a configurable set of receipt-generating nodes) countersign key events, providing a secondary root of trust without requiring a blockchain or centralised registry.
 
-OpenCred SHOULD support both options and let the issuer choose at issuance time:
+**Key pre-rotation**: KERI's defining feature is its pre-rotation scheme. At inception (or at any rotation), the issuer pre-commits to the hash of the *next* rotation key. This means an attacker who compromises the current signing key cannot rotate to a new key of their choosing -- only the pre-committed key (held offline by the issuer) can perform the rotation. This eliminates the foundational weakness of traditional PKI where a compromised key can authorise its own replacement.
 
-- **Default for institutional issuers**: `did:web` -- provides key rotation, domain-bound trust, and aligns with enterprise identity infrastructure.
+**Trust modes**:
+
+- **Direct mode**: The verifier obtains the KEL directly from the issuer or a mutually trusted witness. The verifier replays the KEL from inception to current state, verifying every event signature. No external registry needed.
+- **Indirect mode**: Witnesses produce Key Event Receipt Logs (KERLs). The verifier fetches KERLs from multiple witnesses and applies KERI's Agreement Algorithm for Control Establishment (KA2CE) to reach consensus on the current key state. This provides high assurance even when the verifier has no direct relationship with the issuer.
+
+**Example AID (simplified)**:
+
+```
+AID: EDP1vHcw_wc4M0MPCus291a6-lcU0Jv38ypPuw52HFz0
+```
+
+The AID prefix is derived from the inception event's public key, making it self-certifying. The verifier resolves the AID to a KEL (from the issuer, a witness, or a KERI watcher node) and replays it to obtain the current public key.
+
+**Advantages**:
+
+- **Secure key rotation via pre-rotation**: Key compromise does not enable attacker-controlled rotation, unlike `did:web` where domain compromise allows full key replacement.
+- **No dependency on web infrastructure**: The identifier is not bound to a domain name, so domain expiry, DNS hijacking, or TLS certificate issues do not affect the identifier's integrity.
+- **Decentralised without a blockchain**: Witnesses provide distributed consensus on key state without requiring a ledger.
+- **End-verifiable**: Any party can independently verify the full key event history by replaying the KEL from inception.
+- **Supports delegation natively**: KERI has built-in delegated AIDs where a delegator AID authorises a delegate AID via a delegation event in the KEL, aligning well with OpenCred's DSC delegation model.
+
+**Disadvantages**:
+
+- **Ecosystem maturity**: KERI specifications are at v0.9 (Trust Over IP Foundation / IETF draft). Library and wallet support is growing but not yet as widespread as `did:web` or `did:key`.
+- **Operational complexity**: Issuers must manage witness infrastructure (or use a witness network provider) and maintain their KEL.
+- **Verifier must obtain the KEL**: While no web server is needed, the verifier still requires access to the KEL (via a watcher, witness, or direct exchange). Fully offline verification is possible only if the KEL is bundled with the credential.
+- **Credential size if KEL is embedded**: Bundling the KEL for offline verification increases credential size proportional to the number of key events.
+
+### 4.4 Comparative Analysis
+
+| Criterion | Option A (did:web) | Option B (did:key / inline JWK) | Option C (KERI) |
+|---|---|---|---|
+| Network dependency at verification | Yes (DID resolution) | No (offline capable) | Partial (KEL fetch, or offline if bundled) |
+| Key rotation | Supported (update DID doc) | Not supported | Supported (pre-rotation, cryptographically pre-committed) |
+| Pre-rotation security | No (domain compromise enables malicious rotation) | N/A | Yes (compromised key cannot authorise its own replacement) |
+| Issuer infrastructure | Web server + TLS cert | None | Witness nodes (self-hosted or provider) |
+| Credential size | Smaller (key not embedded) | Larger (+200-400 bytes) | Moderate (AID only) or larger if KEL bundled |
+| Trust anchoring | Domain-bound (TLS + DID doc) | Self-asserted (or delegation cert) | Self-certifying (cryptographic inception binding) |
+| Revocation of compromised key | Update DID document | No mechanism (must revoke all affected credentials) | Rotate via pre-committed key; old key provably superseded |
+| Delegation support | External (delegation cert layered on top) | External (delegation cert layered on top) | Native (delegated AIDs in the KEL) |
+| Decentralisation | Depends on DNS/TLS CA | Fully decentralised (no resolution) | Fully decentralised (witness consensus, no blockchain) |
+| Standards maturity | W3C CCG did:web spec | W3C CCG did:key v0.9 | ToIP / IETF draft v0.9; growing implementations |
+
+### 4.5 Recommendation
+
+OpenCred SHOULD support all three options and let the issuer choose at issuance time:
+
+- **Default for institutional issuers**: `did:web` -- provides key rotation, domain-bound trust, and aligns with enterprise identity infrastructure. Lowest barrier to adoption given existing web PKI.
 - **Alternative for ad-hoc or offline-first use**: `did:key` or inline JWK -- enables fully self-contained credentials for field deployment, peer-to-peer issuance, or testing.
-- **Hybrid (recommended for delegation flows)**: Use `did:web` as the issuer identifier with a delegation certificate embedded in the credential. The delegation cert contains the ephemeral public key and is signed by the issuer's DSC. This gives verifiers a trust chain (ephemeral key -> DSC -> CSCA) while keeping the credential verifiable even if the `did:web` endpoint is temporarily unreachable (the delegation cert is self-contained).
+- **For high-assurance / decentralised deployments**: KERI -- provides cryptographically pre-committed key rotation, native delegation, and decentralised trust without blockchain dependency. Recommended for issuers who require resilience against domain compromise or who operate in multi-stakeholder trust frameworks (e.g., government-to-government credential exchange).
+- **Hybrid (recommended for delegation flows)**: Use `did:web` or a KERI AID as the issuer identifier with a delegation certificate embedded in the credential. The delegation cert contains the ephemeral public key and is signed by the issuer's DSC. This gives verifiers a trust chain (ephemeral key -> DSC -> CSCA) while keeping the credential verifiable even if the `did:web` endpoint is temporarily unreachable (the delegation cert is self-contained). KERI's native delegation model can replace the custom delegation certificate when both issuer and verifier support KERI.
 
 ---
 
@@ -889,6 +929,8 @@ curl -X POST https://opencred.example/credentials/revoke/batch \
 | **Ephemeral Key** | A short-lived cryptographic keypair generated for a single session or batch of credential issuances, then discarded. Limits the blast radius of key compromise. |
 | **JCS** | JSON Canonicalization Scheme (RFC 8785). A deterministic serialisation of JSON objects used to produce a consistent byte representation for hashing or signing. |
 | **JWK** | JSON Web Key (RFC 7517). A JSON data structure representing a cryptographic key, commonly used to embed public keys in DID documents and VC proofs. |
+| **KEL** | Key Event Log. An append-only, cryptographically signed log of key lifecycle events (inception, rotation, delegation, revocation) used in KERI to establish verifiable key state. |
+| **KERI** | Key Event Receipt Infrastructure. A decentralised key management protocol that uses self-certifying identifiers and pre-rotation to provide secure, end-verifiable control over cryptographic keys without reliance on a blockchain or centralised registry. |
 | **VC** | Verifiable Credential. A tamper-evident, cryptographically signed credential conforming to the W3C VC Data Model. |
 | **VP** | Verifiable Presentation. A tamper-evident wrapper around one or more VCs, presented by a holder to a verifier. |
 
@@ -904,5 +946,6 @@ curl -X POST https://opencred.example/credentials/revoke/batch \
 | did:key Method v0.9 | https://w3c-ccg.github.io/did-key-spec/ |
 | W3C DID Resolution v0.3 | https://www.w3.org/TR/did-resolution/ |
 | W3C DID Core 1.0 | https://www.w3.org/TR/did-core/ |
+| KERI Specification (ToIP / IETF draft) | https://trustoverip.github.io/tswg-keri-specification/ |
 | JSON Canonicalization Scheme (RFC 8785) | https://www.rfc-editor.org/rfc/rfc8785 |
 | JSON Web Key (RFC 7517) | https://www.rfc-editor.org/rfc/rfc7517 |
