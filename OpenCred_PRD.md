@@ -13,7 +13,7 @@
 3. [Issuer -- Key Sourcing Strategies](#3-issuer----key-sourcing-strategies)
 4. [Issuer -- Self-Verifiable Credentials](#4-issuer----self-verifiable-credentials)
 5. [Issuer -- credentialStatus for Revocation](#5-issuer----credentialstatus-for-revocation)
-6. [Issuer -- Key Delegation to DeDi](#6-issuer----key-delegation-to-dedi)
+6. [Issuer -- Key Delegation via OpenCred](#6-issuer----key-delegation-via-opencred)
 7. [Verifier -- Public Key Retrieval](#7-verifier----public-key-retrieval)
 8. [Verifier -- Expiry and Revocation Checking](#8-verifier----expiry-and-revocation-checking)
 9. [Appendix](#9-appendix)
@@ -158,7 +158,7 @@ sequenceDiagram
 
 ### 3.5 Flow E -- OpenCred-Generated Ephemeral Key + DSC Delegation
 
-OpenCred generates the ephemeral keypair itself and never transmits the private key outside its boundary. The issuer only signs the delegation certificate with their DSC. This is the recommended flow for DeDi-based delegation (see Section 6).
+OpenCred generates the ephemeral keypair itself and never transmits the private key outside its boundary. The issuer only signs the delegation certificate with their DSC. This is the recommended delegation flow (see Section 6).
 
 **When to use**: Issuers who want the strongest separation of concerns -- the primary DSC key stays with the issuer, and the ephemeral key stays with OpenCred. Neither party holds both keys simultaneously.
 
@@ -197,13 +197,13 @@ sequenceDiagram
 | Delegation cert required | No | No | Yes | Yes | Yes |
 | Key rotation built-in | No | No | Yes | Yes | Yes |
 | Issuer infrastructure needed | Signing capability | None | Signing + keygen | Keygen | DSC only |
-| Recommended for | High-security | Quick start | Enterprise | Enterprise (convenience) | DeDi integration |
+| Recommended for | High-security | Quick start | Enterprise | Enterprise (convenience) | Delegation (default) |
 
 ---
 
 ## 4. Issuer -- Self-Verifiable Credentials
 
-A credential is "self-verifiable" when a verifier can authenticate it without relying on a proprietary lookup or out-of-band trust establishment. There are two primary approaches for making the public key available to verifiers.
+A credential is "self-verifiable" when a verifier can authenticate it without relying on a proprietary lookup or out-of-band trust establishment. There are three primary approaches for making the public key available to verifiers.
 
 ### 4.1 Option A: Publish Public Key to a Web-Accessible Endpoint
 
@@ -312,47 +312,119 @@ The public key is encoded directly within the credential itself, either via a `d
 - Credential size increases (a JWK adds approximately 200-400 bytes).
 - Trust anchoring is weaker -- the verifier must trust the key in the credential itself without an external trust root (unless a delegation certificate chain is embedded alongside it).
 
-### 4.3 Comparative Analysis
+### 4.3 Option C: KERI -- Key Event Receipt Infrastructure
 
-| Criterion | Option A (did:web) | Option B (did:key / inline JWK) |
-|---|---|---|
-| Network dependency at verification | Yes (DID resolution) | No (offline capable) |
-| Key rotation | Supported | Not supported |
-| Issuer infrastructure | Web server + TLS cert | None |
-| Credential size | Smaller (key not embedded) | Larger (+200-400 bytes) |
-| Trust anchoring | Domain-bound (TLS + DID doc) | Self-asserted (or delegation cert) |
-| Revocation of compromised key | Update DID document | No mechanism (must revoke all affected credentials) |
-| Standards maturity | W3C CCG did:web spec | W3C CCG did:key v0.9 |
+KERI provides a third model for self-verifiable credentials built on **self-certifying identifiers (SCIDs)** rather than web-hosted documents or embedded keys. The issuer's identifier is cryptographically derived from its inception key and is bound to an append-only **Key Event Log (KEL)** that records every key rotation, delegation, and revocation event.
 
-### 4.4 Recommendation
+**Mechanism**: The issuer creates an Autonomic Identifier (AID) whose root of trust is a cryptographic keypair, not a domain name or a registry. The AID is strongly bound at inception to the controlling keypair through a self-certifying prefix. Key state changes (rotations, delegations) are recorded as signed events in the KEL. Witnesses (a configurable set of receipt-generating nodes) countersign key events, providing a secondary root of trust without requiring a blockchain or centralised registry.
 
-OpenCred SHOULD support both options and let the issuer choose at issuance time:
+**Key pre-rotation**: KERI's defining feature is its pre-rotation scheme. At inception (or at any rotation), the issuer pre-commits to the hash of the *next* rotation key. This means an attacker who compromises the current signing key cannot rotate to a new key of their choosing -- only the pre-committed key (held offline by the issuer) can perform the rotation. This eliminates the foundational weakness of traditional PKI where a compromised key can authorise its own replacement.
 
-- **Default for institutional issuers**: `did:web` -- provides key rotation, domain-bound trust, and aligns with enterprise identity infrastructure.
+**Trust modes**:
+
+- **Direct mode**: The verifier obtains the KEL directly from the issuer or a mutually trusted witness. The verifier replays the KEL from inception to current state, verifying every event signature. No external registry needed.
+- **Indirect mode**: Witnesses produce Key Event Receipt Logs (KERLs). The verifier fetches KERLs from multiple witnesses and applies KERI's Agreement Algorithm for Control Establishment (KA2CE) to reach consensus on the current key state. This provides high assurance even when the verifier has no direct relationship with the issuer.
+
+**Example AID (simplified)**:
+
+```
+AID: EDP1vHcw_wc4M0MPCus291a6-lcU0Jv38ypPuw52HFz0
+```
+
+The AID prefix is derived from the inception event's public key, making it self-certifying. The verifier resolves the AID to a KEL (from the issuer, a witness, or a KERI watcher node) and replays it to obtain the current public key.
+
+**Advantages**:
+
+- **Secure key rotation via pre-rotation**: Key compromise does not enable attacker-controlled rotation, unlike `did:web` where domain compromise allows full key replacement.
+- **No dependency on web infrastructure**: The identifier is not bound to a domain name, so domain expiry, DNS hijacking, or TLS certificate issues do not affect the identifier's integrity.
+- **Decentralised without a blockchain**: Witnesses provide distributed consensus on key state without requiring a ledger.
+- **End-verifiable**: Any party can independently verify the full key event history by replaying the KEL from inception.
+- **Supports delegation natively**: KERI has built-in delegated AIDs where a delegator AID authorises a delegate AID via a delegation event in the KEL, aligning well with OpenCred's DSC delegation model.
+
+**Disadvantages**:
+
+- **Ecosystem maturity**: KERI specifications are at v0.9 (Trust Over IP Foundation / IETF draft). Library and wallet support is growing but not yet as widespread as `did:web` or `did:key`.
+- **Operational complexity**: Issuers must manage witness infrastructure (or use a witness network provider) and maintain their KEL.
+- **Verifier must obtain the KEL**: While no web server is needed, the verifier still requires access to the KEL (via a watcher, witness, or direct exchange). Fully offline verification is possible only if the KEL is bundled with the credential.
+- **Credential size if KEL is embedded**: Bundling the KEL for offline verification increases credential size proportional to the number of key events.
+
+### 4.4 Comparative Analysis
+
+| Criterion | Option A (did:web) | Option B (did:key / inline JWK) | Option C (KERI) |
+|---|---|---|---|
+| Network dependency at verification | Yes (DID resolution) | No (offline capable) | Partial (KEL fetch, or offline if bundled) |
+| Key rotation | Supported (update DID doc) | Not supported | Supported (pre-rotation, cryptographically pre-committed) |
+| Pre-rotation security | No (domain compromise enables malicious rotation) | N/A | Yes (compromised key cannot authorise its own replacement) |
+| Issuer infrastructure | Web server + TLS cert | None | Witness nodes (self-hosted or provider) |
+| Credential size | Smaller (key not embedded) | Larger (+200-400 bytes) | Moderate (AID only) or larger if KEL bundled |
+| Trust anchoring | Domain-bound (TLS + DID doc) | Self-asserted (or delegation cert) | Self-certifying (cryptographic inception binding) |
+| Revocation of compromised key | Update DID document | No mechanism (must revoke all affected credentials) | Rotate via pre-committed key; old key provably superseded |
+| Delegation support | External (delegation cert layered on top) | External (delegation cert layered on top) | Native (delegated AIDs in the KEL) |
+| Decentralisation | Depends on DNS/TLS CA | Fully decentralised (no resolution) | Fully decentralised (witness consensus, no blockchain) |
+| Standards maturity | W3C CCG did:web spec | W3C CCG did:key v0.9 | ToIP / IETF draft v0.9; growing implementations |
+
+### 4.5 Recommendation
+
+OpenCred SHOULD support all three options and let the issuer choose at issuance time:
+
+- **Default for institutional issuers**: `did:web` -- provides key rotation, domain-bound trust, and aligns with enterprise identity infrastructure. Lowest barrier to adoption given existing web PKI.
 - **Alternative for ad-hoc or offline-first use**: `did:key` or inline JWK -- enables fully self-contained credentials for field deployment, peer-to-peer issuance, or testing.
-- **Hybrid (recommended for delegation flows)**: Use `did:web` as the issuer identifier with a delegation certificate embedded in the credential. The delegation cert contains the ephemeral public key and is signed by the issuer's DSC. This gives verifiers a trust chain (ephemeral key -> DSC -> CSCA) while keeping the credential verifiable even if the `did:web` endpoint is temporarily unreachable (the delegation cert is self-contained).
+- **For high-assurance / decentralised deployments**: KERI -- provides cryptographically pre-committed key rotation, native delegation, and decentralised trust without blockchain dependency. Recommended for issuers who require resilience against domain compromise or who operate in multi-stakeholder trust frameworks (e.g., government-to-government credential exchange).
+- **Hybrid (recommended for delegation flows)**: Use `did:web` or a KERI AID as the issuer identifier with a delegation certificate embedded in the credential. The delegation cert contains the ephemeral public key and is signed by the issuer's DSC. This gives verifiers a trust chain (ephemeral key -> DSC -> CSCA) while keeping the credential verifiable even if the `did:web` endpoint is temporarily unreachable (the delegation cert is self-contained). KERI's native delegation model can replace the custom delegation certificate when both issuer and verifier support KERI.
 
 ---
 
 ## 5. Issuer -- credentialStatus for Revocation
 
-Per the [W3C VC Data Model 2.0 -- Status](https://www.w3.org/TR/vc-data-model-2.0/#status), every credential issued by OpenCred MUST include a `credentialStatus` property to enable revocation checking by verifiers.
+Per the [W3C VC Data Model 2.0 -- Status](https://www.w3.org/TR/vc-data-model-2.0/#status), every credential issued by OpenCred will/should include a `credentialStatus` property to enable revocation checking by verifiers. OpenCred supports two revocation strategies, phased by implementation complexity.
 
-### 5.1 Status Mechanism: BitstringStatusListEntry
+### 5.1 Strategy Overview
 
-OpenCred adopts the [W3C Bitstring Status List v1.0](https://www.w3.org/TR/vc-bitstring-status-list/) (W3C Recommendation, May 2025) as the credential status type. This is a privacy-preserving, space-efficient mechanism where each credential is assigned a single bit in a compressed bitstring.
+| | Strategy A: DeDi RevocationHash Lookup | Strategy B: W3C BitstringStatusList |
+|---|---|---|
+| **Phase** | **Phase 1 (preferred for initial launch)** | Phase 2 |
+| How it works | Each credential gets a deterministic hash. The hash is published to DeDi on revocation. Verifiers look up the hash directly. | Each credential gets a bit index in a compressed bitstring hosted at a URL. The bit is flipped to `1` on revocation. Verifiers download the bitstring and check locally. |
+| Complexity | Low -- simple hash-based publish/lookup | Higher -- maintain and publish compressed bitstrings |
+| Privacy | Registry sees which credential is being checked (1:1 query) | Herd privacy -- registry cannot tell which credential is checked (verifier downloads entire list) |
+| W3C conformance | Custom (OpenCred/DeDi specific) | W3C Recommendation (interoperable with any conformant verifier) |
+| Offline verification | No | Yes (cache the bitstring) |
 
-**How it works**:
+### 5.2 Strategy A: DeDi RevocationHash Lookup (Phase 1)
 
-1. At issuance, OpenCred assigns the credential a unique index position within a status list.
-2. The status list is a bitstring of 131,072 entries (16 KB uncompressed), hosted at a URL as a verifiable credential itself.
-3. A bit value of `0` means the credential is VALID.
-4. A bit value of `1` means the credential is REVOKED.
-5. The bitstring is GZIP-compressed before publishing. A list covering 100,000 credentials compresses to approximately 12,500 bytes worst-case (or a few hundred bytes if only a small number are revoked).
+This is the **preferred approach for Phase 1** due to its simplicity. OpenCred computes a deterministic hash for each credential and uses it as both the issuer-facing revocation handle and the verifier-facing status check.
 
-### 5.2 credentialStatus Field Structure
+**Revocation hash computation**:
 
-Every credential issued by OpenCred embeds the following `credentialStatus` object:
+```
+revocationHash = SHA-256( JCS( credentialSubject + id + issuanceDate + issuer ) )
+```
+
+Where **JCS** is [JSON Canonicalization Scheme (RFC 8785)](https://www.rfc-editor.org/rfc/rfc8785).
+
+**credentialStatus field** embedded in the credential:
+
+```json
+{
+  "credentialStatus": {
+    "id": "https://dedi.example/revocations/university.example/a1b2c3d4e5f6...",
+    "type": "DeDiRevocationEntry",
+    "statusPurpose": "revocation",
+    "revocationRegistry": "https://dedi.example/revocations/university.example"
+  }
+}
+```
+
+**Issuance flow**: OpenCred computes the hash, embeds `credentialStatus` with the DeDi registry URL, and returns the hash to the issuer alongside the packaged credential.
+
+**Revocation flow**: The issuer calls the revocation API with the hash. OpenCred (or the issuer directly) publishes the hash to the issuer's namespace in DeDi.
+
+**Verification flow**: The verifier computes the same hash from the credential fields and queries DeDi. Hash found = REVOKED, not found = VALID.
+
+### 5.3 Strategy B: W3C BitstringStatusList (Phase 2)
+
+Adopts the [W3C Bitstring Status List v1.0](https://www.w3.org/TR/vc-bitstring-status-list/) (W3C Recommendation, May 2025). Each credential is assigned a bit in a GZIP-compressed bitstring (131,072 entries per list, ~16 KB uncompressed). Bit `0` = VALID, bit `1` = REVOKED.
+
+**credentialStatus field**:
 
 ```json
 {
@@ -366,41 +438,30 @@ Every credential issued by OpenCred embeds the following `credentialStatus` obje
 }
 ```
 
-| Field | Description |
-|---|---|
-| `id` | Unique identifier for this credential's status entry (status list URL + fragment with index). |
-| `type` | MUST be `BitstringStatusListEntry` per the W3C spec. |
-| `statusPurpose` | The purpose of the status entry. Use `revocation` for permanent revocation, or `suspension` for temporary suspension. |
-| `statusListIndex` | The zero-based index of the bit assigned to this credential within the bitstring. |
-| `statusListCredential` | The URL of the verifiable credential that contains the compressed bitstring status list. |
+The status list itself is hosted on DeDi as a verifiable credential. Verifiers download the full list (cacheable), decompress, and check the bit at the credential's index -- the registry never learns which specific credential was checked.
 
-### 5.3 Revocation Hash Computation
-
-In addition to the standard BitstringStatusListEntry, OpenCred computes a deterministic revocation hash for each credential to support DeDi-based revocation registries:
-
-```
-revocationHash = SHA-256( JCS( credentialSubject + id + issuanceDate + issuer ) )
-```
-
-Where **JCS** is [JSON Canonicalization Scheme (RFC 8785)](https://www.rfc-editor.org/rfc/rfc8785). This hash is returned to the issuer alongside the packaged credential and is used as the identifier when calling the revocation API.
+**When to adopt**: Move to Strategy B when (a) verifier privacy requirements demand herd privacy, (b) W3C interoperability with third-party verifiers is needed, or (c) offline/cached verification is a priority.
 
 ### 5.4 DeDi as the Backing Store
 
-The BitstringStatusList credential is hosted on DeDi (Decentralized Directory), which serves as the verifiable data registry for OpenCred. Each issuer has a namespace within DeDi where their status list(s) are published.
+DeDi (Decentralized Directory) serves as the verifiable data registry for both strategies. Each issuer has a namespace in DeDi.
 
 ```mermaid
 flowchart LR
     subgraph issuance [Issuance Time]
-        A[OpenCred] -->|"Assign index + compute hash"| B[Credential with credentialStatus]
+        A[OpenCred] -->|"Compute hash, embed credentialStatus"| B[Credential]
     end
     subgraph revocation [Revocation Time]
         C[Issuer] -->|"POST /credentials/revoke"| D[OpenCred API]
-        D -->|"Set bit = 1 at index"| E[DeDi Registry]
+        D -->|"Publish hash or flip bit"| E[DeDi Registry]
         C -->|"Direct publish"| E
     end
-    subgraph verification [Verification Time]
-        F[Verifier] -->|"Fetch statusListCredential URL"| E
-        E -->|"Return compressed bitstring"| F
+    subgraph verifyPhase1 [Verification -- Phase 1]
+        F1[Verifier] -->|"Compute hash, query DeDi"| E
+    end
+    subgraph verifyPhase2 [Verification -- Phase 2]
+        F2[Verifier] -->|"Fetch statusListCredential"| E
+        E -->|"Return compressed bitstring"| F2
     end
 ```
 
@@ -408,24 +469,24 @@ flowchart LR
 
 | Endpoint | Method | Request Body | Description |
 |---|---|---|---|
-| `/credentials/revoke` | POST | `{ "credentialHash": "<sha256-hex>" }` | Revoke a single credential by its hash. Sets the corresponding bit to 1 in the status list and publishes to DeDi. |
+| `/credentials/revoke` | POST | `{ "credentialHash": "<sha256-hex>" }` | Revoke a single credential. Phase 1: publishes hash to DeDi. Phase 2: also sets the corresponding bit to `1` in the status list. |
 | `/credentials/revoke/batch` | POST | `{ "hashes": ["<hash1>", "<hash2>", ...] }` | Revoke multiple credentials in a single call. |
 
 ### 5.6 Revocation Lifecycle
 
 | Step | Actor | Action | Details |
 |---|---|---|---|
-| At issuance | OpenCred | Assigns revocation index + hash | Computes `SHA-256(JCS(credentialSubject + id + issuanceDate + issuer))`, assigns a bit index in the status list, returns both to the issuer alongside the packaged credential. |
-| At issuance | OpenCred | Embeds revocation metadata | The `credentialStatus` field is populated with the DeDi registry URL, status list index, and type. |
-| To revoke | Issuer | Calls revocation API | `POST /credentials/revoke { credentialHash }` or the issuer publishes directly to DeDi. |
-| To revoke | OpenCred / Issuer | Publishes to DeDi | Sets the bit at the assigned index to `1` in the issuer's namespace within the DeDi revocation registry. |
-| Bulk revoke | Issuer | Sends batch of hashes | `POST /credentials/revoke/batch { hashes[] }` -- all corresponding bits are set to `1` and published to DeDi. |
+| At issuance | OpenCred | Computes revocation hash | `SHA-256(JCS(credentialSubject + id + issuanceDate + issuer))`. Returns hash to issuer alongside packaged credential. |
+| At issuance | OpenCred | Embeds `credentialStatus` | Phase 1: DeDi revocation registry URL. Phase 2: also includes `statusListIndex` and `statusListCredential` URL. |
+| To revoke | Issuer | Calls revocation API | `POST /credentials/revoke { credentialHash }` or publishes directly to DeDi. |
+| To revoke | OpenCred / Issuer | Publishes to DeDi | Phase 1: adds hash to issuer's revocation registry. Phase 2: also flips the bit at the assigned index. |
+| Bulk revoke | Issuer | Sends batch of hashes | `POST /credentials/revoke/batch { hashes[] }`. |
 
 ---
 
-## 6. Issuer -- Key Delegation to DeDi
+## 6. Issuer -- Key Delegation via OpenCred
 
-DeDi (Decentralized Directory) can act as a delegated key management system, generating ephemeral keypairs on behalf of the issuer. This maps directly to **Flow E** (Section 3.5) where OpenCred / DeDi generates the ephemeral key and the issuer only signs the delegation certificate with their DSC.
+The issuer can delegate credential signing to OpenCred by authorising an ephemeral keypair that OpenCred generates. This maps directly to **Flow E** (Section 3.5). OpenCred generates and holds the ephemeral key; the issuer's only cryptographic action is signing a delegation certificate with their DSC. DeDi's role in this flow is limited to serving as the **revocation registry** -- it does not generate, store, or use any signing keys.
 
 ### 6.1 What is a Delegation Certificate?
 
@@ -445,32 +506,32 @@ A delegation certificate is a signed assertion by the issuer that grants a speci
 ```mermaid
 sequenceDiagram
     participant Issuer
-    participant DeDi
     participant OpenCred
+    participant DeDi as DeDi (Revocation Registry)
 
-    Note over Issuer,DeDi: Phase 1 -- Key Generation and Delegation
-    Issuer->>DeDi: Request ephemeral keypair generation
-    DeDi->>DeDi: Generate ephemeral keypair (ePub, ePriv)
-    DeDi-->>Issuer: Return delegation cert template (contains ePub, scope, expiry)
+    Note over Issuer,OpenCred: Phase 1 -- Key Generation and Delegation
+    Issuer->>OpenCred: POST /credentials/initiate {payload, schema}
+    OpenCred->>OpenCred: Generate ephemeral keypair (ePub, ePriv)
+    OpenCred->>OpenCred: Create delegation cert template (ePub, scope, expiry)
+    OpenCred-->>Issuer: Return delegation cert template for signing
     Issuer->>Issuer: Review template (verify scope, expiry, ePub)
     Issuer->>Issuer: Sign delegation cert with DSC private key
-    Issuer->>DeDi: Submit signed delegation certificate
-    DeDi->>DeDi: Validate DSC signature on delegation cert
-    DeDi->>DeDi: Store signed delegation cert + ePub + ePriv
+    Issuer->>OpenCred: POST /credentials/complete {signedDelegationCert}
 
-    Note over Issuer,OpenCred: Phase 2 -- Credential Issuance
-    Issuer->>OpenCred: POST /credentials/issue {payload, schema, delegationCertId}
-    OpenCred->>DeDi: Fetch delegation cert + ephemeral key for delegationCertId
-    DeDi-->>OpenCred: Return signed delegation cert + ePriv
-    OpenCred->>OpenCred: Validate delegation cert (DSC signature, expiry, scope)
+    Note over OpenCred: Phase 2 -- Credential Issuance
+    OpenCred->>OpenCred: Validate signed delegation cert (DSC signature, expiry, scope)
     OpenCred->>OpenCred: Build canonical VC
     OpenCred->>OpenCred: Sign VC with ephemeral key (ePriv)
     OpenCred->>OpenCred: Embed delegation cert in VC
-    OpenCred->>OpenCred: Assign revocation index, package
+    OpenCred->>OpenCred: Assign revocation index, compute revocation hash
+    OpenCred->>OpenCred: Package (QR, JSON-LD, PDF)
     OpenCred-->>Issuer: Return packaged credential + revocation hash
 
-    Note over DeDi: Phase 3 -- Key Disposal
-    DeDi->>DeDi: Discard ePriv after TTL or usage limit
+    Note over OpenCred,DeDi: Phase 3 -- Revocation Registration
+    OpenCred->>DeDi: Publish credentialStatus metadata to issuer's namespace
+
+    Note over OpenCred: Phase 4 -- Key Disposal
+    OpenCred->>OpenCred: Discard ePriv after TTL or usage limit
 ```
 
 ### 6.3 Trust Chain
@@ -498,18 +559,19 @@ Country Signing Certificate Authority -- CSCA (root of trust)
 
 | Phase | Action | Actor |
 |---|---|---|
-| Generation | Generate ephemeral keypair using cryptographically secure randomness (CSPRNG). | DeDi |
+| Generation | Generate ephemeral keypair using cryptographically secure randomness (CSPRNG). | OpenCred |
 | Binding | Issuer signs delegation certificate binding ePub to their DSC. | Issuer |
-| Storage | Store ePriv in memory-only or encrypted volatile storage. Never persist to disk. | DeDi |
-| Usage | Sign one or more VCs within the delegation scope and validity window. | OpenCred (via DeDi) |
-| Disposal | Discard ePriv after: (a) TTL expiry, (b) usage count limit reached, or (c) explicit revocation by the issuer. | DeDi |
+| Storage | Hold ePriv in memory-only or encrypted volatile storage. Never persist to disk. | OpenCred |
+| Usage | Sign one or more VCs within the delegation scope and validity window. | OpenCred |
+| Disposal | Discard ePriv after: (a) TTL expiry, (b) usage count limit reached, or (c) explicit revocation by the issuer. | OpenCred |
 
-### 6.5 Security Considerations for DeDi Delegation
+### 6.5 Security Considerations
 
-- **No key transmission**: The ephemeral private key is generated by DeDi and used by OpenCred (which may be co-located or accessed via a secure internal API). The key is never transmitted to the issuer or over public networks.
+- **No key transmission**: The ephemeral private key is generated and used entirely within OpenCred. It is never transmitted to the issuer, to DeDi, or over any external network.
+- **DeDi is revocation-only**: DeDi has no access to any signing keys. It only stores revocation status data (hashes or bitstrings) published by OpenCred on behalf of the issuer.
 - **Scoped authority**: The delegation certificate constrains what the ephemeral key can sign, limiting the blast radius if the key is somehow compromised.
-- **Short-lived keys**: Ephemeral keys have a configurable TTL (recommended: 1-24 hours). After expiry, the key is securely wiped.
-- **Auditability**: DeDi logs delegation certificate creation and usage events for the issuer to audit.
+- **Short-lived keys**: Ephemeral keys have a configurable TTL (recommended: 1-24 hours). After expiry, the key is securely wiped from OpenCred's memory.
+- **Auditability**: OpenCred logs delegation certificate creation and usage events for the issuer to audit.
 
 ---
 
@@ -636,26 +698,32 @@ The W3C VC Data Model 2.0 uses `validFrom` and `validUntil` fields (replacing th
 
 ### 8.2 Revocation Check
 
-The verifier uses the `credentialStatus` field embedded in the credential to check revocation against the BitstringStatusList.
+The verifier checks revocation using the `credentialStatus` field embedded in the credential. The method depends on which strategy the credential was issued under.
 
-**Steps**:
+#### 8.2.1 Phase 1: DeDi RevocationHash Lookup (Primary)
 
-1. Extract the `credentialStatus` object from the credential.
-2. Read the `statusListCredential` URL (e.g., `https://dedi.example/status/university.example/3`).
-3. Fetch the status list credential from that URL (or from a cached copy).
-4. Verify the status list credential's own signature (it is itself a verifiable credential signed by the registry).
-5. Decode and decompress (GZIP) the `encodedList` bitstring from the status list credential.
-6. Read the bit at position `statusListIndex` (e.g., index `94567`).
-7. If the bit is `1`, the credential is **REVOKED**.
-8. If the bit is `0`, the credential is **VALID** (not revoked).
+The simplest and preferred method for Phase 1:
 
-**Example status list credential structure**:
+1. Extract the `revocationRegistry` URL from `credentialStatus`.
+2. Compute `revocationHash = SHA-256(JCS(credentialSubject + id + issuanceDate + issuer))`.
+3. Query DeDi: `GET /dedi/revocations/{issuerNamespace}/{revocationHash}`.
+4. Hash found = **REVOKED**. Not found = **VALID**.
+
+#### 8.2.2 Phase 2: BitstringStatusList Check
+
+When the credential contains a `BitstringStatusListEntry`:
+
+1. Read `statusListCredential` URL and `statusListIndex` from `credentialStatus`.
+2. Fetch the status list credential from the URL (or from cache).
+3. Verify the status list credential's own signature.
+4. Decompress (GZIP) the `encodedList` bitstring.
+5. Read the bit at `statusListIndex`. Bit `1` = **REVOKED**. Bit `0` = **VALID**.
+
+**Example status list credential**:
 
 ```json
 {
-  "@context": [
-    "https://www.w3.org/ns/credentials/v2"
-  ],
+  "@context": ["https://www.w3.org/ns/credentials/v2"],
   "id": "https://dedi.example/status/university.example/3",
   "type": ["VerifiableCredential", "BitstringStatusListCredential"],
   "issuer": "did:web:dedi.example",
@@ -669,27 +737,14 @@ The verifier uses the `credentialStatus` field embedded in the credential to che
 }
 ```
 
-### 8.3 DeDi-Based Revocation Check (Alternative)
+### 8.3 Caching Strategy
 
-When using DeDi as the revocation registry, the verifier can also check revocation by looking up the credential's hash directly:
-
-1. Compute `revocationHash = SHA-256(JCS(credentialSubject + id + issuanceDate + issuer))`.
-2. Query DeDi: `GET /dedi/revocations/{issuerNamespace}/{revocationHash}`.
-3. If the hash is found, the credential is **REVOKED**.
-4. If not found, the credential is **VALID**.
-
-This approach is an alternative to fetching the full bitstring and may be preferred for single-credential lookups.
-
-### 8.4 Caching Strategy
-
-Verifiers SHOULD cache status list credentials to reduce network overhead and improve verification latency.
-
-| Parameter | Recommended Value | Notes |
+| Parameter | Phase 1 (Hash Lookup) | Phase 2 (BitstringStatusList) |
 |---|---|---|
-| Cache TTL | 5-15 minutes | Balance between freshness and performance. Shorter TTLs for high-security scenarios. |
-| Cache invalidation | On HTTP `Cache-Control` headers | The status list URL should set appropriate `max-age` and `must-revalidate` directives. |
-| Stale-while-revalidate | Enabled | Serve cached status list while fetching a fresh copy in the background. |
-| Offline fallback | Last-known status list | If the status list URL is unreachable, use the most recent cached version and flag the verification result as STALE. |
+| What to cache | DeDi query responses | Full status list credential |
+| Cache TTL | 1-5 minutes | 5-15 minutes |
+| Offline verification | Not supported | Supported (use cached bitstring) |
+| Stale fallback | Return UNRESOLVABLE if DeDi is unreachable | Serve last-known bitstring, flag result as STALE |
 
 ### 8.5 Verification Result Codes
 
@@ -708,7 +763,7 @@ sequenceDiagram
     participant Verifier
     participant Credential
     participant DIDResolver as DID Resolver / DeDi
-    participant StatusList as Status List / DeDi Registry
+    participant DeDiRegistry as DeDi Registry
 
     Verifier->>Credential: Parse credential (QR / JSON / wallet)
     Verifier->>Credential: Extract issuer DID, proof, credentialStatus
@@ -726,14 +781,23 @@ sequenceDiagram
 
     Verifier->>Verifier: Check validFrom / validUntil dates
 
-    Verifier->>StatusList: Fetch statusListCredential URL
-    StatusList-->>Verifier: Return compressed bitstring
-    Verifier->>Verifier: Decompress, check bit at statusListIndex
-
-    alt Bit = 0
-        Verifier->>Verifier: Result = VALID
-    else Bit = 1
-        Verifier->>Verifier: Result = REVOKED
+    alt Phase 1 -- RevocationHash
+        Verifier->>Verifier: Compute revocationHash from credential fields
+        Verifier->>DeDiRegistry: GET /dedi/revocations/{namespace}/{hash}
+        alt Hash not found
+            DeDiRegistry-->>Verifier: 404 -- VALID
+        else Hash found
+            DeDiRegistry-->>Verifier: 200 -- REVOKED
+        end
+    else Phase 2 -- BitstringStatusList
+        Verifier->>DeDiRegistry: Fetch statusListCredential URL
+        DeDiRegistry-->>Verifier: Return compressed bitstring
+        Verifier->>Verifier: Decompress, check bit at statusListIndex
+        alt Bit = 0
+            Verifier->>Verifier: Result = VALID
+        else Bit = 1
+            Verifier->>Verifier: Result = REVOKED
+        end
     end
 ```
 
@@ -743,7 +807,7 @@ sequenceDiagram
 
 ### 9.1 Sample Verifiable Credential (Complete)
 
-The following example shows a fully-formed verifiable credential issued via OpenCred using Flow E (DeDi delegation), with all discussed fields included:
+The following example shows a fully-formed verifiable credential issued via OpenCred using Flow E (OpenCred-generated ephemeral key + DSC delegation), with all discussed fields included:
 
 ```json
 {
@@ -857,7 +921,7 @@ curl -X POST https://opencred.example/credentials/revoke/batch \
 |---|---|
 | **BitstringStatusList** | A W3C standard (v1.0, May 2025) for publishing credential revocation/suspension status as a compressed bitstring. Each credential occupies one bit; `1` = revoked, `0` = valid. |
 | **CSCA** | Country Signing Certificate Authority. The root certificate authority in a national PKI hierarchy (e.g., used in ICAO e-passports). The CSCA signs Document Signer Certificates. |
-| **DeDi** | Decentralized Directory. A verifiable data registry used by OpenCred for DID resolution, public key storage, revocation list hosting, and delegation certificate management. |
+| **DeDi** | Decentralized Directory. A verifiable data registry used by OpenCred for DID resolution, public key caching, and revocation status hosting (hash registry and/or bitstring status lists). DeDi does not generate or store any signing keys. |
 | **DID** | Decentralized Identifier. A portable, URL-based identifier (e.g., `did:web:example.com`) associated with an entity and resolvable to a DID document containing public keys and service endpoints. |
 | **did:key** | A DID method that encodes the public key directly in the DID string (e.g., `did:key:z6Mk...`). No registry or network resolution needed. Best for ephemeral or offline use. |
 | **did:web** | A DID method that resolves to a DID document hosted at `https://<domain>/.well-known/did.json`. Leverages existing web PKI (TLS) for trust anchoring. |
@@ -865,6 +929,8 @@ curl -X POST https://opencred.example/credentials/revoke/batch \
 | **Ephemeral Key** | A short-lived cryptographic keypair generated for a single session or batch of credential issuances, then discarded. Limits the blast radius of key compromise. |
 | **JCS** | JSON Canonicalization Scheme (RFC 8785). A deterministic serialisation of JSON objects used to produce a consistent byte representation for hashing or signing. |
 | **JWK** | JSON Web Key (RFC 7517). A JSON data structure representing a cryptographic key, commonly used to embed public keys in DID documents and VC proofs. |
+| **KEL** | Key Event Log. An append-only, cryptographically signed log of key lifecycle events (inception, rotation, delegation, revocation) used in KERI to establish verifiable key state. |
+| **KERI** | Key Event Receipt Infrastructure. A decentralised key management protocol that uses self-certifying identifiers and pre-rotation to provide secure, end-verifiable control over cryptographic keys without reliance on a blockchain or centralised registry. |
 | **VC** | Verifiable Credential. A tamper-evident, cryptographically signed credential conforming to the W3C VC Data Model. |
 | **VP** | Verifiable Presentation. A tamper-evident wrapper around one or more VCs, presented by a holder to a verifier. |
 
@@ -880,5 +946,6 @@ curl -X POST https://opencred.example/credentials/revoke/batch \
 | did:key Method v0.9 | https://w3c-ccg.github.io/did-key-spec/ |
 | W3C DID Resolution v0.3 | https://www.w3.org/TR/did-resolution/ |
 | W3C DID Core 1.0 | https://www.w3.org/TR/did-core/ |
+| KERI Specification (ToIP / IETF draft) | https://trustoverip.github.io/tswg-keri-specification/ |
 | JSON Canonicalization Scheme (RFC 8785) | https://www.rfc-editor.org/rfc/rfc8785 |
 | JSON Web Key (RFC 7517) | https://www.rfc-editor.org/rfc/rfc7517 |
