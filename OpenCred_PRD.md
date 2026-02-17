@@ -27,6 +27,8 @@ OpenCred is a minimalist, stateless verifiable credential (VC) issuance and veri
 
 OpenCred is available through three interfaces: a **Desktop Client** (fully local, offline-capable), a **Web UI**, and a **REST API**. The Desktop Client supports local signing only (Flow A). The Web UI and API support three signing flows: local signing (Flow A), issuer signs via OpenCred's interface (Flow B -- the issuer's private key never leaves the issuer's control; signing happens client-side through standard interfaces like WebCrypto or HSM), and delegated signing with OpenCred's own keys (Flow C -- for issuers without a DSC, where a delegation certificate authorises OpenCred's signing key).
 
+OpenCred ships with a library of commonly used credential schemas (e.g., education certificates, employment credentials, identity documents, health records) so that issuers can begin issuing immediately without defining their own schemas. Issuers may also register custom schemas.
+
 OpenCred builds on top of [Sunbird RC](https://docs.sunbirdrc.dev/) and [Inji Certify](https://docs.inji.io/inji-certify) for credential schema management and issuance primitives, extending them with OpenCred's key sourcing model, DeDi-backed revocation, and multi-interface support. Credential verification uses DeDi as the revocation registry.
 
 ---
@@ -112,6 +114,20 @@ Programmatic access with the same capabilities as the Web UI. Supports all three
 | Desktop Client | Yes | No | No |
 | Web UI | Yes | Yes | Yes |
 | REST API | Yes | Yes | Yes |
+
+### 3.5 Built-in Schema Library
+
+OpenCred ships with a curated set of commonly used credential schemas covering frequent issuance scenarios. These schemas are W3C VC Data Model 2.0 conformant and ready to use across all three interfaces.
+
+| Category | Example schemas |
+|---|---|
+| Education | Diploma, degree certificate, transcript, course completion, professional certification |
+| Employment | Employment letter, experience certificate, reference letter |
+| Identity | National ID, proof of address, age verification |
+| Health | Vaccination record, test result, insurance card |
+| Business | Business registration, trade licence, professional licence |
+
+Issuers can select a built-in schema and populate it with their credential data, or register custom schemas for domain-specific use cases. Custom schemas are validated against JSON Schema / JSON-LD context rules before acceptance. Schema management is powered by [Sunbird RC](https://docs.sunbirdrc.dev/).
 
 ---
 
