@@ -117,7 +117,7 @@ Programmatic access with the same capabilities as the Web UI. Supports both loca
 
 ## 4. Issuer -- Onboarding and Trust Establishment
 
-This section describes how each issuer type (Section 2.1) establishes trust before issuing credentials.
+This section describes how each issuer type (Section 2.1) establishes trust before issuing credentials. Once onboarded, all issuer types can use either Flow A (local signing) or Flow B (delegated signing via OpenCred). The onboarding process establishes the issuer's identity and authority; the signing flow determines who performs the cryptographic operation.
 
 ### 4.1 Type A -- Issuer with DSC
 
@@ -183,13 +183,13 @@ sequenceDiagram
 
 ### 5.2 Flow B -- Delegated Signing (OpenCred Signs)
 
-The issuer transmits their private key to OpenCred over a TLS-secured channel. OpenCred signs the credential on behalf of the issuer and immediately discards the key from memory.
+The issuer transmits their private key to OpenCred over a TLS-secured channel. OpenCred signs the credential on behalf of the issuer and immediately discards the key from memory. The issuer's identity is not established by the key itself -- it is established independently through their trust anchor: a DSC (Type A), their domain's SSL certificate via `did:web` (Type B), a CA-issued DSC (Type C), or a previously verified business VC (Type D). The credential is signed with the issuer's own key; no ephemeral or intermediate keys are involved.
 
-**When to use**: Convenience-first scenarios where the issuer lacks local signing infrastructure and accepts the transient key-transmission risk.
+**When to use**: Issuers who lack local signing infrastructure and accept the transient key-transmission risk. Common for batch issuance, automated workflows, and organisations without HSM capability.
 
-**Trust assumptions**: The TLS channel is secure. OpenCred is trusted to discard the key after signing (auditable via secure enclave / TEE attestation in future releases).
+**Trust assumptions**: The TLS channel is secure. OpenCred is trusted to discard the key after signing (auditable via secure enclave / TEE attestation in future releases). The issuer's identity and authority are established through the onboarding process (Section 4), not through the signing key alone.
 
-**Security trade-offs**: The primary private key is transmitted over the network. Even though OpenCred discards it, a compromised OpenCred instance could exfiltrate the key during the signing window.
+**Security trade-offs**: The issuer's private key is transmitted over the network. Even though OpenCred discards it, a compromised OpenCred instance could exfiltrate the key during the signing window. This is the issuer's own key -- not an ephemeral or scoped key -- so compromise has full blast radius on that key.
 
 ```mermaid
 sequenceDiagram
