@@ -25,7 +25,7 @@
 
 OpenCred is a minimalist, stateless verifiable credential (VC) issuance and verification service. It is designed for any issuer -- from governments to individuals -- to produce W3C-conformant verifiable credentials without OpenCred ever persisting private keys, credential data, or personal information. The issuer retains full control over their cryptographic material; OpenCred acts only as a transient processing engine that validates schemas, builds canonical credential structures, manages revocation indices, and packages output (JSON-LD, QR code, PDF, SVG). All session data is purged within a configurable window (default: 4 hours).
 
-OpenCred is available through three interfaces: a **Desktop Client** (fully local, offline-capable), a **Web UI**, and a **REST API**. The Desktop Client supports local signing only (Flow A). The Web UI and API support three signing flows: local signing (Flow A), issuer signs via OpenCred's interface (Flow B -- the issuer's private key never leaves the issuer's control; signing happens client-side through standard interfaces like WebCrypto or HSM), and delegated signing with OpenCred's own keys (Flow C -- for issuers without a DSC, where a delegation certificate authorises OpenCred's signing key).
+OpenCred is available through three interfaces: a **Desktop Client** (fully local, offline-capable), a **Web UI**, and a **REST API**. The Desktop Client supports **Local Signing** only. The Web UI and API support three signing flows: **Local Signing** (the issuer builds and signs everything locally), **Interface Signing** (the issuer's private key never leaves the issuer's control; signing happens client-side through standard interfaces like WebCrypto or HSM), and **Delegated Signing** with OpenCred's own keys (a delegation certificate authorises OpenCred's signing key).
 
 OpenCred ships with a library of commonly used credential schemas (e.g., education certificates, employment credentials, identity documents, health records) so that issuers can begin issuing immediately without defining their own schemas. Issuers may also register custom schemas.
 
@@ -47,7 +47,7 @@ The issuer already holds a Document Signer Certificate (DSC) issued by a recogni
 
 #### 2.1.2 Type B -- Issuer without DSC, SSL-Based Trust
 
-The issuer does not hold a DSC but operates a domain with a valid SSL/TLS certificate. Trust is anchored to the domain via `did:web` -- the issuer publishes their public key at `https://<domain>/.well-known/did.json`, and the domain's TLS certificate provides the trust binding. Suitable for businesses, universities, and organisations with established web presence.
+The issuer holds neither a DSC nor their own signing key, but operates a domain with a valid SSL/TLS certificate. Trust is anchored to the domain's TLS certificate. During onboarding, OpenCred validates domain ownership (e.g., via a DNS TXT record or HTTP challenge-response). The issuer then either uses Delegated Signing (OpenCred signs on their behalf) or is connected to a Certificate Authority via CA APIs to obtain a DSC (at which point they operate as Type A). Suitable for businesses, universities, and organisations with established web presence.
 
 #### 2.1.3 Type C -- Issuer without DSC, CA API Onboarding
 
@@ -73,7 +73,7 @@ OpenCred is available through three interfaces. All interfaces produce identical
 
 ### 3.1 Desktop Client
 
-A fully local, offline-capable application. The issuer's private key never leaves their machine. Supports **local signing only** (Flow A).
+A fully local, offline-capable application. The issuer's private key never leaves their machine. Supports **Local Signing** only.
 
 | Property | Value |
 |---|---|
@@ -85,31 +85,31 @@ A fully local, offline-capable application. The issuer's private key never leave
 
 ### 3.2 Web UI
 
-A browser-based interface. Supports all three signing flows: local signing (Flow A -- the issuer builds and signs everything locally), issuer signs via OpenCred (Flow B -- OpenCred builds the VC, the issuer signs client-side in the browser using WebCrypto or a connected hardware token; the private key never leaves the browser), and delegated signing with OpenCred's keys (Flow C -- OpenCred signs with its own key under a delegation certificate from the issuer).
+A browser-based interface. Supports all three signing flows: **Local Signing** (the issuer builds and signs everything locally), **Interface Signing** (OpenCred builds the VC, the issuer signs client-side in the browser using WebCrypto or a connected hardware token; the private key never leaves the browser), and **Delegated Signing** (OpenCred signs with its own key under a delegation certificate from the issuer).
 
 | Property | Value |
 |---|---|
 | Deployment | Hosted web application |
 | Network required | Yes |
-| Signing | Flow A: local. Flow B: client-side signing via browser (WebCrypto / hardware token). Flow C: OpenCred signs with its own key. |
-| Key custody | Flow A & B: issuer retains full custody; private key never leaves issuer's control. Flow C: OpenCred's key, authorised by delegation certificate. |
+| Signing | Local Signing: local. Interface Signing: client-side signing via browser (WebCrypto / hardware token). Delegated Signing: OpenCred signs with its own key. |
+| Key custody | Local & Interface Signing: issuer retains full custody; private key never leaves issuer's control. Delegated Signing: OpenCred's key, authorised by delegation certificate. |
 | Use case | General-purpose issuance, convenience-first workflows, issuers without key management |
 
 ### 3.3 REST API
 
-Programmatic access with the same capabilities as the Web UI. Supports all three signing flows: local signing (Flow A), issuer signs via OpenCred API (Flow B -- OpenCred builds the VC, the issuer's system signs locally and returns the signed payload), and delegated signing with OpenCred's keys (Flow C).
+Programmatic access with the same capabilities as the Web UI. Supports all three signing flows: **Local Signing**, **Interface Signing** (OpenCred builds the VC, the issuer's system signs locally and returns the signed payload), and **Delegated Signing**.
 
 | Property | Value |
 |---|---|
 | Deployment | Hosted API |
 | Network required | Yes |
-| Signing | Flow A: local. Flow B: issuer signs locally, uses API for VC construction and packaging. Flow C: OpenCred signs with its own key. |
-| Key custody | Same as Web UI -- issuer's private key never leaves the issuer's control (Flows A & B). |
+| Signing | Local Signing: local. Interface Signing: issuer signs locally, uses API for VC construction and packaging. Delegated Signing: OpenCred signs with its own key. |
+| Key custody | Same as Web UI -- issuer's private key never leaves the issuer's control (Local and Interface Signing). |
 | Use case | Automated/batch issuance, system-to-system integration |
 
 ### 3.4 Interface × Signing Matrix
 
-| Interface | Flow A (Local Signing) | Flow B (Issuer Signs via Interface) | Flow C (Delegated -- OpenCred's Keys) |
+| Interface | Local Signing | Interface Signing | Delegated Signing |
 |---|---|---|---|
 | Desktop Client | Yes | No | No |
 | Web UI | Yes | Yes | Yes |
@@ -133,7 +133,7 @@ Issuers can select a built-in schema and populate it with their credential data,
 
 ## 4. Issuer -- Onboarding and Trust Establishment
 
-This section describes how each issuer type (Section 2.1) establishes trust before issuing credentials. Once onboarded, all issuer types can use Flow A (local signing), Flow B (issuer signs via OpenCred's interface), or Flow C (delegated signing with OpenCred's keys). The onboarding process establishes the issuer's identity and authority; the signing flow determines whose key is used and where the signing operation takes place.
+This section describes how each issuer type (Section 2.1) establishes trust before issuing credentials. The available signing flows depend on the issuer type: issuers with their own signing key (Type A, or Type B/C/D after obtaining a key or DSC) can use Local Signing, Interface Signing, or Delegated Signing; issuers without their own key (Type B before CA upgrade, Type D without an existing key) use Delegated Signing only. The onboarding process establishes the issuer's identity and authority; the signing flow determines whose key is used and where the signing operation takes place.
 
 ### 4.1 Type A -- Issuer with DSC
 
@@ -141,7 +141,12 @@ No onboarding required. The issuer already holds a DSC issued by a recognised CS
 
 ### 4.2 Type B -- SSL-Based Trust
 
-The issuer publishes a DID document at `https://<domain>/.well-known/did.json` containing their public key. Trust is anchored to the domain's TLS certificate. OpenCred validates that the issuer controls the domain (e.g., via a challenge-response or by verifying the DID document is served from the claimed domain over HTTPS).
+The issuer does not have their own signing key. OpenCred validates that the issuer controls their claimed domain (e.g., via a DNS TXT record challenge or HTTP challenge-response served over HTTPS). Trust is anchored to the domain's TLS certificate.
+
+Once domain ownership is verified, the issuer has two paths:
+
+1. **Delegated Signing**: OpenCred generates a signing keypair and publishes a DID document at `https://<domain>/.well-known/did.json` containing OpenCred's delegated public key. The issuer authorises OpenCred to sign on their behalf via a delegation certificate. Credentials are issued using the Delegated Signing flow.
+2. **CA API upgrade**: OpenCred connects the issuer to a Certificate Authority via CA APIs to obtain a DSC (same process as Type C onboarding). Once the DSC is obtained, the issuer operates as Type A and can use any signing flow.
 
 ### 4.3 Type C -- CA API Onboarding
 
@@ -160,7 +165,7 @@ The issuer presents an existing verifiable credential (e.g., business registrati
 
 1. Issuer presents their business VC to OpenCred.
 2. OpenCred verifies the business VC (signature, revocation status, expiry).
-3. Upon successful verification, OpenCred registers the issuer's public key and associates it with the verified business identity.
+3. Upon successful verification, OpenCred associates the verified business identity with the issuer's account. If the issuer has their own signing key, OpenCred registers it and the issuer can use any signing flow. If not, the issuer uses Delegated Signing (OpenCred signs on their behalf under a delegation certificate).
 4. The issuer can now issue credentials, with verifiers able to trace trust back to the business VC's issuer.
 
 This enables bootstrapping: an issuer without traditional PKI infrastructure can leverage an already-verified credential to begin issuing.
@@ -169,9 +174,9 @@ This enables bootstrapping: an issuer without traditional PKI infrastructure can
 
 ## 5. Issuer -- Key Sourcing Strategies
 
-OpenCred supports three flows for sourcing the signing key. The core design constraint is that **OpenCred never receives or stores issuer private keys**. In Flows A and B the issuer's private key never leaves the issuer's control; in Flow C, OpenCred signs with its own key under an explicit delegation certificate from the issuer.
+OpenCred supports three flows for sourcing the signing key. The core design constraint is that **OpenCred never receives or stores issuer private keys**. In Local Signing and Interface Signing the issuer's private key never leaves the issuer's control; in Delegated Signing, OpenCred signs with its own key under an explicit delegation certificate from the issuer.
 
-### 5.1 Flow A -- Local Signing
+### 5.1 Local Signing
 
 The issuer's private key never leaves the issuer's environment. OpenCred only receives the unsigned credential payload, builds the canonical VC, and validates the signature after the issuer signs locally.
 
@@ -197,7 +202,7 @@ sequenceDiagram
     OpenCred-->>Issuer: Return packaged credential + revocation hash
 ```
 
-### 5.2 Flow B -- Issuer Signs via OpenCred Interface
+### 5.2 Interface Signing
 
 The issuer has their own signing key and signs through OpenCred's Web UI or API. The private key **never leaves the issuer's control** -- signing is performed client-side using standard signing interfaces, the same way one signs a tax filing or a digital document. In the Web UI, the browser uses the WebCrypto API (or a connected hardware token / smartcard) to sign the credential payload locally. Via the REST API, OpenCred presents the canonicalised VC payload for the issuer's system to sign and return.
 
@@ -207,7 +212,7 @@ OpenCred's role is to build the canonical VC, present it for signing, validate t
 
 **Trust assumptions**: OpenCred is trusted for schema validation, VC construction, and packaging -- not for key custody. The issuer's signing environment (browser, HSM, signing service) is secure. The issuer's identity and authority are established through the onboarding process (Section 4).
 
-**Security trade-offs**: Same key custody guarantees as Flow A -- the private key never leaves the issuer's control. The difference is operational: the issuer depends on OpenCred's web/API interface for VC construction rather than performing all steps locally.
+**Security trade-offs**: Same key custody guarantees as Local Signing -- the private key never leaves the issuer's control. The difference is operational: the issuer depends on OpenCred's web/API interface for VC construction rather than performing all steps locally.
 
 ```mermaid
 sequenceDiagram
@@ -225,11 +230,11 @@ sequenceDiagram
     OpenCred-->>Issuer: Return packaged credential + revocation hash
 ```
 
-### 5.3 Flow C -- Delegated Signing (OpenCred's Keys)
+### 5.3 Delegated Signing (OpenCred's Keys)
 
 The issuer does not have their own signing key (e.g., they do not hold a DSC and lack the infrastructure to manage key material). Instead, the issuer grants a delegation to OpenCred, authorising OpenCred to sign credentials on the issuer's behalf using **OpenCred's own keys**. The issuer issues a **delegation certificate** that explicitly captures the OpenCred signing key(s) authorised to act on their behalf. The credential is signed with OpenCred's key, and the delegation certificate is embedded in or referenced by the credential so that verifiers can trace trust: VC signature → OpenCred's key → delegation certificate → issuer's authority.
 
-**When to use**: Issuers who do not have a DSC and do not manage their own key material. This is the lowest-barrier flow -- the issuer only needs to establish their identity (via Type B, C, or D onboarding) and issue a delegation certificate to OpenCred.
+**When to use**: Issuers who do not have a DSC and do not manage their own key material. This is the lowest-barrier flow -- the issuer only needs to establish their identity (via Type B, C, or D onboarding) and authorise a delegation certificate to OpenCred.
 
 **Trust assumptions**: OpenCred is trusted as a delegated signer. The delegation certificate binds OpenCred's specific signing key to the issuer's authority, so verifiers can validate the chain. OpenCred manages key rotation and may use HSM-backed keys. The issuer's identity and authority are established through the onboarding process (Section 4).
 
@@ -241,7 +246,7 @@ The issuer does not have their own signing key (e.g., they do not hold a DSC and
 - MUST identify the OpenCred signing key(s) (delegatee keys) by key ID or public key material.
 - SHOULD include validity period (`validFrom`, `validUntil`).
 - SHOULD include scope constraints (e.g., allowed credential types, maximum issuance count).
-- MUST be signed by the issuer (using whatever key they used during onboarding, e.g., the key associated with their `did:web` or business VC).
+- MUST be signed by the issuer (using whatever key they used during onboarding, e.g., the key associated with their DSC or business VC). For issuers without their own signing key (e.g., Type B), domain ownership verification during onboarding serves as the authorisation basis for the delegation.
 
 ```mermaid
 sequenceDiagram
@@ -266,9 +271,9 @@ sequenceDiagram
     OpenCred-->>Issuer: Return packaged credential + revocation hash
 ```
 
-### 5.4 Flow Comparison Matrix
+### 5.4 Signing Flow Comparison Matrix
 
-| Attribute | Flow A (Local) | Flow B (Issuer Signs via Interface) | Flow C (Delegated -- OpenCred's Keys) |
+| Attribute | Local Signing | Interface Signing | Delegated Signing |
 |---|---|---|---|
 | Who signs the VC | Issuer (locally) | Issuer (via OpenCred Web UI / API) | OpenCred (with OpenCred's key) |
 | Whose key signs | Issuer's key | Issuer's key | OpenCred's key (authorised by delegation cert) |
@@ -446,7 +451,7 @@ The AID prefix is derived from the inception event's public key, making it self-
 
 OpenCred SHOULD support all three options and let the issuer choose at issuance time:
 
-- **Default for institutional issuers**: `did:web` -- provides key rotation, domain-bound trust, and aligns with enterprise identity infrastructure. Lowest barrier to adoption given existing web PKI. Maps directly to Issuer Type B (SSL-based trust).
+- **Default for institutional issuers**: `did:web` -- provides key rotation, domain-bound trust, and aligns with enterprise identity infrastructure. Lowest barrier to adoption given existing web PKI. Applicable to Type A issuers and Type B issuers using Delegated Signing (where OpenCred's delegated key is published at the issuer's domain).
 - **Alternative for ad-hoc or offline-first use**: `did:key` or inline JWK -- enables fully self-contained credentials for field deployment, peer-to-peer issuance, or testing.
 - **For high-assurance / decentralised deployments**: KERI -- provides cryptographically pre-committed key rotation, native delegation, and decentralised trust without blockchain dependency. Recommended for issuers who require resilience against domain compromise or who operate in multi-stakeholder trust frameworks (e.g., government-to-government credential exchange).
 
@@ -699,7 +704,7 @@ sequenceDiagram
 
 ### 10.1 Sample Verifiable Credential (Complete)
 
-The following example shows a fully-formed verifiable credential issued via OpenCred using Flow B (issuer signs via OpenCred's interface), with DeDi-based revocation:
+The following example shows a fully-formed verifiable credential issued via OpenCred using Interface Signing (issuer signs via OpenCred's interface), with DeDi-based revocation:
 
 ```json
 {
