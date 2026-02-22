@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp -r src/contexts dist/contexts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
