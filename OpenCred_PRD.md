@@ -23,7 +23,7 @@
 
 ## 1. Executive Summary
 
-OpenCred is a minimalist, stateless verifiable credential (VC) issuance and verification service. It is designed for any issuer -- from governments to individuals -- to produce W3C-conformant verifiable credentials without OpenCred ever persisting private keys, credential data, or personal information. The issuer retains full control over their cryptographic material; OpenCred acts only as a transient processing engine that validates schemas, builds canonical credential structures, manages revocation indices, and packages output (JSON-LD, QR code, PDF, SVG). All session data is purged within a configurable window (default: 4 hours).
+OpenCred is a minimalist, stateless verifiable credential (VC) issuance and verification service. It is designed for any issuer -- from governments to individuals -- to produce W3C-conformant verifiable credentials without OpenCred ever persisting private keys, credential data, or personal information. The issuer retains full control over their cryptographic material; OpenCred acts only as a transient processing engine that validates schemas, builds canonical credential structures, manages revocation indices, and packages output for download (JSON-LD, PDF). All session data -- credential payloads, built VCs, packaged output, and bulk issuance job results -- is purged within a configurable window (default: 4 hours). Delegation certificates are the sole exception: they persist as long as the delegation is active. Revocation hashes are published to DeDi and are not stored by OpenCred. OpenCred does not handle credential delivery to holders; the issuer downloads the issued credential (as JSON-LD or PDF) and manages distribution through their own workflows.
 
 OpenCred is available through three interfaces: a **Desktop Client** (fully local, offline-capable), a **Web UI**, and a **REST API**. The Desktop Client supports **Local Signing** only -- all operations (schema validation, VC construction, signing, packaging) happen locally with no network dependency. The Web UI and API support two signing flows: **Interface Signing** (the issuer's private key never leaves the issuer's control; signing happens client-side through standard interfaces like WebCrypto or HSM) and **Delegated Signing** with OpenCred's own keys (a delegation certificate authorises OpenCred's signing key).
 
@@ -129,6 +129,16 @@ OpenCred ships with a curated set of commonly used credential schemas covering f
 
 Issuers can select a built-in schema and populate it with their credential data, or register custom schemas for domain-specific use cases. Custom schemas are validated against JSON Schema / JSON-LD context rules before acceptance. Schema management is powered by [Sunbird RC](https://docs.sunbirdrc.dev/).
 
+### 3.6 Access Model
+
+OpenCred is a lightweight service. There are no user accounts, no session management, and no login flows.
+
+| Interface | Access model |
+|---|---|
+| **Desktop Client** | No authentication required. The application runs locally on the issuer's machine. |
+| **Web UI** | Open access. No account creation or login. The issuer visits the hosted service and begins issuing immediately. Trust is established through the onboarding process (Section 4), not through platform accounts. |
+| **REST API** | API tokens for identification and rate limiting. Token issuance and rate limiting details are determined during implementation. |
+
 ---
 
 ## 4. Issuer -- Onboarding and Trust Establishment
@@ -202,15 +212,68 @@ sequenceDiagram
 
 ### 5.2 Interface Signing
 
-The issuer has their own signing key and signs through OpenCred's Web UI or API. The private key **never leaves the issuer's control** -- signing is performed client-side using standard signing interfaces, the same way one signs a tax filing or a digital document. In the Web UI, the browser uses the WebCrypto API (or a connected hardware token / smartcard) to sign the credential payload locally. Via the REST API, OpenCred presents the canonicalised VC payload for the issuer's system to sign and return.
-
-OpenCred's role is to build the canonical VC, present it for signing, validate the resulting signature, and package the output. At no point does OpenCred receive, handle, or have access to the issuer's private key.
+The issuer has their own signing key and signs through OpenCred's Web UI or API. The private key **never leaves the issuer's control** -- signing is performed client-side (Web UI) or within the issuer's own infrastructure (API). OpenCred's role is to build the canonical VC, present it for signing, validate the resulting signature, and package the output. At no point does OpenCred receive, handle, or have access to the issuer's private key.
 
 **When to use**: Issuers who have their own key (e.g., a DSC or a key associated with their `did:web`) and want to use the OpenCred website or API as their issuance interface. Common for website users of OpenCred, batch issuance, and organisations that want OpenCred to handle VC construction and packaging while retaining full key custody.
 
 **Trust assumptions**: OpenCred is trusted for schema validation, VC construction, and packaging -- not for key custody. The issuer's signing environment (browser, HSM, signing service) is secure. The issuer's identity and authority are established through the onboarding process (Section 4).
 
 **Security trade-offs**: Same key custody guarantees as Local Signing -- the private key never leaves the issuer's control. The difference is operational: the issuer depends on OpenCred's web/API interface for VC construction rather than performing all steps locally.
+
+#### 5.2.1 Key Storage and Signing Access
+
+Issuers store their private keys in different environments. The table below lists the supported key storage types and how each OpenCred interface accesses them for signing.
+
+| Key storage | Examples | Desktop Client | Web UI | API |
+|---|---|---|---|---|
+| **Hardware token / smart card** | USB tokens (ePass, SafeNet, YubiKey), smart cards | Direct PKCS#11 access | Native signing bridge (see 5.2.2) | Issuer's server uses PKCS#11 libraries |
+| **Software key file** | PFX/P12, PEM, JWK on disk | File system read | File upload → SubtleCrypto `importKey()` (see 5.2.2) | Issuer's server reads file |
+| **OS certificate store** | Windows Certificate Store, macOS Keychain | OS crypto APIs | Native signing bridge (see 5.2.2) | Issuer's server uses OS crypto APIs |
+| **Cloud KMS / HSM** | AWS KMS, Azure Key Vault, Google Cloud KMS | API call to cloud provider | Cloud KMS API call (see 5.2.2) | Issuer's server calls cloud KMS API |
+
+The **Desktop Client** and **API** access all key storage types natively -- the issuer's own environment handles key access. The **Web UI** is constrained by the browser security sandbox and requires different mechanisms depending on where the key is stored.
+
+#### 5.2.2 Web UI Signing Paths
+
+The browser cannot directly access hardware tokens, OS certificate stores, or cloud key management services. The Web UI supports three signing paths to cover the full range of key storage types.
+
+**Path A -- SubtleCrypto (software keys)**
+
+For issuers whose key is a software key file (PFX, PEM, JWK) or a browser-generated keypair. No local software install required.
+
+- **Imported key file**: The issuer uploads their key file through the browser. OpenCred's client-side JavaScript imports the key via `SubtleCrypto.importKey()` as a non-extractable `CryptoKey`. The key bytes pass through browser memory during import but are not transmitted to the server and are discarded after the signing session.
+- **Browser-generated key**: For issuers who do not have a pre-existing key, the browser generates an ECDSA P-256 keypair via `SubtleCrypto.generateKey()` with `extractable: false`. The private key is stored in IndexedDB and persists across sessions. The key never leaves the browser.
+- **Signing**: `SubtleCrypto.sign()` produces the signature entirely within the browser. Supported algorithms: ECDSA (P-256, P-384), Ed25519 (browser support varies), RSA-PSS.
+
+**Path B -- Native signing bridge (hardware tokens and OS certificate stores)**
+
+For issuers whose key resides on a USB token, smart card, or in the OS certificate store. Requires a one-time install of a native signing application on the issuer's machine.
+
+Architecture: The native signing bridge runs as a local process on the issuer's machine. It communicates with the browser via Chrome Native Messaging (browser extension) or a local HTTP service on `localhost`. The bridge accesses the key store through PKCS#11 (hardware tokens) or the OS crypto API (certificate stores).
+
+Signing flow:
+
+1. OpenCred's Web UI sends the canonicalised VC digest (hash) to the browser extension or `localhost` service.
+2. The native bridge passes the hash to the hardware token or OS crypto API.
+3. The hardware token (or OS) performs the signing operation internally.
+4. Only the resulting signature is returned to the browser. **The private key never leaves the hardware token or OS key store.**
+
+OpenCred does not mandate a specific native signing bridge product. Any bridge that accepts a hash and returns a signature using the issuer's key is compatible. The integration interface is: `sign(digest, certIdentifier, hashAlgorithm) → signature`.
+
+**Path C -- Cloud KMS API (cloud-hosted keys)**
+
+For issuers whose key is managed by a cloud KMS or cloud HSM (e.g., AWS KMS, Azure Key Vault, Google Cloud KMS). No local software install required.
+
+Signing flow:
+
+1. OpenCred's Web UI receives the canonicalised VC digest from the server.
+2. The browser calls the cloud provider's signing API with the issuer's credentials and the digest.
+3. The cloud KMS signs the hash using the issuer's private key within the cloud HSM.
+4. The signature is returned to the browser. **The private key never leaves the cloud HSM.**
+
+The issuer provides their cloud KMS credentials (API key, OAuth token, or service account) to the browser session. OpenCred's server does not store or proxy these credentials.
+
+#### 5.2.3 Interface Signing Sequence
 
 ```mermaid
 sequenceDiagram
@@ -221,7 +284,7 @@ sequenceDiagram
     OpenCred->>OpenCred: Validate schema, build canonical VC
     OpenCred->>OpenCred: Assign revocation index
     OpenCred-->>Issuer: Return unsigned VC payload (canonicalised)
-    Issuer->>Issuer: Sign VC with private key (WebCrypto / HSM / signing service)
+    Issuer->>Issuer: Sign VC with private key (SubtleCrypto / native bridge / cloud KMS)
     Issuer->>OpenCred: POST /credentials/package {signedVC}
     OpenCred->>OpenCred: Validate signature against public key
     OpenCred->>OpenCred: Package (QR, JSON-LD, PDF)
@@ -309,6 +372,61 @@ sequenceDiagram
 | Interfaces | Desktop Client only | Web UI, API | Web UI, API |
 | Network required | No (offline-capable) | Yes | Yes |
 | Recommended for | Air-gapped, offline, high-security environments | Website users, API integrations, batch issuance | Issuers without DSC or key management capability |
+
+### 5.5 Bulk Issuance
+
+Bulk issuance allows an issuer to issue many credentials in a single operation. All credentials in a batch MUST use the same schema. Bulk issuance is available on all three interfaces.
+
+#### 5.5.1 Input Formats
+
+| Format | Supported interfaces | Description |
+|---|---|---|
+| **CSV** | Desktop Client, Web UI, API | Each row is one credential. Columns map to credential subject fields. A header row defines the field names. The schema is specified separately (as a parameter or selected in the UI). |
+| **JSON array** | API | Array of credential payload objects. Each object contains the `credentialSubject` fields. The schema is specified once at the batch level. |
+
+#### 5.5.2 Processing Model
+
+Bulk issuance uses an **asynchronous, job-based** model. Submitting a batch returns a job ID immediately; the issuer polls for status or receives a webhook callback when processing completes.
+
+| Step | Endpoint / Action | Response |
+|---|---|---|
+| Submit batch | `POST /credentials/batch` | `202 Accepted { jobId, status: "queued" }` |
+| Poll status | `GET /credentials/batch/{jobId}` | `{ status, total, succeeded, failed }` |
+| Retrieve results | `GET /credentials/batch/{jobId}/results` | Per-row results with individual status and error details |
+
+**Desktop Client**: The Desktop Client processes the CSV locally. Each credential is built, signed, and packaged offline. Revocation hashes are queued and registered with DeDi when the client goes online.
+
+#### 5.5.3 Error Handling: Validate-First, Then Issue
+
+Batch processing uses a two-phase approach:
+
+1. **Validation phase**: All rows are validated against the schema before any credentials are issued. If any rows fail validation, the entire batch is rejected with a per-row validation report. The issuer fixes errors and resubmits. No credentials are issued in this phase.
+2. **Issuance phase**: Once validation passes, credentials are issued. Each credential is processed independently. If a system error occurs on one row (e.g., signing failure), the remaining credentials are still issued. The results endpoint reports per-row status: `issued`, `failed` (with error reason).
+
+#### 5.5.4 Bulk Issuance by Signing Flow
+
+**Delegated Signing**: The simplest batch path. The issuer submits payloads; OpenCred validates, builds, signs, and packages all credentials server-side using the delegated key.
+
+**Interface Signing**: The issuer must sign each credential individually. The batch flow is a three-step round trip:
+
+```mermaid
+sequenceDiagram
+    participant Issuer
+    participant OpenCred
+
+    Issuer->>OpenCred: POST /credentials/batch {payloads[], schema, publicKey}
+    OpenCred->>OpenCred: Validate all rows against schema
+    OpenCred->>OpenCred: Build N canonical VCs, assign revocation indices
+    OpenCred-->>Issuer: Return N unsigned VC payloads (canonicalised) + digests
+
+    Issuer->>Issuer: Sign each digest with private key
+    Issuer->>OpenCred: POST /credentials/batch/{jobId}/signatures {signatures[]}
+    OpenCred->>OpenCred: Validate each signature against public key
+    OpenCred->>OpenCred: Package all credentials (QR, JSON-LD, PDF)
+    OpenCred-->>Issuer: Return packaged credentials + revocation hashes
+```
+
+**Local Signing**: The Desktop Client reads the CSV, builds each VC locally, signs it with the issuer's key, and packages the output — all offline. No API calls are involved.
 
 ---
 
@@ -602,21 +720,38 @@ If the credential uses `did:key` as the issuer identifier or includes an inline 
 
 **Caveat**: This option provides cryptographic verification but not trust anchoring. The verifier must decide whether to trust a self-asserted key or require additional evidence.
 
-### 8.4 Decision Table
+### 8.4 Option 4: Delegation Certificate Resolution (Delegated Signing)
+
+For credentials issued via Delegated Signing, the `issuer` field is a domain URL (not a DID), and the credential is signed with OpenCred's key. The verifier must resolve the delegation chain to confirm that OpenCred was authorised to sign on behalf of the issuer.
+
+The delegation certificate is either **embedded** in the credential (as a property of the `proof` section or as a separate `delegationCertificate` property) or **referenced** by a URL pointing to DeDi where the delegation entry is stored.
+
+**Steps**:
+1. Parse `proof.verificationMethod` to identify OpenCred's signing key.
+2. Resolve OpenCred's public key via DeDi: `GET /dedi/resolve/{openCredKeyId}`.
+3. Verify the VC signature with OpenCred's public key.
+4. Locate the delegation certificate (embedded in the credential or referenced by URL).
+5. Validate the delegation certificate: confirm it names OpenCred's signing key as the delegatee, confirm it was authorised by the issuer (via one of the three delegation authorisation paths in Section 5.3.1), and confirm it has not expired or been revoked.
+6. Resolve the delegation authority in DeDi to verify the issuer's authorisation.
+
+**Applies when**: The credential's `issuer` field is a URL (e.g., `https://example.com`) and the `proof` references an OpenCred signing key with an associated delegation certificate.
+
+### 8.5 Decision Table
 
 | Credential Characteristic | Key Retrieval Option | Network Required |
 |---|---|---|
 | `issuer` = `did:web:*` | Option 1 (DID Resolution) or Option 2 (DeDi) | Yes |
 | `issuer` = `did:key:*` | Option 3 (Embedded Key) | No |
 | Inline JWK in `proof.verificationMethod` | Option 3 (Embedded Key) | No |
+| `issuer` = URL + delegation certificate present | Option 4 (Delegation Certificate Resolution) | Yes (DeDi) |
 | Issuer has DSC (Type A/C) | Verify DSC against CSCA trust anchor after key retrieval | Only for CSCA validation |
 
-### 8.5 Verification Flow Overview
+### 8.6 Verification Flow Overview
 
 ```mermaid
 flowchart TD
     Start[Receive Credential] --> Parse[Parse issuer field]
-    Parse --> MethodCheck{Issuer DID method?}
+    Parse --> MethodCheck{Issuer identifier type?}
 
     MethodCheck -->|"did:web"| ResolveDID[Resolve DID document from web or DeDi]
     ResolveDID --> ExtractPubKey[Extract public key from DID document]
@@ -627,6 +762,12 @@ flowchart TD
 
     MethodCheck -->|"Inline JWK"| ExtractJWK[Extract JWK from proof section]
     ExtractJWK --> VerifyVC_J[Verify VC signature with JWK]
+
+    MethodCheck -->|"URL + delegation cert"| ResolveDelegation[Resolve OpenCred key via DeDi]
+    ResolveDelegation --> VerifyVC_D[Verify VC signature with OpenCred key]
+    VerifyVC_D --> ValidateDeleg[Validate delegation certificate]
+    ValidateDeleg --> CheckDelegAuth[Resolve delegation authority in DeDi]
+    CheckDelegAuth --> StatusCheck
 
     VerifyVC_W --> DSCCheck{DSC present?}
     VerifyVC_K --> StatusCheck[Check revocation and expiry]
@@ -693,6 +834,7 @@ The verifier checks revocation using the `credentialStatus` field embedded in th
 | **EXPIRED** | Signature verified, but `validUntil` date has passed. |
 | **INVALID** | Signature verification failed (tampered or wrong key). |
 | **UNRESOLVABLE** | The issuer's DID could not be resolved, or DeDi is unreachable and no cache is available. |
+| **DELEGATION_INVALID** | Signature verified, but delegation certificate is expired, revoked, or does not authorise the signing key. |
 
 ### 9.5 Full Verification Sequence
 
@@ -704,11 +846,21 @@ sequenceDiagram
     participant DeDiRegistry as DeDi Registry
 
     Verifier->>Credential: Parse credential (QR / JSON / wallet)
-    Verifier->>Credential: Extract issuer DID, proof, credentialStatus
+    Verifier->>Credential: Extract issuer identifier, proof, credentialStatus
 
-    Verifier->>DIDResolver: Resolve issuer DID (or extract embedded key)
-    DIDResolver-->>Verifier: Return DID document with public key(s)
-    Verifier->>Verifier: Verify VC signature with public key
+    alt Issuer is DID (did:web / did:key)
+        Verifier->>DIDResolver: Resolve issuer DID (or extract embedded key)
+        DIDResolver-->>Verifier: Return DID document with public key(s)
+        Verifier->>Verifier: Verify VC signature with public key
+    else Issuer is URL (Delegated Signing)
+        Verifier->>Credential: Extract proof.verificationMethod (OpenCred key ID)
+        Verifier->>DeDiRegistry: Resolve OpenCred signing key via DeDi
+        DeDiRegistry-->>Verifier: Return OpenCred public key
+        Verifier->>Verifier: Verify VC signature with OpenCred key
+        Verifier->>Credential: Locate delegation certificate (embedded or referenced)
+        Verifier->>DeDiRegistry: Resolve delegation authority in DeDi
+        Verifier->>Verifier: Validate delegation: authorises this key, not expired/revoked
+    end
 
     opt Issuer has DSC
         Verifier->>Verifier: Verify DSC against CSCA trust anchor
