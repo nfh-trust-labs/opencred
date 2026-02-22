@@ -11,7 +11,9 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opencred/shared": "workspace:*"
+    "@opencred/shared": "workspace:*",
+    "ajv": "^8.17.0",
+    "ajv-formats": "^3.0.0"
   },
   "devDependencies": {
     "typescript": "^5.5.0"
