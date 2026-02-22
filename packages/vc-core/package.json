@@ -7,13 +7,16 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opencred/shared": "workspace:*"
+    "@opencred/shared": "workspace:*",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
+    "@types/uuid": "^10.0.0",
     "typescript": "^5.5.0"
   }
 }
