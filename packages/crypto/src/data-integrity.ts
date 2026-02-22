@@ -40,11 +40,14 @@ function createJsonLdDocumentLoader(): jsonld.Options.DocLoader["documentLoader"
  */
 async function canonicalize(document: Record<string, unknown>): Promise<string> {
   // Cast to JsonLdDocument since our documents are valid JSON-LD NodeObjects
+  // Disable safe mode: VC credential subjects contain domain-specific terms
+  // not defined in the W3C contexts. Safe mode would reject these valid VCs.
   const result = await jsonld.canonize(document as jsonld.JsonLdDocument, {
     algorithm: "URDNA2015",
     format: "application/n-quads",
     documentLoader: createJsonLdDocumentLoader(),
-  });
+    safe: false,
+  } as jsonld.Options.Normalize);
   return result as string;
 }
 

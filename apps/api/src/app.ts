@@ -1,13 +1,16 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { EnvConfig } from "@opencred/shared";
+import { TTLStore } from "@opencred/state";
 import { createLogger, type Logger } from "./logger.js";
-import { errorHandler, requestLogger, rateLimitMiddleware } from "./middleware/index.js";
+import { authMiddleware, errorHandler, requestLogger, rateLimitMiddleware } from "./middleware/index.js";
 import { health } from "./routes/health.js";
+import { createSigningRoutes, type SigningSession } from "./routes/signing.js";
 
 export interface AppDependencies {
   config: EnvConfig;
   logger?: Logger;
+  signingSessionStore?: TTLStore<SigningSession>;
 }
 
 export function createApp(deps: AppDependencies) {
@@ -39,6 +42,26 @@ export function createApp(deps: AppDependencies) {
 
   // Health check (before auth — unauthenticated)
   app.route("/", health);
+
+  // Authenticated routes — require capability token
+  if (config.JWT_SECRET) {
+    const authKey = new TextEncoder().encode(config.JWT_SECRET);
+
+    // Interface Signing — build + package (requires write scope)
+    const sessionStore = deps.signingSessionStore ?? new TTLStore<SigningSession>(
+      config.SESSION_TTL_MS,
+      config.SESSION_SWEEP_INTERVAL_MS,
+    );
+    app.use(
+      "/credentials/build",
+      authMiddleware({ verificationKey: authKey, issuer: config.JWT_ISSUER }, "credentials:write"),
+    );
+    app.use(
+      "/credentials/package",
+      authMiddleware({ verificationKey: authKey, issuer: config.JWT_ISSUER }, "credentials:write"),
+    );
+    app.route("/credentials", createSigningRoutes({ sessionStore }));
+  }
 
   // Error handler
   app.onError(errorHandler(logger));
