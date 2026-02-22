@@ -1,0 +1,12 @@
+{
+  "name": "@opencred/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'Web UI - Phase 5'",
+    "build": "echo 'Web UI - Phase 5'",
+    "typecheck": "echo 'Web UI - Phase 5'",
+    "clean": "rm -rf dist"
+  }
+}
