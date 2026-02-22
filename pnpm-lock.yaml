@@ -199,24 +199,9 @@ importers:
 
   packages/verification:
     dependencies:
-      '@opencred/crypto':
-        specifier: workspace:*
-        version: link:../crypto
-      '@opencred/dedi-client':
-        specifier: workspace:*
-        version: link:../dedi-client
-      '@opencred/did':
-        specifier: workspace:*
-        version: link:../did
       '@opencred/shared':
         specifier: workspace:*
         version: link:../shared
-      '@opencred/vc-core':
-        specifier: workspace:*
-        version: link:../vc-core
-      jose:
-        specifier: ^5.9.0
-        version: 5.10.0
     devDependencies:
       typescript:
         specifier: ^5.5.0
