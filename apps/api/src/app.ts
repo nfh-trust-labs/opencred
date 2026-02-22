@@ -11,10 +11,13 @@ import {
 } from "./middleware/index.js";
 import { health } from "./routes/health.js";
 import { createRevokeRoute } from "./routes/revoke.js";
+import { createVerifyRoutes } from "./routes/verify.js";
+import { TrustStore } from "./dsc-chain.js";
 
 export interface AppDependencies {
   config: EnvConfig;
   logger?: Logger;
+  trustStore?: TrustStore;
   dediClient?: DeDiClient;
 }
 
@@ -53,8 +56,18 @@ export function createApp(deps: AppDependencies) {
     }),
   );
 
+  // Load CSCA trust store if configured
+  const trustStore =
+    deps.trustStore ??
+    (config.CSCA_TRUST_STORE_PATH
+      ? TrustStore.load(config.CSCA_TRUST_STORE_PATH, logger)
+      : undefined);
+
   // Health check (before auth — unauthenticated)
   app.route("/", health);
+
+  // Public verification endpoint (no auth required)
+  app.route("/verify", createVerifyRoutes({ trustStore, dediClient: deps.dediClient }));
 
   // Authenticated routes — require capability token
   if (config.JWT_SECRET) {
