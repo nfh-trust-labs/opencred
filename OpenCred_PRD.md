@@ -131,13 +131,13 @@ Issuers can select a built-in schema and populate it with their credential data,
 
 ### 3.6 Access Model
 
-OpenCred is a lightweight service. There are no user accounts, no session management, and no login flows.
+OpenCred is a lightweight service. There are no user accounts and no login UI. Privileged operations use issuer-scoped capability tokens (bound to an issuer namespace, not a platform account) after onboarding proof succeeds.
 
 | Interface | Access model |
 |---|---|
 | **Desktop Client** | No authentication required. The application runs locally on the issuer's machine. |
-| **Web UI** | Open access. No account creation or login. The issuer visits the hosted service and begins issuing immediately. Trust is established through the onboarding process (Section 4), not through platform accounts. |
-| **REST API** | API tokens for identification and rate limiting. Token issuance and rate limiting details are determined during implementation. |
+| **Web UI** | Open access for unauthenticated use. No account creation or login. After onboarding proof (e.g., domain challenge / business VC / DSC validation), OpenCred issues a scoped issuer capability token for privileged actions such as revocation, batch result retrieval, and delegation management. |
+| **REST API** | Issuer capability tokens are required for privileged operations and rate limiting. Tokens are issued after onboarding proof and represent an issuer namespace (not a user account). |
 
 ---
 
@@ -175,7 +175,7 @@ The issuer presents an existing verifiable credential (e.g., business registrati
 
 1. Issuer presents their business VC to OpenCred.
 2. OpenCred verifies the business VC (signature, revocation status, expiry).
-3. Upon successful verification, OpenCred associates the verified business identity with the issuer's account. If the issuer has their own signing key, OpenCred registers it and the issuer can use any signing flow. If not, the issuer uses Delegated Signing (OpenCred signs on their behalf under a delegation certificate).
+3. Upon successful verification, OpenCred associates the verified business identity with the issuer's namespace record. If the issuer has their own signing key, OpenCred registers it and the issuer can use any signing flow. If not, the issuer uses Delegated Signing (OpenCred signs on their behalf under a delegation certificate).
 4. The issuer can now issue credentials, with verifiers able to trace trust back to the business VC's issuer.
 
 This enables bootstrapping: an issuer without traditional PKI infrastructure can leverage an already-verified credential to begin issuing.
@@ -185,6 +185,8 @@ This enables bootstrapping: an issuer without traditional PKI infrastructure can
 ## 5. Issuer -- Key Sourcing Strategies
 
 OpenCred supports three flows for sourcing the signing key. The core design constraint is that **OpenCred never receives or stores issuer private keys**. In Local Signing and Interface Signing the issuer's private key never leaves the issuer's control; in Delegated Signing, OpenCred signs with its own key under an explicit delegation certificate from the issuer.
+
+OpenCred v1 standardises on **W3C VC Data Integrity** proofs for VC signatures. JOSE/COSE-based VC proofs are out of scope for v1. **JCS** is used only for DeDi revocation hash computation (Section 7), not for VC proof signing.
 
 ### 5.1 Local Signing (Desktop Client Only)
 
@@ -202,12 +204,12 @@ sequenceDiagram
 
     Issuer->>Issuer: Select schema (built-in library or custom)
     Issuer->>Issuer: Validate payload against schema
-    Issuer->>Issuer: Build canonical VC (JSON-LD / JCS)
-    Issuer->>Issuer: Assign revocation index
+    Issuer->>Issuer: Build VC + proof input (VC Data Integrity)
+    Issuer->>Issuer: Embed credentialStatus (DeDi revocation registry URL)
     Issuer->>Issuer: Sign VC with private key
     Issuer->>Issuer: Package output (QR, JSON-LD, PDF)
     Note over Issuer: Credential complete (fully offline)
-    Issuer->>Issuer: When online: register revocation hash with DeDi
+    Issuer->>Issuer: If later revoked: compute hash and publish to DeDi
 ```
 
 ### 5.2 Interface Signing
@@ -253,7 +255,7 @@ Architecture: The native signing bridge runs as a local process on the issuer's 
 
 Signing flow:
 
-1. OpenCred's Web UI sends the canonicalised VC digest (hash) to the browser extension or `localhost` service.
+1. OpenCred's Web UI sends the VC signing payload bytes (or digest, depending on cryptosuite implementation) to the browser extension or `localhost` service.
 2. The native bridge passes the hash to the hardware token or OS crypto API.
 3. The hardware token (or OS) performs the signing operation internally.
 4. Only the resulting signature is returned to the browser. **The private key never leaves the hardware token or OS key store.**
@@ -266,7 +268,7 @@ For issuers whose key is managed by a cloud KMS or cloud HSM (e.g., AWS KMS, Azu
 
 Signing flow:
 
-1. OpenCred's Web UI receives the canonicalised VC digest from the server.
+1. OpenCred's Web UI receives the VC signing payload bytes (or digest, depending on cryptosuite implementation) from the server.
 2. The browser calls the cloud provider's signing API with the issuer's credentials and the digest.
 3. The cloud KMS signs the hash using the issuer's private key within the cloud HSM.
 4. The signature is returned to the browser. **The private key never leaves the cloud HSM.**
@@ -281,14 +283,14 @@ sequenceDiagram
     participant OpenCred
 
     Issuer->>OpenCred: POST /credentials/build {payload, schema, publicKey}
-    OpenCred->>OpenCred: Validate schema, build canonical VC
-    OpenCred->>OpenCred: Assign revocation index
-    OpenCred-->>Issuer: Return unsigned VC payload (canonicalised)
+    OpenCred->>OpenCred: Validate schema, build unsigned VC
+    OpenCred->>OpenCred: Embed credentialStatus (DeDi revocation registry URL)
+    OpenCred-->>Issuer: Return unsigned VC + signing payload bytes/digest (per cryptosuite)
     Issuer->>Issuer: Sign VC with private key (SubtleCrypto / native bridge / cloud KMS)
     Issuer->>OpenCred: POST /credentials/package {signedVC}
     OpenCred->>OpenCred: Validate signature against public key
     OpenCred->>OpenCred: Package (QR, JSON-LD, PDF)
-    OpenCred-->>Issuer: Return packaged credential + revocation hash
+    OpenCred-->>Issuer: Return packaged credential
 ```
 
 ### 5.3 Delegated Signing (OpenCred's Keys)
@@ -299,7 +301,7 @@ The issuer does not have their own signing key (e.g., they do not hold a DSC and
 
 **Trust assumptions**: OpenCred is trusted as a delegated signer. The delegation certificate binds OpenCred's specific signing key to the issuer's authority, so verifiers can validate the chain. OpenCred manages key rotation and may use HSM-backed keys. The issuer's identity and authority are established through the onboarding process (Section 4).
 
-**Security trade-offs**: The issuer does not control the signing key -- OpenCred does. If OpenCred is compromised, credentials could be issued under the issuer's authority without their knowledge. The delegation certificate SHOULD include constraints (e.g., expiry, scope, credential types) to limit blast radius. Revocation of the delegation certificate invalidates all credentials signed under it. This flow trades key sovereignty for operational simplicity.
+**Security trade-offs**: The issuer does not control the signing key -- OpenCred does. If OpenCred is compromised, credentials could be issued under the issuer's authority without their knowledge. The delegation certificate SHOULD include constraints (e.g., expiry, scope, credential types) to limit blast radius. Delegation expiry or revocation MUST stop future issuance, but does not retroactively invalidate previously issued credentials that were signed while the delegation was valid (those credentials must be revoked individually if needed). This flow trades key sovereignty for operational simplicity.
 
 **Delegation certificate requirements**:
 
@@ -352,12 +354,12 @@ sequenceDiagram
     Note over Issuer,DeDi: Per-credential issuance
     Issuer->>OpenCred: POST /credentials/issue-delegated {payload, schema}
     OpenCred->>OpenCred: Validate schema
-    OpenCred->>OpenCred: Build canonical VC (issuer = domain URL + name)
+    OpenCred->>OpenCred: Build unsigned VC (issuer = domain URL + name)
     OpenCred->>OpenCred: Sign VC with OpenCred's key (authorised by delegation cert)
     OpenCred->>OpenCred: Embed or reference delegation certificate in VC
-    OpenCred->>OpenCred: Assign revocation index
+    OpenCred->>OpenCred: Embed credentialStatus (DeDi revocation registry URL)
     OpenCred->>OpenCred: Package (QR, JSON-LD, PDF)
-    OpenCred-->>Issuer: Return packaged credential + revocation hash
+    OpenCred-->>Issuer: Return packaged credential
 ```
 
 ### 5.4 Signing Flow Comparison Matrix
@@ -394,7 +396,7 @@ Bulk issuance uses an **asynchronous, job-based** model. Submitting a batch retu
 | Poll status | `GET /credentials/batch/{jobId}` | `{ status, total, succeeded, failed }` |
 | Retrieve results | `GET /credentials/batch/{jobId}/results` | Per-row results with individual status and error details |
 
-**Desktop Client**: The Desktop Client processes the CSV locally. Each credential is built, signed, and packaged offline. Revocation hashes are queued and registered with DeDi when the client goes online.
+**Desktop Client**: The Desktop Client processes the CSV locally. Each credential is built, signed, and packaged offline. No revocation hash is published at issuance time. If a credential is later revoked, the Desktop Client can compute the revocation hash locally and publish it to DeDi when online.
 
 #### 5.5.3 Error Handling: Validate-First, Then Issue
 
@@ -416,14 +418,14 @@ sequenceDiagram
 
     Issuer->>OpenCred: POST /credentials/batch {payloads[], schema, publicKey}
     OpenCred->>OpenCred: Validate all rows against schema
-    OpenCred->>OpenCred: Build N canonical VCs, assign revocation indices
-    OpenCred-->>Issuer: Return N unsigned VC payloads (canonicalised) + digests
+    OpenCred->>OpenCred: Build N unsigned VCs + credentialStatus metadata
+    OpenCred-->>Issuer: Return N unsigned VCs + signing payload bytes/digests
 
     Issuer->>Issuer: Sign each digest with private key
     Issuer->>OpenCred: POST /credentials/batch/{jobId}/signatures {signatures[]}
     OpenCred->>OpenCred: Validate each signature against public key
     OpenCred->>OpenCred: Package all credentials (QR, JSON-LD, PDF)
-    OpenCred-->>Issuer: Return packaged credentials + revocation hashes
+    OpenCred-->>Issuer: Return packaged credentials
 ```
 
 **Local Signing**: The Desktop Client reads the CSV, builds each VC locally, signs it with the issuer's key, and packages the output — all offline. No API calls are involved.
@@ -480,13 +482,11 @@ The issuer publishes their public key(s) inside a DID document hosted at a well-
 - The credential is not self-contained; verification requires a network call to resolve the DID.
 - A compromised or unavailable domain prevents verification.
 
-### 6.2 Option B: Embed Public Key Inside the Credential
+### 6.2 Option B: Embed Public Key Inside the Credential (`did:key`)
 
-The public key is encoded directly within the credential itself, either via a `did:key` identifier or an inline JWK in the proof section.
+The public key is encoded directly within the credential itself via a `did:key` identifier.
 
 **Mechanism (did:key)**: The `did:key` method encodes the public key directly into the DID string. For example, `did:key:z6MkhaXg...` contains the full public key material. The verifier extracts and decodes the key from the DID without any network lookup.
-
-**Mechanism (inline JWK)**: The `proof` section of the credential includes a `verificationMethod` with the public key as an inline JWK object.
 
 **Example using did:key in the issuer field**:
 
@@ -506,29 +506,6 @@ The public key is encoded directly within the credential itself, either via a `d
 }
 ```
 
-**Example using inline JWK in proof**:
-
-```json
-{
-  "proof": {
-    "type": "DataIntegrityProof",
-    "cryptosuite": "ecdsa-rdfc-2019",
-    "created": "2026-01-15T00:00:00Z",
-    "verificationMethod": {
-      "type": "JsonWebKey2020",
-      "publicKeyJwk": {
-        "kty": "EC",
-        "crv": "P-256",
-        "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
-        "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
-      }
-    },
-    "proofPurpose": "assertionMethod",
-    "proofValue": "z3FXQjecWufY46..."
-  }
-}
-```
-
 **Advantages**:
 
 - Fully self-contained: verification is possible entirely offline with zero network dependency.
@@ -538,7 +515,7 @@ The public key is encoded directly within the credential itself, either via a `d
 **Disadvantages**:
 
 - No key rotation support: if the key is compromised, all credentials containing that key are affected and there is no mechanism to update the key material.
-- Credential size increases (a JWK adds approximately 200-400 bytes).
+- Credential size increases because the key material is encoded in the identifier.
 - Trust anchoring is weaker -- the verifier must trust the key in the credential itself without an external trust root (unless a delegation certificate chain is embedded alongside it).
 
 ### 6.3 Option C: KERI -- Key Event Receipt Infrastructure
@@ -579,7 +556,7 @@ The AID prefix is derived from the inception event's public key, making it self-
 
 ### 6.4 Comparative Analysis
 
-| Criterion | Option A (did:web) | Option B (did:key / inline JWK) | Option C (KERI) |
+| Criterion | Option A (did:web) | Option B (did:key) | Option C (KERI) |
 |---|---|---|---|
 | Network dependency at verification | Yes (DID resolution) | No (offline capable) | Partial (KEL fetch, or offline if bundled) |
 | Key rotation | Supported (update DID doc) | Not supported | Supported (pre-rotation, cryptographically pre-committed) |
@@ -597,43 +574,50 @@ The AID prefix is derived from the inception event's public key, making it self-
 OpenCred SHOULD support all three options and let the issuer choose at issuance time:
 
 - **Default for institutional issuers with their own key**: `did:web` -- provides key rotation, domain-bound trust, and aligns with enterprise identity infrastructure. Lowest barrier to adoption given existing web PKI. Applicable to Type A issuers and any issuer using Interface Signing. For Delegated Signing, the verifier resolves OpenCred's key via DeDi and validates the delegation certificate.
-- **Alternative for ad-hoc or offline-first use**: `did:key` or inline JWK -- enables fully self-contained credentials for field deployment, peer-to-peer issuance, or testing.
+- **Alternative for ad-hoc or offline-first use**: `did:key` -- enables fully self-contained credentials for field deployment, peer-to-peer issuance, or testing.
 - **For high-assurance / decentralised deployments**: KERI -- provides cryptographically pre-committed key rotation, native delegation, and decentralised trust without blockchain dependency. Recommended for issuers who require resilience against domain compromise or who operate in multi-stakeholder trust frameworks (e.g., government-to-government credential exchange).
 
 ---
 
 ## 7. Issuer -- credentialStatus for Revocation
 
-Per the [W3C VC Data Model 2.0 -- Status](https://www.w3.org/TR/vc-data-model-2.0/#status), every credential issued by OpenCred will/should include a `credentialStatus` property to enable revocation checking by verifiers.
+Per the [W3C VC Data Model 2.0 -- Status](https://www.w3.org/TR/vc-data-model-2.0/#status), every credential issued by OpenCred MUST include a `credentialStatus` property to enable revocation checking by verifiers.
 
-### 7.1 DeDi RevocationHash Lookup
+### 7.1 DeDi Revocation List v1 (Hash Lookup)
 
-OpenCred uses a deterministic hash-based revocation model backed by DeDi. Each credential gets a unique revocation hash that serves as both the issuer-facing revocation handle and the verifier-facing status check.
+OpenCred uses a deterministic hash-based revocation model backed by DeDi. Under **DeDi Revocation List v1**, each credential has a deterministic revocation hash derivable from the credential body. DeDi stores **only revoked hashes** (not issuance-time hashes).
 
 **Revocation hash computation**:
 
 ```
-revocationHash = SHA-256( JCS( credentialSubject + id + issuanceDate + issuer ) )
+issuedAt = credential.validFrom (if present) else credential.issuanceDate
+revocationHash = SHA-256( JCS({
+  "credentialSubject": credential.credentialSubject,
+  "id": credential.id,
+  "issuedAt": issuedAt,
+  "issuer": credential.issuer
+}) )
 ```
 
-Where **JCS** is [JSON Canonicalization Scheme (RFC 8785)](https://www.rfc-editor.org/rfc/rfc8785).
+Where **JCS** is [JSON Canonicalization Scheme (RFC 8785)](https://www.rfc-editor.org/rfc/rfc8785). If neither `validFrom` nor `issuanceDate` is present, the revocation hash cannot be computed and the credential fails revocation verification for this status type.
 
 **credentialStatus field** embedded in the credential:
 
 ```json
 {
   "credentialStatus": {
-    "id": "https://dedi.example/revocations/university.example/a1b2c3d4e5f6...",
-    "type": "DeDiRevocationEntry",
-    "statusPurpose": "revocation",
-    "revocationRegistry": "https://dedi.example/revocations/university.example"
+    "id": "https://dedi.example/revocations/university.example/revocation-registry",
+    "type": "DeDiRevocationListStatusV1",
+    "statusPurpose": "revocation"
   }
 }
 ```
 
-**Issuance flow**: OpenCred computes the hash, embeds `credentialStatus` with the DeDi registry URL, and returns the hash to the issuer alongside the packaged credential.
+The `id` is the issuer's public DeDi revocation registry URL (base path). For `DeDiRevocationListStatusV1`, OpenCred requires `credentialStatus.id` even though `id` is optional in the W3C core model.
 
-**Revocation flow**: The issuer calls the revocation API with the hash. OpenCred (or the issuer directly) publishes the hash to the issuer's namespace in DeDi.
+**Issuance flow**: OpenCred embeds `credentialStatus` with the issuer's DeDi revocation registry URL. No revocation hash is published at issuance time.
+
+**Revocation flow**: The issuer revokes a credential by either (a) computing the hash locally and calling the revocation API with the hash, or (b) sending the credential body to the Web UI/API so OpenCred can compute the hash. OpenCred (or the issuer directly) publishes the hash to the issuer's namespace in DeDi.
 
 **Verification flow**: The verifier computes the same hash from the credential fields and queries DeDi. Hash found = REVOKED, not found = VALID.
 
@@ -644,7 +628,7 @@ DeDi (Decentralized Directory) serves as the verifiable data registry. Each issu
 ```mermaid
 flowchart LR
     subgraph issuance [Issuance Time]
-        A[OpenCred] -->|"Compute hash, embed credentialStatus"| B[Credential]
+        A[OpenCred] -->|"Embed credentialStatus (registry URL)"| B[Credential]
     end
     subgraph revocation [Revocation Time]
         C[Issuer] -->|"POST /credentials/revoke"| D[OpenCred API]
@@ -660,28 +644,28 @@ flowchart LR
 
 | Endpoint | Method | Request Body | Description |
 |---|---|---|---|
-| `/credentials/revoke` | POST | `{ "credentialHash": "<sha256-hex>" }` | Revoke a single credential. Publishes hash to DeDi. |
-| `/credentials/revoke/batch` | POST | `{ "hashes": ["<hash1>", "<hash2>", ...] }` | Revoke multiple credentials in a single call. |
+| `/credentials/revoke` | POST | `{ "credentialHash": "<sha256-hex>" }` **or** `{ "credential": { ... } }` | Revoke a single credential. OpenCred computes the hash if a credential body is provided, then publishes the hash to DeDi. |
+| `/credentials/revoke/batch` | POST | `{ "hashes": ["<hash1>", "<hash2>", ...] }` **or** `{ "credentials": [{...}, {...}] }` | Revoke multiple credentials in a single call. OpenCred can compute hashes from provided credential bodies. |
 
 ### 7.4 Revocation Lifecycle
 
 | Step | Actor | Action | Details |
 |---|---|---|---|
-| At issuance | OpenCred | Computes revocation hash | `SHA-256(JCS(credentialSubject + id + issuanceDate + issuer))`. Returns hash to issuer alongside packaged credential. |
-| At issuance | OpenCred | Embeds `credentialStatus` | DeDi revocation registry URL. |
-| To revoke | Issuer | Calls revocation API | `POST /credentials/revoke { credentialHash }` or publishes directly to DeDi. |
+| At issuance | OpenCred | Embeds `credentialStatus` | Includes the issuer's DeDi revocation registry URL (`credentialStatus.id`) and status type `DeDiRevocationListStatusV1`. |
+| To revoke | Issuer | Computes hash | Compute locally, or send the credential body to OpenCred Web UI/API to compute the hash. |
+| To revoke | Issuer | Calls revocation API | `POST /credentials/revoke { credentialHash }` or `POST /credentials/revoke { credential }`, or publishes directly to DeDi. |
 | To revoke | OpenCred / Issuer | Publishes to DeDi | Adds hash to issuer's revocation registry. |
-| Bulk revoke | Issuer | Sends batch of hashes | `POST /credentials/revoke/batch { hashes[] }`. |
+| Bulk revoke | Issuer | Sends batch of hashes or credentials | `POST /credentials/revoke/batch { hashes[] }` or `{ credentials[] }`. |
 
 ### 7.5 Note on W3C BitstringStatusList
 
-OpenCred does not implement [W3C Bitstring Status List v1.0](https://www.w3.org/TR/vc-bitstring-status-list/). Issuers with the technical capacity to manage compressed bitstrings are free to implement BitstringStatusList independently and embed the appropriate `credentialStatus` in their credentials. OpenCred's verifier will accept and check `BitstringStatusListEntry` status types when present, but will not generate or host bitstring status lists.
+OpenCred does not implement [W3C Bitstring Status List v1.0](https://www.w3.org/TR/vc-bitstring-status-list/). Issuers with the technical capacity to manage compressed bitstrings are free to implement BitstringStatusList independently and embed the appropriate `credentialStatus` in their credentials. OpenCred's verifier will branch on `credentialStatus.type`: it applies the DeDi hash lookup only for `DeDiRevocationListStatusV1`, and applies Bitstring Status List processing when `BitstringStatusListEntry` is present. OpenCred will not generate or host bitstring status lists.
 
 ---
 
 ## 8. Verifier -- Public Key Retrieval
 
-The verifier needs to obtain the issuer's public key to verify the credential's signature. Three options are available, depending on how the credential was issued.
+The verifier needs to obtain the issuer's public key to verify the credential's signature. Four options are available, depending on how the credential was issued.
 
 ### 8.1 Option 1: DID Resolution
 
@@ -709,14 +693,13 @@ The verifier queries the DeDi registry for the issuer's DID document or public k
 
 ### 8.3 Option 3: Embedded Key Extraction
 
-If the credential uses `did:key` as the issuer identifier or includes an inline JWK in the proof, the verifier extracts the public key directly from the credential without any network call.
+If the credential uses `did:key` as the issuer identifier, the verifier extracts the public key directly from the credential without any network call.
 
-**Applies when**: The credential's `issuer` field is a `did:key` identifier, or the `proof.verificationMethod` contains an inline `publicKeyJwk`.
+**Applies when**: The credential's `issuer` field is a `did:key` identifier.
 
 **Steps**:
 1. If `issuer` is `did:key:z6Mk...`, decode the Multibase-encoded public key from the DID string.
-2. If `proof.verificationMethod` contains an inline JWK, extract it directly.
-3. Use the extracted public key to verify the VC signature.
+2. Use the extracted public key to verify the VC signature.
 
 **Caveat**: This option provides cryptographic verification but not trust anchoring. The verifier must decide whether to trust a self-asserted key or require additional evidence.
 
@@ -731,7 +714,7 @@ The delegation certificate is either **embedded** in the credential (as a proper
 2. Resolve OpenCred's public key via DeDi: `GET /dedi/resolve/{openCredKeyId}`.
 3. Verify the VC signature with OpenCred's public key.
 4. Locate the delegation certificate (embedded in the credential or referenced by URL).
-5. Validate the delegation certificate: confirm it names OpenCred's signing key as the delegatee, confirm it was authorised by the issuer (via one of the three delegation authorisation paths in Section 5.3.1), and confirm it has not expired or been revoked.
+5. Validate the delegation certificate: confirm it names OpenCred's signing key as the delegatee, confirm it was authorised by the issuer (via one of the three delegation authorisation paths in Section 5.3.1), and confirm it was valid at the credential's issuance/proof time (for example, at `proof.created`). Delegation expiry/revocation after issuance stops future issuance but does not retroactively invalidate previously issued credentials.
 6. Resolve the delegation authority in DeDi to verify the issuer's authorisation.
 
 **Applies when**: The credential's `issuer` field is a URL (e.g., `https://example.com`) and the `proof` references an OpenCred signing key with an associated delegation certificate.
@@ -742,7 +725,6 @@ The delegation certificate is either **embedded** in the credential (as a proper
 |---|---|---|
 | `issuer` = `did:web:*` | Option 1 (DID Resolution) or Option 2 (DeDi) | Yes |
 | `issuer` = `did:key:*` | Option 3 (Embedded Key) | No |
-| Inline JWK in `proof.verificationMethod` | Option 3 (Embedded Key) | No |
 | `issuer` = URL + delegation certificate present | Option 4 (Delegation Certificate Resolution) | Yes (DeDi) |
 | Issuer has DSC (Type A/C) | Verify DSC against CSCA trust anchor after key retrieval | Only for CSCA validation |
 
@@ -760,9 +742,6 @@ flowchart TD
     MethodCheck -->|"did:key"| DecodeDIDKey[Decode public key from did:key string]
     DecodeDIDKey --> VerifyVC_K[Verify VC signature with decoded key]
 
-    MethodCheck -->|"Inline JWK"| ExtractJWK[Extract JWK from proof section]
-    ExtractJWK --> VerifyVC_J[Verify VC signature with JWK]
-
     MethodCheck -->|"URL + delegation cert"| ResolveDelegation[Resolve OpenCred key via DeDi]
     ResolveDelegation --> VerifyVC_D[Verify VC signature with OpenCred key]
     VerifyVC_D --> ValidateDeleg[Validate delegation certificate]
@@ -771,8 +750,6 @@ flowchart TD
 
     VerifyVC_W --> DSCCheck{DSC present?}
     VerifyVC_K --> StatusCheck[Check revocation and expiry]
-    VerifyVC_J --> StatusCheck
-
     DSCCheck -->|Yes| VerifyDSC[Verify DSC against CSCA trust anchor]
     DSCCheck -->|No| StatusCheck
     VerifyDSC --> StatusCheck
@@ -807,14 +784,15 @@ The W3C VC Data Model 2.0 uses `validFrom` and `validUntil` fields (replacing th
 
 ### 9.2 Revocation Check
 
-The verifier checks revocation using the `credentialStatus` field embedded in the credential.
+The verifier checks revocation using the `credentialStatus` field embedded in the credential. The DeDi hash lookup below applies when `credentialStatus.type = "DeDiRevocationListStatusV1"`. If `credentialStatus.type = "BitstringStatusListEntry"`, the verifier follows the W3C Bitstring Status List processing rules instead.
 
-**DeDi RevocationHash Lookup**:
+**DeDi Revocation List v1 (Hash Lookup)**:
 
-1. Extract the `revocationRegistry` URL from `credentialStatus`.
-2. Compute `revocationHash = SHA-256(JCS(credentialSubject + id + issuanceDate + issuer))`.
-3. Query DeDi: `GET /dedi/revocations/{issuerNamespace}/{revocationHash}`.
-4. Hash found = **REVOKED**. Not found = **VALID**.
+1. Extract the DeDi revocation registry base URL from `credentialStatus.id`.
+2. Compute `issuedAt = validFrom` if present, else `issuanceDate`.
+3. Compute `revocationHash = SHA-256(JCS({ credentialSubject, id, issuedAt, issuer }))`.
+4. Query DeDi: `GET {credentialStatus.id}/{revocationHash}`.
+5. Hash found = **REVOKED**. Not found = **VALID**.
 
 ### 9.3 Caching Strategy
 
@@ -822,7 +800,7 @@ The verifier checks revocation using the `credentialStatus` field embedded in th
 |---|---|
 | What to cache | DeDi query responses |
 | Cache TTL | 1-5 minutes |
-| Offline verification | Not supported (requires DeDi connectivity) |
+| Offline verification | Signature verification may be offline for embedded-key credentials, but revocation checks require DeDi connectivity (or a fresh cache) |
 | Stale fallback | Return UNRESOLVABLE if DeDi is unreachable |
 
 ### 9.4 Verification Result Codes
@@ -834,7 +812,7 @@ The verifier checks revocation using the `credentialStatus` field embedded in th
 | **EXPIRED** | Signature verified, but `validUntil` date has passed. |
 | **INVALID** | Signature verification failed (tampered or wrong key). |
 | **UNRESOLVABLE** | The issuer's DID could not be resolved, or DeDi is unreachable and no cache is available. |
-| **DELEGATION_INVALID** | Signature verified, but delegation certificate is expired, revoked, or does not authorise the signing key. |
+| **DELEGATION_INVALID** | Signature verified, but the delegation certificate did not authorise the signing key at issuance/proof time (or delegation evidence cannot be validated). |
 
 ### 9.5 Full Verification Sequence
 
@@ -859,7 +837,7 @@ sequenceDiagram
         Verifier->>Verifier: Verify VC signature with OpenCred key
         Verifier->>Credential: Locate delegation certificate (embedded or referenced)
         Verifier->>DeDiRegistry: Resolve delegation authority in DeDi
-        Verifier->>Verifier: Validate delegation: authorises this key, not expired/revoked
+        Verifier->>Verifier: Validate delegation at proof.created: authorises this key and was valid at issuance time
     end
 
     opt Issuer has DSC
@@ -869,7 +847,7 @@ sequenceDiagram
     Verifier->>Verifier: Check validFrom / validUntil dates
 
     Verifier->>Verifier: Compute revocationHash from credential fields
-    Verifier->>DeDiRegistry: GET /dedi/revocations/{namespace}/{hash}
+    Verifier->>DeDiRegistry: GET {credentialStatus.id}/{hash}
     alt Hash not found
         DeDiRegistry-->>Verifier: 404 -- VALID
     else Hash found
@@ -889,7 +867,7 @@ The following example shows a fully-formed verifiable credential issued via Open
 {
   "@context": [
     "https://www.w3.org/ns/credentials/v2",
-    "https://w3id.org/security/suites/jws-2020/v1"
+    "https://w3id.org/security/data-integrity/v1"
   ],
   "id": "urn:uuid:7c5c3e9a-2a1f-4d3b-8e4c-123456789abc",
   "type": ["VerifiableCredential"],
@@ -906,10 +884,9 @@ The following example shows a fully-formed verifiable credential issued via Open
     }
   },
   "credentialStatus": {
-    "id": "https://dedi.example/revocations/university.example/a1b2c3d4e5f6...",
-    "type": "DeDiRevocationEntry",
-    "statusPurpose": "revocation",
-    "revocationRegistry": "https://dedi.example/revocations/university.example"
+    "id": "https://dedi.example/revocations/university.example/revocation-registry",
+    "type": "DeDiRevocationListStatusV1",
+    "statusPurpose": "revocation"
   },
   "proof": {
     "type": "DataIntegrityProof",
@@ -927,10 +904,9 @@ The following example shows a fully-formed verifiable credential issued via Open
 ```json
 {
   "credentialStatus": {
-    "id": "https://dedi.example/revocations/university.example/a1b2c3d4e5f6...",
-    "type": "DeDiRevocationEntry",
-    "statusPurpose": "revocation",
-    "revocationRegistry": "https://dedi.example/revocations/university.example"
+    "id": "https://dedi.example/revocations/university.example/revocation-registry",
+    "type": "DeDiRevocationListStatusV1",
+    "statusPurpose": "revocation"
   }
 }
 ```
