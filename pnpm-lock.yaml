@@ -80,6 +80,9 @@ importers:
         specifier: ^3.25.76
         version: 3.25.76
     devDependencies:
+      jose:
+        specifier: ^5.9.0
+        version: 5.10.0
       typescript:
         specifier: ^5.5.0
         version: 5.9.3

@@ -14,6 +14,7 @@ import { health } from "./routes/health.js";
 import { createRevokeRoute } from "./routes/revoke.js";
 import { createVerifyRoutes } from "./routes/verify.js";
 import { createCredentialsRoute } from "./routes/credentials.js";
+import { createOnboardingRoutes } from "./routes/onboarding.js";
 import { TrustStore } from "./dsc-chain.js";
 
 export interface AppDependencies {
@@ -71,6 +72,20 @@ export function createApp(deps: AppDependencies) {
 
   // Public verification endpoint (no auth required)
   app.route("/verify", createVerifyRoutes({ trustStore, dediClient: deps.dediClient }));
+
+  // Type A DSC onboarding (unauthenticated — this IS the auth issuance endpoint)
+  if (config.JWT_SECRET && trustStore) {
+    const onboardingKey = new TextEncoder().encode(config.JWT_SECRET);
+    app.route(
+      "/onboarding",
+      createOnboardingRoutes({
+        trustStore,
+        jwtSigningKey: onboardingKey,
+        jwtIssuer: config.JWT_ISSUER,
+        jwtExpirySeconds: config.JWT_EXPIRY_SECONDS,
+      }),
+    );
+  }
 
   // Interface Signing endpoints (authenticated)
   if (deps.authOptions) {
