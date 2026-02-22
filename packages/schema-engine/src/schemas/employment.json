@@ -1,0 +1,14 @@
+{
+  "$id": "https://opencred.dev/schemas/employment/v1",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Employment Credential",
+  "type": "object",
+  "required": ["name", "employer", "position", "startDate"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "employer": { "type": "string", "minLength": 1 },
+    "position": { "type": "string", "minLength": 1 },
+    "startDate": { "type": "string", "format": "date" }
+  },
+  "additionalProperties": true
+}

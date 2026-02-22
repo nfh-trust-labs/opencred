@@ -1,0 +1,14 @@
+{
+  "$id": "https://opencred.dev/schemas/identity/v1",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Identity Credential",
+  "type": "object",
+  "required": ["name", "dateOfBirth", "nationality", "documentNumber"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "dateOfBirth": { "type": "string", "format": "date" },
+    "nationality": { "type": "string", "minLength": 1 },
+    "documentNumber": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,14 @@
+{
+  "$id": "https://opencred.dev/schemas/education/v1",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Education Credential",
+  "type": "object",
+  "required": ["name", "degree", "institution", "dateConferred"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "degree": { "type": "string", "minLength": 1 },
+    "institution": { "type": "string", "minLength": 1 },
+    "dateConferred": { "type": "string", "format": "date" }
+  },
+  "additionalProperties": true
+}
