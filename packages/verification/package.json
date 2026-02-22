@@ -11,7 +11,12 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opencred/shared": "workspace:*"
+    "@opencred/crypto": "workspace:*",
+    "@opencred/dedi-client": "workspace:*",
+    "@opencred/did": "workspace:*",
+    "@opencred/shared": "workspace:*",
+    "@opencred/vc-core": "workspace:*",
+    "jose": "^5.9.0"
   },
   "devDependencies": {
     "typescript": "^5.5.0"
