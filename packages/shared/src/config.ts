@@ -10,8 +10,16 @@ export const envSchema = z.object({
   DEDI_API_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
 
   // Session / state
-  SESSION_TTL_MS: z.coerce.number().int().positive().default(4 * 60 * 60 * 1000), // 4 hours
-  SESSION_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(60 * 1000), // 60 seconds
+  SESSION_TTL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(4 * 60 * 60 * 1000), // 4 hours
+  SESSION_SWEEP_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60 * 1000), // 60 seconds
 
   // Auth / JWT
   JWT_SECRET: z.string().min(32).optional(),

@@ -25,9 +25,7 @@ describe("loadConfig", () => {
   });
 
   it("throws on invalid NODE_ENV", () => {
-    expect(() => loadConfig({ NODE_ENV: "invalid" })).toThrow(
-      "Invalid environment configuration",
-    );
+    expect(() => loadConfig({ NODE_ENV: "invalid" })).toThrow("Invalid environment configuration");
   });
 
   it("throws on invalid PORT", () => {
