@@ -7,29 +7,27 @@ import { prepareProof, completeProof } from "@opencred/crypto";
 import type { ProofConfig } from "@opencred/crypto";
 import { createRegistry, Validator } from "@opencred/schema-engine";
 import { TTLStore } from "@opencred/state";
-import {
-  ValidationError,
-  SessionExpiredError,
-} from "@opencred/shared";
+import { ValidationError, SessionExpiredError } from "@opencred/shared";
 import type { UnsignedCredential } from "@opencred/vc-core";
 
 // --- Zod schemas for request validation ---
 
-const jwkSchema = z.object({
-  kty: z.literal("EC"),
-  crv: z.literal("P-256"),
-  x: z.string().min(1),
-  y: z.string().min(1),
-}).passthrough();
+const jwkSchema = z
+  .object({
+    kty: z.literal("EC"),
+    crv: z.literal("P-256"),
+    x: z.string().min(1),
+    y: z.string().min(1),
+  })
+  .passthrough();
 
 const buildRequestSchema = z.object({
   schema: z.string().min(1, "schema is required"),
   issuer: z.string().min(1, "issuer DID is required"),
   publicKey: jwkSchema,
-  credentialSubject: z.record(z.unknown()).refine(
-    (val) => Object.keys(val).length > 0,
-    "credentialSubject must not be empty",
-  ),
+  credentialSubject: z
+    .record(z.unknown())
+    .refine((val) => Object.keys(val).length > 0, "credentialSubject must not be empty"),
   validFrom: z.string().min(1, "validFrom is required"),
   validUntil: z.string().optional(),
   revocationRegistryUrl: z.string().optional(),
@@ -68,9 +66,7 @@ export function createSigningRoutes(deps: SigningRoutesDeps) {
     const parsed = buildRequestSchema.safeParse(rawBody);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0];
-      throw new ValidationError(
-        `${firstError.path.join(".")}: ${firstError.message}`,
-      );
+      throw new ValidationError(`${firstError.path.join(".")}: ${firstError.message}`);
     }
 
     const {
@@ -135,12 +131,15 @@ export function createSigningRoutes(deps: SigningRoutesDeps) {
 
     // 6. Return response
     const dataToSignB64 = bufferToBase64Url(prepared.dataToSign);
-    return c.json({
-      sessionId,
-      unsignedCredential: unsignedVC,
-      dataToSign: dataToSignB64,
-      proofConfig: prepared.proofConfig,
-    }, 201);
+    return c.json(
+      {
+        sessionId,
+        unsignedCredential: unsignedVC,
+        dataToSign: dataToSignB64,
+        proofConfig: prepared.proofConfig,
+      },
+      201,
+    );
   });
 
   // POST /package — Interface Signing step 2
@@ -149,9 +148,7 @@ export function createSigningRoutes(deps: SigningRoutesDeps) {
     const parsed = packageRequestSchema.safeParse(rawBody);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0];
-      throw new ValidationError(
-        `${firstError.path.join(".")}: ${firstError.message}`,
-      );
+      throw new ValidationError(`${firstError.path.join(".")}: ${firstError.message}`);
     }
 
     const { sessionId, signature } = parsed.data;
@@ -176,21 +173,13 @@ export function createSigningRoutes(deps: SigningRoutesDeps) {
 
     // 3. Validate signature against stored public key BEFORE packaging
     const pubKey = importJwkPublicKey(session.publicKeyJwk);
-    const signatureValid = verifySignature(
-      pubKey,
-      session.dataToSign,
-      signatureBytes,
-    );
+    const signatureValid = verifySignature(pubKey, session.dataToSign, signatureBytes);
     if (!signatureValid) {
       throw new ValidationError("Signature verification failed");
     }
 
     // 4. Assemble final proof
-    const vc = completeProof(
-      session.unsignedCredential,
-      session.proofConfig,
-      signatureBytes,
-    );
+    const vc = completeProof(session.unsignedCredential, session.proofConfig, signatureBytes);
 
     // 5. Remove session (one-time use)
     sessionStore.delete(sessionId);
@@ -238,8 +227,5 @@ function verifySignature(
 ): boolean {
   const verifier = createVerify("SHA256");
   verifier.update(dataToSign);
-  return verifier.verify(
-    { key: publicKey, dsaEncoding: "ieee-p1363" },
-    signatureBytes,
-  );
+  return verifier.verify({ key: publicKey, dsaEncoding: "ieee-p1363" }, signatureBytes);
 }

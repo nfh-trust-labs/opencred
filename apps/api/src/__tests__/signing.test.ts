@@ -13,23 +13,39 @@ const logger = makeTestLogger();
 
 const issuerKeyPair = generateKeyPairSync("ec", { namedCurve: "P-256" });
 const issuerPublicJwk = issuerKeyPair.publicKey.export({ format: "jwk" }) as {
-  kty: string; crv: string; x: string; y: string;
+  kty: string;
+  crv: string;
+  x: string;
+  y: string;
 };
 const wrongKeyPair = generateKeyPairSync("ec", { namedCurve: "P-256" });
 
-interface ErrorBody { error: { code: string; message: string; validationErrors?: unknown[] } }
-interface BuildResponse { sessionId: string; unsignedCredential: Record<string, unknown>; dataToSign: string; proofConfig: Record<string, unknown> }
-interface PackageResponse { credential: Record<string, unknown> & { proof: Record<string, unknown> }; formats: { jsonld: Record<string, unknown> } }
+interface ErrorBody {
+  error: { code: string; message: string; validationErrors?: unknown[] };
+}
+interface BuildResponse {
+  sessionId: string;
+  unsignedCredential: Record<string, unknown>;
+  dataToSign: string;
+  proofConfig: Record<string, unknown>;
+}
+interface PackageResponse {
+  credential: Record<string, unknown> & { proof: Record<string, unknown> };
+  formats: { jsonld: Record<string, unknown> };
+}
 
 let sessionStore: TTLStore<SigningSession>;
 
 function createTestApp(store?: TTLStore<SigningSession>) {
   const ss = store ?? sessionStore;
   const app = new Hono();
-  app.use("/vc/*", authMiddleware(
-    { verificationKey: TEST_SECRET, issuer: "opencred", algorithms: ["HS256"] },
-    "credentials:write",
-  ));
+  app.use(
+    "/vc/*",
+    authMiddleware(
+      { verificationKey: TEST_SECRET, issuer: "opencred", algorithms: ["HS256"] },
+      "credentials:write",
+    ),
+  );
   app.route("/vc", createSigningRoutes({ sessionStore: ss }));
   app.onError(errorHandler(logger));
   return app;
@@ -37,8 +53,13 @@ function createTestApp(store?: TTLStore<SigningSession>) {
 
 async function makeToken(scope: string[] = ["credentials:write"]) {
   return createCapabilityToken({
-    subject: "issuer-1", issuer: "opencred", expiresInSeconds: 3600,
-    scope, namespace: "default", signingKey: TEST_SECRET, algorithm: "HS256",
+    subject: "issuer-1",
+    issuer: "opencred",
+    expiresInSeconds: 3600,
+    scope,
+    namespace: "default",
+    signingKey: TEST_SECRET,
+    algorithm: "HS256",
   });
 }
 
@@ -48,8 +69,10 @@ function validBuildPayload(overrides: Record<string, unknown> = {}) {
     issuer: "did:web:university.example",
     publicKey: issuerPublicJwk,
     credentialSubject: {
-      name: "Jane Doe", degree: "BSc Computer Science",
-      institution: "Test University", dateConferred: "2025-06-15",
+      name: "Jane Doe",
+      degree: "BSc Computer Science",
+      institution: "Test University",
+      dateConferred: "2025-06-15",
     },
     validFrom: "2025-07-01T00:00:00Z",
     ...overrides,
@@ -65,7 +88,8 @@ function signDataToSign(dataToSignB64: string, privateKey = issuerKeyPair.privat
 }
 
 async function doBuild(
-  app: ReturnType<typeof createTestApp>, token: string,
+  app: ReturnType<typeof createTestApp>,
+  token: string,
   payload: Record<string, unknown> = validBuildPayload(),
 ): Promise<{ res: Response; body: BuildResponse }> {
   const res = await app.request("/vc/build", {
@@ -77,14 +101,19 @@ async function doBuild(
   return { res, body };
 }
 
-beforeEach(() => { sessionStore = new TTLStore<SigningSession>(60_000, 600_000); });
-afterEach(() => { sessionStore.destroy(); });
+beforeEach(() => {
+  sessionStore = new TTLStore<SigningSession>(60_000, 600_000);
+});
+afterEach(() => {
+  sessionStore.destroy();
+});
 
 describe("POST /build (interface signing step 1)", () => {
   it("returns 401 without auth token", async () => {
     const app = createTestApp();
     const res = await app.request("/vc/build", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(validBuildPayload()),
     });
     expect(res.status).toBe(401);
@@ -92,9 +121,13 @@ describe("POST /build (interface signing step 1)", () => {
 
   it("returns 403 with wrong scope", async () => {
     const token = await createCapabilityToken({
-      subject: "issuer-1", issuer: "opencred", expiresInSeconds: 3600,
-      scope: ["credentials:read"], namespace: "default",
-      signingKey: TEST_SECRET, algorithm: "HS256",
+      subject: "issuer-1",
+      issuer: "opencred",
+      expiresInSeconds: 3600,
+      scope: ["credentials:read"],
+      namespace: "default",
+      signingKey: TEST_SECRET,
+      algorithm: "HS256",
     });
     const app = createTestApp();
     const res = await app.request("/vc/build", {
@@ -127,9 +160,13 @@ describe("POST /build (interface signing step 1)", () => {
   it("uses custom verificationMethod when provided", async () => {
     const token = await makeToken();
     const app = createTestApp();
-    const { body } = await doBuild(app, token, validBuildPayload({
-      verificationMethod: "did:web:university.example#my-key",
-    }));
+    const { body } = await doBuild(
+      app,
+      token,
+      validBuildPayload({
+        verificationMethod: "did:web:university.example#my-key",
+      }),
+    );
     expect(body.proofConfig.verificationMethod).toBe("did:web:university.example#my-key");
   });
 
@@ -143,10 +180,18 @@ describe("POST /build (interface signing step 1)", () => {
   it("adds revocation status when revocationRegistryUrl is provided", async () => {
     const token = await makeToken();
     const app = createTestApp();
-    const { body } = await doBuild(app, token, validBuildPayload({
-      revocationRegistryUrl: "https://dedi.example/revocations/test",
-    }));
-    const status = body.unsignedCredential.credentialStatus as { id: string; type: string; statusPurpose: string };
+    const { body } = await doBuild(
+      app,
+      token,
+      validBuildPayload({
+        revocationRegistryUrl: "https://dedi.example/revocations/test",
+      }),
+    );
+    const status = body.unsignedCredential.credentialStatus as {
+      id: string;
+      type: string;
+      statusPurpose: string;
+    };
     expect(status.id).toBe("https://dedi.example/revocations/test");
     expect(status.type).toBe("DeDiRevocationListStatusV1");
     expect(status.statusPurpose).toBe("revocation");
@@ -155,7 +200,11 @@ describe("POST /build (interface signing step 1)", () => {
   it("adds validUntil when provided", async () => {
     const token = await makeToken();
     const app = createTestApp();
-    const { body } = await doBuild(app, token, validBuildPayload({ validUntil: "2027-07-01T00:00:00Z" }));
+    const { body } = await doBuild(
+      app,
+      token,
+      validBuildPayload({ validUntil: "2027-07-01T00:00:00Z" }),
+    );
     expect(body.unsignedCredential.validUntil).toBe("2027-07-01T00:00:00Z");
   });
 
@@ -200,7 +249,9 @@ describe("POST /build (interface signing step 1)", () => {
     const res = await app.request("/vc/build", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(validBuildPayload({ revocationRegistryUrl: "http://not-secure.example/r" })),
+      body: JSON.stringify(
+        validBuildPayload({ revocationRegistryUrl: "http://not-secure.example/r" }),
+      ),
     });
     expect(res.status).toBe(400);
     const body = (await res.json()) as ErrorBody;
@@ -237,7 +288,9 @@ describe("POST /build (interface signing step 1)", () => {
     const res = await app.request("/vc/build", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(validBuildPayload({ publicKey: { kty: "EC", crv: "P-384", x: "abc", y: "def" } })),
+      body: JSON.stringify(
+        validBuildPayload({ publicKey: { kty: "EC", crv: "P-384", x: "abc", y: "def" } }),
+      ),
     });
     expect(res.status).toBe(400);
   });
@@ -247,8 +300,12 @@ describe("POST /package (interface signing step 2)", () => {
   it("returns 401 without auth token", async () => {
     const app = createTestApp();
     const res = await app.request("/vc/package", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: "00000000-0000-0000-0000-000000000000", signature: "test" }),
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "00000000-0000-0000-0000-000000000000",
+        signature: "test",
+      }),
     });
     expect(res.status).toBe(401);
   });
@@ -259,7 +316,10 @@ describe("POST /package (interface signing step 2)", () => {
     const res = await app.request("/vc/package", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ sessionId: "00000000-0000-0000-0000-000000000000", signature: "AAAA" }),
+      body: JSON.stringify({
+        sessionId: "00000000-0000-0000-0000-000000000000",
+        signature: "AAAA",
+      }),
     });
     expect(res.status).toBe(410);
     const body = (await res.json()) as ErrorBody;
@@ -377,10 +437,14 @@ describe("Full round-trip: build -> sign -> package", () => {
   it("works with revocationRegistryUrl and validUntil", async () => {
     const token = await makeToken();
     const app = createTestApp();
-    const { body: buildBody } = await doBuild(app, token, validBuildPayload({
-      revocationRegistryUrl: "https://dedi.example/revocations/test",
-      validUntil: "2027-07-01T00:00:00Z",
-    }));
+    const { body: buildBody } = await doBuild(
+      app,
+      token,
+      validBuildPayload({
+        revocationRegistryUrl: "https://dedi.example/revocations/test",
+        validUntil: "2027-07-01T00:00:00Z",
+      }),
+    );
     expect(buildBody.sessionId).toBeDefined();
     const sig = signDataToSign(buildBody.dataToSign);
     const packageRes = await app.request("/vc/package", {
@@ -405,8 +469,10 @@ describe("Full round-trip: build -> sign -> package", () => {
       issuer: "did:web:employer.example",
       publicKey: issuerPublicJwk,
       credentialSubject: {
-        name: "John Smith", employer: "Tech Corp",
-        position: "Engineer", startDate: "2024-01-15",
+        name: "John Smith",
+        employer: "Tech Corp",
+        position: "Engineer",
+        startDate: "2024-01-15",
       },
       validFrom: "2024-01-15T00:00:00Z",
     });

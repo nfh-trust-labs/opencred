@@ -3,7 +3,12 @@ import { cors } from "hono/cors";
 import type { EnvConfig } from "@opencred/shared";
 import { TTLStore } from "@opencred/state";
 import { createLogger, type Logger } from "./logger.js";
-import { authMiddleware, errorHandler, requestLogger, rateLimitMiddleware } from "./middleware/index.js";
+import {
+  authMiddleware,
+  errorHandler,
+  requestLogger,
+  rateLimitMiddleware,
+} from "./middleware/index.js";
 import { health } from "./routes/health.js";
 import { createSigningRoutes, type SigningSession } from "./routes/signing.js";
 
@@ -25,7 +30,12 @@ export function createApp(deps: AppDependencies) {
       origin: config.CORS_ORIGIN,
       allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       allowHeaders: ["Content-Type", "Authorization"],
-      exposeHeaders: ["X-Request-Id", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+      exposeHeaders: [
+        "X-Request-Id",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+      ],
       maxAge: 86400,
       credentials: true,
     }),
@@ -35,10 +45,13 @@ export function createApp(deps: AppDependencies) {
   app.use("/*", requestLogger(logger));
 
   // Global rate limit
-  app.use("/*", rateLimitMiddleware({
-    windowMs: 60_000,
-    maxRequests: 100,
-  }));
+  app.use(
+    "/*",
+    rateLimitMiddleware({
+      windowMs: 60_000,
+      maxRequests: 100,
+    }),
+  );
 
   // Health check (before auth — unauthenticated)
   app.route("/", health);
@@ -48,10 +61,9 @@ export function createApp(deps: AppDependencies) {
     const authKey = new TextEncoder().encode(config.JWT_SECRET);
 
     // Interface Signing — build + package (requires write scope)
-    const sessionStore = deps.signingSessionStore ?? new TTLStore<SigningSession>(
-      config.SESSION_TTL_MS,
-      config.SESSION_SWEEP_INTERVAL_MS,
-    );
+    const sessionStore =
+      deps.signingSessionStore ??
+      new TTLStore<SigningSession>(config.SESSION_TTL_MS, config.SESSION_SWEEP_INTERVAL_MS);
     app.use(
       "/credentials/build",
       authMiddleware({ verificationKey: authKey, issuer: config.JWT_ISSUER }, "credentials:write"),
