@@ -186,7 +186,9 @@ This enables bootstrapping: an issuer without traditional PKI infrastructure can
 
 OpenCred supports three flows for sourcing the signing key. The core design constraint is that **OpenCred never receives or stores issuer private keys**. In Local Signing and Interface Signing the issuer's private key never leaves the issuer's control; in Delegated Signing, OpenCred signs with its own key under an explicit delegation certificate from the issuer.
 
-OpenCred v1 standardises on **W3C VC Data Integrity** proofs for VC signatures. JOSE/COSE-based VC proofs are out of scope for v1. **JCS** is used only for DeDi revocation hash computation (Section 7), not for VC proof signing.
+OpenCred's **first implementation** standardises on the [W3C Verifiable Credentials Data Integrity 1.0](https://www.w3.org/TR/vc-data-integrity/) proof format for VC signatures. The [W3C Verifiable Credentials Data Model 2.0](https://www.w3.org/TR/vc-data-model-2.0/) remains the core data model, while JWT/JOSE, SD-JWT VC, and OpenID4VCI are deferred to later implementations (see [W3C VC JOSE/COSE](https://www.w3.org/TR/vc-jose-cose/), [IETF SD-JWT VC draft](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/), and [OpenID4VCI 1.0](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0-final.html)).
+
+This sequencing is intentional: v1 focuses on a single JSON-LD credential representation and one proof-verification path, which keeps issuance, delegated signing, revocation hashing, and verifier behavior simpler while avoiding wallet and protocol complexity (for example, format negotiation, holder binding, and OpenID4VCI issuance flows). This reduces implementation and interoperability risk for a minimalist service and preserves a clean upgrade path to JWT/SD-JWT/OpenID4VCI in later releases. **JCS** is used only for DeDi revocation hash computation (Section 7), not for VC proof signing.
 
 ### 5.1 Local Signing (Desktop Client Only)
 
@@ -966,6 +968,8 @@ curl -X POST https://opencred.example/credentials/revoke/batch \
 | W3C Bitstring Status List v1.0 | https://www.w3.org/TR/vc-bitstring-status-list/ |
 | W3C VC Data Integrity 1.0 | https://www.w3.org/TR/vc-data-integrity/ |
 | W3C Securing VCs using JOSE and COSE | https://www.w3.org/TR/vc-jose-cose/ |
+| IETF SD-JWT VC Draft | https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/ |
+| OpenID4VCI 1.0 | https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0-final.html |
 | did:web Method Specification | https://w3c-ccg.github.io/did-method-web/ |
 | did:key Method v0.9 | https://w3c-ccg.github.io/did-key-spec/ |
 | W3C DID Resolution v0.3 | https://www.w3.org/TR/did-resolution/ |
