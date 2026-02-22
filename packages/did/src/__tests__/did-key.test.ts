@@ -11,9 +11,7 @@ function createP256DID(): { did: string; compressedKey: Uint8Array } {
   ecdh.generateKeys();
   const compressedKey = ecdh.getPublicKey(null, "compressed");
 
-  const multicodecKey = new Uint8Array(
-    P256_MULTICODEC_VARINT.length + compressedKey.length,
-  );
+  const multicodecKey = new Uint8Array(P256_MULTICODEC_VARINT.length + compressedKey.length);
   multicodecKey.set(P256_MULTICODEC_VARINT, 0);
   multicodecKey.set(compressedKey, P256_MULTICODEC_VARINT.length);
 
@@ -30,9 +28,7 @@ describe("DIDKeyResolver", () => {
 
     expect(result.didDocument).not.toBeNull();
     expect(result.didDocument!.id).toBe(did);
-    expect(result.didDocument!["@context"]).toContain(
-      "https://www.w3.org/ns/did/v1",
-    );
+    expect(result.didDocument!["@context"]).toContain("https://www.w3.org/ns/did/v1");
     expect(result.didDocument!.verificationMethod).toHaveLength(1);
 
     const vm = result.didDocument!.verificationMethod![0];
@@ -58,9 +54,7 @@ describe("DIDKeyResolver", () => {
     const { did } = createP256DID();
     const result = await resolver.resolve(did);
 
-    expect(result.didResolutionMetadata.contentType).toBe(
-      "application/did+ld+json",
-    );
+    expect(result.didResolutionMetadata.contentType).toBe("application/did+ld+json");
     expect(result.didDocumentMetadata).toEqual({});
   });
 
@@ -78,27 +72,21 @@ describe("DIDKeyResolver", () => {
   });
 
   it("should reject a malformed DID (missing parts)", async () => {
-    await expect(resolver.resolve("did:key")).rejects.toThrow(
-      DIDResolutionError,
-    );
+    await expect(resolver.resolve("did:key")).rejects.toThrow(DIDResolutionError);
   });
 
   it("should reject a malformed DID (no did: prefix)", async () => {
-    await expect(resolver.resolve("key:z1234")).rejects.toThrow(
-      DIDResolutionError,
-    );
+    await expect(resolver.resolve("key:z1234")).rejects.toThrow(DIDResolutionError);
   });
 
   it("should reject unsupported DID methods", async () => {
-    await expect(
-      resolver.resolve("did:web:example.com"),
-    ).rejects.toThrow("Unsupported DID method: web");
+    await expect(resolver.resolve("did:web:example.com")).rejects.toThrow(
+      "Unsupported DID method: web",
+    );
   });
 
   it("should reject non-base58btc multibase encoding", async () => {
-    await expect(
-      resolver.resolve("did:key:f01020304"),
-    ).rejects.toThrow("Only base58btc");
+    await expect(resolver.resolve("did:key:f01020304")).rejects.toThrow("Only base58btc");
   });
 
   it("should reject unsupported key types (non-P-256 multicodec)", async () => {
@@ -109,9 +97,7 @@ describe("DIDKeyResolver", () => {
     const multibase = "z" + encodeBase58btc(fakeKey);
     const did = `did:key:${multibase}`;
 
-    await expect(resolver.resolve(did)).rejects.toThrow(
-      "Unsupported key type",
-    );
+    await expect(resolver.resolve(did)).rejects.toThrow("Unsupported key type");
   });
 
   it("should reject P-256 key with invalid length", async () => {
@@ -134,9 +120,7 @@ describe("DIDKeyResolver", () => {
     const multibase = "z" + encodeBase58btc(badKey);
     const did = `did:key:${multibase}`;
 
-    await expect(resolver.resolve(did)).rejects.toThrow(
-      "Invalid P-256 compressed key",
-    );
+    await expect(resolver.resolve(did)).rejects.toThrow("Invalid P-256 compressed key");
   });
 
   it("should reject empty DID string", async () => {
@@ -144,11 +128,9 @@ describe("DIDKeyResolver", () => {
   });
 
   it("should reject null/undefined DID", async () => {
-    await expect(
-      resolver.resolve(null as unknown as string),
-    ).rejects.toThrow(DIDResolutionError);
-    await expect(
-      resolver.resolve(undefined as unknown as string),
-    ).rejects.toThrow(DIDResolutionError);
+    await expect(resolver.resolve(null as unknown as string)).rejects.toThrow(DIDResolutionError);
+    await expect(resolver.resolve(undefined as unknown as string)).rejects.toThrow(
+      DIDResolutionError,
+    );
   });
 });

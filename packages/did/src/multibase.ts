@@ -1,5 +1,4 @@
-const BASE58_ALPHABET =
-  "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 const ALPHABET_MAP = new Map<string, number>();
 for (let i = 0; i < BASE58_ALPHABET.length; i++) {

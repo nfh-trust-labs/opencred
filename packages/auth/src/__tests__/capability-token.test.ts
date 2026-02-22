@@ -1,10 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { randomBytes } from "node:crypto";
-import {
-  createCapabilityToken,
-  validateCapabilityToken,
-  checkScope,
-} from "../capability-token.js";
+import { createCapabilityToken, validateCapabilityToken, checkScope } from "../capability-token.js";
 import { ValidationError } from "@opencred/shared";
 
 describe("Capability Tokens", () => {

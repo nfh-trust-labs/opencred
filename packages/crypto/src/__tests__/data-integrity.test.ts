@@ -87,9 +87,7 @@ describe("signCredential / verifyProof — full round-trip", () => {
 
     expect(signedVC.proof.created).toBeDefined();
     // Should be a valid ISO 8601 date
-    expect(new Date(signedVC.proof.created).toISOString()).toBe(
-      signedVC.proof.created
-    );
+    expect(new Date(signedVC.proof.created).toISOString()).toBe(signedVC.proof.created);
   });
 });
 
@@ -136,9 +134,7 @@ describe("prepareProof / completeProof — two-phase round-trip", () => {
       proofPurpose: "assertionMethod",
     };
 
-    expect(() =>
-      completeProof(unsignedVC, proofConfig, new Uint8Array(32))
-    ).toThrow(CryptoError);
+    expect(() => completeProof(unsignedVC, proofConfig, new Uint8Array(32))).toThrow(CryptoError);
   });
 });
 
@@ -233,7 +229,7 @@ describe("prepareProof — validation", () => {
       prepareProof(unsignedVC, {
         verificationMethod: "",
         proofPurpose: "assertionMethod",
-      })
+      }),
     ).rejects.toThrow(CryptoError);
   });
 
@@ -243,7 +239,7 @@ describe("prepareProof — validation", () => {
       prepareProof(unsignedVC, {
         verificationMethod: "did:web:example#key-1",
         proofPurpose: "",
-      })
+      }),
     ).rejects.toThrow(CryptoError);
   });
 });
@@ -255,9 +251,9 @@ describe("signCredential — validation", () => {
     // Tamper the algorithm
     const badKey = { ...signingKey, algorithm: "P-384" as const } as unknown as SigningKey;
 
-    await expect(
-      signCredential(unsignedVC, badKey, defaultProofOptions)
-    ).rejects.toThrow(CryptoError);
+    await expect(signCredential(unsignedVC, badKey, defaultProofOptions)).rejects.toThrow(
+      CryptoError,
+    );
   });
 });
 

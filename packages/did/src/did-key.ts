@@ -24,9 +24,7 @@ export class DIDKeyResolver implements DIDResolver {
 
     const multibaseKey = parts[2];
     if (!multibaseKey || !multibaseKey.startsWith("z")) {
-      throw new DIDResolutionError(
-        "Only base58btc (z prefix) multibase encoding is supported",
-      );
+      throw new DIDResolutionError("Only base58btc (z prefix) multibase encoding is supported");
     }
 
     let decoded: Uint8Array;
@@ -41,9 +39,7 @@ export class DIDKeyResolver implements DIDResolver {
       decoded[0] !== P256_MULTICODEC_VARINT_0 ||
       decoded[1] !== P256_MULTICODEC_VARINT_1
     ) {
-      throw new DIDResolutionError(
-        "Unsupported key type: only P-256 keys are supported",
-      );
+      throw new DIDResolutionError("Unsupported key type: only P-256 keys are supported");
     }
 
     const publicKeyBytes = decoded.slice(2);
@@ -54,9 +50,7 @@ export class DIDKeyResolver implements DIDResolver {
     }
 
     if (publicKeyBytes[0] !== 0x02 && publicKeyBytes[0] !== 0x03) {
-      throw new DIDResolutionError(
-        "Invalid P-256 compressed key: must start with 0x02 or 0x03",
-      );
+      throw new DIDResolutionError("Invalid P-256 compressed key: must start with 0x02 or 0x03");
     }
 
     const verificationMethodId = `${did}#${multibaseKey}`;
@@ -69,10 +63,7 @@ export class DIDKeyResolver implements DIDResolver {
     };
 
     const didDocument: DIDDocument = {
-      "@context": [
-        "https://www.w3.org/ns/did/v1",
-        "https://w3id.org/security/multikey/v1",
-      ],
+      "@context": ["https://www.w3.org/ns/did/v1", "https://w3id.org/security/multikey/v1"],
       id: did,
       verificationMethod: [verificationMethod],
       authentication: [verificationMethodId],

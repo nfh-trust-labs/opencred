@@ -4,8 +4,4 @@ export type {
   TokenValidationOptions,
   TokenValidationResult,
 } from "./types.js";
-export {
-  createCapabilityToken,
-  validateCapabilityToken,
-  checkScope,
-} from "./capability-token.js";
+export { createCapabilityToken, validateCapabilityToken, checkScope } from "./capability-token.js";

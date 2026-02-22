@@ -34,7 +34,7 @@ export function createDocumentLoader() {
     if (!document) {
       throw new Error(
         `Refusing to fetch remote JSON-LD context: ${url}. ` +
-          "Only bundled contexts are allowed in production."
+          "Only bundled contexts are allowed in production.",
       );
     }
     return {

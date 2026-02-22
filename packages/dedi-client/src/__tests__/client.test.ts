@@ -42,9 +42,7 @@ describe("DeDiClient", () => {
 
   describe("publishRevocationHash", () => {
     it("POSTs a revocation hash", async () => {
-      mockFetch.mockResolvedValue(
-        new Response(JSON.stringify(mockRevocation), { status: 200 }),
-      );
+      mockFetch.mockResolvedValue(new Response(JSON.stringify(mockRevocation), { status: 200 }));
 
       const client = createClient();
       const result = await client.publishRevocationHash("abc123");
@@ -62,9 +60,7 @@ describe("DeDiClient", () => {
 
   describe("queryRevocationHash", () => {
     it("GETs a revocation status", async () => {
-      mockFetch.mockResolvedValue(
-        new Response(JSON.stringify(mockRevocation), { status: 200 }),
-      );
+      mockFetch.mockResolvedValue(new Response(JSON.stringify(mockRevocation), { status: 200 }));
 
       const client = createClient();
       const result = await client.queryRevocationHash("abc123");
@@ -79,9 +75,7 @@ describe("DeDiClient", () => {
 
   describe("resolveDID", () => {
     it("GETs a DID document", async () => {
-      mockFetch.mockResolvedValue(
-        new Response(JSON.stringify(mockDID), { status: 200 }),
-      );
+      mockFetch.mockResolvedValue(new Response(JSON.stringify(mockDID), { status: 200 }));
 
       const client = createClient();
       const result = await client.resolveDID("did:key:z6Mk...");
@@ -96,9 +90,7 @@ describe("DeDiClient", () => {
 
   describe("registerDelegation", () => {
     it("POSTs a delegation certificate", async () => {
-      mockFetch.mockResolvedValue(
-        new Response(JSON.stringify(mockDelegation), { status: 200 }),
-      );
+      mockFetch.mockResolvedValue(new Response(JSON.stringify(mockDelegation), { status: 200 }));
 
       const client = createClient();
       const delegation = { issuerDid: "did:key:issuer", scope: ["issue"] };
@@ -117,9 +109,7 @@ describe("DeDiClient", () => {
 
   describe("resolveDelegation", () => {
     it("GETs a delegation record", async () => {
-      mockFetch.mockResolvedValue(
-        new Response(JSON.stringify(mockDelegation), { status: 200 }),
-      );
+      mockFetch.mockResolvedValue(new Response(JSON.stringify(mockDelegation), { status: 200 }));
 
       const client = createClient();
       const result = await client.resolveDelegation("del-1");
@@ -139,25 +129,17 @@ describe("DeDiClient", () => {
       );
 
       const client = createClient();
-      await expect(client.queryRevocationHash("missing")).rejects.toThrow(
-        DeDiClientError,
-      );
-      await expect(
-        client.queryRevocationHash("missing"),
-      ).rejects.toMatchObject({
+      await expect(client.queryRevocationHash("missing")).rejects.toThrow(DeDiClientError);
+      await expect(client.queryRevocationHash("missing")).rejects.toMatchObject({
         statusCode: 404,
       });
     });
 
     it("throws DeDiClientError with 502 on 5xx response", async () => {
-      mockFetch.mockResolvedValue(
-        new Response("Internal Server Error", { status: 500 }),
-      );
+      mockFetch.mockResolvedValue(new Response("Internal Server Error", { status: 500 }));
 
       const client = createClient();
-      await expect(client.resolveDID("did:key:abc")).rejects.toThrow(
-        DeDiClientError,
-      );
+      await expect(client.resolveDID("did:key:abc")).rejects.toThrow(DeDiClientError);
       await expect(client.resolveDID("did:key:abc")).rejects.toMatchObject({
         statusCode: 502,
       });
@@ -167,12 +149,8 @@ describe("DeDiClient", () => {
       mockFetch.mockRejectedValue(new TypeError("fetch failed"));
 
       const client = createClient();
-      await expect(client.resolveDID("did:key:abc")).rejects.toThrow(
-        DeDiClientError,
-      );
-      await expect(client.resolveDID("did:key:abc")).rejects.toThrow(
-        "DeDi API network error",
-      );
+      await expect(client.resolveDID("did:key:abc")).rejects.toThrow(DeDiClientError);
+      await expect(client.resolveDID("did:key:abc")).rejects.toThrow("DeDi API network error");
     });
 
     it("throws DeDiClientError on timeout", async () => {
@@ -203,12 +181,8 @@ describe("DeDiClient", () => {
   describe("retry + circuit breaker integration", () => {
     it("retries on transient errors and succeeds", async () => {
       mockFetch
-        .mockResolvedValueOnce(
-          new Response("error", { status: 500 }),
-        )
-        .mockResolvedValue(
-          new Response(JSON.stringify(mockRevocation), { status: 200 }),
-        );
+        .mockResolvedValueOnce(new Response("error", { status: 500 }))
+        .mockResolvedValue(new Response(JSON.stringify(mockRevocation), { status: 200 }));
 
       vi.useFakeTimers();
       const client = new DeDiClient({
@@ -228,9 +202,7 @@ describe("DeDiClient", () => {
     });
 
     it("opens circuit breaker after repeated failures", async () => {
-      mockFetch.mockResolvedValue(
-        new Response("error", { status: 500 }),
-      );
+      mockFetch.mockResolvedValue(new Response("error", { status: 500 }));
 
       const client = new DeDiClient({
         baseUrl: "https://dedi.example.com/api",
@@ -239,17 +211,11 @@ describe("DeDiClient", () => {
         circuitBreakerThreshold: 2,
       });
 
-      await expect(client.resolveDID("did:key:a")).rejects.toThrow(
-        DeDiClientError,
-      );
-      await expect(client.resolveDID("did:key:b")).rejects.toThrow(
-        DeDiClientError,
-      );
+      await expect(client.resolveDID("did:key:a")).rejects.toThrow(DeDiClientError);
+      await expect(client.resolveDID("did:key:b")).rejects.toThrow(DeDiClientError);
       // Circuit is now open — should reject without calling fetch
       const callCount = mockFetch.mock.calls.length;
-      await expect(client.resolveDID("did:key:c")).rejects.toThrow(
-        "Circuit breaker is open",
-      );
+      await expect(client.resolveDID("did:key:c")).rejects.toThrow("Circuit breaker is open");
       expect(mockFetch).toHaveBeenCalledTimes(callCount);
     });
   });

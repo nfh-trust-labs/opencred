@@ -1,10 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ValidationError } from "@opencred/shared";
 import { CredentialBuilder } from "../credential-builder.js";
-import {
-  W3C_CREDENTIALS_V2_CONTEXT,
-  DATA_INTEGRITY_V1_CONTEXT,
-} from "../types.js";
+import { W3C_CREDENTIALS_V2_CONTEXT, DATA_INTEGRITY_V1_CONTEXT } from "../types.js";
 import { createDocumentLoader, getBundledContextUrls } from "../document-loader.js";
 
 describe("CredentialBuilder", () => {
@@ -51,7 +48,7 @@ describe("CredentialBuilder", () => {
       const vc = buildMinimalCredential();
 
       expect(vc.id).toMatch(
-        /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+        /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
       );
     });
 
@@ -129,10 +126,7 @@ describe("CredentialBuilder", () => {
         .addContext(DATA_INTEGRITY_V1_CONTEXT)
         .build();
 
-      expect(vc["@context"]).toEqual([
-        W3C_CREDENTIALS_V2_CONTEXT,
-        DATA_INTEGRITY_V1_CONTEXT,
-      ]);
+      expect(vc["@context"]).toEqual([W3C_CREDENTIALS_V2_CONTEXT, DATA_INTEGRITY_V1_CONTEXT]);
     });
 
     it("should not duplicate the base credentials/v2 context", () => {
@@ -143,9 +137,7 @@ describe("CredentialBuilder", () => {
         .addContext(W3C_CREDENTIALS_V2_CONTEXT)
         .build();
 
-      const contextCount = vc["@context"].filter(
-        (c) => c === W3C_CREDENTIALS_V2_CONTEXT
-      ).length;
+      const contextCount = vc["@context"].filter((c) => c === W3C_CREDENTIALS_V2_CONTEXT).length;
       expect(contextCount).toBe(1);
     });
 
@@ -176,10 +168,7 @@ describe("CredentialBuilder", () => {
         .addType("UniversityDegreeCredential")
         .build();
 
-      expect(vc.type).toEqual([
-        "VerifiableCredential",
-        "UniversityDegreeCredential",
-      ]);
+      expect(vc.type).toEqual(["VerifiableCredential", "UniversityDegreeCredential"]);
     });
   });
 
@@ -246,7 +235,7 @@ describe("CredentialBuilder", () => {
             type: "DeDiRevocationListStatusV1",
             statusPurpose: "revocation",
           })
-          .build()
+          .build(),
       ).toThrow(ValidationError);
     });
 
@@ -261,7 +250,7 @@ describe("CredentialBuilder", () => {
             type: "DeDiRevocationListStatusV1",
             statusPurpose: "revocation",
           })
-          .build()
+          .build(),
       ).toThrow(/must use HTTPS/);
     });
 
@@ -276,7 +265,7 @@ describe("CredentialBuilder", () => {
             type: "DeDiRevocationListStatusV1",
             statusPurpose: "revocation",
           })
-          .build()
+          .build(),
       ).toThrow(ValidationError);
     });
 
@@ -291,7 +280,7 @@ describe("CredentialBuilder", () => {
             type: "DeDiRevocationListStatusV1",
             statusPurpose: "revocation",
           })
-          .build()
+          .build(),
       ).toThrow(/Invalid revocation registry URL/);
     });
   });
@@ -299,28 +288,19 @@ describe("CredentialBuilder", () => {
   describe("validation errors", () => {
     it("should throw when issuer is missing", () => {
       expect(() =>
-        new CredentialBuilder()
-          .setCredentialSubject(validSubject)
-          .setValidFrom(validFrom)
-          .build()
+        new CredentialBuilder().setCredentialSubject(validSubject).setValidFrom(validFrom).build(),
       ).toThrow(ValidationError);
     });
 
     it("should throw when credentialSubject is missing", () => {
       expect(() =>
-        new CredentialBuilder()
-          .setIssuer(validIssuer)
-          .setValidFrom(validFrom)
-          .build()
+        new CredentialBuilder().setIssuer(validIssuer).setValidFrom(validFrom).build(),
       ).toThrow(ValidationError);
     });
 
     it("should throw when validFrom is missing", () => {
       expect(() =>
-        new CredentialBuilder()
-          .setIssuer(validIssuer)
-          .setCredentialSubject(validSubject)
-          .build()
+        new CredentialBuilder().setIssuer(validIssuer).setCredentialSubject(validSubject).build(),
       ).toThrow(ValidationError);
     });
 
@@ -330,7 +310,7 @@ describe("CredentialBuilder", () => {
           .setIssuer(validIssuer)
           .setCredentialSubject(validSubject)
           .setValidFrom("not-a-date")
-          .build()
+          .build(),
       ).toThrow(ValidationError);
     });
 
@@ -341,7 +321,7 @@ describe("CredentialBuilder", () => {
           .setCredentialSubject(validSubject)
           .setValidFrom(validFrom)
           .setValidUntil("not-a-date")
-          .build()
+          .build(),
       ).toThrow(ValidationError);
     });
 
@@ -352,7 +332,7 @@ describe("CredentialBuilder", () => {
           .setCredentialSubject(validSubject)
           .setValidFrom("2027-01-01T00:00:00Z")
           .setValidUntil("2026-01-01T00:00:00Z")
-          .build()
+          .build(),
       ).toThrow(ValidationError);
     });
 
@@ -363,7 +343,7 @@ describe("CredentialBuilder", () => {
           .setCredentialSubject(validSubject)
           .setValidFrom(validFrom)
           .setValidUntil(validFrom)
-          .build()
+          .build(),
       ).toThrow(ValidationError);
     });
 
@@ -373,7 +353,7 @@ describe("CredentialBuilder", () => {
           .setIssuer("")
           .setCredentialSubject(validSubject)
           .setValidFrom(validFrom)
-          .build()
+          .build(),
       ).toThrow(ValidationError);
     });
 
@@ -383,7 +363,7 @@ describe("CredentialBuilder", () => {
           .setIssuer({ id: "", name: "Test" })
           .setCredentialSubject(validSubject)
           .setValidFrom(validFrom)
-          .build()
+          .build(),
       ).toThrow(ValidationError);
     });
   });
@@ -491,7 +471,7 @@ describe("Document Loader", () => {
     const loader = createDocumentLoader();
 
     expect(() => loader("https://malicious.example/context")).toThrow(
-      /Refusing to fetch remote JSON-LD context/
+      /Refusing to fetch remote JSON-LD context/,
     );
   });
 

@@ -44,9 +44,7 @@ describe("jcsCanonicalize (RFC 8785)", () => {
   });
 
   it("should handle boolean values", () => {
-    expect(jcsCanonicalize({ t: true, f: false })).toBe(
-      '{"f":false,"t":true}'
-    );
+    expect(jcsCanonicalize({ t: true, f: false })).toBe('{"f":false,"t":true}');
   });
 
   it("should handle string escaping", () => {
@@ -80,8 +78,6 @@ describe("computeRevocationHash", () => {
   });
 
   it("should produce different hash for different input", () => {
-    expect(computeRevocationHash({ a: 1 })).not.toBe(
-      computeRevocationHash({ a: 2 })
-    );
+    expect(computeRevocationHash({ a: 1 })).not.toBe(computeRevocationHash({ a: 2 }));
   });
 });

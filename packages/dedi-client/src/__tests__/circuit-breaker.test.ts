@@ -28,9 +28,7 @@ describe("CircuitBreaker", () => {
     const cb = new CircuitBreaker({ threshold: 3 });
 
     for (let i = 0; i < 3; i++) {
-      await expect(
-        cb.execute(() => Promise.reject(new Error("fail"))),
-      ).rejects.toThrow("fail");
+      await expect(cb.execute(() => Promise.reject(new Error("fail")))).rejects.toThrow("fail");
     }
 
     expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
@@ -39,25 +37,19 @@ describe("CircuitBreaker", () => {
   it("rejects immediately when OPEN", async () => {
     const cb = new CircuitBreaker({ threshold: 1 });
 
-    await expect(
-      cb.execute(() => Promise.reject(new Error("fail"))),
-    ).rejects.toThrow("fail");
+    await expect(cb.execute(() => Promise.reject(new Error("fail")))).rejects.toThrow("fail");
     expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
 
-    await expect(
-      cb.execute(() => Promise.resolve("ok")),
-    ).rejects.toThrow(DeDiClientError);
-    await expect(
-      cb.execute(() => Promise.resolve("ok")),
-    ).rejects.toThrow("Circuit breaker is open");
+    await expect(cb.execute(() => Promise.resolve("ok"))).rejects.toThrow(DeDiClientError);
+    await expect(cb.execute(() => Promise.resolve("ok"))).rejects.toThrow(
+      "Circuit breaker is open",
+    );
   });
 
   it("transitions OPEN → HALF_OPEN after reset timeout", async () => {
     const cb = new CircuitBreaker({ threshold: 1, resetTimeoutMs: 5000 });
 
-    await expect(
-      cb.execute(() => Promise.reject(new Error("fail"))),
-    ).rejects.toThrow();
+    await expect(cb.execute(() => Promise.reject(new Error("fail")))).rejects.toThrow();
     expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
 
     vi.advanceTimersByTime(5000);
@@ -70,9 +62,7 @@ describe("CircuitBreaker", () => {
   it("transitions HALF_OPEN → CLOSED on success", async () => {
     const cb = new CircuitBreaker({ threshold: 1, resetTimeoutMs: 1000 });
 
-    await expect(
-      cb.execute(() => Promise.reject(new Error("fail"))),
-    ).rejects.toThrow();
+    await expect(cb.execute(() => Promise.reject(new Error("fail")))).rejects.toThrow();
 
     vi.advanceTimersByTime(1000);
 
@@ -86,18 +76,16 @@ describe("CircuitBreaker", () => {
 
     // Trigger OPEN state
     for (let i = 0; i < 2; i++) {
-      await expect(
-        cb.execute(() => Promise.reject(new Error("fail"))),
-      ).rejects.toThrow();
+      await expect(cb.execute(() => Promise.reject(new Error("fail")))).rejects.toThrow();
     }
     expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
 
     vi.advanceTimersByTime(1000);
 
     // This should trigger HALF_OPEN, then failure should send it back to OPEN
-    await expect(
-      cb.execute(() => Promise.reject(new Error("still failing"))),
-    ).rejects.toThrow("still failing");
+    await expect(cb.execute(() => Promise.reject(new Error("still failing")))).rejects.toThrow(
+      "still failing",
+    );
     expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
   });
 
@@ -105,21 +93,13 @@ describe("CircuitBreaker", () => {
     const cb = new CircuitBreaker({ threshold: 3 });
 
     // Two failures, then a success
-    await expect(
-      cb.execute(() => Promise.reject(new Error("fail"))),
-    ).rejects.toThrow();
-    await expect(
-      cb.execute(() => Promise.reject(new Error("fail"))),
-    ).rejects.toThrow();
+    await expect(cb.execute(() => Promise.reject(new Error("fail")))).rejects.toThrow();
+    await expect(cb.execute(() => Promise.reject(new Error("fail")))).rejects.toThrow();
     await cb.execute(() => Promise.resolve("ok"));
 
     // Two more failures should not open circuit (count was reset)
-    await expect(
-      cb.execute(() => Promise.reject(new Error("fail"))),
-    ).rejects.toThrow();
-    await expect(
-      cb.execute(() => Promise.reject(new Error("fail"))),
-    ).rejects.toThrow();
+    await expect(cb.execute(() => Promise.reject(new Error("fail")))).rejects.toThrow();
+    await expect(cb.execute(() => Promise.reject(new Error("fail")))).rejects.toThrow();
     expect(cb.getState()).toBe(CircuitBreakerState.CLOSED);
   });
 });

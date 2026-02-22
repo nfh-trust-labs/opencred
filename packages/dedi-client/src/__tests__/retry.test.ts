@@ -73,32 +73,21 @@ describe("withRetry", () => {
   });
 
   it("does NOT retry on 4xx errors", async () => {
-    const fn = vi
-      .fn()
-      .mockRejectedValue(new DeDiClientError("not found", 404));
+    const fn = vi.fn().mockRejectedValue(new DeDiClientError("not found", 404));
 
-    await expect(
-      withRetry(fn, { maxRetries: 3, baseDelayMs: 100 }),
-    ).rejects.toThrow("not found");
+    await expect(withRetry(fn, { maxRetries: 3, baseDelayMs: 100 })).rejects.toThrow("not found");
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
   it("does NOT retry on 400 errors", async () => {
-    const fn = vi
-      .fn()
-      .mockRejectedValue(new DeDiClientError("bad request", 400));
+    const fn = vi.fn().mockRejectedValue(new DeDiClientError("bad request", 400));
 
-    await expect(
-      withRetry(fn, { maxRetries: 3, baseDelayMs: 100 }),
-    ).rejects.toThrow("bad request");
+    await expect(withRetry(fn, { maxRetries: 3, baseDelayMs: 100 })).rejects.toThrow("bad request");
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
   it("retries on network errors (non-DeDiClientError)", async () => {
-    const fn = vi
-      .fn()
-      .mockRejectedValueOnce(new TypeError("fetch failed"))
-      .mockResolvedValue("ok");
+    const fn = vi.fn().mockRejectedValueOnce(new TypeError("fetch failed")).mockResolvedValue("ok");
 
     const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
     await vi.advanceTimersByTimeAsync(100);

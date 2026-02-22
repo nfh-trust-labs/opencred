@@ -127,22 +127,16 @@ export class CredentialBuilder {
 
     // Validate validFrom is a parseable date
     if (isNaN(Date.parse(this._validFrom))) {
-      throw new ValidationError(
-        `Invalid validFrom date: ${this._validFrom}`
-      );
+      throw new ValidationError(`Invalid validFrom date: ${this._validFrom}`);
     }
 
     // Validate validUntil if provided
     if (this._validUntil) {
       if (isNaN(Date.parse(this._validUntil))) {
-        throw new ValidationError(
-          `Invalid validUntil date: ${this._validUntil}`
-        );
+        throw new ValidationError(`Invalid validUntil date: ${this._validUntil}`);
       }
       if (Date.parse(this._validUntil) <= Date.parse(this._validFrom)) {
-        throw new ValidationError(
-          "validUntil must be after validFrom"
-        );
+        throw new ValidationError("validUntil must be after validFrom");
       }
     }
 
@@ -193,14 +187,10 @@ function validateRevocationRegistryUrl(url: string): void {
   try {
     parsed = new URL(url);
   } catch {
-    throw new ValidationError(
-      `Invalid revocation registry URL: ${url}. Must be a valid URL.`
-    );
+    throw new ValidationError(`Invalid revocation registry URL: ${url}. Must be a valid URL.`);
   }
 
   if (parsed.protocol !== "https:") {
-    throw new ValidationError(
-      `Revocation registry URL must use HTTPS: ${url}`
-    );
+    throw new ValidationError(`Revocation registry URL must use HTTPS: ${url}`);
   }
 }

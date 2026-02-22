@@ -2,11 +2,7 @@ import { createSign, createVerify, type KeyObject } from "node:crypto";
 import * as jsonld from "jsonld";
 import { CryptoError } from "@opencred/shared";
 import { createDocumentLoader } from "@opencred/vc-core";
-import type {
-  UnsignedCredential,
-  VerifiableCredential,
-  Proof,
-} from "@opencred/vc-core";
+import type { UnsignedCredential, VerifiableCredential, Proof } from "@opencred/vc-core";
 import { sha256 } from "./hash.js";
 import type {
   ProofOptions,
@@ -42,28 +38,20 @@ function createJsonLdDocumentLoader(): jsonld.Options.DocLoader["documentLoader"
 /**
  * Canonicalize a JSON-LD document using RDFC-1.0 (URDNA2015).
  */
-async function canonicalize(
-  document: Record<string, unknown>
-): Promise<string> {
+async function canonicalize(document: Record<string, unknown>): Promise<string> {
   // Cast to JsonLdDocument since our documents are valid JSON-LD NodeObjects
-  const result = await jsonld.canonize(
-    document as jsonld.JsonLdDocument,
-    {
-      algorithm: "URDNA2015",
-      format: "application/n-quads",
-      documentLoader: createJsonLdDocumentLoader(),
-    }
-  );
+  const result = await jsonld.canonize(document as jsonld.JsonLdDocument, {
+    algorithm: "URDNA2015",
+    format: "application/n-quads",
+    documentLoader: createJsonLdDocumentLoader(),
+  });
   return result as string;
 }
 
 /**
  * Build a proof configuration object from proof options and the document's @context.
  */
-function buildProofConfig(
-  unsignedVC: UnsignedCredential,
-  options: ProofOptions
-): ProofConfig {
+function buildProofConfig(unsignedVC: UnsignedCredential, options: ProofOptions): ProofConfig {
   const config: ProofConfig = {
     "@context": unsignedVC["@context"] as (string | Record<string, unknown>)[],
     type: PROOF_TYPE,
@@ -87,11 +75,11 @@ function buildProofConfig(
  */
 async function computeSigningInput(
   document: Record<string, unknown>,
-  proofConfig: ProofConfig
+  proofConfig: ProofConfig,
 ): Promise<Uint8Array> {
   // Canonicalize the proof config (without @context for the canonical form, spec says include it)
   const canonicalProofConfig = await canonicalize(
-    proofConfig as unknown as Record<string, unknown>
+    proofConfig as unknown as Record<string, unknown>,
   );
   const proofConfigHash = sha256(canonicalProofConfig);
 
@@ -141,9 +129,7 @@ function multibaseEncode(bytes: Uint8Array): string {
  */
 function multibaseDecode(encoded: string): Uint8Array {
   if (!encoded.startsWith("z")) {
-    throw new CryptoError(
-      "Invalid multibase encoding: expected base58btc prefix 'z'"
-    );
+    throw new CryptoError("Invalid multibase encoding: expected base58btc prefix 'z'");
   }
   const base58str = encoded.slice(1);
   const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -281,7 +267,7 @@ function rawToDer(rawSig: Uint8Array): Uint8Array {
  */
 export async function prepareProof(
   unsignedVC: UnsignedCredential,
-  options: ProofOptions
+  options: ProofOptions,
 ): Promise<PreparedProof> {
   if (!options.verificationMethod) {
     throw new CryptoError("verificationMethod is required");
@@ -299,7 +285,7 @@ export async function prepareProof(
   } catch (error) {
     if (error instanceof CryptoError) throw error;
     throw new CryptoError(
-      `Failed to prepare proof: ${error instanceof Error ? error.message : "unknown error"}`
+      `Failed to prepare proof: ${error instanceof Error ? error.message : "unknown error"}`,
     );
   }
 }
@@ -319,12 +305,10 @@ export async function prepareProof(
 export function completeProof(
   credential: UnsignedCredential,
   proofConfig: ProofConfig,
-  signatureBytes: Uint8Array
+  signatureBytes: Uint8Array,
 ): VerifiableCredential {
   if (signatureBytes.length !== 64) {
-    throw new CryptoError(
-      "Signature must be 64 bytes (r || s for P-256 ECDSA)"
-    );
+    throw new CryptoError("Signature must be 64 bytes (r || s for P-256 ECDSA)");
   }
 
   const proofValue = multibaseEncode(signatureBytes);
@@ -363,7 +347,7 @@ export function completeProof(
 export async function signCredential(
   unsignedVC: UnsignedCredential,
   signingKey: SigningKey,
-  options: ProofOptions
+  options: ProofOptions,
 ): Promise<VerifiableCredential> {
   if (signingKey.algorithm !== "P-256") {
     throw new CryptoError("Only P-256 keys are supported for ecdsa-rdfc-2019");
@@ -383,15 +367,11 @@ export async function signCredential(
     });
 
     // ieee-p1363 gives us raw r||s directly (64 bytes for P-256)
-    return completeProof(
-      unsignedVC,
-      proofConfig,
-      new Uint8Array(derSignature)
-    );
+    return completeProof(unsignedVC, proofConfig, new Uint8Array(derSignature));
   } catch (error) {
     if (error instanceof CryptoError) throw error;
     throw new CryptoError(
-      `Signing failed: ${error instanceof Error ? error.message : "unknown error"}`
+      `Signing failed: ${error instanceof Error ? error.message : "unknown error"}`,
     );
   }
 }
@@ -405,7 +385,7 @@ export async function signCredential(
  */
 export async function verifyProof(
   credential: VerifiableCredential,
-  options?: VerifyOptions
+  options?: VerifyOptions,
 ): Promise<VerificationResult> {
   try {
     const { proof } = credential;
@@ -447,7 +427,8 @@ export async function verifyProof(
     }
 
     // Reconstruct the proof config
-    const { proof: _extractedProof, ...unsignedDoc } = credential;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { proof: _proof, ...unsignedDoc } = credential;
     const proofConfig: ProofConfig = {
       "@context": credential["@context"] as (string | Record<string, unknown>)[],
       type: proof.type as "DataIntegrityProof",
@@ -466,16 +447,13 @@ export async function verifyProof(
     // Compute the signing input
     const dataToVerify = await computeSigningInput(
       unsignedDoc as Record<string, unknown>,
-      proofConfig
+      proofConfig,
     );
 
     // Verify ECDSA signature
     const verifier = createVerify("SHA256");
     verifier.update(dataToVerify);
-    const verified = verifier.verify(
-      { key: publicKey, dsaEncoding: "ieee-p1363" },
-      signatureBytes
-    );
+    const verified = verifier.verify({ key: publicKey, dsaEncoding: "ieee-p1363" }, signatureBytes);
 
     return verified
       ? { verified: true }
@@ -494,7 +472,7 @@ export async function verifyProof(
  */
 function resolvePublicKey(
   _credential: VerifiableCredential,
-  options?: VerifyOptions
+  options?: VerifyOptions,
 ): KeyObject | undefined {
   if (options?.publicKey) {
     return options.publicKey;

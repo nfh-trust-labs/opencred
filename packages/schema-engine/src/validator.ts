@@ -27,14 +27,12 @@ export class Validator {
       return { valid: true, errors: [] };
     }
 
-    const errors: ValidationFieldError[] = (validate.errors ?? []).map(
-      (err: ErrorObject) => ({
-        field: err.instancePath
-          ? err.instancePath.slice(1).replace(/\//g, ".")
-          : (err.params?.["missingProperty"] as string) ?? "(root)",
-        message: err.message ?? "Validation failed",
-      }),
-    );
+    const errors: ValidationFieldError[] = (validate.errors ?? []).map((err: ErrorObject) => ({
+      field: err.instancePath
+        ? err.instancePath.slice(1).replace(/\//g, ".")
+        : ((err.params?.["missingProperty"] as string) ?? "(root)"),
+      message: err.message ?? "Validation failed",
+    }));
 
     return { valid: false, errors };
   }
@@ -42,10 +40,7 @@ export class Validator {
   validateOrThrow(schemaId: string, data: unknown): void {
     const result = this.validateCredentialSubject(schemaId, data);
     if (!result.valid) {
-      throw new SchemaValidationError(
-        `Validation failed for schema "${schemaId}"`,
-        result.errors,
-      );
+      throw new SchemaValidationError(`Validation failed for schema "${schemaId}"`, result.errors);
     }
   }
 }

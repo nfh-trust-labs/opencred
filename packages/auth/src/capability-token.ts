@@ -8,19 +8,9 @@ import type {
   TokenValidationResult,
 } from "./types.js";
 
-export async function createCapabilityToken(
-  options: CapabilityTokenOptions,
-): Promise<string> {
-  const {
-    subject,
-    issuer,
-    audience,
-    expiresInSeconds,
-    scope,
-    namespace,
-    signingKey,
-    algorithm,
-  } = options;
+export async function createCapabilityToken(options: CapabilityTokenOptions): Promise<string> {
+  const { subject, issuer, audience, expiresInSeconds, scope, namespace, signingKey, algorithm } =
+    options;
 
   if (!scope.length) {
     throw new ValidationError("At least one scope is required");
@@ -29,8 +19,7 @@ export async function createCapabilityToken(
     throw new ValidationError("Namespace is required");
   }
 
-  const alg =
-    algorithm ?? (signingKey instanceof Uint8Array ? "HS256" : "ES256");
+  const alg = algorithm ?? (signingKey instanceof Uint8Array ? "HS256" : "ES256");
   const now = Math.floor(Date.now() / 1000);
   const jti = randomUUID();
 
@@ -87,15 +76,11 @@ export async function validateCapabilityToken(
       },
     };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Token validation failed";
+    const message = error instanceof Error ? error.message : "Token validation failed";
     return { valid: false, error: message };
   }
 }
 
-export function checkScope(
-  payload: CapabilityTokenPayload,
-  requiredScope: string,
-): boolean {
+export function checkScope(payload: CapabilityTokenPayload, requiredScope: string): boolean {
   return payload.scope.includes(requiredScope);
 }

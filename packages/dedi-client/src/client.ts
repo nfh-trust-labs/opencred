@@ -27,9 +27,7 @@ export class DeDiClient {
   }
 
   async queryRevocationHash(hash: string): Promise<RevocationHashRecord> {
-    return this.request<RevocationHashRecord>(
-      `/revocations/${encodeURIComponent(hash)}`,
-    );
+    return this.request<RevocationHashRecord>(`/revocations/${encodeURIComponent(hash)}`);
   }
 
   async resolveDID(did: string): Promise<DIDRecord> {
@@ -44,27 +42,19 @@ export class DeDiClient {
   }
 
   async resolveDelegation(delegationId: string): Promise<DelegationRecord> {
-    return this.request<DelegationRecord>(
-      `/delegations/${encodeURIComponent(delegationId)}`,
-    );
+    return this.request<DelegationRecord>(`/delegations/${encodeURIComponent(delegationId)}`);
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
     return this.circuitBreaker.execute(() =>
-      withRetry(
-        () => this.fetch<T>(path, init),
-        { maxRetries: this.config.maxRetries },
-      ),
+      withRetry(() => this.fetch<T>(path, init), { maxRetries: this.config.maxRetries }),
     );
   }
 
   private async fetch<T>(path: string, init?: RequestInit): Promise<T> {
     const url = `${this.config.baseUrl}${path}`;
     const controller = new AbortController();
-    const timeoutId = setTimeout(
-      () => controller.abort(),
-      this.config.timeoutMs,
-    );
+    const timeoutId = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
     try {
       const response = await globalThis.fetch(url, {
@@ -95,10 +85,7 @@ export class DeDiClient {
           504,
         );
       }
-      throw new DeDiClientError(
-        "DeDi API network error",
-        502,
-      );
+      throw new DeDiClientError("DeDi API network error", 502);
     } finally {
       clearTimeout(timeoutId);
     }

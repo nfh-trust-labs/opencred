@@ -54,11 +54,19 @@ describe("createRegistry", () => {
 
   it("maps built-in types to context URLs", () => {
     const registry = createRegistry();
-    expect(registry.getContextForType("education")).toBe("https://opencred.dev/contexts/education/v1");
-    expect(registry.getContextForType("employment")).toBe("https://opencred.dev/contexts/employment/v1");
-    expect(registry.getContextForType("identity")).toBe("https://opencred.dev/contexts/identity/v1");
+    expect(registry.getContextForType("education")).toBe(
+      "https://opencred.dev/contexts/education/v1",
+    );
+    expect(registry.getContextForType("employment")).toBe(
+      "https://opencred.dev/contexts/employment/v1",
+    );
+    expect(registry.getContextForType("identity")).toBe(
+      "https://opencred.dev/contexts/identity/v1",
+    );
     expect(registry.getContextForType("health")).toBe("https://opencred.dev/contexts/health/v1");
-    expect(registry.getContextForType("business")).toBe("https://opencred.dev/contexts/business/v1");
+    expect(registry.getContextForType("business")).toBe(
+      "https://opencred.dev/contexts/business/v1",
+    );
   });
 });
 
@@ -205,7 +213,9 @@ describe("Validator", () => {
       const customValidator = new Validator(registry);
 
       expect(customValidator.validateCredentialSubject("custom", { foo: 42 }).valid).toBe(true);
-      expect(customValidator.validateCredentialSubject("custom", { foo: "not-a-number" }).valid).toBe(false);
+      expect(
+        customValidator.validateCredentialSubject("custom", { foo: "not-a-number" }).valid,
+      ).toBe(false);
       expect(customValidator.validateCredentialSubject("custom", {}).valid).toBe(false);
     });
   });
