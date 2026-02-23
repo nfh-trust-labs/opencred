@@ -15,7 +15,7 @@ import { health } from "./routes/health.js";
 import { createRevokeRoute } from "./routes/revoke.js";
 import { createVerifyRoutes } from "./routes/verify.js";
 import { createCredentialsRoute } from "./routes/credentials.js";
-import { createOnboardingRoutes } from "./routes/onboarding.js";
+import { createOnboardingRoutes, createBusinessVcOnboardingRoutes } from "./routes/onboarding.js";
 import { TrustStore } from "./dsc-chain.js";
 
 export interface AppDependencies {
@@ -25,6 +25,7 @@ export interface AppDependencies {
   dediClient?: DeDiClient;
   authOptions?: AuthMiddlewareOptions;
   signingKeyProvider?: SigningKeyProvider;
+  opencredSigningKeyDid?: string;
 }
 
 export function createApp(deps: AppDependencies) {
@@ -75,16 +76,32 @@ export function createApp(deps: AppDependencies) {
   // Public verification endpoint (no auth required)
   app.route("/verify", createVerifyRoutes({ trustStore, dediClient: deps.dediClient }));
 
-  // Type A DSC onboarding (unauthenticated — this IS the auth issuance endpoint)
-  if (config.JWT_SECRET && trustStore) {
+  // Onboarding endpoints (unauthenticated — these ARE auth issuance endpoints)
+  if (config.JWT_SECRET) {
     const onboardingKey = new TextEncoder().encode(config.JWT_SECRET);
+
+    // Type A DSC onboarding
+    if (trustStore) {
+      app.route(
+        "/onboarding",
+        createOnboardingRoutes({
+          trustStore,
+          jwtSigningKey: onboardingKey,
+          jwtIssuer: config.JWT_ISSUER,
+          jwtExpirySeconds: config.JWT_EXPIRY_SECONDS,
+        }),
+      );
+    }
+
+    // Type D business-VC onboarding
     app.route(
       "/onboarding",
-      createOnboardingRoutes({
-        trustStore,
+      createBusinessVcOnboardingRoutes({
         jwtSigningKey: onboardingKey,
         jwtIssuer: config.JWT_ISSUER,
         jwtExpirySeconds: config.JWT_EXPIRY_SECONDS,
+        dediClient: deps.dediClient,
+        opencredSigningKeyDid: deps.opencredSigningKeyDid,
       }),
     );
   }
