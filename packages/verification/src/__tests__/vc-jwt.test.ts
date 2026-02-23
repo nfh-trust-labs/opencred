@@ -133,7 +133,7 @@ describe("verifyVcJwt", () => {
   });
 
   it("should reject JWT with disallowed algorithm (algorithm confusion)", async () => {
-    const { privateKey, publicKey } = generateTestKeyPair();
+    const { publicKey } = generateTestKeyPair();
     const issuerDid = "did:web:university.example";
     const jwk = publicKey.export({ format: "jwk" });
 
