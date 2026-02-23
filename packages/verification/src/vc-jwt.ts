@@ -99,7 +99,9 @@ export function extractVcJwtCredentialFields(payload: VcJwtPayload): {
   // DM 1.1: credential nested under `vc` claim
   // DM 2.0: credential fields directly on the payload
   const isDm11 = payload.vc !== undefined;
-  const source: Record<string, unknown> = isDm11 ? payload.vc! : (payload as Record<string, unknown>);
+  const source: Record<string, unknown> = isDm11
+    ? payload.vc!
+    : (payload as Record<string, unknown>);
 
   const validFrom = payload.nbf
     ? new Date(payload.nbf * 1000).toISOString()
