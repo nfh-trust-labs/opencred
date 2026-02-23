@@ -2,7 +2,12 @@ import { describe, it, expect } from "vitest";
 import { generateKeyPairSync, type KeyObject } from "node:crypto";
 import { signCredential, multibaseEncode } from "@opencred/crypto";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
-import type { DIDResolver, DIDResolutionResult, DIDDocument, VerificationMethod } from "@opencred/did";
+import type {
+  DIDResolver,
+  DIDResolutionResult,
+  DIDDocument,
+  VerificationMethod,
+} from "@opencred/did";
 import { verifyDataIntegrity } from "../data-integrity.js";
 
 function generateTestKeyPair(): { privateKey: KeyObject; publicKey: KeyObject } {
@@ -23,10 +28,7 @@ function createTestCredential(): UnsignedCredential {
   };
 }
 
-function createMockResolver(
-  did: string,
-  verificationMethod: VerificationMethod,
-): DIDResolver {
+function createMockResolver(did: string, verificationMethod: VerificationMethod): DIDResolver {
   return {
     resolve: async (inputDid: string): Promise<DIDResolutionResult> => {
       if (inputDid !== did) {

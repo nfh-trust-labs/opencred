@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { generateKeyPairSync, type KeyObject, createHash } from "node:crypto";
 import * as jose from "jose";
-import type { DIDResolver, DIDResolutionResult, DIDDocument, VerificationMethod } from "@opencred/did";
+import type {
+  DIDResolver,
+  DIDResolutionResult,
+  DIDDocument,
+  VerificationMethod,
+} from "@opencred/did";
 import {
   parseSdJwtVc,
   decodeDisclosure,
@@ -14,10 +19,7 @@ function generateTestKeyPair(): { privateKey: KeyObject; publicKey: KeyObject } 
   return generateKeyPairSync("ec", { namedCurve: "P-256" });
 }
 
-function createMockResolver(
-  did: string,
-  verificationMethod: VerificationMethod,
-): DIDResolver {
+function createMockResolver(did: string, verificationMethod: VerificationMethod): DIDResolver {
   return {
     resolve: async (inputDid: string): Promise<DIDResolutionResult> => {
       if (inputDid !== did) {
@@ -152,13 +154,17 @@ describe("verifySdJwtVc", () => {
     const d1 = createDisclosure("salt1", "given_name", "Jane");
     const digest1 = computeDigest(d1);
 
-    const sdJwtVc = await createSdJwtVc(privateKey, {
-      iss: issuerDid,
-      vct: "VerifiableCredential",
-      nbf: Math.floor(Date.now() / 1000) - 60,
-      _sd: [digest1],
-      _sd_alg: "sha-256",
-    }, [d1]);
+    const sdJwtVc = await createSdJwtVc(
+      privateKey,
+      {
+        iss: issuerDid,
+        vct: "VerifiableCredential",
+        nbf: Math.floor(Date.now() / 1000) - 60,
+        _sd: [digest1],
+        _sd_alg: "sha-256",
+      },
+      [d1],
+    );
 
     const resolver = createMockResolver(issuerDid, {
       id: `${issuerDid}#key-1`,
@@ -175,10 +181,14 @@ describe("verifySdJwtVc", () => {
 
   it("should fail when no resolver is provided", async () => {
     const { privateKey } = generateTestKeyPair();
-    const sdJwtVc = await createSdJwtVc(privateKey, {
-      iss: "did:web:example",
-      vct: "VerifiableCredential",
-    }, []);
+    const sdJwtVc = await createSdJwtVc(
+      privateKey,
+      {
+        iss: "did:web:example",
+        vct: "VerifiableCredential",
+      },
+      [],
+    );
 
     const { check } = await verifySdJwtVc(sdJwtVc);
     expect(check.passed).toBe(false);
@@ -191,10 +201,14 @@ describe("verifySdJwtVc", () => {
     const issuerDid = "did:web:university.example";
     const jwk = wrongPublicKey.export({ format: "jwk" });
 
-    const sdJwtVc = await createSdJwtVc(privateKey, {
-      iss: issuerDid,
-      vct: "VerifiableCredential",
-    }, []);
+    const sdJwtVc = await createSdJwtVc(
+      privateKey,
+      {
+        iss: issuerDid,
+        vct: "VerifiableCredential",
+      },
+      [],
+    );
 
     const resolver = createMockResolver(issuerDid, {
       id: `${issuerDid}#key-1`,

@@ -3,7 +3,12 @@ import { generateKeyPairSync, createHash, type KeyObject } from "node:crypto";
 import * as jose from "jose";
 import { signCredential } from "@opencred/crypto";
 import type { UnsignedCredential } from "@opencred/vc-core";
-import type { DIDResolver, DIDResolutionResult, DIDDocument, VerificationMethod } from "@opencred/did";
+import type {
+  DIDResolver,
+  DIDResolutionResult,
+  DIDDocument,
+  VerificationMethod,
+} from "@opencred/did";
 import type { DeDiClient } from "@opencred/dedi-client";
 import { verifyCredential, detectFormat } from "../verifier.js";
 
@@ -25,10 +30,7 @@ function createTestCredential(): UnsignedCredential {
   };
 }
 
-function createMockResolver(
-  did: string,
-  verificationMethod: VerificationMethod,
-): DIDResolver {
+function createMockResolver(did: string, verificationMethod: VerificationMethod): DIDResolver {
   return {
     resolve: async (inputDid: string): Promise<DIDResolutionResult> => {
       if (inputDid !== did) {
@@ -61,10 +63,7 @@ async function createVcJwt(
     privateKey.export({ type: "pkcs8", format: "pem" }) as string,
     alg,
   );
-  return new jose.SignJWT(payload)
-    .setProtectedHeader({ alg, typ: "JWT" })
-    .setIssuedAt()
-    .sign(key);
+  return new jose.SignJWT(payload).setProtectedHeader({ alg, typ: "JWT" }).setIssuedAt().sign(key);
 }
 
 function createDisclosure(salt: string, name: string, value: unknown): string {
@@ -355,13 +354,17 @@ describe("verifyCredential — SD-JWT VC", () => {
     const d1 = createDisclosure("salt1", "given_name", "Jane");
     const digest1 = computeDigest(d1);
 
-    const sdJwtVc = await createSdJwtVc(privateKey, {
-      iss: issuerDid,
-      vct: "VerifiableCredential",
-      nbf: Math.floor(Date.now() / 1000) - 60,
-      _sd: [digest1],
-      _sd_alg: "sha-256",
-    }, [d1]);
+    const sdJwtVc = await createSdJwtVc(
+      privateKey,
+      {
+        iss: issuerDid,
+        vct: "VerifiableCredential",
+        nbf: Math.floor(Date.now() / 1000) - 60,
+        _sd: [digest1],
+        _sd_alg: "sha-256",
+      },
+      [d1],
+    );
 
     const resolver = createMockResolver(issuerDid, {
       id: `${issuerDid}#key-1`,
@@ -382,10 +385,14 @@ describe("verifyCredential — SD-JWT VC", () => {
     const issuerDid = "did:web:university.example";
     const jwk = wrongPublicKey.export({ format: "jwk" });
 
-    const sdJwtVc = await createSdJwtVc(privateKey, {
-      iss: issuerDid,
-      vct: "VerifiableCredential",
-    }, []);
+    const sdJwtVc = await createSdJwtVc(
+      privateKey,
+      {
+        iss: issuerDid,
+        vct: "VerifiableCredential",
+      },
+      [],
+    );
 
     const resolver = createMockResolver(issuerDid, {
       id: `${issuerDid}#key-1`,

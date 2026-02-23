@@ -4,12 +4,7 @@ import type { DIDResolver } from "@opencred/did";
 /**
  * Result codes for credential verification.
  */
-export type VerificationResultCode =
-  | "VALID"
-  | "REVOKED"
-  | "EXPIRED"
-  | "INVALID"
-  | "UNRESOLVABLE";
+export type VerificationResultCode = "VALID" | "REVOKED" | "EXPIRED" | "INVALID" | "UNRESOLVABLE";
 
 /**
  * A single check performed during verification.

@@ -1,17 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { generateKeyPairSync, type KeyObject } from "node:crypto";
 import * as jose from "jose";
-import type { DIDResolver, DIDResolutionResult, DIDDocument, VerificationMethod } from "@opencred/did";
+import type {
+  DIDResolver,
+  DIDResolutionResult,
+  DIDDocument,
+  VerificationMethod,
+} from "@opencred/did";
 import { verifyVcJwt, extractVcJwtCredentialFields } from "../vc-jwt.js";
 
 function generateTestKeyPair(): { privateKey: KeyObject; publicKey: KeyObject } {
   return generateKeyPairSync("ec", { namedCurve: "P-256" });
 }
 
-function createMockResolver(
-  did: string,
-  verificationMethod: VerificationMethod,
-): DIDResolver {
+function createMockResolver(did: string, verificationMethod: VerificationMethod): DIDResolver {
   return {
     resolve: async (inputDid: string): Promise<DIDResolutionResult> => {
       if (inputDid !== did) {
@@ -44,10 +46,7 @@ async function createVcJwt(
     privateKey.export({ type: "pkcs8", format: "pem" }) as string,
     alg,
   );
-  return new jose.SignJWT(payload)
-    .setProtectedHeader({ alg, typ: "JWT" })
-    .setIssuedAt()
-    .sign(key);
+  return new jose.SignJWT(payload).setProtectedHeader({ alg, typ: "JWT" }).setIssuedAt().sign(key);
 }
 
 describe("verifyVcJwt", () => {

@@ -104,10 +104,7 @@ export async function processDisclosures(
   return result;
 }
 
-async function computeDisclosureDigest(
-  disclosure: string,
-  algorithm?: string,
-): Promise<string> {
+async function computeDisclosureDigest(disclosure: string, algorithm?: string): Promise<string> {
   const alg = algorithm ?? "sha-256";
   const encoder = new TextEncoder();
   const data = encoder.encode(disclosure);
