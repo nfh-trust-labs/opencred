@@ -5,6 +5,9 @@ import { VerificationError } from "@opencred/shared";
 import { publicKeyFromMultibase } from "./key-utils.js";
 import type { VerificationCheck } from "./types.js";
 
+/** Allowed JWT signing algorithms — prevents algorithm confusion attacks. */
+const ALLOWED_ALGORITHMS = ["ES256", "ES384", "ES512", "EdDSA"] as const;
+
 /**
  * Decoded VC-JWT payload with extracted credential data.
  */
@@ -55,7 +58,9 @@ export async function verifyVcJwt(
       };
     }
 
-    await jose.jwtVerify(jwt, publicKey);
+    await jose.jwtVerify(jwt, publicKey, {
+      algorithms: ALLOWED_ALGORITHMS as unknown as string[],
+    });
 
     return {
       check: { name: "signature", passed: true },
@@ -78,6 +83,11 @@ export async function verifyVcJwt(
 
 /**
  * Extract credential fields from a VC-JWT payload.
+ *
+ * Supports two payload layouts:
+ * - **DM 1.1**: credential data is nested under `payload.vc`
+ * - **DM 2.0**: credential fields (`type`, `credentialSubject`, `validFrom`,
+ *   `validUntil`, `credentialStatus`) live directly on the payload
  */
 export function extractVcJwtCredentialFields(payload: VcJwtPayload): {
   validFrom?: string;
@@ -86,24 +96,27 @@ export function extractVcJwtCredentialFields(payload: VcJwtPayload): {
   issuer?: string;
   credential?: Record<string, unknown>;
 } {
-  const vc = payload.vc ?? {};
+  // DM 1.1: credential nested under `vc` claim
+  // DM 2.0: credential fields directly on the payload
+  const isDm11 = payload.vc !== undefined;
+  const source: Record<string, unknown> = isDm11 ? payload.vc! : (payload as Record<string, unknown>);
 
   const validFrom = payload.nbf
     ? new Date(payload.nbf * 1000).toISOString()
-    : (vc["validFrom"] as string | undefined);
+    : (source["validFrom"] as string | undefined);
 
   const validUntil = payload.exp
     ? new Date(payload.exp * 1000).toISOString()
-    : (vc["validUntil"] as string | undefined);
+    : (source["validUntil"] as string | undefined);
 
-  const credentialStatus = vc["credentialStatus"] as Record<string, unknown> | undefined;
+  const credentialStatus = source["credentialStatus"] as Record<string, unknown> | undefined;
 
   return {
     validFrom,
     validUntil,
     credentialStatus,
     issuer: payload.iss,
-    credential: vc,
+    credential: isDm11 ? payload.vc! : (payload as unknown as Record<string, unknown>),
   };
 }
 

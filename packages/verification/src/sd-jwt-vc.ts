@@ -4,6 +4,9 @@ import type { DIDResolver } from "@opencred/did";
 import { publicKeyFromMultibase } from "./key-utils.js";
 import type { VerificationCheck } from "./types.js";
 
+/** Allowed JWT signing algorithms — prevents algorithm confusion attacks. */
+const ALLOWED_ALGORITHMS = ["ES256", "ES384", "ES512", "EdDSA"] as const;
+
 /**
  * Decoded SD-JWT VC components.
  */
@@ -162,7 +165,9 @@ export async function verifySdJwtVc(
       };
     }
 
-    await jose.jwtVerify(issuerJwt, publicKey);
+    await jose.jwtVerify(issuerJwt, publicKey, {
+      algorithms: ALLOWED_ALGORITHMS as unknown as string[],
+    });
 
     const resolvedClaims = await processDisclosures(payload, disclosures);
 
