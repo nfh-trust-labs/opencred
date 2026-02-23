@@ -59,8 +59,9 @@ function generateSignedCert(
   caKeyPem: string,
   caCertPem: string,
   subject: string,
-  days: number = 365,
+  options: { days?: number; isCA?: boolean } = {},
 ): TestCertPair {
+  const { days = 365, isCA = false } = options;
   const dir = mkdtempSync(join(tmpdir(), "opencred-test-"));
   const keyPath = join(dir, "leaf.key");
   const csrPath = join(dir, "leaf.csr");
@@ -90,25 +91,32 @@ function generateSignedCert(
     { stdio: "pipe" },
   );
 
-  execFileSync(
-    "openssl",
-    [
-      "x509",
-      "-req",
-      "-in",
-      csrPath,
-      "-CA",
-      caCertPath,
-      "-CAkey",
-      caKeyPath,
-      "-CAcreateserial",
-      "-out",
-      certPath,
-      "-days",
-      String(days),
-    ],
-    { stdio: "pipe" },
-  );
+  const signArgs = [
+    "x509",
+    "-req",
+    "-in",
+    csrPath,
+    "-CA",
+    caCertPath,
+    "-CAkey",
+    caKeyPath,
+    "-CAcreateserial",
+    "-out",
+    certPath,
+    "-days",
+    String(days),
+  ];
+
+  if (isCA) {
+    const extPath = join(dir, "ext.cnf");
+    writeFileSync(
+      extPath,
+      "basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\n",
+    );
+    signArgs.push("-extfile", extPath);
+  }
+
+  execFileSync("openssl", signArgs, { stdio: "pipe" });
 
   const keyPem = readFileSync(keyPath, "utf-8");
   const certPem = readFileSync(certPath, "utf-8");
@@ -176,7 +184,7 @@ beforeAll(() => {
     shortLivedCsca.keyPem,
     shortLivedCsca.certPem,
     "/C=NF/O=Short DSC/CN=Short Lived DSC",
-    1,
+    { days: 1 },
   );
 });
 
@@ -482,6 +490,7 @@ describe("POST /onboarding/type-a", () => {
         cscaCert.keyPem,
         cscaCert.certPem,
         "/C=NF/O=Norfolk Intermediate CA/CN=NF Intermediate CA",
+        { isCA: true },
       );
 
       const leafCert = generateSignedCert(
