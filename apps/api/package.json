@@ -29,6 +29,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "jose": "^5.9.0",
     "typescript": "^5.5.0"
   }
 }
