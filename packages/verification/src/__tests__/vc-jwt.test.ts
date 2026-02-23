@@ -131,6 +131,34 @@ describe("verifyVcJwt", () => {
     const { check } = await verifyVcJwt("not.a.valid-jwt");
     expect(check.passed).toBe(false);
   });
+
+  it("should reject JWT with disallowed algorithm (algorithm confusion)", async () => {
+    const { publicKey } = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = publicKey.export({ format: "jwk" });
+
+    // Create a JWT signed with ES256 but forge the header to claim HS256
+    // by crafting a raw token with an unsupported alg.
+    // Instead, we test that `none` algorithm is rejected.
+    const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
+    const payload = Buffer.from(
+      JSON.stringify({
+        iss: issuerDid,
+        vc: { type: ["VerifiableCredential"] },
+      }),
+    ).toString("base64url");
+    const forgedJwt = `${header}.${payload}.`;
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const { check } = await verifyVcJwt(forgedJwt, resolver);
+    expect(check.passed).toBe(false);
+  });
 });
 
 describe("extractVcJwtCredentialFields", () => {
@@ -179,5 +207,46 @@ describe("extractVcJwtCredentialFields", () => {
 
     expect(result.credentialStatus).toBeDefined();
     expect(result.credentialStatus?.["type"]).toBe("BitstringStatusListEntry");
+  });
+
+  it("should extract fields from DM 2.0 payload (no vc wrapper)", () => {
+    const result = extractVcJwtCredentialFields({
+      iss: "did:web:example",
+      sub: "did:example:holder456",
+      type: ["VerifiableCredential", "UniversityDegreeCredential"],
+      credentialSubject: { name: "Jane Doe", degree: "Computer Science" },
+      validFrom: "2026-01-01T00:00:00Z",
+      validUntil: "2027-01-01T00:00:00Z",
+      credentialStatus: {
+        type: "BitstringStatusListEntry",
+        statusListIndex: "10",
+        statusListCredential: "https://example.com/status/2",
+      },
+    } as any);
+
+    expect(result.validFrom).toBe("2026-01-01T00:00:00Z");
+    expect(result.validUntil).toBe("2027-01-01T00:00:00Z");
+    expect(result.credentialStatus).toBeDefined();
+    expect(result.credentialStatus?.["type"]).toBe("BitstringStatusListEntry");
+    expect(result.issuer).toBe("did:web:example");
+    expect(result.credential).toBeDefined();
+    expect((result.credential as any)?.["credentialSubject"]?.["name"]).toBe("Jane Doe");
+  });
+
+  it("should prefer nbf/exp over DM 2.0 validFrom/validUntil", () => {
+    const nbf = Math.floor(new Date("2026-06-01T00:00:00Z").getTime() / 1000);
+    const exp = Math.floor(new Date("2027-06-01T00:00:00Z").getTime() / 1000);
+
+    const result = extractVcJwtCredentialFields({
+      iss: "did:web:example",
+      nbf,
+      exp,
+      validFrom: "2026-01-01T00:00:00Z",
+      validUntil: "2027-01-01T00:00:00Z",
+    } as any);
+
+    // nbf/exp should take precedence
+    expect(result.validFrom).toBe("2026-06-01T00:00:00.000Z");
+    expect(result.validUntil).toBe("2027-06-01T00:00:00.000Z");
   });
 });
