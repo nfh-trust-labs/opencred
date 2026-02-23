@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { DeDiClient } from "@opencred/dedi-client";
+import type { SigningKeyProvider } from "@opencred/crypto";
 import type { EnvConfig } from "@opencred/shared";
 import { createLogger, type Logger } from "./logger.js";
 import {
@@ -23,6 +24,7 @@ export interface AppDependencies {
   trustStore?: TrustStore;
   dediClient?: DeDiClient;
   authOptions?: AuthMiddlewareOptions;
+  signingKeyProvider?: SigningKeyProvider;
 }
 
 export function createApp(deps: AppDependencies) {
@@ -87,11 +89,13 @@ export function createApp(deps: AppDependencies) {
     );
   }
 
-  // Interface Signing endpoints (authenticated)
+  // Interface Signing + Delegated Signing endpoints (authenticated)
   if (deps.authOptions) {
     const { credentials } = createCredentialsRoute({
       config,
       authOptions: deps.authOptions,
+      signingKeyProvider: deps.signingKeyProvider,
+      dediClient: deps.dediClient,
     });
     app.route("/credentials", credentials);
   }
