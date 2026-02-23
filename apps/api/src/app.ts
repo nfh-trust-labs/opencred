@@ -9,9 +9,11 @@ import {
   requestLogger,
   rateLimitMiddleware,
 } from "./middleware/index.js";
+import type { AuthMiddlewareOptions } from "./middleware/index.js";
 import { health } from "./routes/health.js";
 import { createRevokeRoute } from "./routes/revoke.js";
 import { createVerifyRoutes } from "./routes/verify.js";
+import { createCredentialsRoute } from "./routes/credentials.js";
 import { TrustStore } from "./dsc-chain.js";
 
 export interface AppDependencies {
@@ -19,6 +21,7 @@ export interface AppDependencies {
   logger?: Logger;
   trustStore?: TrustStore;
   dediClient?: DeDiClient;
+  authOptions?: AuthMiddlewareOptions;
 }
 
 export function createApp(deps: AppDependencies) {
@@ -68,6 +71,15 @@ export function createApp(deps: AppDependencies) {
 
   // Public verification endpoint (no auth required)
   app.route("/verify", createVerifyRoutes({ trustStore, dediClient: deps.dediClient }));
+
+  // Interface Signing endpoints (authenticated)
+  if (deps.authOptions) {
+    const { credentials } = createCredentialsRoute({
+      config,
+      authOptions: deps.authOptions,
+    });
+    app.route("/credentials", credentials);
+  }
 
   // Authenticated routes — require capability token
   if (config.JWT_SECRET) {
