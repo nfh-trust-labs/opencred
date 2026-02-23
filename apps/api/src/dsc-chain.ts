@@ -77,7 +77,7 @@ export class TrustStore {
    */
   findIssuer(cert: X509Certificate): X509Certificate | undefined {
     for (const csca of this.cscaCerts) {
-      if (cert.checkIssued(csca)) {
+      if (cert.checkIssued(csca) && cert.verify(csca.publicKey)) {
         return csca;
       }
     }
@@ -142,12 +142,28 @@ export function validateDscChain(
     }
   }
 
-  // Validate issuer linkage within the chain
+  // Validate issuer linkage within the chain (metadata + cryptographic signature)
   for (let i = 0; i < certs.length - 1; i++) {
     if (!certs[i].checkIssued(certs[i + 1])) {
       return {
         passed: false,
         detail: `Certificate at position ${i} was not issued by certificate at position ${i + 1}`,
+      };
+    }
+    if (!certs[i].verify(certs[i + 1].publicKey)) {
+      return {
+        passed: false,
+        detail: `Certificate at position ${i} has invalid signature (not signed by certificate at position ${i + 1})`,
+      };
+    }
+  }
+
+  // Validate that intermediate certificates have CA basic constraint
+  for (let i = 1; i < certs.length; i++) {
+    if (!certs[i].ca) {
+      return {
+        passed: false,
+        detail: `Certificate at position ${i} is not a CA certificate (missing basicConstraints CA flag)`,
       };
     }
   }

@@ -60,8 +60,9 @@ function generateSignedCert(
   caKeyPem: string,
   caCertPem: string,
   subject: string,
-  days: number = 365,
+  options: { days?: number; isCA?: boolean } = {},
 ): TestCertPair {
+  const { days = 365, isCA = false } = options;
   const dir = mkdtempSync(join(tmpdir(), "opencred-test-"));
   const keyPath = join(dir, "leaf.key");
   const csrPath = join(dir, "leaf.csr");
@@ -91,25 +92,29 @@ function generateSignedCert(
     { stdio: "pipe" },
   );
 
-  execFileSync(
-    "openssl",
-    [
-      "x509",
-      "-req",
-      "-in",
-      csrPath,
-      "-CA",
-      caCertPath,
-      "-CAkey",
-      caKeyPath,
-      "-CAcreateserial",
-      "-out",
-      certPath,
-      "-days",
-      String(days),
-    ],
-    { stdio: "pipe" },
-  );
+  const signArgs = [
+    "x509",
+    "-req",
+    "-in",
+    csrPath,
+    "-CA",
+    caCertPath,
+    "-CAkey",
+    caKeyPath,
+    "-CAcreateserial",
+    "-out",
+    certPath,
+    "-days",
+    String(days),
+  ];
+
+  if (isCA) {
+    const extPath = join(dir, "ext.cnf");
+    writeFileSync(extPath, "basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\n");
+    signArgs.push("-extfile", extPath);
+  }
+
+  execFileSync("openssl", signArgs, { stdio: "pipe" });
 
   const keyPem = readFileSync(keyPath, "utf-8");
   const certPem = readFileSync(certPath, "utf-8");
@@ -737,6 +742,7 @@ describe("validateDscChain", () => {
       cscaCert.keyPem,
       cscaCert.certPem,
       "/C=NF/O=Test Intermediate/CN=Test Intermediate CA",
+      { isCA: true },
     );
 
     const leafCert = generateSignedCert(
@@ -750,11 +756,32 @@ describe("validateDscChain", () => {
     expect(result.passed).toBe(true);
   });
 
+  it("fails when intermediate certificate is not a CA", () => {
+    // Generate intermediate WITHOUT isCA flag
+    const intermediateCert = generateSignedCert(
+      cscaCert.keyPem,
+      cscaCert.certPem,
+      "/C=NF/O=Test Intermediate/CN=Test Non-CA Intermediate",
+    );
+
+    const leafCert = generateSignedCert(
+      intermediateCert.keyPem,
+      intermediateCert.certPem,
+      "/C=NF/O=Test Leaf/CN=Test Document Signer Leaf Non-CA",
+    );
+
+    const store = TrustStore.fromCertificates([cscaCert.cert]);
+    const result = validateDscChain([leafCert.certPem, intermediateCert.certPem], store);
+    expect(result.passed).toBe(false);
+    expect(result.detail).toContain("not a CA certificate");
+  });
+
   it("fails when chain linkage is broken (wrong order)", () => {
     const intermediateCert = generateSignedCert(
       cscaCert.keyPem,
       cscaCert.certPem,
       "/C=NF/O=Test Intermediate/CN=Test Intermediate CA 2",
+      { isCA: true },
     );
 
     const leafCert = generateSignedCert(
