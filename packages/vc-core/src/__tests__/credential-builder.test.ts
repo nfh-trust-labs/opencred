@@ -480,6 +480,6 @@ describe("Document Loader", () => {
 
     expect(urls).toContain(W3C_CREDENTIALS_V2_CONTEXT);
     expect(urls).toContain(DATA_INTEGRITY_V1_CONTEXT);
-    expect(urls.size).toBe(2);
+    expect(urls.size).toBe(3);
   });
 });
