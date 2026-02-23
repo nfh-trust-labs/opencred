@@ -110,7 +110,10 @@ function generateSignedCert(
 
   if (isCA) {
     const extPath = join(dir, "ext.cnf");
-    writeFileSync(extPath, "basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\n");
+    writeFileSync(
+      extPath,
+      "basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\n",
+    );
     signArgs.push("-extfile", extPath);
   }
 
