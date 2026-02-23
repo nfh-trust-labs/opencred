@@ -3,7 +3,12 @@ import { cors } from "hono/cors";
 import type { DeDiClient } from "@opencred/dedi-client";
 import type { EnvConfig } from "@opencred/shared";
 import { createLogger, type Logger } from "./logger.js";
-import { authMiddleware, errorHandler, requestLogger, rateLimitMiddleware } from "./middleware/index.js";
+import {
+  authMiddleware,
+  errorHandler,
+  requestLogger,
+  rateLimitMiddleware,
+} from "./middleware/index.js";
 import { health } from "./routes/health.js";
 import { createRevokeRoute } from "./routes/revoke.js";
 
@@ -59,7 +64,10 @@ export function createApp(deps: AppDependencies) {
     if (deps.dediClient) {
       app.use(
         "/credentials/revoke",
-        authMiddleware({ verificationKey: authKey, issuer: config.JWT_ISSUER }, "credentials:revoke"),
+        authMiddleware(
+          { verificationKey: authKey, issuer: config.JWT_ISSUER },
+          "credentials:revoke",
+        ),
       );
       app.route("/", createRevokeRoute(deps.dediClient));
     }

@@ -7,7 +7,10 @@ import { ValidationError } from "@opencred/shared";
 
 const revokeBodySchema = z
   .object({
-    credentialHash: z.string().regex(/^[a-f0-9]{64}$/, "Must be a lowercase hex SHA-256 hash").optional(),
+    credentialHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/, "Must be a lowercase hex SHA-256 hash")
+      .optional(),
     credential: z.record(z.unknown()).optional(),
   })
   .refine((data) => data.credentialHash != null || data.credential != null, {

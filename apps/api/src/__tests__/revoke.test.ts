@@ -23,11 +23,13 @@ const TEST_SECRET = new TextEncoder().encode("test-secret-key-that-is-at-least-3
 
 function makeDeDiClient(overrides: Partial<DeDiClient> = {}): DeDiClient {
   return {
-    publishRevocationHash: vi.fn<(hash: string) => Promise<RevocationHashRecord>>().mockResolvedValue({
-      hash: "abc123",
-      revoked: true,
-      revokedAt: new Date().toISOString(),
-    }),
+    publishRevocationHash: vi
+      .fn<(hash: string) => Promise<RevocationHashRecord>>()
+      .mockResolvedValue({
+        hash: "abc123",
+        revoked: true,
+        revokedAt: new Date().toISOString(),
+      }),
     queryRevocationHash: vi.fn(),
     resolveDID: vi.fn(),
     registerDelegation: vi.fn(),
@@ -145,9 +147,9 @@ describe("POST /credentials/revoke", () => {
   describe("DeDi failure handling", () => {
     it("returns 502 when DeDi is unavailable", async () => {
       const dediClient = makeDeDiClient({
-        publishRevocationHash: vi.fn().mockRejectedValue(
-          new DeDiClientError("DeDi API network error", 502),
-        ),
+        publishRevocationHash: vi
+          .fn()
+          .mockRejectedValue(new DeDiClientError("DeDi API network error", 502)),
       } as unknown as Partial<DeDiClient>);
       const app = createTestApp(dediClient);
       const token = await makeToken();
@@ -168,9 +170,9 @@ describe("POST /credentials/revoke", () => {
 
     it("returns 504 when DeDi times out", async () => {
       const dediClient = makeDeDiClient({
-        publishRevocationHash: vi.fn().mockRejectedValue(
-          new DeDiClientError("DeDi API request timed out", 504),
-        ),
+        publishRevocationHash: vi
+          .fn()
+          .mockRejectedValue(new DeDiClientError("DeDi API request timed out", 504)),
       } as unknown as Partial<DeDiClient>);
       const app = createTestApp(dediClient);
       const token = await makeToken();
