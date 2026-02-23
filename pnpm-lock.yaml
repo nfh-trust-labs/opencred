@@ -49,6 +49,9 @@ importers:
       "@opencred/dedi-client":
         specifier: workspace:*
         version: link:../../packages/dedi-client
+      "@opencred/did":
+        specifier: workspace:*
+        version: link:../../packages/did
       "@opencred/schema-engine":
         specifier: workspace:*
         version: link:../../packages/schema-engine
@@ -61,6 +64,9 @@ importers:
       "@opencred/vc-core":
         specifier: workspace:*
         version: link:../../packages/vc-core
+      "@opencred/verification":
+        specifier: workspace:*
+        version: link:../../packages/verification
       hono:
         specifier: ^4.12.1
         version: 4.12.1
