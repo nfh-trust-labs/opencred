@@ -27,7 +27,7 @@ const AUTH_OPTIONS = {
   algorithms: ["HS256"] as string[],
 };
 
-async function makeToken(scope: string[] = ["credentials:write"]) {
+async function makeToken(scope: string[] = ["credentials:build"]) {
   return createCapabilityToken({
     subject: "issuer-1",
     issuer: "opencred",
@@ -341,7 +341,7 @@ describe("POST /credentials/package", () => {
 // Tests: Full round-trip
 // -------------------------------------------------------------------------
 
-describe("Full round-trip: build → sign → package", () => {
+describe("Full round-trip: build -> sign -> package", () => {
   it("produces a valid VerifiableCredential with proof", async () => {
     const { app } = createTestApp();
     const token = await makeToken();

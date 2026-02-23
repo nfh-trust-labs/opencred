@@ -70,7 +70,7 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
   // -----------------------------------------------------------------------
   credentials.post(
     "/build",
-    authMiddleware(authOptions, "credentials:write"),
+    authMiddleware(authOptions, "credentials:build"),
     zValidator("json", buildRequestSchema, (result, c) => {
       if (!result.success) {
         const fieldErrors = result.error.issues.map((issue) => ({
@@ -151,7 +151,7 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
   // -----------------------------------------------------------------------
   credentials.post(
     "/package",
-    authMiddleware(authOptions, "credentials:write"),
+    authMiddleware(authOptions, "credentials:build"),
     zValidator("json", packageRequestSchema, (result, c) => {
       if (!result.success) {
         const fieldErrors = result.error.issues.map((issue) => ({
