@@ -22,7 +22,12 @@ export function createApp(deps: AppDependencies) {
       origin: config.CORS_ORIGIN,
       allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       allowHeaders: ["Content-Type", "Authorization"],
-      exposeHeaders: ["X-Request-Id", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+      exposeHeaders: [
+        "X-Request-Id",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+      ],
       maxAge: 86400,
       credentials: true,
     }),
@@ -32,10 +37,13 @@ export function createApp(deps: AppDependencies) {
   app.use("/*", requestLogger(logger));
 
   // Global rate limit
-  app.use("/*", rateLimitMiddleware({
-    windowMs: 60_000,
-    maxRequests: 100,
-  }));
+  app.use(
+    "/*",
+    rateLimitMiddleware({
+      windowMs: 60_000,
+      maxRequests: 100,
+    }),
+  );
 
   // Health check (before auth — unauthenticated)
   app.route("/", health);
