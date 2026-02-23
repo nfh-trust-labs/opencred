@@ -43,9 +43,24 @@ importers:
       "@opencred/auth":
         specifier: workspace:*
         version: link:../../packages/auth
+      "@opencred/crypto":
+        specifier: workspace:*
+        version: link:../../packages/crypto
+      "@opencred/dedi-client":
+        specifier: workspace:*
+        version: link:../../packages/dedi-client
+      "@opencred/schema-engine":
+        specifier: workspace:*
+        version: link:../../packages/schema-engine
       "@opencred/shared":
         specifier: workspace:*
         version: link:../../packages/shared
+      "@opencred/state":
+        specifier: workspace:*
+        version: link:../../packages/state
+      "@opencred/vc-core":
+        specifier: workspace:*
+        version: link:../../packages/vc-core
       hono:
         specifier: ^4.12.1
         version: 4.12.1

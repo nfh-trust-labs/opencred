@@ -1,13 +1,21 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import type { DeDiClient } from "@opencred/dedi-client";
 import type { EnvConfig } from "@opencred/shared";
 import { createLogger, type Logger } from "./logger.js";
-import { errorHandler, requestLogger, rateLimitMiddleware } from "./middleware/index.js";
+import {
+  authMiddleware,
+  errorHandler,
+  requestLogger,
+  rateLimitMiddleware,
+} from "./middleware/index.js";
 import { health } from "./routes/health.js";
+import { createRevokeRoute } from "./routes/revoke.js";
 
 export interface AppDependencies {
   config: EnvConfig;
   logger?: Logger;
+  dediClient?: DeDiClient;
 }
 
 export function createApp(deps: AppDependencies) {
@@ -47,6 +55,23 @@ export function createApp(deps: AppDependencies) {
 
   // Health check (before auth — unauthenticated)
   app.route("/", health);
+
+  // Authenticated routes — require capability token
+  if (config.JWT_SECRET) {
+    const authKey = new TextEncoder().encode(config.JWT_SECRET);
+
+    // Credential revocation (requires credentials:revoke scope)
+    if (deps.dediClient) {
+      app.use(
+        "/credentials/revoke",
+        authMiddleware(
+          { verificationKey: authKey, issuer: config.JWT_ISSUER },
+          "credentials:revoke",
+        ),
+      );
+      app.route("/", createRevokeRoute(deps.dediClient));
+    }
+  }
 
   // Error handler
   app.onError(errorHandler(logger));
