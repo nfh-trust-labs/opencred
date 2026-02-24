@@ -52,6 +52,16 @@ export const IPC_CHANNELS = {
   /** Query the current online/offline status. Response: boolean. */
   GET_OFFLINE_STATUS: "status:offline",
 
+  // --- Batch issuance ---
+  /** Start batch processing with CSV data + config. Response: initial progress. */
+  BATCH_START: "batch:start",
+  /** Get current batch progress. Response: BatchProgress. */
+  BATCH_STATUS: "batch:status",
+  /** Cancel running batch. Response: void. */
+  BATCH_CANCEL: "batch:cancel",
+  /** Export batch results as ZIP. Payload: output path. Response: export result. */
+  BATCH_EXPORT: "batch:export",
+
   // --- Config (electron-store) ---
   /** Read a config value. Payload: key string. Response: value or undefined. */
   GET_CONFIG: "config:get",

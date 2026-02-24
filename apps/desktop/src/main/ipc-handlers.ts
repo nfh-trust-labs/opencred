@@ -35,6 +35,12 @@ import type {
   RevocationQueueResponse,
   RevocationStatusResponse,
   RevocationPublishResponse,
+  BatchStartRequest,
+  BatchStartResponse,
+  BatchStatusResponse,
+  BatchCancelResponse,
+  BatchExportRequest,
+  BatchExportResponse,
   FileOpenRequest,
   FileOpenResponse,
   FileSaveRequest,
@@ -59,6 +65,11 @@ import {
   publishPendingRevocations,
 } from "./revocation-queue.js";
 import type { Signer } from "../signing/types.js";
+import { parseCsv } from "../batch/csv-parser.js";
+import type { CsvParseResult, Delimiter } from "../batch/csv-parser.js";
+import { createBatchEngine } from "../batch/batch-engine.js";
+import type { BatchEngine, BatchRowResult } from "../batch/batch-engine.js";
+import { exportBatchAsZip } from "../batch/batch-export.js";
 
 // ---------------------------------------------------------------------------
 // In-memory registries
@@ -69,6 +80,17 @@ const importedKeys = new Map<string, KeyMetadata>();
 
 /** Maps key ID -> Signer instance (private key stays in memory, never serialized). */
 const loadedSigners = new Map<string, Signer>();
+
+/** Mutable batch processing state. */
+const batchState: {
+  engine: BatchEngine | null;
+  results: BatchRowResult[] | null;
+  parseResult: CsvParseResult | null;
+} = {
+  engine: null,
+  results: null,
+  parseResult: null,
+};
 
 // ---------------------------------------------------------------------------
 // Key management handlers
@@ -484,6 +506,158 @@ async function handleSetConfig(
 }
 
 // ---------------------------------------------------------------------------
+// Batch issuance handlers
+// ---------------------------------------------------------------------------
+
+/**
+ * BATCH_START — parse CSV, validate rows, and start batch processing.
+ *
+ * Parses the CSV, validates each row against the schema, creates a batch
+ * engine, and starts processing. Returns immediately with parse results;
+ * the batch runs in the background. Use BATCH_STATUS to poll progress.
+ */
+async function handleBatchStart(
+  _event: IpcMainInvokeEvent,
+  request: BatchStartRequest,
+): Promise<BatchStartResponse> {
+  // Validate the signing key exists
+  const signer = loadedSigners.get(request.keyId);
+  if (!signer) {
+    return { success: false, error: `Key not found: ${request.keyId}` };
+  }
+
+  // Check if a batch is already running
+  if (batchState.engine) {
+    const progress = batchState.engine.getProgress();
+    if (progress.running) {
+      return { success: false, error: "A batch is already running. Cancel it first." };
+    }
+  }
+
+  try {
+    // Parse the CSV
+    const parseResult = parseCsv(request.csvContent, {
+      schemaId: request.schemaId,
+      columnMapping: request.columnMapping,
+      delimiter: request.delimiter as Delimiter | undefined,
+    });
+
+    batchState.parseResult = parseResult;
+
+    // Collect parse errors for invalid rows
+    const parseErrors = parseResult.rows
+      .filter((r) => !r.valid)
+      .map((r) => ({ rowIndex: r.rowIndex, errors: r.errors }));
+
+    // Create and start the batch engine
+    const engine = createBatchEngine(signer, parseResult.rows, {
+      schemaId: request.schemaId,
+      issuerDid: request.issuerDid,
+      validFrom: request.validFrom,
+      validUntil: request.validUntil,
+      revocationRegistryUrl: request.revocationRegistryUrl,
+      additionalTypes: request.additionalTypes,
+      packageFormats: (request.packageFormats as PackageFormat[]) ?? ["json-ld"],
+    });
+
+    batchState.engine = engine;
+
+    // Start processing in the background (do not await)
+    void engine.start().then((finalProgress) => {
+      batchState.results = finalProgress.rows;
+    });
+
+    return {
+      success: true,
+      headers: parseResult.headers,
+      validCount: parseResult.validCount,
+      invalidCount: parseResult.invalidCount,
+      totalCount: parseResult.totalCount,
+      parseErrors: parseErrors.length > 0 ? parseErrors : undefined,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to start batch.";
+    return { success: false, error: message };
+  }
+}
+
+/** BATCH_STATUS — return current batch progress. */
+async function handleBatchStatus(): Promise<BatchStatusResponse> {
+  if (!batchState.engine) {
+    return {
+      total: 0,
+      completed: 0,
+      successCount: 0,
+      errorCount: 0,
+      skippedCount: 0,
+      running: false,
+      cancelled: false,
+      rows: [],
+    };
+  }
+
+  const progress = batchState.engine.getProgress();
+
+  return {
+    total: progress.total,
+    completed: progress.completed,
+    successCount: progress.successCount,
+    errorCount: progress.errorCount,
+    skippedCount: progress.skippedCount,
+    running: progress.running,
+    cancelled: progress.cancelled,
+    rows: progress.rows.map((r) => ({
+      rowIndex: r.rowIndex,
+      status: r.status,
+      error: r.error,
+      signedCredential: r.credential ? JSON.stringify(r.credential) : undefined,
+    })),
+  };
+}
+
+/** BATCH_CANCEL — cancel the running batch. */
+async function handleBatchCancel(): Promise<BatchCancelResponse> {
+  if (!batchState.engine) {
+    return { success: false };
+  }
+
+  batchState.engine.cancel();
+  return { success: true };
+}
+
+/** BATCH_EXPORT — export successful batch results as a ZIP archive. */
+async function handleBatchExport(
+  _event: IpcMainInvokeEvent,
+  request: BatchExportRequest,
+): Promise<BatchExportResponse> {
+  if (!batchState.engine) {
+    return { success: false, error: "No batch results available for export." };
+  }
+
+  const progress = batchState.engine.getProgress();
+  if (progress.running) {
+    return { success: false, error: "Batch is still running. Wait for it to complete." };
+  }
+
+  try {
+    const result = await exportBatchAsZip({
+      rows: progress.rows,
+      outputPath: request.outputPath,
+    });
+
+    return {
+      success: true,
+      filePath: result.filePath,
+      credentialCount: result.credentialCount,
+      fileCount: result.fileCount,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Export failed.";
+    return { success: false, error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Registration / cleanup
 // ---------------------------------------------------------------------------
 
@@ -513,6 +687,12 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.REVOCATION_QUEUE, handleRevocationQueue);
   ipcMain.handle(IPC_CHANNELS.REVOCATION_STATUS, handleRevocationStatus);
   ipcMain.handle(IPC_CHANNELS.REVOCATION_PUBLISH, handleRevocationPublish);
+
+  // Batch issuance
+  ipcMain.handle(IPC_CHANNELS.BATCH_START, handleBatchStart);
+  ipcMain.handle(IPC_CHANNELS.BATCH_STATUS, handleBatchStatus);
+  ipcMain.handle(IPC_CHANNELS.BATCH_CANCEL, handleBatchCancel);
+  ipcMain.handle(IPC_CHANNELS.BATCH_EXPORT, handleBatchExport);
 
   // File operations
   ipcMain.handle(IPC_CHANNELS.FILE_OPEN, handleFileOpen);

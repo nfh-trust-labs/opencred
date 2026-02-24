@@ -27,6 +27,10 @@ const CHANNEL_TO_METHOD: Record<string, keyof OpenCredDesktopAPI> = {
   [IPC_CHANNELS.REVOCATION_QUEUE]: "queueRevocation",
   [IPC_CHANNELS.REVOCATION_STATUS]: "getRevocationStatus",
   [IPC_CHANNELS.REVOCATION_PUBLISH]: "publishRevocations",
+  [IPC_CHANNELS.BATCH_START]: "batchStart",
+  [IPC_CHANNELS.BATCH_STATUS]: "batchStatus",
+  [IPC_CHANNELS.BATCH_CANCEL]: "batchCancel",
+  [IPC_CHANNELS.BATCH_EXPORT]: "batchExport",
   [IPC_CHANNELS.FILE_OPEN]: "openFile",
   [IPC_CHANNELS.FILE_SAVE]: "saveFile",
   [IPC_CHANNELS.GET_OFFLINE_STATUS]: "getOfflineStatus",
@@ -71,6 +75,10 @@ describe("Preload API completeness", () => {
       queueRevocation: async () => ({ success: true }),
       getRevocationStatus: async () => ({ items: [] }),
       publishRevocations: async () => ({ results: [] }),
+      batchStart: async () => ({ success: true }),
+      batchStatus: async () => ({ total: 0, completed: 0, successCount: 0, errorCount: 0, skippedCount: 0, running: false, cancelled: false, rows: [] }),
+      batchCancel: async () => ({ success: true }),
+      batchExport: async () => ({ success: true }),
       openFile: async () => ({ content: null, filePath: null }),
       saveFile: async () => ({ filePath: null }),
       getOfflineStatus: async () => false,
@@ -96,6 +104,10 @@ describe("Preload API completeness", () => {
       queueRevocation: async () => ({ success: true }),
       getRevocationStatus: async () => ({ items: [] }),
       publishRevocations: async () => ({ results: [] }),
+      batchStart: async () => ({ success: true }),
+      batchStatus: async () => ({ total: 0, completed: 0, successCount: 0, errorCount: 0, skippedCount: 0, running: false, cancelled: false, rows: [] }),
+      batchCancel: async () => ({ success: true }),
+      batchExport: async () => ({ success: true }),
       openFile: async () => ({ content: null, filePath: null }),
       saveFile: async () => ({ filePath: null }),
       getOfflineStatus: async () => false,
@@ -146,6 +158,24 @@ describe("Preload API completeness", () => {
     const revPublishResult = api.publishRevocations();
     expect(revPublishResult).toBeInstanceOf(Promise);
 
+    const batchStartResult = api.batchStart({
+      csvContent: "",
+      schemaId: "test",
+      issuerDid: "did:test:123",
+      validFrom: "2025-01-01T00:00:00Z",
+      keyId: "k",
+    });
+    expect(batchStartResult).toBeInstanceOf(Promise);
+
+    const batchStatusResult = api.batchStatus();
+    expect(batchStatusResult).toBeInstanceOf(Promise);
+
+    const batchCancelResult = api.batchCancel();
+    expect(batchCancelResult).toBeInstanceOf(Promise);
+
+    const batchExportResult = api.batchExport({ outputPath: "/tmp/batch.zip" });
+    expect(batchExportResult).toBeInstanceOf(Promise);
+
     const openResult = api.openFile({});
     expect(openResult).toBeInstanceOf(Promise);
 
@@ -174,6 +204,10 @@ describe("Preload API completeness", () => {
       revQueueResult,
       revStatusResult,
       revPublishResult,
+      batchStartResult,
+      batchStatusResult,
+      batchCancelResult,
+      batchExportResult,
       openResult,
       saveResult,
       offlineResult,

@@ -24,13 +24,17 @@ describe("IPC_CHANNELS", () => {
     expect(IPC_CHANNELS.FILE_OPEN).toBe("file:open");
     expect(IPC_CHANNELS.FILE_SAVE).toBe("file:save");
     expect(IPC_CHANNELS.GET_OFFLINE_STATUS).toBe("status:offline");
+    expect(IPC_CHANNELS.BATCH_START).toBe("batch:start");
+    expect(IPC_CHANNELS.BATCH_STATUS).toBe("batch:status");
+    expect(IPC_CHANNELS.BATCH_CANCEL).toBe("batch:cancel");
+    expect(IPC_CHANNELS.BATCH_EXPORT).toBe("batch:export");
     expect(IPC_CHANNELS.GET_CONFIG).toBe("config:get");
     expect(IPC_CHANNELS.SET_CONFIG).toBe("config:set");
   });
 
-  it("should have exactly 16 channels defined", () => {
+  it("should have exactly 20 channels defined", () => {
     const channelCount = Object.keys(IPC_CHANNELS).length;
-    expect(channelCount).toBe(16);
+    expect(channelCount).toBe(20);
   });
 
   it("should have unique channel values (no duplicate channel names)", () => {
@@ -68,6 +72,10 @@ describe("IPC_CHANNELS", () => {
       REVOCATION_QUEUE: "revocation:queue",
       REVOCATION_STATUS: "revocation:status",
       REVOCATION_PUBLISH: "revocation:publish",
+      BATCH_START: "batch:start",
+      BATCH_STATUS: "batch:status",
+      BATCH_CANCEL: "batch:cancel",
+      BATCH_EXPORT: "batch:export",
       FILE_OPEN: "file:open",
       FILE_SAVE: "file:save",
       GET_OFFLINE_STATUS: "status:offline",
