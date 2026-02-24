@@ -333,6 +333,14 @@ export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps)
     // 3. Create DeDi namespace
     const namespace = buildBusinessNamespace(orgName);
 
+    // TODO: Register namespace in DeDi. The dedi-client package does not yet
+    // expose a createNamespace() method. A new endpoint (e.g. POST /namespaces)
+    // needs to be added to the DeDi service and a corresponding
+    // dediClient.createNamespace(namespace) method added to @opencred/dedi-client.
+    // Until then, the namespace is computed deterministically and used locally,
+    // but is not persisted in DeDi as a first-class entity.
+    // See: https://github.com/nfh-trust-labs/opencred/issues — create a follow-up issue.
+
     // 4. Build subject identifier
     const subject = buildBusinessSubject(credentialSubject, orgName);
 

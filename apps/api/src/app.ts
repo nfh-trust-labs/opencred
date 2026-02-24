@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { DeDiClient } from "@opencred/dedi-client";
 import type { SigningKeyProvider } from "@opencred/crypto";
+import type { VerifierConfig } from "@opencred/verification";
 import type { EnvConfig } from "@opencred/shared";
 import { createLogger, type Logger } from "./logger.js";
 import {
@@ -26,6 +27,7 @@ export interface AppDependencies {
   authOptions?: AuthMiddlewareOptions;
   signingKeyProvider?: SigningKeyProvider;
   opencredSigningKeyDid?: string;
+  verifierConfig?: VerifierConfig;
 }
 
 export function createApp(deps: AppDependencies) {
@@ -100,6 +102,7 @@ export function createApp(deps: AppDependencies) {
         jwtSigningKey: onboardingKey,
         jwtIssuer: config.JWT_ISSUER,
         jwtExpirySeconds: config.JWT_EXPIRY_SECONDS,
+        verifierConfig: deps.verifierConfig,
         dediClient: deps.dediClient,
         opencredSigningKeyDid: deps.opencredSigningKeyDid,
       }),

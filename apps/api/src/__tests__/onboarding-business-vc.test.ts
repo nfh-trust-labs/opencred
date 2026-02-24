@@ -354,7 +354,7 @@ describe("POST /onboarding/business-vc", () => {
       expect(payload.scope).toEqual(["credentials:issue-delegated", "credentials:revoke"]);
     });
 
-    it("registers delegation in DeDi when client is provided", async () => {
+    it("registers delegation via registerDelegation with the provided dediClient", async () => {
       const mockDediClient = {
         registerDelegation: vi.fn().mockResolvedValue({
           id: "urn:uuid:registered",
@@ -373,7 +373,32 @@ describe("POST /onboarding/business-vc", () => {
         signingPreference: "delegated",
       });
       expect(res.status).toBe(201);
-      expect(mockedRegister).toHaveBeenCalled();
+
+      // BLOCKER 3 fix: Assert that the mocked registerDelegation (from
+      // @opencred/delegation) was called with the provided dediClient as the
+      // first argument, confirming the client is properly threaded through.
+      expect(mockedRegister).toHaveBeenCalledTimes(1);
+      expect(mockedRegister).toHaveBeenCalledWith(
+        mockDediClient,
+        expect.objectContaining({
+          certificate: expect.objectContaining({
+            type: ["DelegationCertificate"],
+            proof: expect.objectContaining({
+              type: "BusinessCredentialAuthorisation",
+            }),
+          }),
+        }),
+      );
+    });
+
+    it("does not call registerDelegation when dediClient is not provided", async () => {
+      const app = createTestApp({ dediClient: undefined });
+      const res = await postBusinessVc(app, {
+        businessCredential: makeDataIntegrityVC(),
+        signingPreference: "delegated",
+      });
+      expect(res.status).toBe(201);
+      expect(mockedRegister).not.toHaveBeenCalled();
     });
   });
 
@@ -415,6 +440,38 @@ describe("POST /onboarding/business-vc", () => {
       expect(res.status).toBe(201);
       const body = (await res.json()) as BusinessVcResponseBody;
       expect(body.namespace).toBe("urn:opencred:issuer:business:acme-corp-ltd");
+    });
+  });
+
+  describe("DeDi namespace registration gap", () => {
+    it("succeeds even without namespace registration (documents the gap)", async () => {
+      // The DeDi client does not yet have a createNamespace() method.
+      // This test documents that onboarding works without namespace registration
+      // and that the namespace is computed deterministically.
+      const mockDediClient = {
+        registerDelegation: vi.fn().mockResolvedValue({
+          id: "urn:uuid:registered",
+          issuerDid: "did:example:acme-corp",
+          delegateDid: TEST_OPENCRED_DID,
+          scope: [],
+          validFrom: new Date().toISOString(),
+          validUntil: new Date(Date.now() + 3600_000).toISOString(),
+          certificate: {},
+        }),
+      } as any;
+
+      const app = createTestApp({ dediClient: mockDediClient });
+      const res = await postBusinessVc(app, {
+        businessCredential: makeDataIntegrityVC(),
+        signingPreference: "delegated",
+      });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as BusinessVcResponseBody;
+      // Namespace is computed but not registered in DeDi as a first-class entity
+      expect(body.namespace).toBe("urn:opencred:issuer:business:acme-corporation");
+
+      // Verify that delegation registration still goes through DeDi
+      expect(mockedRegister).toHaveBeenCalledTimes(1);
     });
   });
 
