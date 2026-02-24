@@ -246,6 +246,106 @@ export interface FileSaveResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Batch issuance
+// ---------------------------------------------------------------------------
+
+/** Column mapping: CSV column header -> schema property name. */
+export interface BatchColumnMapping {
+  [csvColumn: string]: string;
+}
+
+export interface BatchStartRequest {
+  /** The raw CSV text content. */
+  csvContent: string;
+  /** The schema ID for all credentials. */
+  schemaId: string;
+  /** The issuer DID. */
+  issuerDid: string;
+  /** ISO 8601 validFrom date. */
+  validFrom: string;
+  /** ISO 8601 validUntil date (optional). */
+  validUntil?: string;
+  /** Revocation registry URL (optional). */
+  revocationRegistryUrl?: string;
+  /** Additional credential types (optional). */
+  additionalTypes?: string[];
+  /** Column-to-schema-field mapping. If not provided, headers are used as-is. */
+  columnMapping?: BatchColumnMapping;
+  /** ID of the signing key. */
+  keyId: string;
+  /** Output packaging formats. Defaults to ["json-ld"]. */
+  packageFormats?: string[];
+  /** Force a specific delimiter instead of auto-detecting. */
+  delimiter?: "," | ";" | "\t";
+}
+
+/** Status of a single row in the batch. */
+export type BatchRowStatus = "pending" | "processing" | "success" | "error" | "skipped";
+
+/** Per-row result sent over IPC (credentials serialized as JSON strings). */
+export interface BatchRowResultIpc {
+  rowIndex: number;
+  status: BatchRowStatus;
+  error?: string;
+  /** JSON-serialized signed credential (if success). */
+  signedCredential?: string;
+}
+
+export interface BatchStartResponse {
+  success: boolean;
+  /** CSV headers detected from the file. */
+  headers?: string[];
+  /** Number of valid rows that will be processed. */
+  validCount?: number;
+  /** Number of invalid rows (skipped). */
+  invalidCount?: number;
+  /** Total row count. */
+  totalCount?: number;
+  /** Per-row parse validation results (before processing). */
+  parseErrors?: Array<{ rowIndex: number; errors: Array<{ field: string; message: string }> }>;
+  error?: string;
+}
+
+export interface BatchStatusResponse {
+  /** Total rows. */
+  total: number;
+  /** Completed rows. */
+  completed: number;
+  /** Success count. */
+  successCount: number;
+  /** Error count. */
+  errorCount: number;
+  /** Skipped count (invalid rows or cancelled). */
+  skippedCount: number;
+  /** Whether the batch is currently running. */
+  running: boolean;
+  /** Whether the batch was cancelled. */
+  cancelled: boolean;
+  /** Per-row results. */
+  rows: BatchRowResultIpc[];
+}
+
+export interface BatchCancelResponse {
+  success: boolean;
+}
+
+export interface BatchExportRequest {
+  /** Output file path for the ZIP. */
+  outputPath: string;
+}
+
+export interface BatchExportResponse {
+  success: boolean;
+  /** Absolute path to the created ZIP file. */
+  filePath?: string;
+  /** Number of credentials exported. */
+  credentialCount?: number;
+  /** Total number of files in the ZIP. */
+  fileCount?: number;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
@@ -283,6 +383,12 @@ export interface OpenCredDesktopAPI {
   queueRevocation: (request: RevocationQueueRequest) => Promise<RevocationQueueResponse>;
   getRevocationStatus: () => Promise<RevocationStatusResponse>;
   publishRevocations: () => Promise<RevocationPublishResponse>;
+
+  // Batch issuance
+  batchStart: (request: BatchStartRequest) => Promise<BatchStartResponse>;
+  batchStatus: () => Promise<BatchStatusResponse>;
+  batchCancel: () => Promise<BatchCancelResponse>;
+  batchExport: (request: BatchExportRequest) => Promise<BatchExportResponse>;
 
   // File I/O
   openFile: (request: FileOpenRequest) => Promise<FileOpenResponse>;

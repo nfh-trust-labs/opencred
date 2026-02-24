@@ -36,6 +36,12 @@ import type {
   RevocationQueueResponse,
   RevocationStatusResponse,
   RevocationPublishResponse,
+  BatchStartRequest,
+  BatchStartResponse,
+  BatchStatusResponse,
+  BatchCancelResponse,
+  BatchExportRequest,
+  BatchExportResponse,
   FileOpenRequest,
   FileOpenResponse,
   FileSaveRequest,
@@ -79,6 +85,19 @@ const api: OpenCredDesktopAPI = {
 
   publishRevocations: (): Promise<RevocationPublishResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.REVOCATION_PUBLISH),
+
+  // Batch issuance
+  batchStart: (request: BatchStartRequest): Promise<BatchStartResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.BATCH_START, request),
+
+  batchStatus: (): Promise<BatchStatusResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.BATCH_STATUS),
+
+  batchCancel: (): Promise<BatchCancelResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.BATCH_CANCEL),
+
+  batchExport: (request: BatchExportRequest): Promise<BatchExportResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.BATCH_EXPORT, request),
 
   // File I/O
   openFile: (request: FileOpenRequest): Promise<FileOpenResponse> =>
