@@ -32,13 +32,17 @@ describe("IPC_CHANNELS", () => {
     expect(IPC_CHANNELS.PKCS11_LIST_SLOTS).toBe("pkcs11:list-slots");
     expect(IPC_CHANNELS.PKCS11_LIST_KEYS).toBe("pkcs11:list-keys");
     expect(IPC_CHANNELS.PKCS11_CONNECT).toBe("pkcs11:connect");
+    expect(IPC_CHANNELS.UPDATE_CHECK).toBe("update:check");
+    expect(IPC_CHANNELS.UPDATE_DOWNLOAD).toBe("update:download");
+    expect(IPC_CHANNELS.UPDATE_INSTALL).toBe("update:install");
+    expect(IPC_CHANNELS.UPDATE_STATUS).toBe("update:status");
     expect(IPC_CHANNELS.GET_CONFIG).toBe("config:get");
     expect(IPC_CHANNELS.SET_CONFIG).toBe("config:set");
   });
 
-  it("should have exactly 24 channels defined", () => {
+  it("should have exactly 28 channels defined", () => {
     const channelCount = Object.keys(IPC_CHANNELS).length;
-    expect(channelCount).toBe(24);
+    expect(channelCount).toBe(28);
   });
 
   it("should have unique channel values (no duplicate channel names)", () => {
@@ -87,6 +91,10 @@ describe("IPC_CHANNELS", () => {
       PKCS11_LIST_SLOTS: "pkcs11:list-slots",
       PKCS11_LIST_KEYS: "pkcs11:list-keys",
       PKCS11_CONNECT: "pkcs11:connect",
+      UPDATE_CHECK: "update:check",
+      UPDATE_DOWNLOAD: "update:download",
+      UPDATE_INSTALL: "update:install",
+      UPDATE_STATUS: "update:status",
       GET_CONFIG: "config:get",
       SET_CONFIG: "config:set",
     };

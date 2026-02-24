@@ -429,6 +429,30 @@ export interface Pkcs11ConnectResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-update
+// ---------------------------------------------------------------------------
+
+/** Progress information for an in-flight update download. */
+export interface UpdateProgress {
+  percent: number;
+  bytesPerSecond: number;
+  total: number;
+  transferred: number;
+}
+
+/** Snapshot of the current auto-update state. */
+export interface UpdateStatusResponse {
+  checking: boolean;
+  available: boolean;
+  downloading: boolean;
+  downloaded: boolean;
+  version?: string;
+  releaseNotes?: string;
+  progress?: UpdateProgress;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
@@ -485,6 +509,13 @@ export interface OpenCredDesktopAPI {
   pkcs11ListSlots: (request: Pkcs11ListSlotsRequest) => Promise<Pkcs11ListSlotsResponse>;
   pkcs11ListKeys: (request: Pkcs11ListKeysRequest) => Promise<Pkcs11ListKeysResponse>;
   pkcs11Connect: (request: Pkcs11ConnectRequest) => Promise<Pkcs11ConnectResponse>;
+
+  // Auto-update
+  updateCheck: () => Promise<UpdateStatusResponse>;
+  updateDownload: () => Promise<UpdateStatusResponse>;
+  updateInstall: () => Promise<void>;
+  updateGetStatus: () => Promise<UpdateStatusResponse>;
+  onUpdateStatus: (callback: (status: UpdateStatusResponse) => void) => () => void;
 
   // Config
   getConfig: (key: string) => Promise<unknown>;

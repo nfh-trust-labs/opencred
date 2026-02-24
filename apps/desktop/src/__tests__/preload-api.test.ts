@@ -38,6 +38,10 @@ const CHANNEL_TO_METHOD: Record<string, keyof OpenCredDesktopAPI> = {
   [IPC_CHANNELS.PKCS11_LIST_SLOTS]: "pkcs11ListSlots",
   [IPC_CHANNELS.PKCS11_LIST_KEYS]: "pkcs11ListKeys",
   [IPC_CHANNELS.PKCS11_CONNECT]: "pkcs11Connect",
+  [IPC_CHANNELS.UPDATE_CHECK]: "updateCheck",
+  [IPC_CHANNELS.UPDATE_DOWNLOAD]: "updateDownload",
+  [IPC_CHANNELS.UPDATE_INSTALL]: "updateInstall",
+  [IPC_CHANNELS.UPDATE_STATUS]: "updateGetStatus",
   [IPC_CHANNELS.GET_CONFIG]: "getConfig",
   [IPC_CHANNELS.SET_CONFIG]: "setConfig",
 };
@@ -90,6 +94,11 @@ describe("Preload API completeness", () => {
       pkcs11ListKeys: async () => ({ success: true, keys: [] }),
       pkcs11Connect: async () => ({ success: false, error: "stub" }),
       getOfflineStatus: async () => false,
+      updateCheck: async () => ({ checking: false, available: false, downloading: false, downloaded: false }),
+      updateDownload: async () => ({ checking: false, available: false, downloading: false, downloaded: false }),
+      updateInstall: async () => {},
+      updateGetStatus: async () => ({ checking: false, available: false, downloading: false, downloaded: false }),
+      onUpdateStatus: () => () => {},
       getConfig: async () => undefined,
       setConfig: async () => {},
     };
@@ -123,6 +132,11 @@ describe("Preload API completeness", () => {
       pkcs11ListKeys: async () => ({ success: true, keys: [] }),
       pkcs11Connect: async () => ({ success: false, error: "stub" }),
       getOfflineStatus: async () => false,
+      updateCheck: async () => ({ checking: false, available: false, downloading: false, downloaded: false }),
+      updateDownload: async () => ({ checking: false, available: false, downloading: false, downloaded: false }),
+      updateInstall: async () => {},
+      updateGetStatus: async () => ({ checking: false, available: false, downloading: false, downloaded: false }),
+      onUpdateStatus: () => () => {},
       getConfig: async () => undefined,
       setConfig: async () => {},
     };
@@ -197,6 +211,18 @@ describe("Preload API completeness", () => {
     const offlineResult = api.getOfflineStatus();
     expect(offlineResult).toBeInstanceOf(Promise);
 
+    const updateCheckResult = api.updateCheck();
+    expect(updateCheckResult).toBeInstanceOf(Promise);
+
+    const updateDownloadResult = api.updateDownload();
+    expect(updateDownloadResult).toBeInstanceOf(Promise);
+
+    const updateInstallResult = api.updateInstall();
+    expect(updateInstallResult).toBeInstanceOf(Promise);
+
+    const updateStatusResult = api.updateGetStatus();
+    expect(updateStatusResult).toBeInstanceOf(Promise);
+
     const getResult = api.getConfig("theme");
     expect(getResult).toBeInstanceOf(Promise);
 
@@ -223,6 +249,10 @@ describe("Preload API completeness", () => {
       openResult,
       saveResult,
       offlineResult,
+      updateCheckResult,
+      updateDownloadResult,
+      updateInstallResult,
+      updateStatusResult,
       getResult,
       setResult,
     ]);
