@@ -119,6 +119,9 @@ importers:
         specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
     devDependencies:
+      "@playwright/test":
+        specifier: ^1.58.2
+        version: 1.58.2
       "@testing-library/jest-dom":
         specifier: ^6.6.3
         version: 6.9.1
@@ -1115,6 +1118,14 @@ packages:
       {
         integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==,
       }
+
+  "@playwright/test@1.58.2":
+    resolution:
+      {
+        integrity: sha512-akea+6bHYBBfA9uQqSYmlJXn61cTa+jbO87xVLCWbTqbWadRVmhxlXATaOjOgcBaWU4ePo0wB41KMFv3o35IXA==,
+      }
+    engines: { node: ">=18" }
+    hasBin: true
 
   "@rolldown/pluginutils@1.0.0-beta.27":
     resolution:
@@ -2467,6 +2478,14 @@ packages:
         integrity: sha512-OO0pH2lK6a0hZnAdau5ItzHPI6pUlvI7jMVnxUQRtw4owF2wk8lOSabtGDCTP4Ggrg2MbGnWO9X8K1t4+fGMDw==,
       }
 
+  fsevents@2.3.2:
+    resolution:
+      {
+        integrity: sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==,
+      }
+    engines: { node: ^8.16.0 || ^10.6.0 || >=11.0.0 }
+    os: [darwin]
+
   fsevents@2.3.3:
     resolution:
       {
@@ -3269,6 +3288,22 @@ packages:
       {
         integrity: sha512-/Jm5M4RvtBFVkKWRu2BLUTNP8/M2a+UwuAX+ae4770q1qVGtfjG+WTCupoZixokjmHiry8uI+dlY8KXYV5HVVQ==,
       }
+
+  playwright-core@1.58.2:
+    resolution:
+      {
+        integrity: sha512-yZkEtftgwS8CsfYo7nm0KE8jsvm6i/PTgVtB8DL726wNf6H2IMsDuxCpJj59KDaxCtSnrWan2AeDqM7JBaultg==,
+      }
+    engines: { node: ">=18" }
+    hasBin: true
+
+  playwright@1.58.2:
+    resolution:
+      {
+        integrity: sha512-vA30H8Nvkq/cPBnNw4Q8TWz1EJyqgpuinBcHET0YVJVFldr8JDNiU9LaWAE1KqSkRYazuaBhTpB5ZzShOezQ6A==,
+      }
+    engines: { node: ">=18" }
+    hasBin: true
 
   png-js@1.0.0:
     resolution:
@@ -4567,6 +4602,10 @@ snapshots:
 
   "@pinojs/redact@0.4.0": {}
 
+  "@playwright/test@1.58.2":
+    dependencies:
+      playwright: 1.58.2
+
   "@rolldown/pluginutils@1.0.0-beta.27": {}
 
   "@rollup/rollup-android-arm-eabi@4.59.0":
@@ -5398,6 +5437,9 @@ snapshots:
 
   fs.realpath@1.0.0: {}
 
+  fsevents@2.3.2:
+    optional: true
+
   fsevents@2.3.3:
     optional: true
 
@@ -5793,6 +5835,14 @@ snapshots:
       confbox: 0.1.8
       mlly: 1.8.0
       pathe: 2.0.3
+
+  playwright-core@1.58.2: {}
+
+  playwright@1.58.2:
+    dependencies:
+      playwright-core: 1.58.2
+    optionalDependencies:
+      fsevents: 2.3.2
 
   png-js@1.0.0: {}
 
