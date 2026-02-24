@@ -83,7 +83,10 @@ const DELIMITER_CANDIDATES: Delimiter[] = [",", ";", "\t"];
  */
 export function detectDelimiter(csv: string): Delimiter {
   // Take first 5 lines (or fewer if the file is shorter)
-  const lines = csv.split(/\r?\n/).filter((l) => l.trim().length > 0).slice(0, 5);
+  const lines = csv
+    .split(/\r?\n/)
+    .filter((l) => l.trim().length > 0)
+    .slice(0, 5);
 
   if (lines.length === 0) {
     return ","; // default
@@ -195,9 +198,7 @@ export function parseRawCsv(
   }
 
   const headerLine = nonEmpty[0];
-  const headers = parseCsvLine(headerLine, delimiter).map((h) =>
-    trim ? h.trim() : h,
-  );
+  const headers = parseCsvLine(headerLine, delimiter).map((h) => (trim ? h.trim() : h));
 
   const dataRows = nonEmpty.slice(1).map((line) => {
     const values = parseCsvLine(line, delimiter);

@@ -266,10 +266,7 @@ describe("OS Certificate Store Signer", () => {
       const mockProvider = createMockProvider({ throwOnGetPublicKey: true });
 
       await expect(
-        createOsCertSigner(
-          { platform: "darwin", certificateId: "test-cert-id-001" },
-          mockProvider,
-        ),
+        createOsCertSigner({ platform: "darwin", certificateId: "test-cert-id-001" }, mockProvider),
       ).rejects.toThrow(CryptoError);
     });
 
@@ -279,10 +276,7 @@ describe("OS Certificate Store Signer", () => {
       });
 
       await expect(
-        createOsCertSigner(
-          { platform: "darwin", certificateId: "test-cert-id-001" },
-          mockProvider,
-        ),
+        createOsCertSigner({ platform: "darwin", certificateId: "test-cert-id-001" }, mockProvider),
       ).rejects.toThrow(CryptoError);
     });
 

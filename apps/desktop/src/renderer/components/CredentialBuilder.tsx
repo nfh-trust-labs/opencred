@@ -105,9 +105,7 @@ export function CredentialBuilder() {
       await window.opencred.saveFile({
         defaultName: "credential.jsonld",
         content: JSON.stringify(JSON.parse(signedCredential), null, 2),
-        filters: [
-          { name: "JSON-LD", extensions: ["jsonld", "json"] },
-        ],
+        filters: [{ name: "JSON-LD", extensions: ["jsonld", "json"] }],
       });
     } catch {
       // User may have cancelled
@@ -117,10 +115,7 @@ export function CredentialBuilder() {
   return (
     <div className="space-y-6">
       {/* Schema selection */}
-      <SchemaSelector
-        onSchemaSelect={handleSchemaSelect}
-        selectedSchema={schemaId}
-      />
+      <SchemaSelector onSchemaSelect={handleSchemaSelect} selectedSchema={schemaId} />
 
       {/* Dynamic form fields */}
       <CredentialForm

@@ -33,9 +33,7 @@ function inputTypeForField(field: SchemaField): string {
 
 /** Capitalize and split camelCase field names for display. */
 function labelForField(name: string): string {
-  return name
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/^./, (c) => c.toUpperCase());
+  return name.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
 }
 
 export function CredentialForm({ fields, values: externalValues, onChange, disabled }: Props) {

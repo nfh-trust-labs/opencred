@@ -15,7 +15,10 @@
 import { describe, it, expect } from "vitest";
 import { CryptoError } from "@opencred/shared";
 import { createMacOsCertProvider, type MacOsNativeAddon } from "../signing/macos-cert-provider.js";
-import { createWindowsCertProvider, type WindowsNativeAddon } from "../signing/windows-cert-provider.js";
+import {
+  createWindowsCertProvider,
+  type WindowsNativeAddon,
+} from "../signing/windows-cert-provider.js";
 import type { OsCertInfo } from "../signing/os-cert-types.js";
 
 // ---------------------------------------------------------------------------
@@ -200,9 +203,7 @@ describe("macOS Certificate Provider", () => {
 
       const testData = new Uint8Array(32);
       await expect(provider.sign("", testData)).rejects.toThrow(CryptoError);
-      await expect(provider.sign("", testData)).rejects.toThrow(
-        /Certificate ID is required/,
-      );
+      await expect(provider.sign("", testData)).rejects.toThrow(/Certificate ID is required/);
     });
 
     it("should throw CryptoError for empty certificateId on getPublicKey", async () => {
@@ -210,9 +211,7 @@ describe("macOS Certificate Provider", () => {
       const provider = createMacOsCertProvider(addon);
 
       await expect(provider.getPublicKey("")).rejects.toThrow(CryptoError);
-      await expect(provider.getPublicKey("")).rejects.toThrow(
-        /Certificate ID is required/,
-      );
+      await expect(provider.getPublicKey("")).rejects.toThrow(/Certificate ID is required/);
     });
   });
 
@@ -251,9 +250,7 @@ describe("macOS Certificate Provider", () => {
 
       const testData = new Uint8Array(32);
       await expect(provider.sign("cert-001", testData)).rejects.toThrow(CryptoError);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(
-        /expected 64 bytes/,
-      );
+      await expect(provider.sign("cert-001", testData)).rejects.toThrow(/expected 64 bytes/);
     });
 
     it("should reject public keys with wrong length", async () => {
@@ -265,9 +262,7 @@ describe("macOS Certificate Provider", () => {
       const provider = createMacOsCertProvider(addon);
 
       await expect(provider.getPublicKey("cert-001")).rejects.toThrow(CryptoError);
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(
-        /expected 33 bytes/,
-      );
+      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(/expected 33 bytes/);
     });
   });
 });
@@ -348,9 +343,7 @@ describe("Windows Certificate Provider", () => {
 
       const testData = new Uint8Array(32);
       await expect(provider.sign("", testData)).rejects.toThrow(CryptoError);
-      await expect(provider.sign("", testData)).rejects.toThrow(
-        /Certificate ID is required/,
-      );
+      await expect(provider.sign("", testData)).rejects.toThrow(/Certificate ID is required/);
     });
   });
 
@@ -389,9 +382,7 @@ describe("Windows Certificate Provider", () => {
 
       const testData = new Uint8Array(32);
       await expect(provider.sign("cert-001", testData)).rejects.toThrow(CryptoError);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(
-        /expected 64 bytes/,
-      );
+      await expect(provider.sign("cert-001", testData)).rejects.toThrow(/expected 64 bytes/);
     });
 
     it("should reject public keys with wrong length", async () => {
@@ -403,9 +394,7 @@ describe("Windows Certificate Provider", () => {
       const provider = createWindowsCertProvider(addon);
 
       await expect(provider.getPublicKey("cert-001")).rejects.toThrow(CryptoError);
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(
-        /expected 33 bytes/,
-      );
+      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(/expected 33 bytes/);
     });
   });
 });

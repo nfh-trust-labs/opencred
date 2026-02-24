@@ -14,11 +14,7 @@ import { createSoftwareSigner } from "../signing/software-signer";
 import { buildAndSign } from "../signing/local-signing-flow";
 import { generateQrPng, generateQrSvg, generateQrBuffer } from "../packaging/qr-generator";
 import { generatePdf } from "../packaging/pdf-generator";
-import {
-  exportAsJsonLd,
-  exportAsCompactJson,
-  parseCredentialJson,
-} from "../packaging/json-export";
+import { exportAsJsonLd, exportAsCompactJson, parseCredentialJson } from "../packaging/json-export";
 import { packageCredential } from "../packaging/packager";
 import type { VerifiableCredential } from "@opencred/vc-core";
 

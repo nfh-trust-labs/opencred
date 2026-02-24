@@ -74,7 +74,9 @@ export function BatchIssuance() {
   const [skippedCount, setSkippedCount] = useState(0);
   const [rowResults, setRowResults] = useState<RowResult[]>([]);
   const [batchError, setBatchError] = useState<string | null>(null);
-  const [parseErrors, setParseErrors] = useState<Array<{ rowIndex: number; errors: Array<{ field: string; message: string }> }>>([]);
+  const [parseErrors, setParseErrors] = useState<
+    Array<{ rowIndex: number; errors: Array<{ field: string; message: string }> }>
+  >([]);
 
   // Export state
   const [exporting, setExporting] = useState(false);
@@ -134,12 +136,16 @@ export function BatchIssuance() {
         // Simple preview parsing (just split by common delimiters)
         const firstLine = lines[0];
         const delimiter = firstLine.includes("\t") ? "\t" : firstLine.includes(";") ? ";" : ",";
-        const headers = firstLine.split(delimiter).map((h: string) => h.trim().replace(/^"|"$/g, ""));
+        const headers = firstLine
+          .split(delimiter)
+          .map((h: string) => h.trim().replace(/^"|"$/g, ""));
         setCsvHeaders(headers);
 
-        const previewRows = lines.slice(1, 6).map((line: string) =>
-          line.split(delimiter).map((v: string) => v.trim().replace(/^"|"$/g, "")),
-        );
+        const previewRows = lines
+          .slice(1, 6)
+          .map((line: string) =>
+            line.split(delimiter).map((v: string) => v.trim().replace(/^"|"$/g, "")),
+          );
         setCsvPreview(previewRows);
 
         // Initialize column mapping (identity mapping by default)
@@ -167,9 +173,7 @@ export function BatchIssuance() {
     // Auto-map columns that match schema field names
     const newMapping: Record<string, string> = {};
     for (const header of csvHeaders) {
-      const matchingField = fields.find(
-        (f) => f.name.toLowerCase() === header.toLowerCase(),
-      );
+      const matchingField = fields.find((f) => f.name.toLowerCase() === header.toLowerCase());
       if (matchingField) {
         newMapping[header] = matchingField.name;
       } else {
@@ -384,8 +388,8 @@ export function BatchIssuance() {
         <div className="rounded-lg border border-gray-200 bg-white p-6 space-y-4">
           <h2 className="text-sm font-medium text-gray-700">Batch Credential Issuance</h2>
           <p className="text-sm text-gray-500">
-            Issue multiple credentials at once from a CSV file. All processing
-            happens locally -- no network required.
+            Issue multiple credentials at once from a CSV file. All processing happens locally -- no
+            network required.
           </p>
           <button
             onClick={() => void handleImportCsv()}
@@ -404,10 +408,7 @@ export function BatchIssuance() {
           <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-medium text-gray-700">CSV Preview: {csvFileName}</h2>
-              <button
-                onClick={handleReset}
-                className="text-xs text-gray-500 hover:text-gray-700"
-              >
+              <button onClick={handleReset} className="text-xs text-gray-500 hover:text-gray-700">
                 Change File
               </button>
             </div>
@@ -441,10 +442,7 @@ export function BatchIssuance() {
           </div>
 
           {/* Schema Selection */}
-          <SchemaSelector
-            onSchemaSelect={handleSchemaSelect}
-            selectedSchema={schemaId}
-          />
+          <SchemaSelector onSchemaSelect={handleSchemaSelect} selectedSchema={schemaId} />
 
           {/* Column Mapping UI */}
           {schemaId && schemaFields.length > 0 && (
@@ -517,7 +515,10 @@ export function BatchIssuance() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label htmlFor="batch-valid-from" className="block text-xs font-medium text-gray-600">
+                <label
+                  htmlFor="batch-valid-from"
+                  className="block text-xs font-medium text-gray-600"
+                >
                   Valid From <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -529,7 +530,10 @@ export function BatchIssuance() {
                 />
               </div>
               <div>
-                <label htmlFor="batch-valid-until" className="block text-xs font-medium text-gray-600">
+                <label
+                  htmlFor="batch-valid-until"
+                  className="block text-xs font-medium text-gray-600"
+                >
                   Valid Until (optional)
                 </label>
                 <input
@@ -543,7 +547,10 @@ export function BatchIssuance() {
             </div>
 
             <div>
-              <label htmlFor="batch-revocation-url" className="block text-xs font-medium text-gray-600">
+              <label
+                htmlFor="batch-revocation-url"
+                className="block text-xs font-medium text-gray-600"
+              >
                 Revocation Registry URL (optional)
               </label>
               <input
@@ -557,7 +564,10 @@ export function BatchIssuance() {
             </div>
 
             <div>
-              <label htmlFor="batch-signing-key" className="block text-xs font-medium text-gray-600">
+              <label
+                htmlFor="batch-signing-key"
+                className="block text-xs font-medium text-gray-600"
+              >
                 Signing Key <span className="text-red-500">*</span>
               </label>
               {keys.length === 0 ? (
@@ -582,9 +592,7 @@ export function BatchIssuance() {
 
             {/* Output format selection */}
             <div>
-              <span className="block text-xs font-medium text-gray-600 mb-1">
-                Output Formats
-              </span>
+              <span className="block text-xs font-medium text-gray-600 mb-1">Output Formats</span>
               <div className="flex flex-wrap gap-2">
                 {["json-ld", "qr-png", "pdf"].map((fmt) => (
                   <label key={fmt} className="flex items-center gap-1 text-xs text-gray-600">
@@ -601,9 +609,7 @@ export function BatchIssuance() {
             </div>
           </div>
 
-          {batchError && (
-            <p className="text-sm text-red-600">{batchError}</p>
-          )}
+          {batchError && <p className="text-sm text-red-600">{batchError}</p>}
 
           <div className="flex gap-3">
             <button
@@ -642,7 +648,9 @@ export function BatchIssuance() {
             {/* Progress bar */}
             <div>
               <div className="flex justify-between text-xs text-gray-500 mb-1">
-                <span>{completed} of {total} complete</span>
+                <span>
+                  {completed} of {total} complete
+                </span>
                 <span>{progressPercent}%</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
@@ -655,15 +663,9 @@ export function BatchIssuance() {
 
             {/* Summary stats */}
             <div className="flex gap-4 text-xs">
-              <span className="text-green-600">
-                Success: {successCount}
-              </span>
-              <span className="text-red-600">
-                Errors: {errorCount}
-              </span>
-              <span className="text-gray-400">
-                Skipped: {skippedCount}
-              </span>
+              <span className="text-green-600">Success: {successCount}</span>
+              <span className="text-red-600">Errors: {errorCount}</span>
+              <span className="text-gray-400">Skipped: {skippedCount}</span>
             </div>
           </div>
 
@@ -707,29 +709,24 @@ export function BatchIssuance() {
           <div className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-3">
             <h2 className="text-sm font-medium text-green-800">Batch Complete</h2>
             <div className="flex gap-4 text-sm">
-              <span className="text-green-700">
-                Success: {successCount}
-              </span>
-              <span className="text-red-600">
-                Errors: {errorCount}
-              </span>
-              <span className="text-gray-500">
-                Skipped: {skippedCount}
-              </span>
-              <span className="text-gray-500">
-                Total: {total}
-              </span>
+              <span className="text-green-700">Success: {successCount}</span>
+              <span className="text-red-600">Errors: {errorCount}</span>
+              <span className="text-gray-500">Skipped: {skippedCount}</span>
+              <span className="text-gray-500">Total: {total}</span>
             </div>
           </div>
 
           {/* Parse errors */}
           {parseErrors.length > 0 && (
             <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 space-y-2">
-              <h3 className="text-xs font-medium text-yellow-800">Validation Errors (skipped rows)</h3>
+              <h3 className="text-xs font-medium text-yellow-800">
+                Validation Errors (skipped rows)
+              </h3>
               <div className="max-h-40 overflow-auto space-y-1">
                 {parseErrors.map((pe) => (
                   <div key={pe.rowIndex} className="text-xs text-yellow-700">
-                    Row #{pe.rowIndex + 1}: {pe.errors.map((e) => `${e.field}: ${e.message}`).join("; ")}
+                    Row #{pe.rowIndex + 1}:{" "}
+                    {pe.errors.map((e) => `${e.field}: ${e.message}`).join("; ")}
                   </div>
                 ))}
               </div>
@@ -776,9 +773,7 @@ export function BatchIssuance() {
               >
                 {exporting ? "Exporting..." : "Export as ZIP"}
               </button>
-              {exportResult && (
-                <p className="text-xs text-green-700">{exportResult}</p>
-              )}
+              {exportResult && <p className="text-xs text-green-700">{exportResult}</p>}
             </div>
           )}
 

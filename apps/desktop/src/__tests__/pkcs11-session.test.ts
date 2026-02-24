@@ -95,9 +95,7 @@ vi.mock("pkcs11js", () => {
     C_GetSlotInfo(slot: Buffer) {
       const isFirstSlot = slot.toString() === "slot0";
       return {
-        slotDescription: isFirstSlot
-          ? "Virtual Token Slot    "
-          : "Empty Slot            ",
+        slotDescription: isFirstSlot ? "Virtual Token Slot    " : "Empty Slot            ",
         flags: isFirstSlot ? CONSTS.CKF_TOKEN_PRESENT : 0,
       };
     }
@@ -146,9 +144,7 @@ vi.mock("pkcs11js", () => {
 
       if (current.findCallCount === 0) {
         current.findCallCount++;
-        return current.findType === "private"
-          ? Buffer.from("privkey0")
-          : Buffer.from("pubkey0");
+        return current.findType === "private" ? Buffer.from("privkey0") : Buffer.from("pubkey0");
       }
       return null;
     }

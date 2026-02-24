@@ -107,14 +107,10 @@ function computeFingerprint(publicKey: KeyObject): string {
 function validateP256Key(publicKey: KeyObject): void {
   const jwk = publicKey.export({ format: "jwk" });
   if (jwk.crv !== "P-256") {
-    throw new CryptoError(
-      `Unsupported key curve: ${String(jwk.crv)}. Only P-256 is supported.`,
-    );
+    throw new CryptoError(`Unsupported key curve: ${String(jwk.crv)}. Only P-256 is supported.`);
   }
   if (jwk.kty !== "EC") {
-    throw new CryptoError(
-      `Unsupported key type: ${String(jwk.kty)}. Only EC keys are supported.`,
-    );
+    throw new CryptoError(`Unsupported key type: ${String(jwk.kty)}. Only EC keys are supported.`);
   }
 }
 
@@ -149,11 +145,7 @@ function loadFromPkcs8Der(buffer: Buffer): { privateKey: KeyObject; publicKey: K
 /**
  * Internal helper that builds a Signer from loaded key material.
  */
-function buildSigner(
-  privateKey: KeyObject,
-  publicKey: KeyObject,
-  label?: string,
-): Signer {
+function buildSigner(privateKey: KeyObject, publicKey: KeyObject, label?: string): Signer {
   validateP256Key(publicKey);
 
   const id = deriveDidKeyId(publicKey);
