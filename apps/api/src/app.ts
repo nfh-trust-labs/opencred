@@ -18,6 +18,10 @@ import { createVerifyRoutes } from "./routes/verify.js";
 import { createCredentialsRoute } from "./routes/credentials.js";
 import { createOnboardingRoutes, createBusinessVcOnboardingRoutes } from "./routes/onboarding.js";
 import { createCaRequestRoutes, type CertificateAuthorityAdapter } from "./routes/ca-request.js";
+import {
+  createDomainVerificationRoutes,
+  type DomainVerificationDeps,
+} from "./routes/domain-verification.js";
 import { TrustStore } from "./dsc-chain.js";
 
 export interface AppDependencies {
@@ -31,6 +35,7 @@ export interface AppDependencies {
   verifierConfig?: VerifierConfig;
   /** Optional CA adapter for Type C onboarding. When undefined, the endpoint returns 501. */
   caAdapter?: CertificateAuthorityAdapter;
+  domainVerificationDeps?: DomainVerificationDeps;
 }
 
 export function createApp(deps: AppDependencies) {
@@ -111,6 +116,9 @@ export function createApp(deps: AppDependencies) {
       }),
     );
   }
+
+  // Type B domain ownership verification (unauthenticated — initiates verification flow)
+  app.route("/onboarding", createDomainVerificationRoutes(deps.domainVerificationDeps));
 
   // Type C — CA API adapter (extension point; returns 501 when no adapter registered)
   app.route("/onboarding", createCaRequestRoutes({ caAdapter: deps.caAdapter }));
