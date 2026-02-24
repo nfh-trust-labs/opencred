@@ -281,6 +281,7 @@ describe("POST /credentials/batch/csv", () => {
     const token = await makeToken();
 
     const csv = "name,degree,institution,dateConferred\nJane Doe,BSc,Example Uni,2025-06-15\n";
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { schema: _schema, ...fieldsWithoutSchema } = INTERFACE_CSV_FIELDS;
     const formData = makeCsvFormData(csv, fieldsWithoutSchema);
 
