@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { randomUUID } from "node:crypto";
+import { parse as parseCsv } from "csv-parse/sync";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
 import {
@@ -289,6 +290,204 @@ export function createBatchRoute(deps: BatchRouteDeps) {
       );
     },
   );
+
+  // -----------------------------------------------------------------------
+  // POST /credentials/batch/csv — Submit batch via CSV upload
+  // -----------------------------------------------------------------------
+  batch.post("/csv", authMiddleware(authOptions, "credentials:batch"), async (c) => {
+    const contentType = c.req.header("content-type") ?? "";
+    if (!contentType.includes("multipart/form-data")) {
+      throw new ValidationError("Expected multipart/form-data content type for CSV upload");
+    }
+
+    const formData = await c.req.formData();
+
+    // Extract metadata fields from form data
+    const schema = formData.get("schema");
+    const signingFlow = formData.get("signingFlow");
+    const file = formData.get("file");
+    const validFrom = formData.get("validFrom");
+    const validUntil = formData.get("validUntil") as string | null;
+
+    // Interface Signing fields
+    const issuer = formData.get("issuer") as string | null;
+    const publicKey = formData.get("publicKey") as string | null;
+    const revocationRegistryUrl = formData.get("revocationRegistryUrl") as string | null;
+
+    // Delegated Signing fields
+    const delegationId = formData.get("delegationId") as string | null;
+
+    if (!schema || typeof schema !== "string") {
+      throw new ValidationError("schema field is required");
+    }
+    if (!signingFlow || (signingFlow !== "interface" && signingFlow !== "delegated")) {
+      throw new ValidationError("signingFlow must be 'interface' or 'delegated'");
+    }
+    if (!file || !(file instanceof File)) {
+      throw new ValidationError("file field is required and must be a CSV file");
+    }
+    if (!validFrom || typeof validFrom !== "string") {
+      throw new ValidationError("validFrom field is required");
+    }
+
+    // Flow-specific validation
+    if (signingFlow === "interface") {
+      if (!issuer) throw new ValidationError("issuer is required for interface signing");
+      if (!publicKey) throw new ValidationError("publicKey is required for interface signing");
+      if (!revocationRegistryUrl) {
+        throw new ValidationError("revocationRegistryUrl is required for interface signing");
+      }
+      validateRevocationUrl(revocationRegistryUrl);
+    } else {
+      if (!delegationId) {
+        throw new ValidationError("delegationId is required for delegated signing");
+      }
+    }
+
+    // Parse CSV file
+    const csvContent = await file.text();
+    let records: Record<string, string>[];
+    try {
+      records = parseCsv(csvContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      }) as Record<string, string>[];
+    } catch (err) {
+      throw new ValidationError(
+        `Failed to parse CSV: ${err instanceof Error ? err.message : "Invalid CSV format"}`,
+      );
+    }
+
+    if (records.length === 0) {
+      throw new ValidationError("CSV file contains no data rows");
+    }
+
+    if (records.length > config.MAX_BATCH_SIZE) {
+      throw new ValidationError(
+        `CSV contains ${records.length} rows, exceeding maximum of ${config.MAX_BATCH_SIZE}`,
+      );
+    }
+
+    // Convert CSV rows to credential entries
+    // Each row's columns map to credentialSubject fields
+    // Special columns: validFrom, validUntil (override form-level defaults)
+    const credentials: Array<{
+      credentialSubject: Record<string, unknown>;
+      validFrom: string;
+      validUntil?: string;
+    }> = [];
+
+    for (let i = 0; i < records.length; i++) {
+      const row = records[i];
+      const credentialSubject: Record<string, unknown> = {};
+      let rowValidFrom = validFrom;
+      let rowValidUntil = validUntil ?? undefined;
+
+      for (const [key, value] of Object.entries(row)) {
+        if (key === "validFrom") {
+          rowValidFrom = value;
+        } else if (key === "validUntil") {
+          rowValidUntil = value || undefined;
+        } else {
+          credentialSubject[key] = value;
+        }
+      }
+
+      if (Object.keys(credentialSubject).length === 0) {
+        throw new ValidationError(`CSV row ${i + 2} has no credential subject fields`);
+      }
+
+      credentials.push({
+        credentialSubject,
+        validFrom: rowValidFrom,
+        validUntil: rowValidUntil,
+      });
+    }
+
+    // Build the batch body and process using the same logic as JSON endpoint
+    const body = {
+      schema,
+      signingFlow: signingFlow as "interface" | "delegated",
+      credentials,
+      issuer: issuer ?? undefined,
+      publicKey: publicKey ?? undefined,
+      revocationRegistryUrl: revocationRegistryUrl ?? undefined,
+      delegationId: delegationId ?? undefined,
+    };
+
+    // Create job
+    const jobId = randomUUID();
+    const job: BatchJob = {
+      jobId,
+      status: "validating",
+      signingFlow: body.signingFlow,
+      schema: body.schema,
+      total: body.credentials.length,
+      succeeded: 0,
+      failed: 0,
+      results: body.credentials.map((_, i) => ({
+        index: i,
+        status: "pending" as const,
+      })),
+      issuer: body.issuer,
+      publicKey: body.publicKey,
+      revocationRegistryUrl: body.revocationRegistryUrl,
+      delegationId: body.delegationId,
+    };
+
+    // Phase 1: Validate all rows against schema
+    let hasValidationErrors = false;
+    for (let i = 0; i < body.credentials.length; i++) {
+      const entry = body.credentials[i];
+      const result = validator.validateCredentialSubject(body.schema, entry.credentialSubject);
+      if (!result.valid) {
+        job.results[i] = {
+          index: i,
+          status: "failed",
+          error: `Row ${i + 2}: ${result.errors.map((e) => `${e.field}: ${e.message}`).join("; ")}`,
+        };
+        job.failed++;
+        hasValidationErrors = true;
+      }
+    }
+
+    if (hasValidationErrors) {
+      job.status = "failed";
+      jobStore.set(jobId, job);
+      return c.json(
+        {
+          jobId,
+          status: job.status,
+          total: job.total,
+          succeeded: 0,
+          failed: job.failed,
+          message: "Batch validation failed. All rows must pass validation before issuance.",
+        },
+        202,
+      );
+    }
+
+    // Phase 2: Issue credentials (flow-specific)
+    if (body.signingFlow === "delegated") {
+      await processDelegatedBatch(job, body, deps, validator);
+    } else {
+      await processInterfaceBatchPhase1(job, body, deps, validator);
+    }
+
+    jobStore.set(jobId, job);
+
+    return c.json(
+      {
+        jobId,
+        status: job.status,
+        total: job.total,
+        succeeded: job.succeeded,
+        failed: job.failed,
+      },
+      202,
+    );
+  });
 
   // -----------------------------------------------------------------------
   // GET /credentials/batch/:jobId — Poll status
