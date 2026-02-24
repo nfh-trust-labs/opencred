@@ -149,7 +149,14 @@ describe("IPC type contracts", () => {
     const resp: BuildAndSignResponse = {
       success: true,
       signedCredential: "{}",
-      packagedOutputs: [{ format: "json-ld", data: "{}", mimeType: "application/ld+json", suggestedFileName: "cred.jsonld" }],
+      packagedOutputs: [
+        {
+          format: "json-ld",
+          data: "{}",
+          mimeType: "application/ld+json",
+          suggestedFileName: "cred.jsonld",
+        },
+      ],
     };
     expect(resp.packagedOutputs).toHaveLength(1);
   });

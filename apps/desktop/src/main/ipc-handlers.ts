@@ -64,20 +64,12 @@ import type {
 } from "../shared/ipc-types.js";
 import { getStore } from "./store.js";
 import { createSoftwareSigner } from "../signing/software-signer.js";
-import {
-  buildAndSign,
-  listSchemas,
-  getSchemaDefinition,
-} from "../signing/local-signing-flow.js";
+import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local-signing-flow.js";
 import { verifyProof } from "@opencred/crypto";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
-import {
-  queueRevocation,
-  getQueueItems,
-  publishPendingRevocations,
-} from "./revocation-queue.js";
+import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
 import type { Signer } from "../signing/types.js";
 import { parseCsv } from "../batch/csv-parser.js";
 import type { CsvParseResult, Delimiter } from "../batch/csv-parser.js";
@@ -99,10 +91,7 @@ import {
   quitAndInstall,
   getUpdateStatus,
 } from "./auto-updater.js";
-import {
-  listOsCertificates,
-  createOsCertSigner,
-} from "../signing/os-cert-signer.js";
+import { listOsCertificates, createOsCertSigner } from "../signing/os-cert-signer.js";
 
 // ---------------------------------------------------------------------------
 // In-memory registries
@@ -157,7 +146,8 @@ async function handleKeyImport(
 
     // Persist the key path in config so it can be reloaded
     const store = getStore();
-    const keyPaths = (store.get("preferences" as keyof typeof store.store) as Record<string, unknown>) ?? {};
+    const keyPaths =
+      (store.get("preferences" as keyof typeof store.store) as Record<string, unknown>) ?? {};
     const importedKeyPaths = (keyPaths["importedKeyPaths"] as Record<string, string>) ?? {};
     importedKeyPaths[signer.id] = request.filePath;
     store.set("preferences" as keyof typeof store.store, { ...keyPaths, importedKeyPaths });
@@ -271,9 +261,7 @@ async function handleBuildAndSign(
       const packaging = await packageCredential(result.credential, formats);
       response.packagedOutputs = packaging.outputs.map((output) => ({
         format: output.format,
-        data: Buffer.isBuffer(output.data)
-          ? output.data.toString("base64")
-          : output.data,
+        data: Buffer.isBuffer(output.data) ? output.data.toString("base64") : output.data,
         mimeType: output.mimeType,
         suggestedFileName: output.suggestedFileName,
       }));
@@ -319,7 +307,8 @@ async function handleVerifyCredential(
       return {
         success: true,
         valid: false,
-        message: "Unable to resolve public key from verificationMethod. Only did:key is supported for offline verification.",
+        message:
+          "Unable to resolve public key from verificationMethod. Only did:key is supported for offline verification.",
         checks: [{ name: "key-resolution", passed: false, detail: "Could not resolve public key" }],
       };
     }
@@ -370,7 +359,7 @@ async function handleVerifyCredential(
       valid: allPassed,
       message: allPassed
         ? "Credential signature is valid."
-        : allChecks.find((c) => !c.passed)?.detail ?? "Verification failed.",
+        : (allChecks.find((c) => !c.passed)?.detail ?? "Verification failed."),
       checks: allChecks,
     };
   } catch (err) {
@@ -399,9 +388,7 @@ async function handlePackageCredential(
       success: true,
       outputs: result.outputs.map((output) => ({
         format: output.format,
-        data: Buffer.isBuffer(output.data)
-          ? output.data.toString("base64")
-          : output.data,
+        data: Buffer.isBuffer(output.data) ? output.data.toString("base64") : output.data,
         mimeType: output.mimeType,
         suggestedFileName: output.suggestedFileName,
       })),
@@ -888,7 +875,8 @@ async function handleOsCertSign(
   // Look up the signer in loadedSigners
   // The signer was registered via OSCERT_CONNECT
   const matchingSigner = Array.from(loadedSigners.values()).find(
-    (s) => s.type === "os-cert" && importedKeys.get(s.id)?.format === `oscert:${request.certificateId}`,
+    (s) =>
+      s.type === "os-cert" && importedKeys.get(s.id)?.format === `oscert:${request.certificateId}`,
   );
 
   if (!matchingSigner) {

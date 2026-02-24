@@ -97,11 +97,7 @@ export interface BatchConfig {
  * @param config - Batch configuration (issuer DID, schema, etc.).
  * @returns An object with start(), cancel(), and getProgress() methods.
  */
-export function createBatchEngine(
-  signer: Signer,
-  parsedRows: ParsedRow[],
-  config: BatchConfig,
-) {
+export function createBatchEngine(signer: Signer, parsedRows: ParsedRow[], config: BatchConfig) {
   const packageFormats = config.packageFormats ?? ["json-ld"];
 
   // Initialize progress
@@ -134,10 +130,7 @@ export function createBatchEngine(
   /**
    * Process a single valid row.
    */
-  async function processRow(
-    parsedRow: ParsedRow,
-    rowResult: BatchRowResult,
-  ): Promise<void> {
+  async function processRow(parsedRow: ParsedRow, rowResult: BatchRowResult): Promise<void> {
     rowResult.status = "processing";
     notifyProgress();
 

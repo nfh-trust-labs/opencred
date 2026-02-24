@@ -59,7 +59,9 @@ function deriveSubjectId(row: BatchRowResult): string {
   }
 
   if (row.credential?.id) {
-    const idSegment = row.credential.id.includes(":") ? row.credential.id.split(":").pop() : row.credential.id;
+    const idSegment = row.credential.id.includes(":")
+      ? row.credential.id.split(":").pop()
+      : row.credential.id;
     return sanitizeFileName(idSegment ?? "unknown").slice(0, 16);
   }
 
@@ -107,20 +109,13 @@ function formatToExtension(format: string): string {
  * @param options - Export configuration.
  * @returns BatchExportResult with the file path and counts.
  */
-export async function exportBatchAsZip(
-  options: BatchExportOptions,
-): Promise<BatchExportResult> {
-  const successRows = options.rows.filter(
-    (r) => r.status === "success" && r.credential,
-  );
+export async function exportBatchAsZip(options: BatchExportOptions): Promise<BatchExportResult> {
+  const successRows = options.rows.filter((r) => r.status === "success" && r.credential);
 
   // Determine output path
-  const outputDir = options.outputPath
-    ? join(options.outputPath, "..")
-    : tmpdir();
+  const outputDir = options.outputPath ? join(options.outputPath, "..") : tmpdir();
   const outputPath =
-    options.outputPath ??
-    join(outputDir, `opencred-batch-${randomBytes(6).toString("hex")}.zip`);
+    options.outputPath ?? join(outputDir, `opencred-batch-${randomBytes(6).toString("hex")}.zip`);
 
   // Ensure output directory exists
   await mkdir(join(outputPath, ".."), { recursive: true });

@@ -105,9 +105,7 @@ export function UpdateNotification(): React.ReactElement | null {
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2">
               <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
-              <span className="font-medium text-sm text-gray-900">
-                Update Ready
-              </span>
+              <span className="font-medium text-sm text-gray-900">Update Ready</span>
             </div>
             <button
               onClick={handleDismiss}
@@ -142,9 +140,7 @@ export function UpdateNotification(): React.ReactElement | null {
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <span className="inline-block h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-            <span className="font-medium text-sm text-gray-900">
-              Downloading Update...
-            </span>
+            <span className="font-medium text-sm text-gray-900">Downloading Update...</span>
           </div>
           {status.progress && (
             <div className="space-y-1">
@@ -171,9 +167,7 @@ export function UpdateNotification(): React.ReactElement | null {
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2">
               <span className="inline-block h-2 w-2 rounded-full bg-yellow-500" />
-              <span className="font-medium text-sm text-gray-900">
-                Update Available
-              </span>
+              <span className="font-medium text-sm text-gray-900">Update Available</span>
             </div>
             <button
               onClick={handleDismiss}
@@ -183,9 +177,7 @@ export function UpdateNotification(): React.ReactElement | null {
               X
             </button>
           </div>
-          <p className="text-sm text-gray-600">
-            A new version ({status.version}) is available.
-          </p>
+          <p className="text-sm text-gray-600">A new version ({status.version}) is available.</p>
           {status.releaseNotes && (
             <p className="text-xs text-gray-500 max-h-20 overflow-y-auto whitespace-pre-wrap">
               {status.releaseNotes}

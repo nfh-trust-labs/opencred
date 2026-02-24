@@ -108,9 +108,7 @@ function loadNativeAddon(): MacOsNativeAddon | null {
  * @param nativeAddon - Optional override for the native addon (used in tests).
  * @returns OsCertProvider for macOS Keychain operations.
  */
-export function createMacOsCertProvider(
-  nativeAddon?: MacOsNativeAddon | null,
-): OsCertProvider {
+export function createMacOsCertProvider(nativeAddon?: MacOsNativeAddon | null): OsCertProvider {
   const addon = nativeAddon !== undefined ? nativeAddon : loadNativeAddon();
 
   const provider: OsCertProvider = {
@@ -132,9 +130,7 @@ export function createMacOsCertProvider(
 
     async sign(certificateId: string, data: Uint8Array): Promise<Uint8Array> {
       if (!addon) {
-        throw new CryptoError(
-          "macOS Keychain native addon is not available",
-        );
+        throw new CryptoError("macOS Keychain native addon is not available");
       }
 
       if (!certificateId) {
@@ -142,10 +138,7 @@ export function createMacOsCertProvider(
       }
 
       try {
-        const result = addon.signWithCertificate(
-          certificateId,
-          Buffer.from(data),
-        );
+        const result = addon.signWithCertificate(certificateId, Buffer.from(data));
         const signature = new Uint8Array(result);
 
         if (signature.length !== 64) {
@@ -163,9 +156,7 @@ export function createMacOsCertProvider(
 
     async getPublicKey(certificateId: string): Promise<Uint8Array> {
       if (!addon) {
-        throw new CryptoError(
-          "macOS Keychain native addon is not available",
-        );
+        throw new CryptoError("macOS Keychain native addon is not available");
       }
 
       if (!certificateId) {

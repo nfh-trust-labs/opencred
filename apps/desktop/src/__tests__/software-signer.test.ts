@@ -49,10 +49,7 @@ beforeAll(() => {
   // Write test keys to files
   fs.writeFileSync(path.join(tmpDir, "test-key.pem"), pemKey);
   fs.writeFileSync(path.join(tmpDir, "test-key.der"), derKey);
-  fs.writeFileSync(
-    path.join(tmpDir, "test-key.json"),
-    JSON.stringify(jwkPrivate),
-  );
+  fs.writeFileSync(path.join(tmpDir, "test-key.json"), JSON.stringify(jwkPrivate));
   fs.writeFileSync(path.join(tmpDir, "secp384-key.pem"), secp384Pem);
   fs.writeFileSync(path.join(tmpDir, "rsa-key.pem"), rsaPem);
   fs.writeFileSync(path.join(tmpDir, "invalid.txt"), "this is not a key");
@@ -134,27 +131,23 @@ describe("createSoftwareSigner (from file path)", () => {
   });
 
   it("should reject non-P-256 EC keys (secp384r1)", () => {
-    expect(() =>
-      createSoftwareSigner(path.join(tmpDir, "secp384-key.pem")),
-    ).toThrow(/P-256/);
+    expect(() => createSoftwareSigner(path.join(tmpDir, "secp384-key.pem"))).toThrow(/P-256/);
   });
 
   it("should reject RSA keys", () => {
-    expect(() =>
-      createSoftwareSigner(path.join(tmpDir, "rsa-key.pem")),
-    ).toThrow(/P-256|EC|Unsupported/);
+    expect(() => createSoftwareSigner(path.join(tmpDir, "rsa-key.pem"))).toThrow(
+      /P-256|EC|Unsupported/,
+    );
   });
 
   it("should reject invalid key files", () => {
-    expect(() =>
-      createSoftwareSigner(path.join(tmpDir, "invalid.txt")),
-    ).toThrow();
+    expect(() => createSoftwareSigner(path.join(tmpDir, "invalid.txt"))).toThrow();
   });
 
   it("should throw CryptoError for non-existent files", () => {
-    expect(() =>
-      createSoftwareSigner(path.join(tmpDir, "nonexistent.pem")),
-    ).toThrow(/Failed to read key file/);
+    expect(() => createSoftwareSigner(path.join(tmpDir, "nonexistent.pem"))).toThrow(
+      /Failed to read key file/,
+    );
   });
 });
 

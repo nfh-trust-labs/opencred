@@ -156,9 +156,8 @@ export function OsCertStore() {
       </div>
 
       <p className="text-xs text-gray-500">
-        Sign with certificates from your operating system's certificate store.
-        Your private key never leaves the OS — signing is performed by the
-        platform's native cryptography subsystem.
+        Sign with certificates from your operating system's certificate store. Your private key
+        never leaves the OS — signing is performed by the platform's native cryptography subsystem.
       </p>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -210,11 +209,11 @@ export function OsCertStore() {
                           Valid: {formatDate(cert.validFrom)} &ndash; {formatDate(cert.validUntil)}
                         </span>
                         {!valid && (
-                          <span className="text-amber-600 font-medium">Expired / Not Yet Valid</span>
+                          <span className="text-amber-600 font-medium">
+                            Expired / Not Yet Valid
+                          </span>
                         )}
-                        {cert.isExportable && (
-                          <span className="text-gray-400">Exportable</span>
-                        )}
+                        {cert.isExportable && <span className="text-gray-400">Exportable</span>}
                       </div>
                       <p className="mt-0.5 text-[10px] text-gray-300 font-mono truncate">
                         Thumbprint: {cert.thumbprint}
@@ -243,13 +242,11 @@ export function OsCertStore() {
             <p>Algorithm: {connectedKey.algorithm}</p>
             {connectedKey.label && <p>Label: {connectedKey.label}</p>}
             <p>Fingerprint: {connectedKey.fingerprint.slice(0, 32)}...</p>
-            <p className="font-mono text-[10px] text-green-600 break-all">
-              ID: {connectedKey.id}
-            </p>
+            <p className="font-mono text-[10px] text-green-600 break-all">ID: {connectedKey.id}</p>
           </div>
           <p className="mt-2 text-green-600">
-            This certificate is now available for credential signing. Select it
-            from the key list when issuing credentials.
+            This certificate is now available for credential signing. Select it from the key list
+            when issuing credentials.
           </p>
         </div>
       )}
