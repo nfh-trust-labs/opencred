@@ -26,6 +26,9 @@ export const envSchema = z.object({
   JWT_ISSUER: z.string().default("opencred"),
   JWT_EXPIRY_SECONDS: z.coerce.number().int().positive().default(3600),
 
+  // Batch processing
+  MAX_BATCH_SIZE: z.coerce.number().int().positive().default(1000),
+
   // CSCA Trust Store
   CSCA_TRUST_STORE_PATH: z.string().optional(),
 

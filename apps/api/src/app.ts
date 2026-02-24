@@ -16,6 +16,7 @@ import { health } from "./routes/health.js";
 import { createRevokeRoute } from "./routes/revoke.js";
 import { createVerifyRoutes } from "./routes/verify.js";
 import { createCredentialsRoute } from "./routes/credentials.js";
+import { createBatchRoute, createBatchRevokeRoute } from "./routes/batch.js";
 import { createOnboardingRoutes, createBusinessVcOnboardingRoutes } from "./routes/onboarding.js";
 import { createCaRequestRoutes, type CertificateAuthorityAdapter } from "./routes/ca-request.js";
 import {
@@ -150,6 +151,15 @@ export function createApp(deps: AppDependencies) {
       dediClient: deps.dediClient,
     });
     app.route("/credentials", credentials);
+
+    // Batch issuance endpoints
+    const { batch } = createBatchRoute({
+      config,
+      authOptions: deps.authOptions,
+      signingKeyProvider: deps.signingKeyProvider,
+      dediClient: deps.dediClient,
+    });
+    app.route("/credentials/batch", batch);
   }
 
   // Authenticated routes — require capability token
@@ -165,7 +175,15 @@ export function createApp(deps: AppDependencies) {
           "credentials:revoke",
         ),
       );
+      app.use(
+        "/credentials/revoke/batch",
+        authMiddleware(
+          { verificationKey: authKey, issuer: config.JWT_ISSUER },
+          "credentials:revoke",
+        ),
+      );
       app.route("/", createRevokeRoute(deps.dediClient));
+      app.route("/", createBatchRevokeRoute(deps.dediClient));
     }
   }
 
