@@ -23,6 +23,8 @@ import {
   embedDelegation,
 } from "@opencred/delegation";
 import { authMiddleware, type AuthMiddlewareOptions } from "../middleware/auth.js";
+import { packageFormats } from "../output/index.js";
+import type { PackagedFormats } from "../output/index.js";
 
 // ---------------------------------------------------------------------------
 // Request schemas
@@ -90,6 +92,7 @@ interface RowResult {
   index: number;
   status: "pending" | "issued" | "failed" | "awaiting_signature";
   credential?: VerifiableCredential;
+  formats?: PackagedFormats;
   error?: string;
   // Interface Signing intermediate state
   unsignedCredential?: UnsignedCredential;
@@ -527,6 +530,9 @@ export function createBatchRoute(deps: BatchRouteDeps) {
       if (r.credential) {
         row.credential = r.credential;
       }
+      if (r.formats) {
+        row.formats = r.formats;
+      }
       if (r.error) {
         row.error = r.error;
       }
@@ -621,6 +627,9 @@ export function createBatchRoute(deps: BatchRouteDeps) {
           row.credential = credential;
           row.status = "issued";
           job.succeeded++;
+
+          // Generate QR + PDF output formats
+          row.formats = await packageFormats(credential as unknown as Record<string, unknown>);
 
           // Clear intermediate signing state
           row.unsignedCredential = undefined;
@@ -817,10 +826,16 @@ async function processDelegatedBatch(
 
       const credentialWithDelegation = embedDelegation(signedCredential, delegation);
 
+      // Generate QR + PDF output formats
+      const formats = await packageFormats(
+        credentialWithDelegation as unknown as Record<string, unknown>,
+      );
+
       job.results[i] = {
         index: i,
         status: "issued",
         credential: credentialWithDelegation,
+        formats,
       };
       job.succeeded++;
     } catch (err) {
