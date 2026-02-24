@@ -1,0 +1,27 @@
+{
+  "name": "@opencred/crypto",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@digitalbazaar/data-integrity": "^2.5.0",
+    "@digitalbazaar/ecdsa-multikey": "^1.7.0",
+    "@digitalbazaar/ecdsa-rdfc-2019-cryptosuite": "^1.1.0",
+    "@opencred/shared": "workspace:*",
+    "@opencred/vc-core": "workspace:*",
+    "bs58": "^6.0.0",
+    "json-canonicalize": "^1.0.6",
+    "jsonld": "^8.3.3"
+  },
+  "devDependencies": {
+    "@types/jsonld": "^1.5.15",
+    "typescript": "^5.5.0"
+  }
+}
