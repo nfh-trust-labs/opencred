@@ -97,7 +97,15 @@ function makeScopeMismatchDelegation(): DelegationCertificate {
 // Mock DeDi client
 // -------------------------------------------------------------------------
 
-function createMockDediClient(delegation: DelegationCertificate | null): DeDiClient {
+interface MockDeDiClientOptions {
+  revoked?: boolean;
+}
+
+function createMockDediClient(
+  delegation: DelegationCertificate | null,
+  options: MockDeDiClientOptions = {},
+): DeDiClient {
+  const { revoked = false } = options;
   return {
     resolveDelegation: vi.fn().mockImplementation(async (id: string) => {
       if (!delegation) {
@@ -106,7 +114,8 @@ function createMockDediClient(delegation: DelegationCertificate | null): DeDiCli
       return { id, certificate: delegation };
     }),
     registerDelegation: vi.fn().mockResolvedValue({}),
-    checkRevocation: vi.fn().mockResolvedValue({ revoked: false }),
+    checkRevocation: vi.fn().mockResolvedValue({ revoked }),
+    queryRevocationHash: vi.fn().mockResolvedValue({ revoked, hash: "mock-hash" }),
     revokeCredential: vi.fn().mockResolvedValue({}),
   } as unknown as DeDiClient;
 }
@@ -115,9 +124,12 @@ function createMockDediClient(delegation: DelegationCertificate | null): DeDiCli
 // App factory
 // -------------------------------------------------------------------------
 
-function createTestApp(delegation: DelegationCertificate | null = makeActiveDelegation()) {
-  const config = makeTestConfig();
-  const dediClient = createMockDediClient(delegation);
+function createTestApp(
+  delegation: DelegationCertificate | null = makeActiveDelegation(),
+  options: MockDeDiClientOptions = {},
+) {
+  const config = makeTestConfig({ DEDI_API_URL: "https://dedi.opencred.test" });
+  const dediClient = createMockDediClient(delegation, options);
   const { credentials } = createCredentialsRoute({
     config,
     authOptions: AUTH_OPTIONS,
@@ -294,6 +306,58 @@ describe("POST /credentials/issue-delegated — delegation validation", () => {
     expect(body.error.code).toBe("AUTHORIZATION_ERROR");
     expect(body.error.message).toContain("validation failed");
   });
+
+  it("returns 403 when delegation has been revoked in DeDi", async () => {
+    const { app } = createTestApp(makeActiveDelegation(), { revoked: true });
+    const token = await makeToken();
+    const res = await app.request("/credentials/issue-delegated", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(VALID_BODY),
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.code).toBe("AUTHORIZATION_ERROR");
+    expect(body.error.message).toContain("revoked");
+  });
+
+  it("proceeds when delegation is not revoked", async () => {
+    const { app } = createTestApp(makeActiveDelegation(), { revoked: false });
+    const token = await makeToken();
+    const res = await app.request("/credentials/issue-delegated", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(VALID_BODY),
+    });
+    // Should succeed (201), not be blocked by revocation check
+    expect(res.status).toBe(201);
+  });
+
+  it("returns 403 when delegatee does not match the signing key", async () => {
+    const mismatchedDelegation = makeActiveDelegation({
+      delegatee: { id: "did:key:zMismatchedKey" },
+    });
+    const { app } = createTestApp(mismatchedDelegation);
+    const token = await makeToken();
+    const res = await app.request("/credentials/issue-delegated", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(VALID_BODY),
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.code).toBe("AUTHORIZATION_ERROR");
+    expect(body.error.message).toContain("does not authorize the current signing key");
+  });
 });
 
 // -------------------------------------------------------------------------
@@ -339,6 +403,7 @@ describe("POST /credentials/issue-delegated — round-trip", () => {
     // Credential status
     expect(credential.credentialStatus).toBeDefined();
     expect(credential.credentialStatus!.type).toBe("DeDiRevocationListStatusV1");
+    expect((credential.credentialStatus!.id as string)).toContain("https://dedi.opencred.test/revocations/");
 
     // Proof exists and is a Data Integrity proof
     expect(credential.proof).toBeDefined();

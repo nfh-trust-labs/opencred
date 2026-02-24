@@ -4,7 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import { randomUUID } from "node:crypto";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { UnsignedCredential } from "@opencred/vc-core";
-import { prepareProof, completeProof, signCredential } from "@opencred/crypto";
+import { prepareProof, completeProof, signCredential, computeRevocationHash } from "@opencred/crypto";
 import type { ProofConfig, SigningKeyProvider } from "@opencred/crypto";
 import { createRegistry, Validator } from "@opencred/schema-engine";
 import { TTLStore } from "@opencred/state";
@@ -238,6 +238,9 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
   if (deps.signingKeyProvider && deps.dediClient) {
     const { signingKeyProvider, dediClient } = deps;
 
+    // Derive DeDi base URL from config, falling back to a safe default
+    const dediBaseUrl = config.DEDI_API_URL ?? "https://dedi.example";
+
     credentials.post(
       "/issue-delegated",
       authMiddleware(authOptions, "credentials:issue-delegated"),
@@ -289,10 +292,23 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
           );
         }
 
-        // 3. Validate schema exists and credentialSubject matches
+        // 3. Check revocation status against DeDi registry
+        const revocationHash = computeRevocationHash({ delegationId: body.delegationId });
+        const revocationRecord = await dediClient.queryRevocationHash(revocationHash);
+        if (revocationRecord.revoked) {
+          throw new AuthorizationError("Delegation has been revoked");
+        }
+
+        // 4. Validate delegatee matches the current signing key
+        const activeKey = signingKeyProvider.getActiveKey();
+        if (delegation.delegatee.id !== activeKey.id) {
+          throw new AuthorizationError("Delegation does not authorize the current signing key");
+        }
+
+        // 5. Validate schema exists and credentialSubject matches
         validator.validateOrThrow(body.schema, body.credentialSubject);
 
-        // 4. Build unsigned VC — issuer is the delegation's delegator
+        // 6. Build unsigned VC — issuer is the delegation's delegator
         const issuer = delegation.delegator.name
           ? { id: delegation.delegator.id, name: delegation.delegator.name }
           : delegation.delegator.id;
@@ -302,7 +318,7 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
           .setCredentialSubject(body.credentialSubject)
           .setValidFrom(body.validFrom)
           .setCredentialStatus({
-            id: `https://dedi.example/revocations/${encodeURIComponent(delegation.delegator.id)}/registry`,
+            id: `${dediBaseUrl}/revocations/${encodeURIComponent(delegation.delegator.id)}/registry`,
             type: "DeDiRevocationListStatusV1",
             statusPurpose: "revocation",
           });
@@ -313,14 +329,13 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
 
         const unsignedCredential = builder.build();
 
-        // 5. Sign with OpenCred's active key
-        const activeKey = signingKeyProvider.getActiveKey();
+        // 7. Sign with OpenCred's active key
         const signedCredential = await signCredential(unsignedCredential, activeKey, {
           verificationMethod: activeKey.id,
           proofPurpose: "assertionMethod",
         });
 
-        // 6. Embed delegation reference in the credential
+        // 8. Embed delegation reference in the credential
         const credentialWithDelegation = embedDelegation(signedCredential, delegation);
 
         return c.json({ credential: credentialWithDelegation }, 201);
