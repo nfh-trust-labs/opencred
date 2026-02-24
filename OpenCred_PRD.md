@@ -979,3 +979,4 @@ curl -X POST https://opencred.example/credentials/revoke/batch \
 | JSON Web Key (RFC 7517) | https://www.rfc-editor.org/rfc/rfc7517 |
 | Sunbird RC Documentation | https://docs.sunbirdrc.dev/ |
 | Inji Certify Documentation | https://docs.inji.io/inji-certify |
+| DeDi API OpenAPI Specification | https://github.com/nfh-trust-labs/docs/blob/main/openAPI.yaml |
