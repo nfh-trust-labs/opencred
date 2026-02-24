@@ -24,6 +24,9 @@ jobs:
           node-version-file: ".nvmrc"
           cache: pnpm
 
+      - name: Install Python setuptools (needed for pkcs11js native rebuild)
+        run: pip install setuptools
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
