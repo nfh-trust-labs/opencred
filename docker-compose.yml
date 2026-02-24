@@ -1,0 +1,63 @@
+# ==============================================================================
+# OpenCred — Docker Compose (Production)
+# ==============================================================================
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose down            # Stop all services
+#   docker compose logs -f api     # Follow API logs
+#
+# Override with docker-compose.override.yml for local development.
+# ==============================================================================
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: opencred-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-3000}:3000"
+    env_file:
+      - ./apps/api/.env
+    environment:
+      - NODE_ENV=production
+    volumes:
+      # Mount CSCA trust store PEM files (read-only)
+      - csca-trust-store:/app/csca-trust-store:ro
+    networks:
+      - opencred-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: opencred-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - opencred-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+volumes:
+  csca-trust-store:
+    driver: local
+
+networks:
+  opencred-net:
+    driver: bridge
