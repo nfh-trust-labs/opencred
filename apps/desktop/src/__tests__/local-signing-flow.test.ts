@@ -12,7 +12,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createSoftwareSigner } from "../signing/software-signer";
-import { buildAndSign, listSchemas, getSchemaDefinition, validateSubject } from "../signing/local-signing-flow";
+import {
+  buildAndSign,
+  listSchemas,
+  getSchemaDefinition,
+  validateSubject,
+} from "../signing/local-signing-flow";
 import { verifyProof } from "@opencred/crypto";
 
 let tmpDir: string;

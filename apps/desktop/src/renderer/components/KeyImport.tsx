@@ -84,8 +84,8 @@ export function KeyImport() {
       </div>
 
       <p className="text-xs text-gray-500">
-        Supports PEM, JWK, and PKCS#8 DER formats. Only ECDSA P-256 keys are accepted.
-        Private keys are stored locally and never leave this machine.
+        Supports PEM, JWK, and PKCS#8 DER formats. Only ECDSA P-256 keys are accepted. Private keys
+        are stored locally and never leave this machine.
       </p>
 
       {error && <p className="text-sm text-red-600">{error}</p>}

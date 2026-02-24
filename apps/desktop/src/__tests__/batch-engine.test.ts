@@ -21,7 +21,9 @@ const storeData: Record<string, unknown> = {};
 vi.mock("electron-store", () => ({
   default: vi.fn().mockImplementation(() => ({
     get: vi.fn((key: string) => storeData[key]),
-    set: vi.fn((key: string, value: unknown) => { storeData[key] = value; }),
+    set: vi.fn((key: string, value: unknown) => {
+      storeData[key] = value;
+    }),
     store: {},
   })),
 }));
@@ -57,8 +59,10 @@ afterAll(() => {
 // Helper to create a valid education CSV
 function createEducationCsv(count: number): string {
   const header = "name,degree,institution,dateConferred";
-  const rows = Array.from({ length: count }, (_, i) =>
-    `Student ${i + 1},Bachelor of Science,University ${i + 1},2025-06-${String(15 + (i % 15)).padStart(2, "0")}`,
+  const rows = Array.from(
+    { length: count },
+    (_, i) =>
+      `Student ${i + 1},Bachelor of Science,University ${i + 1},2025-06-${String(15 + (i % 15)).padStart(2, "0")}`,
   );
   return [header, ...rows].join("\n");
 }
@@ -342,9 +346,7 @@ describe("Batch engine — offline operation", () => {
       if (row.status === "success") {
         expect(row.packagingResult).toBeDefined();
         expect(row.packagingResult!.outputs.length).toBeGreaterThan(0);
-        const jsonLdOutput = row.packagingResult!.outputs.find(
-          (o) => o.format === "json-ld",
-        );
+        const jsonLdOutput = row.packagingResult!.outputs.find((o) => o.format === "json-ld");
         expect(jsonLdOutput).toBeDefined();
         expect(jsonLdOutput!.mimeType).toBe("application/ld+json");
       }

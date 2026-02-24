@@ -54,7 +54,9 @@ export function publicKeyFromEcPoint(ecPoint: Uint8Array): KeyObject {
   //   BIT STRING (the uncompressed point)
   // }
   const ecPublicKeyOid = new Uint8Array([0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01]);
-  const prime256v1Oid = new Uint8Array([0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]);
+  const prime256v1Oid = new Uint8Array([
+    0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
+  ]);
 
   // Inner SEQUENCE: ecPublicKeyOid + prime256v1Oid
   const innerSeqContent = new Uint8Array(ecPublicKeyOid.length + prime256v1Oid.length);
@@ -172,9 +174,7 @@ export function normalizeSignature(signature: Uint8Array): Uint8Array {
     try {
       return derToRaw(signature);
     } catch {
-      throw new CryptoError(
-        "PKCS#11 signature appears to be DER-encoded but could not be parsed",
-      );
+      throw new CryptoError("PKCS#11 signature appears to be DER-encoded but could not be parsed");
     }
   }
 

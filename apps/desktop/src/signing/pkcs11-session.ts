@@ -228,14 +228,12 @@ export function listKeys(session: Pkcs11Session): Pkcs11KeyInfo[] {
         ]);
 
         const label = attrs[0].value
-          ? Buffer.from(attrs[0].value as Buffer).toString("utf-8").trim()
+          ? Buffer.from(attrs[0].value as Buffer)
+              .toString("utf-8")
+              .trim()
           : "";
-        const id = attrs[1].value
-          ? Buffer.from(attrs[1].value as Buffer).toString("hex")
-          : "";
-        const keyTypeVal = attrs[2].value
-          ? (attrs[2].value as Buffer).readUInt32LE(0)
-          : 0;
+        const id = attrs[1].value ? Buffer.from(attrs[1].value as Buffer).toString("hex") : "";
+        const keyTypeVal = attrs[2].value ? (attrs[2].value as Buffer).readUInt32LE(0) : 0;
 
         // Map PKCS#11 key type to string
         const keyType = keyTypeVal === pkcs11js.CKK_EC ? "EC" : `unknown(${keyTypeVal})`;
@@ -290,10 +288,7 @@ export function listKeys(session: Pkcs11Session): Pkcs11KeyInfo[] {
  * @param keyId - The CKA_ID to search for.
  * @returns The EC point bytes (uncompressed), or undefined if not found.
  */
-function findPublicKeyPoint(
-  session: Pkcs11Session,
-  keyId: Buffer,
-): Uint8Array | undefined {
+function findPublicKeyPoint(session: Pkcs11Session, keyId: Buffer): Uint8Array | undefined {
   const { pkcs11, handle } = session;
 
   try {
@@ -309,9 +304,7 @@ function findPublicKeyPoint(
       return undefined;
     }
 
-    const attrs = pkcs11.C_GetAttributeValue(handle, obj, [
-      { type: pkcs11js.CKA_EC_POINT },
-    ]);
+    const attrs = pkcs11.C_GetAttributeValue(handle, obj, [{ type: pkcs11js.CKA_EC_POINT }]);
 
     if (!attrs[0].value) {
       return undefined;
