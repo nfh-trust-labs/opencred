@@ -4,7 +4,12 @@ import { zValidator } from "@hono/zod-validator";
 import { randomUUID } from "node:crypto";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { UnsignedCredential } from "@opencred/vc-core";
-import { prepareProof, completeProof, signCredential, computeRevocationHash } from "@opencred/crypto";
+import {
+  prepareProof,
+  completeProof,
+  signCredential,
+  computeRevocationHash,
+} from "@opencred/crypto";
 import type { ProofConfig, SigningKeyProvider } from "@opencred/crypto";
 import { createRegistry, Validator } from "@opencred/schema-engine";
 import { TTLStore } from "@opencred/state";

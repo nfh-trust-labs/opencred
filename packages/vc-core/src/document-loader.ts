@@ -6,7 +6,11 @@
  */
 
 import { createRequire } from "node:module";
-import { W3C_CREDENTIALS_V2_CONTEXT, DATA_INTEGRITY_V1_CONTEXT, OPENCRED_DELEGATION_V1_CONTEXT } from "./types.js";
+import {
+  W3C_CREDENTIALS_V2_CONTEXT,
+  DATA_INTEGRITY_V1_CONTEXT,
+  OPENCRED_DELEGATION_V1_CONTEXT,
+} from "./types.js";
 
 const require = createRequire(import.meta.url);
 

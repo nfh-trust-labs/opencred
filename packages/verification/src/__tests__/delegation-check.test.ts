@@ -8,10 +8,7 @@ function createValidDelegationCertificate(
   overrides: Partial<DelegationCertificate> = {},
 ): DelegationCertificate {
   return {
-    "@context": [
-      "https://www.w3.org/ns/credentials/v2",
-      "https://opencred.id/ns/delegation/v1",
-    ],
+    "@context": ["https://www.w3.org/ns/credentials/v2", "https://opencred.id/ns/delegation/v1"],
     id: "urn:uuid:delegation-001",
     type: ["DelegationCertificate"],
     delegator: { id: "did:web:issuer.example" },
@@ -284,7 +281,7 @@ describe("checkDelegationChain", () => {
     it("should fail when delegation certificate is missing required fields", async () => {
       // Missing delegator.id
       const brokenDelegation = createValidDelegationCertificate();
-      (brokenDelegation as Record<string, unknown>)["delegator"] = {};
+      (brokenDelegation as unknown as Record<string, unknown>)["delegator"] = {};
 
       const credential = createDelegatedCredential(brokenDelegation);
 
@@ -313,7 +310,6 @@ describe("checkDelegationChain", () => {
       expect(result.passed).toBe(true);
     });
   });
-
 
   describe("delegatee-key binding", () => {
     it("should fail when proof.verificationMethod does not match delegation.delegatee.id", async () => {

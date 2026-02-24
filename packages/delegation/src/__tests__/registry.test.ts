@@ -1,7 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import { DelegationError } from "@opencred/shared";
 import type { DeDiClient, DelegationRecord, RevocationHashRecord } from "@opencred/dedi-client";
-import { registerDelegation, resolveDelegation, revokeDelegation, isDelegationRevoked } from "../registry.js";
+import {
+  registerDelegation,
+  resolveDelegation,
+  revokeDelegation,
+  isDelegationRevoked,
+} from "../registry.js";
 import { createDelegationCertificate } from "../certificate.js";
 import type { CreateDelegationParams, DelegationCertificate } from "../types.js";
 
@@ -161,9 +166,7 @@ describe("resolveDelegation", () => {
   it("should throw for empty delegationId", async () => {
     const client = createMockDeDiClient();
 
-    await expect(resolveDelegation(client, { delegationId: "" })).rejects.toThrow(
-      DelegationError,
-    );
+    await expect(resolveDelegation(client, { delegationId: "" })).rejects.toThrow(DelegationError);
     await expect(resolveDelegation(client, { delegationId: "" })).rejects.toThrow(
       "delegationId is required",
     );
@@ -232,7 +235,9 @@ describe("revokeDelegation", () => {
   it("should throw for empty delegationId", async () => {
     const client = createMockDeDiClient();
     await expect(revokeDelegation(client, "")).rejects.toThrow(DelegationError);
-    await expect(revokeDelegation(client, "")).rejects.toThrow("delegationId is required for revocation");
+    await expect(revokeDelegation(client, "")).rejects.toThrow(
+      "delegationId is required for revocation",
+    );
   });
 
   it("should throw when DeDi API fails", async () => {
@@ -240,14 +245,18 @@ describe("revokeDelegation", () => {
       publishRevocationHash: vi.fn().mockRejectedValue(new Error("network error")),
     });
     await expect(revokeDelegation(client, "urn:uuid:deleg-123")).rejects.toThrow(DelegationError);
-    await expect(revokeDelegation(client, "urn:uuid:deleg-123")).rejects.toThrow("Failed to revoke delegation");
+    await expect(revokeDelegation(client, "urn:uuid:deleg-123")).rejects.toThrow(
+      "Failed to revoke delegation",
+    );
   });
 });
 
 describe("isDelegationRevoked", () => {
   it("should return true for a revoked delegation", async () => {
     const client = createMockDeDiClient({
-      queryRevocationHash: vi.fn().mockResolvedValue({ hash: "abc123", revoked: true, revokedAt: "2026-06-15T00:00:00Z" }),
+      queryRevocationHash: vi
+        .fn()
+        .mockResolvedValue({ hash: "abc123", revoked: true, revokedAt: "2026-06-15T00:00:00Z" }),
     });
     const result = await isDelegationRevoked(client, "urn:uuid:deleg-123");
     expect(result).toBe(true);
@@ -272,7 +281,11 @@ describe("isDelegationRevoked", () => {
     const client = createMockDeDiClient({
       queryRevocationHash: vi.fn().mockRejectedValue(new Error("timeout")),
     });
-    await expect(isDelegationRevoked(client, "urn:uuid:deleg-123")).rejects.toThrow(DelegationError);
-    await expect(isDelegationRevoked(client, "urn:uuid:deleg-123")).rejects.toThrow("Failed to check delegation revocation status");
+    await expect(isDelegationRevoked(client, "urn:uuid:deleg-123")).rejects.toThrow(
+      DelegationError,
+    );
+    await expect(isDelegationRevoked(client, "urn:uuid:deleg-123")).rejects.toThrow(
+      "Failed to check delegation revocation status",
+    );
   });
 });

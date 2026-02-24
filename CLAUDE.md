@@ -21,6 +21,52 @@ OpenCred handles **two categories** of private keys differently:
 6. **Delegation certificates are trust boundaries.** Always validate `scope`, `validFrom`, `validUntil`, and the authorised key ID before accepting a delegation cert. Never skip validation even in dev/test.
 7. **JSON-LD contexts are bundled.** Never fetch remote contexts at runtime in production — use the bundled document loader. Remote fetch is a supply-chain attack vector.
 
+## DeDi API Reference
+
+OpenCred integrates with DeDi (Decentralized Directory) — an external registry service operated by NFH Trust Labs.
+
+- **OpenAPI spec**: https://github.com/nfh-trust-labs/docs/blob/main/openAPI.yaml
+- **Production**: `https://api.dedi.global`
+- **Staging**: `https://staging-api.dedi.global`
+- **Auth**: Bearer token (API key) or cookie-based
+
+### Endpoints Used by OpenCred
+
+OpenCred's `packages/dedi-client` wraps these DeDi endpoints:
+
+| OpenCred Operation | DeDi Endpoint | Purpose |
+|---|---|---|
+| Revocation publish | `POST /dedi/{namespace}/{registry_name}/publish-record` | Publish revocation hash |
+| Revocation query | `GET /dedi/lookup/{namespace}/{registry_name}/{record_name}` | Check if credential is revoked |
+| Delegation register | `POST /dedi/{namespace}/{registry_name}/publish-record` | Store signed delegation certificate |
+| Delegation resolve | `GET /dedi/lookup/{namespace}/{registry_name}/{record_name}` | Retrieve delegation by ID |
+| Namespace create | `POST /dedi/create-namespace` | Create issuer namespace during onboarding |
+| Domain verify | `POST /dedi/verify-domain` | Verify domain ownership (Type B/C) |
+
+### DeDi Resource Model
+
+DeDi organises data as: **Namespace → Registry → Record**
+
+- **Namespace**: Top-level grouping for an issuer (e.g., `urn:opencred:issuer:business:acme`)
+- **Registry**: Schema-defined container within a namespace (e.g., `revocations`, `delegations`)
+- **Record**: Individual entry with state lifecycle (`draft` → `live` → `suspended`/`revoked`/`expired`)
+
+### Other Useful DeDi Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/dedi/register` | Register/login to DeDi |
+| `GET` | `/dedi/get-api-key` | Generate API key for programmatic access |
+| `POST` | `/dedi/{ns}/{reg}/save-draft` | Save record as draft |
+| `POST` | `/dedi/{ns}/{reg}/bulk-upload` | Bulk upload records via CSV |
+| `GET` | `/dedi/query/{ns}/{reg}` | Query records with filtering/pagination |
+| `POST` | `/dedi/{ns}/{reg}/{rec}/revoke-record` | Permanently revoke a record |
+| `POST` | `/dedi/{ns}/{reg}/{rec}/suspend-record` | Temporarily suspend a record |
+| `POST` | `/dedi/{ns}/{reg}/{rec}/change-record-state` | Change record state |
+| `GET` | `/dedi/versions/{ns}/{reg}/{rec}` | Get record version history |
+| `GET` | `/dedi/generate-txt/{ns}` | Generate DNS TXT for domain verification |
+| `POST` | `/dedi/watch` | Subscribe to change notifications |
+
 ## Project Tracking
 
 All implementation issues are on GitHub Issues at https://github.com/nfh-trust-labs/opencred/issues (43 issues, 12 labels).

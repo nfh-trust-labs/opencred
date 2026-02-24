@@ -11,10 +11,7 @@ import {
   isDelegationAuthorised,
   computeDelegationStatus,
 } from "../certificate.js";
-import type {
-  CreateDelegationParams,
-  DelegationCertificate,
-} from "../types.js";
+import type { CreateDelegationParams, DelegationCertificate } from "../types.js";
 import { OPENCRED_DELEGATION_CONTEXT } from "../types.js";
 
 function generateTestKeyPair(): { privateKey: KeyObject; publicKey: KeyObject } {
@@ -191,7 +188,9 @@ describe("createDelegationCertificate — validation errors", () => {
       scope: { credentialTypes: [], namespaces: [], maxIssuanceCount: 0 },
     });
     expect(() => createDelegationCertificate(params)).toThrow(ValidationError);
-    expect(() => createDelegationCertificate(params)).toThrow("maxIssuanceCount must be a positive integer");
+    expect(() => createDelegationCertificate(params)).toThrow(
+      "maxIssuanceCount must be a positive integer",
+    );
   });
 
   it("should throw for non-integer maxIssuanceCount", () => {
@@ -336,7 +335,7 @@ describe("validateDelegationCertificate — scope validation", () => {
   it("should accept any credential type when scope is empty (unrestricted)", async () => {
     const cert = createDelegationCertificate(
       createValidParams({
-        scope: { credentialTypes: [], namespaces: [], },
+        scope: { credentialTypes: [], namespaces: [] },
       }),
     );
     const signed = await signDelegationCertificate(cert, createTestSigningKey("key-1"));
@@ -394,7 +393,9 @@ describe("validateDelegationCertificate — proof verification", () => {
   });
 
   it("should report error when public key is provided but certificate has no proof", async () => {
-    const cert = createDelegationCertificate(createValidParams()) as unknown as DelegationCertificate;
+    const cert = createDelegationCertificate(
+      createValidParams(),
+    ) as unknown as DelegationCertificate;
     const { publicKey } = generateTestKeyPair();
 
     const result = await validateDelegationCertificate(cert, {
@@ -463,7 +464,9 @@ describe("embedDelegation", () => {
     const signed = await signDelegationCertificate(cert, signingKey);
 
     expect(() => embedDelegation(vc, signed, { inline: false })).toThrow(DelegationError);
-    expect(() => embedDelegation(vc, signed, { inline: false })).toThrow("delegationUrl is required");
+    expect(() => embedDelegation(vc, signed, { inline: false })).toThrow(
+      "delegationUrl is required",
+    );
   });
 
   it("should throw for credential without proof", async () => {
@@ -524,32 +527,57 @@ describe("isDelegationAuthorised", () => {
 
   it("should return true for valid type and namespace within period", () => {
     const cert = createActiveCert();
-    expect(isDelegationAuthorised(cert, "UniversityDegreeCredential", "education",
-      new Date("2026-06-15T00:00:00Z"))).toBe(true);
+    expect(
+      isDelegationAuthorised(
+        cert,
+        "UniversityDegreeCredential",
+        "education",
+        new Date("2026-06-15T00:00:00Z"),
+      ),
+    ).toBe(true);
   });
 
   it("should return false for expired delegation", () => {
     const cert = createActiveCert();
-    expect(isDelegationAuthorised(cert, "UniversityDegreeCredential", "education",
-      new Date("2028-01-01T00:00:00Z"))).toBe(false);
+    expect(
+      isDelegationAuthorised(
+        cert,
+        "UniversityDegreeCredential",
+        "education",
+        new Date("2028-01-01T00:00:00Z"),
+      ),
+    ).toBe(false);
   });
 
   it("should return false for not-yet-valid delegation", () => {
     const cert = createActiveCert();
-    expect(isDelegationAuthorised(cert, "UniversityDegreeCredential", "education",
-      new Date("2025-01-01T00:00:00Z"))).toBe(false);
+    expect(
+      isDelegationAuthorised(
+        cert,
+        "UniversityDegreeCredential",
+        "education",
+        new Date("2025-01-01T00:00:00Z"),
+      ),
+    ).toBe(false);
   });
 
   it("should return false for out-of-scope credential type", () => {
     const cert = createActiveCert();
-    expect(isDelegationAuthorised(cert, "DriverLicenseCredential", undefined,
-      new Date("2026-06-15T00:00:00Z"))).toBe(false);
+    expect(
+      isDelegationAuthorised(
+        cert,
+        "DriverLicenseCredential",
+        undefined,
+        new Date("2026-06-15T00:00:00Z"),
+      ),
+    ).toBe(false);
   });
 
   it("should return false for out-of-scope namespace", () => {
     const cert = createActiveCert();
-    expect(isDelegationAuthorised(cert, undefined, "healthcare",
-      new Date("2026-06-15T00:00:00Z"))).toBe(false);
+    expect(
+      isDelegationAuthorised(cert, undefined, "healthcare", new Date("2026-06-15T00:00:00Z")),
+    ).toBe(false);
   });
 
   it("should return true for unrestricted scope", () => {
@@ -559,13 +587,17 @@ describe("isDelegationAuthorised", () => {
       }),
     ) as unknown as DelegationCertificate;
     cert.proof = {
-      type: "DataIntegrityProof", cryptosuite: "ecdsa-rdfc-2019",
-      created: "2026-01-01T00:00:00Z", verificationMethod: "test",
-      proofPurpose: "assertionMethod", proofValue: "zFake",
+      type: "DataIntegrityProof",
+      cryptosuite: "ecdsa-rdfc-2019",
+      created: "2026-01-01T00:00:00Z",
+      verificationMethod: "test",
+      proofPurpose: "assertionMethod",
+      proofValue: "zFake",
     };
 
-    expect(isDelegationAuthorised(cert, "AnythingGoes", "anything",
-      new Date("2026-06-15T00:00:00Z"))).toBe(true);
+    expect(
+      isDelegationAuthorised(cert, "AnythingGoes", "anything", new Date("2026-06-15T00:00:00Z")),
+    ).toBe(true);
   });
 });
 
