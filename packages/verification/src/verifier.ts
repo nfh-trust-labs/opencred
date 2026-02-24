@@ -147,10 +147,10 @@ export async function verifyCredential(
 
   // Delegation chain check (only runs if credential has a delegation reference)
   if (format === "data-integrity") {
-    const delegationCheck = await checkDelegationChain(
-      input as Record<string, unknown>,
-      { dediClient: config.dediClient, didResolver: config.didResolver },
-    );
+    const delegationCheck = await checkDelegationChain(input as Record<string, unknown>, {
+      dediClient: config.dediClient,
+      didResolver: config.didResolver,
+    });
     checks.push(delegationCheck);
     if (!delegationCheck.passed) {
       return { code: "DELEGATION_INVALID", verified: false, checks };

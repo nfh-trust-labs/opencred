@@ -1,9 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { DelegationError, ValidationError } from "@opencred/shared";
 import { verifyProof } from "@opencred/crypto";
-import {
-  W3C_CREDENTIALS_V2_CONTEXT,
-} from "@opencred/vc-core";
+import { W3C_CREDENTIALS_V2_CONTEXT } from "@opencred/vc-core";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import type {
   CreateDelegationParams,
@@ -34,10 +32,7 @@ export function createDelegationCertificate(
   validateCreateParams(params);
 
   const certificate: UnsignedDelegationCertificate = {
-    "@context": [
-      W3C_CREDENTIALS_V2_CONTEXT,
-      OPENCRED_DELEGATION_CONTEXT,
-    ],
+    "@context": [W3C_CREDENTIALS_V2_CONTEXT, OPENCRED_DELEGATION_CONTEXT],
     id: params.id ?? `urn:uuid:${uuidv4()}`,
     type: ["DelegationCertificate"],
     delegator: { ...params.delegator },
@@ -100,7 +95,9 @@ export async function validateDelegationCertificate(
   if (options.delegatorPublicKey && certificate.proof) {
     await validateProof(certificate, options, errors);
   } else if (options.delegatorPublicKey && !certificate.proof) {
-    errors.push("Delegation certificate has no proof but a delegator public key was provided for verification");
+    errors.push(
+      "Delegation certificate has no proof but a delegator public key was provided for verification",
+    );
   }
 
   // Determine status

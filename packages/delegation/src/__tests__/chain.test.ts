@@ -31,7 +31,9 @@ function createValidParams(overrides?: Partial<CreateDelegationParams>): CreateD
   };
 }
 
-function createSignedDelegation(overrides?: Partial<CreateDelegationParams>): DelegationCertificate {
+function createSignedDelegation(
+  overrides?: Partial<CreateDelegationParams>,
+): DelegationCertificate {
   const unsigned = createDelegationCertificate(createValidParams(overrides));
   return {
     ...unsigned,
@@ -58,7 +60,8 @@ function createTestVC(proofOverrides?: Partial<DelegatedCredentialProof>): Verif
       type: "DataIntegrityProof",
       cryptosuite: "ecdsa-rdfc-2019",
       created: "2026-06-15T00:00:00Z",
-      verificationMethod: "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK#z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+      verificationMethod:
+        "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK#z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
       proofPurpose: "assertionMethod",
       proofValue: "z123abc",
       ...proofOverrides,
@@ -116,9 +119,13 @@ describe("validateDelegationChain -- inline delegation", () => {
   });
 
   it("should fail when delegatee does not match signing key", async () => {
-    const delegation = createSignedDelegation({ delegatee: { id: "did:key:z6MkDIFFERENT#z6MkDIFFERENT" } });
+    const delegation = createSignedDelegation({
+      delegatee: { id: "did:key:z6MkDIFFERENT#z6MkDIFFERENT" },
+    });
     const vc = createTestVC({ delegationCertificate: delegation });
-    const result = await validateDelegationChain(vc, noopResolver(), { now: new Date("2026-06-15T00:00:00Z") });
+    const result = await validateDelegationChain(vc, noopResolver(), {
+      now: new Date("2026-06-15T00:00:00Z"),
+    });
     expect(result.valid).toBe(false);
     expect(result.errors.some((e: string) => e.includes("does not match"))).toBe(true);
   });
@@ -127,19 +134,28 @@ describe("validateDelegationChain -- inline delegation", () => {
 describe("validateDelegationChain -- referenced delegation", () => {
   it("should resolve and validate a delegation referenced by URL", async () => {
     const delegation = createSignedDelegation();
-    const vc = createTestVC({ delegationCertificateUrl: "https://dedi.example/delegations/" + encodeURIComponent(delegation.id) });
+    const vc = createTestVC({
+      delegationCertificateUrl:
+        "https://dedi.example/delegations/" + encodeURIComponent(delegation.id),
+    });
     const resolver = vi.fn().mockResolvedValue(delegation);
-    const result = await validateDelegationChain(vc, resolver, { now: new Date("2026-06-15T00:00:00Z") });
+    const result = await validateDelegationChain(vc, resolver, {
+      now: new Date("2026-06-15T00:00:00Z"),
+    });
     expect(result.valid).toBe(true);
     expect(resolver).toHaveBeenCalledOnce();
   });
 
   it("should fail when delegation cannot be resolved", async () => {
-    const vc = createTestVC({ delegationCertificateUrl: "https://dedi.example/delegations/nonexistent" });
+    const vc = createTestVC({
+      delegationCertificateUrl: "https://dedi.example/delegations/nonexistent",
+    });
     const resolver = vi.fn().mockRejectedValue(new DelegationError("Delegation not found"));
     const result = await validateDelegationChain(vc, resolver);
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e: string) => e.includes("Failed to resolve delegation"))).toBe(true);
+    expect(result.errors.some((e: string) => e.includes("Failed to resolve delegation"))).toBe(
+      true,
+    );
   });
 });
 
@@ -172,7 +188,10 @@ describe("validateDelegationChain -- edge cases", () => {
   });
 
   it("should use proof.created as validation time when no time option provided", async () => {
-    const delegation = createSignedDelegation({ validFrom: "2026-01-01T00:00:00Z", validUntil: "2026-12-31T00:00:00Z" });
+    const delegation = createSignedDelegation({
+      validFrom: "2026-01-01T00:00:00Z",
+      validUntil: "2026-12-31T00:00:00Z",
+    });
     const vc = createTestVC({ delegationCertificate: delegation, created: "2026-06-15T00:00:00Z" });
     const result = await validateDelegationChain(vc, noopResolver());
     expect(result.valid).toBe(true);
@@ -184,7 +203,9 @@ describe("validateDelegationChain -- revocation checking", () => {
     const delegation = createSignedDelegation();
     const vc = createTestVC({ delegationCertificate: delegation });
     const client = createMockDeDiClient({
-      queryRevocationHash: vi.fn().mockResolvedValue({ hash: "abc123", revoked: true, revokedAt: "2026-06-15T00:00:00Z" }),
+      queryRevocationHash: vi
+        .fn()
+        .mockResolvedValue({ hash: "abc123", revoked: true, revokedAt: "2026-06-15T00:00:00Z" }),
     });
     const result = await validateDelegationChain(vc, noopResolver(), {
       now: new Date("2026-06-15T00:00:00Z"),
@@ -210,7 +231,9 @@ describe("validateDelegationChain -- revocation checking", () => {
   it("should skip revocation check when dediClient is not provided", async () => {
     const delegation = createSignedDelegation();
     const vc = createTestVC({ delegationCertificate: delegation });
-    const result = await validateDelegationChain(vc, noopResolver(), { now: new Date("2026-06-15T00:00:00Z") });
+    const result = await validateDelegationChain(vc, noopResolver(), {
+      now: new Date("2026-06-15T00:00:00Z"),
+    });
     expect(result.valid).toBe(true);
   });
 
@@ -225,6 +248,8 @@ describe("validateDelegationChain -- revocation checking", () => {
       dediClient: client,
     });
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e: string) => e.includes("Failed to check delegation revocation status"))).toBe(true);
+    expect(
+      result.errors.some((e: string) => e.includes("Failed to check delegation revocation status")),
+    ).toBe(true);
   });
 });

@@ -12,9 +12,8 @@ import { makeTestLogger } from "./helpers.js";
 // We mock the verification module so we can control whether a VC passes or fails
 // without needing real cryptographic proofs.
 vi.mock("@opencred/verification", async () => {
-  const actual = await vi.importActual<typeof import("@opencred/verification")>(
-    "@opencred/verification",
-  );
+  const actual =
+    await vi.importActual<typeof import("@opencred/verification")>("@opencred/verification");
   return {
     ...actual,
     verifyCredential: vi.fn(),
@@ -23,9 +22,8 @@ vi.mock("@opencred/verification", async () => {
 
 // --- Mock registerDelegation ---
 vi.mock("@opencred/delegation", async () => {
-  const actual = await vi.importActual<typeof import("@opencred/delegation")>(
-    "@opencred/delegation",
-  );
+  const actual =
+    await vi.importActual<typeof import("@opencred/delegation")>("@opencred/delegation");
   return {
     ...actual,
     registerDelegation: vi.fn().mockResolvedValue({

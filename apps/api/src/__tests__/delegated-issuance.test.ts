@@ -40,7 +40,9 @@ async function makeToken(scope: string[] = ["credentials:issue-delegated"]) {
 // Mock delegation certificate factory
 // -------------------------------------------------------------------------
 
-function makeActiveDelegation(overrides: Partial<DelegationCertificate> = {}): DelegationCertificate {
+function makeActiveDelegation(
+  overrides: Partial<DelegationCertificate> = {},
+): DelegationCertificate {
   const now = new Date();
   const validFrom = new Date(now.getTime() - 86400000).toISOString(); // 1 day ago
   const validUntil = new Date(now.getTime() + 86400000).toISOString(); // 1 day from now
@@ -403,7 +405,9 @@ describe("POST /credentials/issue-delegated — round-trip", () => {
     // Credential status
     expect(credential.credentialStatus).toBeDefined();
     expect(credential.credentialStatus!.type).toBe("DeDiRevocationListStatusV1");
-    expect((credential.credentialStatus!.id as string)).toContain("https://dedi.opencred.test/revocations/");
+    expect(credential.credentialStatus!.id as string).toContain(
+      "https://dedi.opencred.test/revocations/",
+    );
 
     // Proof exists and is a Data Integrity proof
     expect(credential.proof).toBeDefined();
@@ -420,7 +424,9 @@ describe("POST /credentials/issue-delegated — round-trip", () => {
     expect(credential.proof.delegationCertificate).toBeDefined();
     const delegationCert = credential.proof.delegationCertificate as Record<string, unknown>;
     expect(delegationCert.id).toBe("urn:uuid:delegation-1");
-    expect((delegationCert.delegator as Record<string, unknown>).id).toBe("https://university.example");
+    expect((delegationCert.delegator as Record<string, unknown>).id).toBe(
+      "https://university.example",
+    );
   });
 
   it("includes validUntil when provided", async () => {

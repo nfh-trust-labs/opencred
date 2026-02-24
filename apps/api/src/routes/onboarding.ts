@@ -12,10 +12,7 @@ import {
 } from "@opencred/verification";
 import type { VerifierConfig } from "@opencred/verification";
 import type { VerifiableCredential } from "@opencred/vc-core";
-import {
-  createDelegationCertificate,
-  registerDelegation,
-} from "@opencred/delegation";
+import { createDelegationCertificate, registerDelegation } from "@opencred/delegation";
 import type { DelegationCertificate } from "@opencred/delegation";
 import { validateDscChain, type TrustStore } from "../dsc-chain.js";
 
@@ -46,18 +43,20 @@ const businessVcOnboardingSchema = z
   .object({
     businessCredential: z.union([
       z.string().min(1, "businessCredential string must not be empty"),
-      z.record(z.unknown()).refine(
-        (obj) => Object.keys(obj).length > 0,
-        "businessCredential object must not be empty",
-      ),
+      z
+        .record(z.unknown())
+        .refine(
+          (obj) => Object.keys(obj).length > 0,
+          "businessCredential object must not be empty",
+        ),
     ]),
     signingPreference: z.enum(["interface", "delegated"]).optional().default("interface"),
     publicKey: jwkSchema.optional(),
   })
-  .refine(
-    (data) => data.signingPreference !== "interface" || data.publicKey !== undefined,
-    { message: "publicKey is required when signingPreference is 'interface'", path: ["publicKey"] },
-  );
+  .refine((data) => data.signingPreference !== "interface" || data.publicKey !== undefined, {
+    message: "publicKey is required when signingPreference is 'interface'",
+    path: ["publicKey"],
+  });
 
 // --- Types ---
 
@@ -159,9 +158,7 @@ async function extractCredentialSubject(
 
   if (format === "vc-jwt") {
     const parts = (input as string).split(".");
-    const payload = JSON.parse(
-      Buffer.from(parts[1], "base64url").toString("utf-8"),
-    );
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf-8"));
     // DM 1.1: vc.credentialSubject, DM 2.0: credentialSubject directly
     const subject = payload.vc?.credentialSubject ?? payload.credentialSubject;
     if (!subject || typeof subject !== "object") {
@@ -173,9 +170,7 @@ async function extractCredentialSubject(
   // SD-JWT VC: parse the issuer JWT and process disclosures
   const components = parseSdJwtVc(input as string);
   const jwtParts = components.issuerJwt.split(".");
-  const sdPayload = JSON.parse(
-    Buffer.from(jwtParts[1], "base64url").toString("utf-8"),
-  );
+  const sdPayload = JSON.parse(Buffer.from(jwtParts[1], "base64url").toString("utf-8"));
   const resolvedClaims = await processDisclosures(sdPayload, components.disclosures);
   const subject =
     (resolvedClaims.credentialSubject as Record<string, unknown>) ??
@@ -314,9 +309,7 @@ export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps)
       if (code === "EXPIRED") {
         throw new VerificationError(`Business credential has expired: ${detail}`);
       }
-      throw new VerificationError(
-        `Business credential verification failed: ${detail || code}`,
-      );
+      throw new VerificationError(`Business credential verification failed: ${detail || code}`);
     }
 
     // 2. Extract identity from the verified credential
@@ -370,7 +363,8 @@ export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps)
         );
       }
 
-      const delegatorId = credentialSubject.id as string | undefined ?? `urn:opencred:business:${slugify(orgName)}`;
+      const delegatorId =
+        (credentialSubject.id as string | undefined) ?? `urn:opencred:business:${slugify(orgName)}`;
 
       const now = new Date();
       const validUntil = new Date(now.getTime() + jwtExpirySeconds * 1000);

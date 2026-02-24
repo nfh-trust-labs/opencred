@@ -136,10 +136,7 @@ describe("LocalSigningKeyProvider — signing and verification round-trip", () =
     // Verify using Node.js crypto
     const verifier = createVerify("SHA256");
     verifier.update(data);
-    const verified = verifier.verify(
-      { key: key.publicKey, dsaEncoding: "ieee-p1363" },
-      signature,
-    );
+    const verified = verifier.verify({ key: key.publicKey, dsaEncoding: "ieee-p1363" }, signature);
 
     expect(verified).toBe(true);
   });
@@ -164,10 +161,7 @@ describe("LocalSigningKeyProvider — signing and verification round-trip", () =
 
     const verifier = createVerify("SHA256");
     verifier.update(data);
-    const verified = verifier.verify(
-      { key: key.publicKey, dsaEncoding: "ieee-p1363" },
-      signature,
-    );
+    const verified = verifier.verify({ key: key.publicKey, dsaEncoding: "ieee-p1363" }, signature);
 
     expect(verified).toBe(true);
   });

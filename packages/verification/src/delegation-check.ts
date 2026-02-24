@@ -1,8 +1,5 @@
 import { createPublicKey, type KeyObject } from "node:crypto";
-import {
-  validateDelegationCertificate,
-  resolveDelegation,
-} from "@opencred/delegation";
+import { validateDelegationCertificate, resolveDelegation } from "@opencred/delegation";
 import type {
   DelegationCertificate,
   DelegatedCredentialProof,
@@ -52,10 +49,11 @@ function extractCredentialType(credential: Record<string, unknown>): string | un
   const types = credential["type"];
   if (!Array.isArray(types)) return undefined;
 
-  const specific = types.find((t: unknown) => typeof t === "string" && t !== "VerifiableCredential");
+  const specific = types.find(
+    (t: unknown) => typeof t === "string" && t !== "VerifiableCredential",
+  );
   return typeof specific === "string" ? specific : undefined;
 }
-
 
 /**
  * Verify that the credential's signing key (proof.verificationMethod) matches
@@ -176,7 +174,11 @@ export async function checkDelegationChain(
   // Detect delegation reference
   const delegationRef = extractDelegationFromProof(proof);
   if (!delegationRef) {
-    return { name: "delegation", passed: true, detail: "No delegation reference — not a delegated credential" };
+    return {
+      name: "delegation",
+      passed: true,
+      detail: "No delegation reference — not a delegated credential",
+    };
   }
 
   // Resolve the delegation certificate
