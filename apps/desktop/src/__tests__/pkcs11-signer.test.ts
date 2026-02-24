@@ -223,11 +223,7 @@ vi.mock("pkcs11js", () => {
       });
     }
 
-    C_SignInit(
-      _session: Buffer,
-      mechanism: { mechanism: number },
-      _key: Buffer,
-    ) {
+    C_SignInit(_session: Buffer, mechanism: { mechanism: number }, _key: Buffer) {
       if (mechanism.mechanism !== CONSTS.CKM_ECDSA) {
         throw new Error("Unsupported mechanism");
       }

@@ -174,8 +174,16 @@ export function createPkcs11Signer(options: Pkcs11SignerOptions): Pkcs11SignerRe
         const hash = createHash("sha256").update(data).digest();
 
         // Sign using the hardware token
-        session.pkcs11.C_SignInit(session.handle, { mechanism: pkcs11js.CKM_ECDSA }, privateKeyHandle);
-        const rawSignature = session.pkcs11.C_Sign(session.handle, Buffer.from(hash), Buffer.alloc(128));
+        session.pkcs11.C_SignInit(
+          session.handle,
+          { mechanism: pkcs11js.CKM_ECDSA },
+          privateKeyHandle,
+        );
+        const rawSignature = session.pkcs11.C_Sign(
+          session.handle,
+          Buffer.from(hash),
+          Buffer.alloc(128),
+        );
 
         // Normalize the signature to raw r||s (64 bytes)
         return normalizeSignature(new Uint8Array(rawSignature));

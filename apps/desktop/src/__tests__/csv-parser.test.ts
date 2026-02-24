@@ -6,11 +6,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import {
-  detectDelimiter,
-  parseRawCsv,
-  parseCsv,
-} from "../batch/csv-parser";
+import { detectDelimiter, parseRawCsv, parseCsv } from "../batch/csv-parser";
 
 // ---------------------------------------------------------------------------
 // Delimiter detection
@@ -177,9 +173,9 @@ describe("parseCsv", () => {
       schemaId: "education",
       columnMapping: {
         "Full Name": "name",
-        "Qualification": "degree",
-        "School": "institution",
-        "Date": "dateConferred",
+        Qualification: "degree",
+        School: "institution",
+        Date: "dateConferred",
       },
     });
 
@@ -195,7 +191,8 @@ describe("parseCsv", () => {
 
   it("should use forced delimiter", () => {
     // This CSV has both commas and semicolons, but we force semicolon
-    const csv = "name;degree;institution;dateConferred\nJane Doe;Bachelor of Science;MIT;2025-06-15";
+    const csv =
+      "name;degree;institution;dateConferred\nJane Doe;Bachelor of Science;MIT;2025-06-15";
 
     const result = parseCsv(csv, {
       schemaId: "education",

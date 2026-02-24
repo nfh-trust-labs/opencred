@@ -120,9 +120,7 @@ function loadNativeAddon(): WindowsNativeAddon | null {
  * @param nativeAddon - Optional override for the native addon (used in tests).
  * @returns OsCertProvider for Windows CNG operations.
  */
-export function createWindowsCertProvider(
-  nativeAddon?: WindowsNativeAddon | null,
-): OsCertProvider {
+export function createWindowsCertProvider(nativeAddon?: WindowsNativeAddon | null): OsCertProvider {
   const addon = nativeAddon !== undefined ? nativeAddon : loadNativeAddon();
 
   const provider: OsCertProvider = {
@@ -144,9 +142,7 @@ export function createWindowsCertProvider(
 
     async sign(certificateId: string, data: Uint8Array): Promise<Uint8Array> {
       if (!addon) {
-        throw new CryptoError(
-          "Windows CNG native addon is not available",
-        );
+        throw new CryptoError("Windows CNG native addon is not available");
       }
 
       if (!certificateId) {
@@ -154,10 +150,7 @@ export function createWindowsCertProvider(
       }
 
       try {
-        const result = addon.signWithCertificate(
-          certificateId,
-          Buffer.from(data),
-        );
+        const result = addon.signWithCertificate(certificateId, Buffer.from(data));
         const signature = new Uint8Array(result);
 
         if (signature.length !== 64) {
@@ -175,9 +168,7 @@ export function createWindowsCertProvider(
 
     async getPublicKey(certificateId: string): Promise<Uint8Array> {
       if (!addon) {
-        throw new CryptoError(
-          "Windows CNG native addon is not available",
-        );
+        throw new CryptoError("Windows CNG native addon is not available");
       }
 
       if (!certificateId) {

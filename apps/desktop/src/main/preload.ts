@@ -104,11 +104,9 @@ const api: OpenCredDesktopAPI = {
   batchStart: (request: BatchStartRequest): Promise<BatchStartResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.BATCH_START, request),
 
-  batchStatus: (): Promise<BatchStatusResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.BATCH_STATUS),
+  batchStatus: (): Promise<BatchStatusResponse> => ipcRenderer.invoke(IPC_CHANNELS.BATCH_STATUS),
 
-  batchCancel: (): Promise<BatchCancelResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.BATCH_CANCEL),
+  batchCancel: (): Promise<BatchCancelResponse> => ipcRenderer.invoke(IPC_CHANNELS.BATCH_CANCEL),
 
   batchExport: (request: BatchExportRequest): Promise<BatchExportResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.BATCH_EXPORT, request),
@@ -137,14 +135,12 @@ const api: OpenCredDesktopAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.PKCS11_CONNECT, request),
 
   // Auto-update
-  updateCheck: (): Promise<UpdateStatusResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
+  updateCheck: (): Promise<UpdateStatusResponse> => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
 
   updateDownload: (): Promise<UpdateStatusResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.UPDATE_DOWNLOAD),
 
-  updateInstall: (): Promise<void> =>
-    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_INSTALL),
+  updateInstall: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_INSTALL),
 
   updateGetStatus: (): Promise<UpdateStatusResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.UPDATE_STATUS),
@@ -160,8 +156,7 @@ const api: OpenCredDesktopAPI = {
   },
 
   // OS certificate store
-  osCertList: (): Promise<OsCertListResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.OSCERT_LIST),
+  osCertList: (): Promise<OsCertListResponse> => ipcRenderer.invoke(IPC_CHANNELS.OSCERT_LIST),
 
   osCertSign: (request: OsCertSignRequest): Promise<OsCertSignResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.OSCERT_SIGN, request),
