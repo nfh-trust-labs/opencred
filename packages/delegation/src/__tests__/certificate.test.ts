@@ -281,16 +281,29 @@ describe("validateDelegationCertificate — temporal validation", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("should skip temporal validation when skipTemporalValidation is true", async () => {
+  it("should use the now parameter to control the clock for temporal validation", async () => {
+    const cert = createDelegationCertificate(createValidParams());
+    const signed = await signDelegationCertificate(cert, createTestSigningKey("key-1"));
+
+    // Certificate is valid 2026-01-01 to 2027-01-01
+    const result = await validateDelegationCertificate(signed, {
+      now: new Date("2026-06-15T00:00:00Z"),
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.status).toBe("active");
+  });
+
+  it("should report not-yet-valid status when now is before validFrom", async () => {
     const cert = createDelegationCertificate(createValidParams());
     const signed = await signDelegationCertificate(cert, createTestSigningKey("key-1"));
 
     const result = await validateDelegationCertificate(signed, {
-      now: new Date("2030-01-01T00:00:00Z"),
-      skipTemporalValidation: true,
+      now: new Date("2025-06-15T00:00:00Z"),
     });
 
-    expect(result.valid).toBe(true);
+    expect(result.valid).toBe(false);
+    expect(result.status).toBe("not-yet-valid");
   });
 });
 

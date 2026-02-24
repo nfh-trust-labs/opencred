@@ -84,12 +84,9 @@ export async function validateDelegationCertificate(
   // 1. Structural validation
   validateStructure(certificate, errors);
 
-  // 2. Temporal validation
+  // 2. Temporal validation (always runs, never skip per CLAUDE.md)
   const now = options.now ?? new Date();
-  let temporallyValid = true;
-  if (!options.skipTemporalValidation) {
-    temporallyValid = validateTemporalValidity(certificate, now, errors);
-  }
+  const temporallyValid = validateTemporalValidity(certificate, now, errors);
 
   // 3. Scope validation
   if (options.credentialType) {
@@ -107,11 +104,14 @@ export async function validateDelegationCertificate(
   }
 
   // Determine status
-  let status: "active" | "expired" | "revoked" = "active";
-  if (!options.skipTemporalValidation && !temporallyValid) {
+  let status: "active" | "expired" | "revoked" | "not-yet-valid" = "active";
+  if (!temporallyValid) {
+    const validFrom = new Date(certificate.validFrom);
     const validUntil = new Date(certificate.validUntil);
     if (now > validUntil) {
       status = "expired";
+    } else if (now < validFrom) {
+      status = "not-yet-valid";
     }
   }
 

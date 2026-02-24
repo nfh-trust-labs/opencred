@@ -29,4 +29,17 @@ export {
 export {
   registerDelegation,
   resolveDelegation,
+  revokeDelegation,
+  isDelegationRevoked,
 } from "./registry.js";
+
+export {
+  validateDelegationChain,
+  validateDelegateeMatchesSigningKey,
+} from "./chain.js";
+
+export type {
+  ChainValidationResult,
+  ChainValidationOptions,
+  DelegationResolver,
+} from "./chain.js";

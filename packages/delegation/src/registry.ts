@@ -1,5 +1,6 @@
 import { DelegationError } from "@opencred/shared";
-import type { DeDiClient, DelegationRecord } from "@opencred/dedi-client";
+import { computeRevocationHash } from "@opencred/crypto";
+import type { DeDiClient, DelegationRecord, RevocationHashRecord } from "@opencred/dedi-client";
 import type {
   DelegationCertificate,
   RegisterDelegationParams,
@@ -86,6 +87,49 @@ export async function resolveDelegation(
     if (error instanceof DelegationError) throw error;
     throw new DelegationError(
       `Failed to resolve delegation from DeDi: ${error instanceof Error ? error.message : "unknown error"}`,
+    );
+  }
+}
+
+/**
+ * Revoke a delegation certificate by publishing its revocation hash to DeDi.
+ */
+export async function revokeDelegation(
+  client: DeDiClient,
+  delegationId: string,
+): Promise<RevocationHashRecord> {
+  if (!delegationId?.trim()) {
+    throw new DelegationError("delegationId is required for revocation");
+  }
+  try {
+    const hash = computeRevocationHash({ delegationId });
+    return await client.publishRevocationHash(hash);
+  } catch (error) {
+    if (error instanceof DelegationError) throw error;
+    throw new DelegationError(
+      `Failed to revoke delegation in DeDi: ${error instanceof Error ? error.message : "unknown error"}`,
+    );
+  }
+}
+
+/**
+ * Check whether a delegation certificate has been revoked in DeDi.
+ */
+export async function isDelegationRevoked(
+  client: DeDiClient,
+  delegationId: string,
+): Promise<boolean> {
+  if (!delegationId?.trim()) {
+    throw new DelegationError("delegationId is required");
+  }
+  try {
+    const hash = computeRevocationHash({ delegationId });
+    const record = await client.queryRevocationHash(hash);
+    return record.revoked;
+  } catch (error) {
+    if (error instanceof DelegationError) throw error;
+    throw new DelegationError(
+      `Failed to check delegation revocation status: ${error instanceof Error ? error.message : "unknown error"}`,
     );
   }
 }

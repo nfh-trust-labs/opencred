@@ -91,7 +91,7 @@ export interface DelegationCredentialStatus {
 /**
  * Current status of a delegation.
  */
-export type DelegationStatus = "active" | "expired" | "revoked";
+export type DelegationStatus = "active" | "expired" | "revoked" | "not-yet-valid";
 
 /**
  * Parameters for creating a new delegation certificate.
@@ -130,8 +130,6 @@ export interface ValidateDelegationOptions {
   credentialType?: string;
   /** If provided, check that the namespace is within the delegation's scope. */
   namespace?: string;
-  /** Skip temporal validity checks (for testing). */
-  skipTemporalValidation?: boolean;
 }
 
 /**
