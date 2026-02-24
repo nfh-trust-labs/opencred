@@ -1,0 +1,238 @@
+name: Docker
+
+on:
+  pull_request:
+    branches: [anusree-dev]
+    paths:
+      - "apps/api/Dockerfile"
+      - "apps/web/Dockerfile"
+      - "apps/web/nginx.conf"
+      - "docker-compose.yml"
+      - ".dockerignore"
+      - "apps/api/src/**"
+      - "apps/web/src/**"
+      - "packages/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/docker.yml"
+  push:
+    branches: [anusree-dev]
+    paths:
+      - "apps/api/Dockerfile"
+      - "apps/web/Dockerfile"
+      - "apps/web/nginx.conf"
+      - "docker-compose.yml"
+      - ".dockerignore"
+      - "apps/api/src/**"
+      - "apps/web/src/**"
+      - "packages/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/docker.yml"
+
+env:
+  REGISTRY: ghcr.io
+  API_IMAGE: ghcr.io/${{ github.repository }}/opencred-api
+  WEB_IMAGE: ghcr.io/${{ github.repository }}/opencred-web
+
+jobs:
+  # ---------- Build + Scan (runs on every PR) ----------
+  docker-build:
+    name: Build & Scan Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      IMAGE_TAG: pr-${{ github.event.pull_request.number || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build API image
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: false
+          load: true
+          tags: opencred-api:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      # Build Web UI image
+      - name: Build Web UI image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: false
+          load: true
+          tags: opencred-web:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      # Vulnerability scan — API
+      - name: Scan API image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: opencred-api:${{ env.IMAGE_TAG }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      # Vulnerability scan — Web
+      - name: Scan Web image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: opencred-web:${{ env.IMAGE_TAG }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      # Report image sizes
+      - name: Report image sizes
+        env:
+          TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          echo "## Docker Image Sizes" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Image | Size |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          API_SIZE=$(docker image inspect "opencred-api:${TAG}" --format '{{.Size}}' | numfmt --to=iec-i --suffix=B)
+          WEB_SIZE=$(docker image inspect "opencred-web:${TAG}" --format '{{.Size}}' | numfmt --to=iec-i --suffix=B)
+          echo "| opencred-api | ${API_SIZE} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| opencred-web | ${WEB_SIZE} |" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------- Push to Registry (on merge to anusree-dev) ----------
+  docker-push:
+    name: Push Images to Registry
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/anusree-dev'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Generate image tags: git SHA + date-based
+      - name: Generate image metadata (API)
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.API_IMAGE }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value={{date 'YYYYMMDD'}}-{{sha}}
+
+      - name: Generate image metadata (Web)
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.WEB_IMAGE }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value={{date 'YYYYMMDD'}}-{{sha}}
+
+      # Build + push API
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      # Build + push Web
+      - name: Build and push Web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+  # ---------- Smoke Test (after push) ----------
+  smoke-test:
+    name: Smoke Test (Containerized)
+    runs-on: ubuntu-latest
+    needs: docker-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/anusree-dev'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build images for smoke test
+        run: docker compose build
+
+      - name: Start services
+        run: |
+          mkdir -p apps/api
+          printf 'NODE_ENV=production\nPORT=3000\nLOG_LEVEL=info\nCORS_ORIGIN=http://localhost:8080\n' > apps/api/.env
+          docker compose -f docker-compose.yml up -d
+
+      - name: Wait for API health
+        run: |
+          echo "Waiting for API to be healthy..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
+              echo "API is healthy!"
+              curl -s http://localhost:3000/health
+              exit 0
+            fi
+            echo "Attempt ${i}/30 — waiting..."
+            sleep 2
+          done
+          echo "API failed to become healthy"
+          docker compose logs api
+          exit 1
+
+      - name: Wait for Web UI health
+        run: |
+          echo "Waiting for Web UI to respond..."
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8080/ > /dev/null 2>&1; then
+              echo "Web UI is serving!"
+              curl -sI http://localhost:8080/ | grep -iE "(X-Frame-Options|X-Content-Type-Options|Content-Security-Policy)"
+              exit 0
+            fi
+            echo "Attempt ${i}/15 — waiting..."
+            sleep 2
+          done
+          echo "Web UI failed to respond"
+          docker compose logs web
+          exit 1
+
+      - name: Verify containers run as non-root
+        run: |
+          API_USER=$(docker exec opencred-api id -un)
+          echo "API running as: ${API_USER}"
+          if [ "${API_USER}" = "root" ]; then
+            echo "FAIL: API container running as root"
+            exit 1
+          fi
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.yml down -v
