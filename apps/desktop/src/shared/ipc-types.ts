@@ -453,6 +453,71 @@ export interface UpdateStatusResponse {
 }
 
 // ---------------------------------------------------------------------------
+// OS certificate store
+// ---------------------------------------------------------------------------
+
+/** Info about a certificate in the OS certificate store. */
+export interface OsCertInfoIpc {
+  /** Platform-specific certificate identifier. */
+  id: string;
+  /** Certificate subject Common Name (CN). */
+  subject: string;
+  /** Certificate issuer Common Name (CN). */
+  issuer: string;
+  /** Certificate serial number (hex-encoded). */
+  serialNumber: string;
+  /** Certificate validity start (ISO 8601). */
+  validFrom: string;
+  /** Certificate validity end (ISO 8601). */
+  validUntil: string;
+  /** Key algorithm description (e.g., "ECDSA P-256"). */
+  keyAlgorithm: string;
+  /** Whether the private key is marked as exportable. */
+  isExportable: boolean;
+  /** SHA-256 thumbprint of the DER-encoded certificate (hex-encoded). */
+  thumbprint: string;
+}
+
+export interface OsCertListResponse {
+  success: boolean;
+  /** Certificates found in the OS store. */
+  certificates?: OsCertInfoIpc[];
+  /** Runtime platform. */
+  platform?: string;
+  /** Human-readable store name (e.g., "macOS Keychain"). */
+  storeName?: string;
+  error?: string;
+}
+
+export interface OsCertSignRequest {
+  /** Platform-specific certificate identifier. */
+  certificateId: string;
+  /** Base64-encoded data to sign. */
+  data: string;
+}
+
+export interface OsCertSignResponse {
+  success: boolean;
+  /** Base64-encoded raw r||s signature (64 bytes). */
+  signature?: string;
+  error?: string;
+}
+
+export interface OsCertConnectRequest {
+  /** Platform-specific certificate identifier. */
+  certificateId: string;
+  /** Optional user-friendly label. */
+  label?: string;
+}
+
+export interface OsCertConnectResponse {
+  success: boolean;
+  /** Key metadata for the connected certificate. */
+  key?: KeyMetadata;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
@@ -516,6 +581,11 @@ export interface OpenCredDesktopAPI {
   updateInstall: () => Promise<void>;
   updateGetStatus: () => Promise<UpdateStatusResponse>;
   onUpdateStatus: (callback: (status: UpdateStatusResponse) => void) => () => void;
+
+  // OS certificate store
+  osCertList: () => Promise<OsCertListResponse>;
+  osCertSign: (request: OsCertSignRequest) => Promise<OsCertSignResponse>;
+  osCertConnect: (request: OsCertConnectRequest) => Promise<OsCertConnectResponse>;
 
   // Config
   getConfig: (key: string) => Promise<unknown>;

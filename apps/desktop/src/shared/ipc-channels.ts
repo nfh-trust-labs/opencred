@@ -82,6 +82,14 @@ export const IPC_CHANNELS = {
   /** Get current update status. Response: UpdateStatusResponse. */
   UPDATE_STATUS: "update:status",
 
+  // --- OS certificate store ---
+  /** List certificates from the OS certificate store. Response: certificate list with platform info. */
+  OSCERT_LIST: "oscert:list",
+  /** Sign data using an OS certificate's private key. Payload: { certificateId, data }. Response: signature. */
+  OSCERT_SIGN: "oscert:sign",
+  /** Select and connect an OS certificate for signing. Payload: { certificateId, label? }. Response: key metadata. */
+  OSCERT_CONNECT: "oscert:connect",
+
   // --- Config (electron-store) ---
   /** Read a config value. Payload: key string. Response: value or undefined. */
   GET_CONFIG: "config:get",

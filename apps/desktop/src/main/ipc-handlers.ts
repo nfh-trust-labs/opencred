@@ -56,6 +56,11 @@ import type {
   Pkcs11ConnectRequest,
   Pkcs11ConnectResponse,
   UpdateStatusResponse,
+  OsCertListResponse,
+  OsCertSignRequest,
+  OsCertSignResponse,
+  OsCertConnectRequest,
+  OsCertConnectResponse,
 } from "../shared/ipc-types.js";
 import { getStore } from "./store.js";
 import { createSoftwareSigner } from "../signing/software-signer.js";
@@ -94,6 +99,10 @@ import {
   quitAndInstall,
   getUpdateStatus,
 } from "./auto-updater.js";
+import {
+  listOsCertificates,
+  createOsCertSigner,
+} from "../signing/os-cert-signer.js";
 
 // ---------------------------------------------------------------------------
 // In-memory registries
@@ -842,6 +851,109 @@ async function handleUpdateStatus(): Promise<UpdateStatusResponse> {
 }
 
 // ---------------------------------------------------------------------------
+// OS certificate store handlers
+// ---------------------------------------------------------------------------
+
+/**
+ * OSCERT_LIST — enumerate certificates from the OS certificate store.
+ *
+ * Detects the runtime platform and dispatches to the appropriate provider.
+ */
+async function handleOsCertList(): Promise<OsCertListResponse> {
+  try {
+    const platform = process.platform as "darwin" | "win32" | "linux";
+    const result = await listOsCertificates(platform);
+
+    return {
+      success: true,
+      certificates: result.certificates,
+      platform: result.platform,
+      storeName: result.storeName,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to list OS certificates.";
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * OSCERT_SIGN — sign data using an OS certificate's private key.
+ *
+ * The private key never leaves the OS. Data is passed as base64.
+ */
+async function handleOsCertSign(
+  _event: IpcMainInvokeEvent,
+  request: OsCertSignRequest,
+): Promise<OsCertSignResponse> {
+  // Look up the signer in loadedSigners
+  // The signer was registered via OSCERT_CONNECT
+  const matchingSigner = Array.from(loadedSigners.values()).find(
+    (s) => s.type === "os-cert" && importedKeys.get(s.id)?.format === `oscert:${request.certificateId}`,
+  );
+
+  if (!matchingSigner) {
+    return {
+      success: false,
+      error: "OS certificate not connected. Use oscert:connect first.",
+    };
+  }
+
+  try {
+    const data = Buffer.from(request.data, "base64");
+    const signature = await matchingSigner.sign(new Uint8Array(data));
+
+    return {
+      success: true,
+      signature: Buffer.from(signature).toString("base64"),
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "OS certificate signing failed.";
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * OSCERT_CONNECT — select an OS certificate and create a signer.
+ *
+ * Creates an OsCertSigner from the certificate, registers it in the
+ * loadedSigners map, and returns key metadata for the UI.
+ */
+async function handleOsCertConnect(
+  _event: IpcMainInvokeEvent,
+  request: OsCertConnectRequest,
+): Promise<OsCertConnectResponse> {
+  try {
+    const platform = process.platform as "darwin" | "win32" | "linux";
+
+    const { signer } = await createOsCertSigner({
+      platform,
+      certificateId: request.certificateId,
+      label: request.label,
+    });
+
+    const meta: KeyMetadata = {
+      id: signer.id,
+      fingerprint: signer.metadata.fingerprint,
+      algorithm: "ECDSA P-256",
+      importedAt: new Date().toISOString(),
+      label: request.label,
+      format: `oscert:${request.certificateId}`,
+    };
+
+    importedKeys.set(signer.id, meta);
+    loadedSigners.set(signer.id, signer);
+
+    return {
+      success: true,
+      key: meta,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to connect OS certificate.";
+    return { success: false, error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Registration / cleanup
 // ---------------------------------------------------------------------------
 
@@ -896,6 +1008,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.UPDATE_DOWNLOAD, handleUpdateDownload);
   ipcMain.handle(IPC_CHANNELS.UPDATE_INSTALL, handleUpdateInstall);
   ipcMain.handle(IPC_CHANNELS.UPDATE_STATUS, handleUpdateStatus);
+
+  // OS certificate store
+  ipcMain.handle(IPC_CHANNELS.OSCERT_LIST, handleOsCertList);
+  ipcMain.handle(IPC_CHANNELS.OSCERT_SIGN, handleOsCertSign);
+  ipcMain.handle(IPC_CHANNELS.OSCERT_CONNECT, handleOsCertConnect);
 
   // Config
   ipcMain.handle(IPC_CHANNELS.GET_CONFIG, handleGetConfig);

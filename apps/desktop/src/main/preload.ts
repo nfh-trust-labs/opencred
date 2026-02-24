@@ -55,6 +55,11 @@ import type {
   Pkcs11ConnectRequest,
   Pkcs11ConnectResponse,
   UpdateStatusResponse,
+  OsCertListResponse,
+  OsCertSignRequest,
+  OsCertSignResponse,
+  OsCertConnectRequest,
+  OsCertConnectResponse,
   OpenCredDesktopAPI,
 } from "../shared/ipc-types.js";
 
@@ -153,6 +158,16 @@ const api: OpenCredDesktopAPI = {
       ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_STATUS, handler);
     };
   },
+
+  // OS certificate store
+  osCertList: (): Promise<OsCertListResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.OSCERT_LIST),
+
+  osCertSign: (request: OsCertSignRequest): Promise<OsCertSignResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.OSCERT_SIGN, request),
+
+  osCertConnect: (request: OsCertConnectRequest): Promise<OsCertConnectResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.OSCERT_CONNECT, request),
 
   // Config
   getConfig: (key: string): Promise<unknown> =>
