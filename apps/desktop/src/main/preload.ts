@@ -46,6 +46,14 @@ import type {
   FileOpenResponse,
   FileSaveRequest,
   FileSaveResponse,
+  Pkcs11DetectRequest,
+  Pkcs11DetectResponse,
+  Pkcs11ListSlotsRequest,
+  Pkcs11ListSlotsResponse,
+  Pkcs11ListKeysRequest,
+  Pkcs11ListKeysResponse,
+  Pkcs11ConnectRequest,
+  Pkcs11ConnectResponse,
   OpenCredDesktopAPI,
 } from "../shared/ipc-types.js";
 
@@ -108,6 +116,19 @@ const api: OpenCredDesktopAPI = {
 
   // Network status
   getOfflineStatus: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.GET_OFFLINE_STATUS),
+
+  // PKCS#11 hardware tokens
+  pkcs11Detect: (request: Pkcs11DetectRequest): Promise<Pkcs11DetectResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PKCS11_DETECT, request),
+
+  pkcs11ListSlots: (request: Pkcs11ListSlotsRequest): Promise<Pkcs11ListSlotsResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PKCS11_LIST_SLOTS, request),
+
+  pkcs11ListKeys: (request: Pkcs11ListKeysRequest): Promise<Pkcs11ListKeysResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PKCS11_LIST_KEYS, request),
+
+  pkcs11Connect: (request: Pkcs11ConnectRequest): Promise<Pkcs11ConnectResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PKCS11_CONNECT, request),
 
   // Config
   getConfig: (key: string): Promise<unknown> =>

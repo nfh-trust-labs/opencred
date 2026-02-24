@@ -28,13 +28,17 @@ describe("IPC_CHANNELS", () => {
     expect(IPC_CHANNELS.BATCH_STATUS).toBe("batch:status");
     expect(IPC_CHANNELS.BATCH_CANCEL).toBe("batch:cancel");
     expect(IPC_CHANNELS.BATCH_EXPORT).toBe("batch:export");
+    expect(IPC_CHANNELS.PKCS11_DETECT).toBe("pkcs11:detect");
+    expect(IPC_CHANNELS.PKCS11_LIST_SLOTS).toBe("pkcs11:list-slots");
+    expect(IPC_CHANNELS.PKCS11_LIST_KEYS).toBe("pkcs11:list-keys");
+    expect(IPC_CHANNELS.PKCS11_CONNECT).toBe("pkcs11:connect");
     expect(IPC_CHANNELS.GET_CONFIG).toBe("config:get");
     expect(IPC_CHANNELS.SET_CONFIG).toBe("config:set");
   });
 
-  it("should have exactly 20 channels defined", () => {
+  it("should have exactly 24 channels defined", () => {
     const channelCount = Object.keys(IPC_CHANNELS).length;
-    expect(channelCount).toBe(20);
+    expect(channelCount).toBe(24);
   });
 
   it("should have unique channel values (no duplicate channel names)", () => {
@@ -44,7 +48,7 @@ describe("IPC_CHANNELS", () => {
   });
 
   it("should have all channel values follow the namespace:action pattern", () => {
-    const pattern = /^[a-z]+:[a-z]+(-[a-z]+)*$/;
+    const pattern = /^[a-z0-9]+:[a-z]+(-[a-z]+)*$/;
     for (const channel of Object.values(IPC_CHANNELS)) {
       expect(channel).toMatch(pattern);
     }
@@ -79,6 +83,10 @@ describe("IPC_CHANNELS", () => {
       FILE_OPEN: "file:open",
       FILE_SAVE: "file:save",
       GET_OFFLINE_STATUS: "status:offline",
+      PKCS11_DETECT: "pkcs11:detect",
+      PKCS11_LIST_SLOTS: "pkcs11:list-slots",
+      PKCS11_LIST_KEYS: "pkcs11:list-keys",
+      PKCS11_CONNECT: "pkcs11:connect",
       GET_CONFIG: "config:get",
       SET_CONFIG: "config:set",
     };

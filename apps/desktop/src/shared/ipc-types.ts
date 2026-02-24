@@ -346,6 +346,89 @@ export interface BatchExportResponse {
 }
 
 // ---------------------------------------------------------------------------
+// PKCS#11 hardware tokens
+// ---------------------------------------------------------------------------
+
+export interface Pkcs11DetectRequest {
+  /** Absolute path to the PKCS#11 shared library. */
+  libraryPath: string;
+}
+
+export interface Pkcs11DetectResponse {
+  /** Whether the library file exists and appears valid. */
+  exists: boolean;
+  error?: string;
+}
+
+export interface Pkcs11ListSlotsRequest {
+  /** Absolute path to the PKCS#11 shared library. */
+  libraryPath: string;
+}
+
+export interface Pkcs11ListSlotsResponse {
+  success: boolean;
+  slots?: Array<{
+    index: number;
+    description: string;
+    tokenPresent: boolean;
+    tokenLabel?: string;
+    tokenManufacturer?: string;
+  }>;
+  error?: string;
+}
+
+export interface Pkcs11ListKeysRequest {
+  /** Absolute path to the PKCS#11 shared library. */
+  libraryPath: string;
+  /** Slot index. */
+  slotIndex: number;
+  /** Token PIN — entered by user, never stored. */
+  pin: string;
+}
+
+export interface Pkcs11ListKeysResponse {
+  success: boolean;
+  keys?: Array<{
+    /** CKA_LABEL of the key. */
+    label: string;
+    /** CKA_ID of the key (hex-encoded). */
+    id: string;
+    /** Key type (e.g., "EC"). */
+    keyType: string;
+    /** Whether the key has an associated public key. */
+    hasPublicKey: boolean;
+  }>;
+  error?: string;
+}
+
+export interface Pkcs11ConnectRequest {
+  /** Absolute path to the PKCS#11 shared library. */
+  libraryPath: string;
+  /** Slot index (default: 0). */
+  slotIndex?: number;
+  /** Token PIN — entered by user, never stored. */
+  pin: string;
+  /** Hex-encoded CKA_ID of the key (optional — uses first EC key if not set). */
+  keyId?: string;
+  /** Optional user-friendly label. */
+  label?: string;
+}
+
+export interface Pkcs11ConnectResponse {
+  success: boolean;
+  /** Key metadata for the connected key. */
+  key?: KeyMetadata;
+  /** All available keys on the token. */
+  availableKeys?: Array<{
+    label: string;
+    id: string;
+    keyType: string;
+    hasPublicKey: boolean;
+  }>;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
@@ -396,6 +479,12 @@ export interface OpenCredDesktopAPI {
 
   // Network status
   getOfflineStatus: () => Promise<boolean>;
+
+  // PKCS#11 hardware tokens
+  pkcs11Detect: (request: Pkcs11DetectRequest) => Promise<Pkcs11DetectResponse>;
+  pkcs11ListSlots: (request: Pkcs11ListSlotsRequest) => Promise<Pkcs11ListSlotsResponse>;
+  pkcs11ListKeys: (request: Pkcs11ListKeysRequest) => Promise<Pkcs11ListKeysResponse>;
+  pkcs11Connect: (request: Pkcs11ConnectRequest) => Promise<Pkcs11ConnectResponse>;
 
   // Config
   getConfig: (key: string) => Promise<unknown>;
