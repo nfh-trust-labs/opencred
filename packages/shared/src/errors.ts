@@ -123,3 +123,10 @@ export class VerificationError extends OpenCredError {
     this.name = "VerificationError";
   }
 }
+
+export class NotImplementedError extends OpenCredError {
+  constructor(message: string = "Not implemented") {
+    super(message, "NOT_IMPLEMENTED", 501);
+    this.name = "NotImplementedError";
+  }
+}

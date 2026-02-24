@@ -17,6 +17,7 @@ import { createRevokeRoute } from "./routes/revoke.js";
 import { createVerifyRoutes } from "./routes/verify.js";
 import { createCredentialsRoute } from "./routes/credentials.js";
 import { createOnboardingRoutes, createBusinessVcOnboardingRoutes } from "./routes/onboarding.js";
+import { createCaRequestRoutes, type CertificateAuthorityAdapter } from "./routes/ca-request.js";
 import { TrustStore } from "./dsc-chain.js";
 
 export interface AppDependencies {
@@ -28,6 +29,8 @@ export interface AppDependencies {
   signingKeyProvider?: SigningKeyProvider;
   opencredSigningKeyDid?: string;
   verifierConfig?: VerifierConfig;
+  /** Optional CA adapter for Type C onboarding. When undefined, the endpoint returns 501. */
+  caAdapter?: CertificateAuthorityAdapter;
 }
 
 export function createApp(deps: AppDependencies) {
@@ -108,6 +111,9 @@ export function createApp(deps: AppDependencies) {
       }),
     );
   }
+
+  // Type C — CA API adapter (extension point; returns 501 when no adapter registered)
+  app.route("/onboarding", createCaRequestRoutes({ caAdapter: deps.caAdapter }));
 
   // Interface Signing + Delegated Signing endpoints (authenticated)
   if (deps.authOptions) {
