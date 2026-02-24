@@ -36,13 +36,16 @@ describe("IPC_CHANNELS", () => {
     expect(IPC_CHANNELS.UPDATE_DOWNLOAD).toBe("update:download");
     expect(IPC_CHANNELS.UPDATE_INSTALL).toBe("update:install");
     expect(IPC_CHANNELS.UPDATE_STATUS).toBe("update:status");
+    expect(IPC_CHANNELS.OSCERT_LIST).toBe("oscert:list");
+    expect(IPC_CHANNELS.OSCERT_SIGN).toBe("oscert:sign");
+    expect(IPC_CHANNELS.OSCERT_CONNECT).toBe("oscert:connect");
     expect(IPC_CHANNELS.GET_CONFIG).toBe("config:get");
     expect(IPC_CHANNELS.SET_CONFIG).toBe("config:set");
   });
 
-  it("should have exactly 28 channels defined", () => {
+  it("should have exactly 31 channels defined", () => {
     const channelCount = Object.keys(IPC_CHANNELS).length;
-    expect(channelCount).toBe(28);
+    expect(channelCount).toBe(31);
   });
 
   it("should have unique channel values (no duplicate channel names)", () => {
@@ -95,6 +98,9 @@ describe("IPC_CHANNELS", () => {
       UPDATE_DOWNLOAD: "update:download",
       UPDATE_INSTALL: "update:install",
       UPDATE_STATUS: "update:status",
+      OSCERT_LIST: "oscert:list",
+      OSCERT_SIGN: "oscert:sign",
+      OSCERT_CONNECT: "oscert:connect",
       GET_CONFIG: "config:get",
       SET_CONFIG: "config:set",
     };
