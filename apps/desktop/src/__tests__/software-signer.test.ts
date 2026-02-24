@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { generateKeyPairSync, createPrivateKey } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -22,7 +22,7 @@ import {
 let tmpDir: string;
 
 // Generate a P-256 key pair for testing
-const { privateKey: testPrivateKey, publicKey: testPublicKey } = generateKeyPairSync("ec", {
+const { privateKey: testPrivateKey } = generateKeyPairSync("ec", {
   namedCurve: "P-256",
 });
 

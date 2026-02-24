@@ -7,7 +7,7 @@
  */
 
 import type { VerifiableCredential } from "@opencred/vc-core";
-import { generateQrPng, generateQrSvg, generateQrBuffer } from "./qr-generator.js";
+import { generateQrPng, generateQrSvg } from "./qr-generator.js";
 import { generatePdf } from "./pdf-generator.js";
 import { exportAsJsonLd, exportAsCompactJson } from "./json-export.js";
 

@@ -409,7 +409,7 @@ async function handlePackageCredential(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Packaging failed.";
-    return { success: false, error: message };
+    return { success: false, errors: [{ format: "unknown", error: message }] };
   }
 }
 

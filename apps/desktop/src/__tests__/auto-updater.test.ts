@@ -18,11 +18,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // ---------------------------------------------------------------------------
 
 // Capture event handlers registered on autoUpdater
+// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
 const eventHandlers = new Map<string, Function>();
 
 const mockAutoUpdater = {
   autoDownload: true,
   autoInstallOnAppQuit: false,
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   on: vi.fn((event: string, handler: Function) => {
     eventHandlers.set(event, handler);
   }),
