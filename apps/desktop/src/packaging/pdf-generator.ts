@@ -50,12 +50,7 @@ export async function generatePdf(credential: VerifiableCredential): Promise<Buf
       doc.moveDown(1);
 
       // Horizontal rule
-      doc
-        .strokeColor("#cccccc")
-        .lineWidth(1)
-        .moveTo(50, doc.y)
-        .lineTo(545, doc.y)
-        .stroke();
+      doc.strokeColor("#cccccc").lineWidth(1).moveTo(50, doc.y).lineTo(545, doc.y).stroke();
       doc.moveDown(1);
 
       // Credential ID
@@ -65,9 +60,7 @@ export async function generatePdf(credential: VerifiableCredential): Promise<Buf
 
       // Issuer
       const issuerDisplay =
-        typeof credential.issuer === "string"
-          ? credential.issuer
-          : credential.issuer.id;
+        typeof credential.issuer === "string" ? credential.issuer : credential.issuer.id;
       doc.fontSize(10).fillColor("#666666").text("Issuer:", { continued: true });
       doc.fillColor("#000000").text(` ${issuerDisplay}`);
       doc.moveDown(0.5);
@@ -97,12 +90,7 @@ export async function generatePdf(credential: VerifiableCredential): Promise<Buf
       doc.moveDown(1);
 
       // Proof info
-      doc
-        .strokeColor("#cccccc")
-        .lineWidth(1)
-        .moveTo(50, doc.y)
-        .lineTo(545, doc.y)
-        .stroke();
+      doc.strokeColor("#cccccc").lineWidth(1).moveTo(50, doc.y).lineTo(545, doc.y).stroke();
       doc.moveDown(0.5);
 
       doc.fontSize(10).fillColor("#666666").text("Digital Signature");
@@ -116,19 +104,18 @@ export async function generatePdf(credential: VerifiableCredential): Promise<Buf
       doc.moveDown(1);
 
       // Embedded JSON-LD
-      doc
-        .strokeColor("#cccccc")
-        .lineWidth(1)
-        .moveTo(50, doc.y)
-        .lineTo(545, doc.y)
-        .stroke();
+      doc.strokeColor("#cccccc").lineWidth(1).moveTo(50, doc.y).lineTo(545, doc.y).stroke();
       doc.moveDown(0.5);
 
       doc.fontSize(8).fillColor("#666666").text("Machine-Readable Credential (JSON-LD):");
       doc.moveDown(0.3);
-      doc.fontSize(6).fillColor("#333333").font("Courier").text(JSON.stringify(credential, null, 2), {
-        width: 495,
-      });
+      doc
+        .fontSize(6)
+        .fillColor("#333333")
+        .font("Courier")
+        .text(JSON.stringify(credential, null, 2), {
+          width: 495,
+        });
 
       // Footer
       doc.moveDown(1);

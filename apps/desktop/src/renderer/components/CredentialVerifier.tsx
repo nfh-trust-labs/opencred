@@ -114,9 +114,7 @@ export function CredentialVerifier() {
         {loading ? "Verifying..." : "Verify"}
       </button>
 
-      {valid !== null && message && (
-        <VerificationResult valid={valid} message={message} />
-      )}
+      {valid !== null && message && <VerificationResult valid={valid} message={message} />}
 
       {checks.length > 0 && (
         <div className="space-y-2">
@@ -125,9 +123,7 @@ export function CredentialVerifier() {
             <div
               key={i}
               className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
-                check.passed
-                  ? "border-green-200 bg-green-50"
-                  : "border-red-200 bg-red-50"
+                check.passed ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
               }`}
             >
               <span className={check.passed ? "text-green-600" : "text-red-600"}>
@@ -135,9 +131,7 @@ export function CredentialVerifier() {
               </span>
               <div>
                 <span className="font-medium text-gray-700">{check.name}</span>
-                {check.detail && (
-                  <p className="mt-0.5 text-gray-500">{check.detail}</p>
-                )}
+                {check.detail && <p className="mt-0.5 text-gray-500">{check.detail}</p>}
               </div>
             </div>
           ))}
@@ -146,8 +140,8 @@ export function CredentialVerifier() {
 
       {isOffline && valid !== null && (
         <p className="text-xs text-amber-600">
-          You are offline. Only signature and date checks were performed. Revocation
-          status could not be verified.
+          You are offline. Only signature and date checks were performed. Revocation status could
+          not be verified.
         </p>
       )}
     </div>
