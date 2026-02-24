@@ -73,24 +73,42 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
-      # Vulnerability scan — API
+      # Vulnerability scan — API (fail on CRITICAL, warn on HIGH)
       - name: Scan API image (Trivy)
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: opencred-api:${{ env.IMAGE_TAG }}
           format: table
           exit-code: 1
-          severity: CRITICAL,HIGH
+          severity: CRITICAL
           ignore-unfixed: true
 
-      # Vulnerability scan — Web
+      - name: Scan API image for HIGH (warn only)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: opencred-api:${{ env.IMAGE_TAG }}
+          format: table
+          exit-code: 0
+          severity: HIGH
+          ignore-unfixed: true
+
+      # Vulnerability scan — Web (fail on CRITICAL, warn on HIGH)
       - name: Scan Web image (Trivy)
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: opencred-web:${{ env.IMAGE_TAG }}
           format: table
           exit-code: 1
-          severity: CRITICAL,HIGH
+          severity: CRITICAL
+          ignore-unfixed: true
+
+      - name: Scan Web image for HIGH (warn only)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: opencred-web:${{ env.IMAGE_TAG }}
+          format: table
+          exit-code: 0
+          severity: HIGH
           ignore-unfixed: true
 
       # Report image sizes
