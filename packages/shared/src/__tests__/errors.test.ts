@@ -14,6 +14,7 @@ import {
   VerificationError,
   RateLimitError,
   ConflictError,
+  NotImplementedError,
 } from "../errors.js";
 
 describe("OpenCredError", () => {
@@ -99,6 +100,20 @@ describe("domain-specific errors", () => {
   it("VerificationError has 400 status", () => {
     const err = new VerificationError("proof invalid");
     expect(err.statusCode).toBe(400);
+  });
+
+  it("NotImplementedError has 501 status", () => {
+    const err = new NotImplementedError();
+    expect(err.statusCode).toBe(501);
+    expect(err.code).toBe("NOT_IMPLEMENTED");
+    expect(err.name).toBe("NotImplementedError");
+    expect(err).toBeInstanceOf(OpenCredError);
+  });
+
+  it("NotImplementedError accepts custom message", () => {
+    const err = new NotImplementedError("CA adapter not configured");
+    expect(err.message).toBe("CA adapter not configured");
+    expect(err.statusCode).toBe(501);
   });
 
   it("SchemaValidationError includes validation errors in JSON", () => {
