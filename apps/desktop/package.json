@@ -22,6 +22,7 @@
     "@opencred/vc-core": "workspace:*",
     "@opencred/verification": "workspace:*",
     "electron-store": "^10.0.0",
+    "electron-updater": "^6.3.9",
     "archiver": "^7.0.1",
     "papaparse": "^5.4.1",
     "pkcs11js": "^2.1.6",
@@ -50,7 +51,8 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.5.0",
     "vite": "^5.4.11",
-    "wait-on": "^8.0.1"
+    "wait-on": "^8.0.1",
+    "@electron/notarize": "^2.5.0"
   },
   "build": {
     "appId": "io.opencred.desktop",
@@ -68,13 +70,28 @@
         "dmg",
         "zip"
       ],
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "identity": null
     },
+    "afterSign": "scripts/notarize.js",
     "win": {
       "target": [
         "nsis",
         "msi"
-      ]
+      ],
+      "signingHashAlgorithms": [
+        "sha256"
+      ],
+      "sign": null
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "nfh-trust-labs",
+      "repo": "opencred"
     },
     "linux": {
       "target": [

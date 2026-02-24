@@ -72,6 +72,16 @@ export const IPC_CHANNELS = {
   /** Open session and select a key for signing. Payload: { libraryPath, slotIndex, pin, keyId?, label? }. Response: key metadata. */
   PKCS11_CONNECT: "pkcs11:connect",
 
+  // --- Auto-update ---
+  /** Manually check for updates. Response: UpdateStatusResponse. */
+  UPDATE_CHECK: "update:check",
+  /** Start downloading an available update. Response: UpdateStatusResponse. */
+  UPDATE_DOWNLOAD: "update:download",
+  /** Install downloaded update (quit and install). Response: void. */
+  UPDATE_INSTALL: "update:install",
+  /** Get current update status. Response: UpdateStatusResponse. */
+  UPDATE_STATUS: "update:status",
+
   // --- Config (electron-store) ---
   /** Read a config value. Payload: key string. Response: value or undefined. */
   GET_CONFIG: "config:get",

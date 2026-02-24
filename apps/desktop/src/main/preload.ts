@@ -54,6 +54,7 @@ import type {
   Pkcs11ListKeysResponse,
   Pkcs11ConnectRequest,
   Pkcs11ConnectResponse,
+  UpdateStatusResponse,
   OpenCredDesktopAPI,
 } from "../shared/ipc-types.js";
 
@@ -129,6 +130,29 @@ const api: OpenCredDesktopAPI = {
 
   pkcs11Connect: (request: Pkcs11ConnectRequest): Promise<Pkcs11ConnectResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.PKCS11_CONNECT, request),
+
+  // Auto-update
+  updateCheck: (): Promise<UpdateStatusResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
+
+  updateDownload: (): Promise<UpdateStatusResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_DOWNLOAD),
+
+  updateInstall: (): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_INSTALL),
+
+  updateGetStatus: (): Promise<UpdateStatusResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_STATUS),
+
+  onUpdateStatus: (callback: (status: UpdateStatusResponse) => void): (() => void) => {
+    const handler = (_event: unknown, status: UpdateStatusResponse): void => {
+      callback(status);
+    };
+    ipcRenderer.on(IPC_CHANNELS.UPDATE_STATUS, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_STATUS, handler);
+    };
+  },
 
   // Config
   getConfig: (key: string): Promise<unknown> =>

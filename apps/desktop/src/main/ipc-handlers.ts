@@ -55,6 +55,7 @@ import type {
   Pkcs11ListKeysResponse,
   Pkcs11ConnectRequest,
   Pkcs11ConnectResponse,
+  UpdateStatusResponse,
 } from "../shared/ipc-types.js";
 import { getStore } from "./store.js";
 import { createSoftwareSigner } from "../signing/software-signer.js";
@@ -87,6 +88,12 @@ import {
   closeSession as closePkcs11Session,
   listKeys as listPkcs11Keys,
 } from "../signing/pkcs11-session.js";
+import {
+  checkForUpdates,
+  downloadUpdate,
+  quitAndInstall,
+  getUpdateStatus,
+} from "./auto-updater.js";
 
 // ---------------------------------------------------------------------------
 // In-memory registries
@@ -811,6 +818,30 @@ async function handlePkcs11Connect(
 }
 
 // ---------------------------------------------------------------------------
+// Auto-update handlers
+// ---------------------------------------------------------------------------
+
+/** UPDATE_CHECK — manually trigger an update check. */
+async function handleUpdateCheck(): Promise<UpdateStatusResponse> {
+  return await checkForUpdates();
+}
+
+/** UPDATE_DOWNLOAD — start downloading an available update. */
+async function handleUpdateDownload(): Promise<UpdateStatusResponse> {
+  return await downloadUpdate();
+}
+
+/** UPDATE_INSTALL — quit and install a downloaded update. */
+async function handleUpdateInstall(): Promise<void> {
+  quitAndInstall();
+}
+
+/** UPDATE_STATUS — return the current update status snapshot. */
+async function handleUpdateStatus(): Promise<UpdateStatusResponse> {
+  return getUpdateStatus();
+}
+
+// ---------------------------------------------------------------------------
 // Registration / cleanup
 // ---------------------------------------------------------------------------
 
@@ -859,6 +890,12 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.PKCS11_LIST_SLOTS, handlePkcs11ListSlots);
   ipcMain.handle(IPC_CHANNELS.PKCS11_LIST_KEYS, handlePkcs11ListKeys);
   ipcMain.handle(IPC_CHANNELS.PKCS11_CONNECT, handlePkcs11Connect);
+
+  // Auto-update
+  ipcMain.handle(IPC_CHANNELS.UPDATE_CHECK, handleUpdateCheck);
+  ipcMain.handle(IPC_CHANNELS.UPDATE_DOWNLOAD, handleUpdateDownload);
+  ipcMain.handle(IPC_CHANNELS.UPDATE_INSTALL, handleUpdateInstall);
+  ipcMain.handle(IPC_CHANNELS.UPDATE_STATUS, handleUpdateStatus);
 
   // Config
   ipcMain.handle(IPC_CHANNELS.GET_CONFIG, handleGetConfig);

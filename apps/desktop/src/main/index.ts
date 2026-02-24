@@ -19,6 +19,7 @@ import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from "elect
 import * as path from "node:path";
 import { registerIpcHandlers, cleanupIpcHandlers } from "./ipc-handlers.js";
 import { initStore } from "./store.js";
+import { initAutoUpdater, cleanupAutoUpdater } from "./auto-updater.js";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -146,6 +147,11 @@ app.whenReady().then(() => {
   buildAppMenu();
   createWindow();
 
+  // Initialise auto-updater after the window is ready (checks GitHub Releases).
+  if (!IS_DEV) {
+    initAutoUpdater();
+  }
+
   app.on("activate", () => {
     // macOS: re-create the window when the dock icon is clicked and no windows exist.
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -161,5 +167,6 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  cleanupAutoUpdater();
   cleanupIpcHandlers();
 });
