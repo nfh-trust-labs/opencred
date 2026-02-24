@@ -16,7 +16,14 @@
     "clean": "rm -rf dist out"
   },
   "dependencies": {
+    "@opencred/crypto": "workspace:*",
+    "@opencred/schema-engine": "workspace:*",
+    "@opencred/shared": "workspace:*",
+    "@opencred/vc-core": "workspace:*",
+    "@opencred/verification": "workspace:*",
     "electron-store": "^10.0.0",
+    "pdfkit": "^0.15.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -24,6 +31,8 @@
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
+    "@types/pdfkit": "^0.13.5",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",

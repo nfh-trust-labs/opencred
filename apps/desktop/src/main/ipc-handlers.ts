@@ -14,17 +14,27 @@
 
 import { ipcMain, dialog, type IpcMainInvokeEvent } from "electron";
 import * as fs from "node:fs/promises";
-import * as crypto from "node:crypto";
 import { IPC_CHANNELS } from "../shared/ipc-channels.js";
 import type {
   KeyImportRequest,
   KeyImportResponse,
   KeyListResponse,
   KeyMetadata,
+  SchemaListResponse,
+  SchemaGetRequest,
+  SchemaGetResponse,
   SignCredentialRequest,
   SignCredentialResponse,
+  BuildAndSignRequest,
+  BuildAndSignResponse,
   VerifyCredentialRequest,
   VerifyCredentialResponse,
+  PackageCredentialRequest,
+  PackageCredentialResponse,
+  RevocationQueueRequest,
+  RevocationQueueResponse,
+  RevocationStatusResponse,
+  RevocationPublishResponse,
   FileOpenRequest,
   FileOpenResponse,
   FileSaveRequest,
@@ -33,22 +43,42 @@ import type {
   ConfigSetRequest,
 } from "../shared/ipc-types.js";
 import { getStore } from "./store.js";
+import { createSoftwareSigner } from "../signing/software-signer.js";
+import {
+  buildAndSign,
+  listSchemas,
+  getSchemaDefinition,
+} from "../signing/local-signing-flow.js";
+import { verifyProof } from "@opencred/crypto";
+import { packageCredential } from "../packaging/packager.js";
+import type { PackageFormat } from "../packaging/packager.js";
+import { parseCredentialJson } from "../packaging/json-export.js";
+import {
+  queueRevocation,
+  getQueueItems,
+  publishPendingRevocations,
+} from "./revocation-queue.js";
+import type { Signer } from "../signing/types.js";
 
 // ---------------------------------------------------------------------------
-// In-memory key registry (metadata only — keys stay on disk)
+// In-memory registries
 // ---------------------------------------------------------------------------
 
+/** Maps key ID (did:key VM ID) -> key metadata for display. */
 const importedKeys = new Map<string, KeyMetadata>();
 
+/** Maps key ID -> Signer instance (private key stays in memory, never serialized). */
+const loadedSigners = new Map<string, Signer>();
+
 // ---------------------------------------------------------------------------
-// Handlers
+// Key management handlers
 // ---------------------------------------------------------------------------
 
 /**
  * KEY_IMPORT — import a key file from disk.
  *
- * The handler reads the file, computes a fingerprint of the public component,
- * stores metadata in memory, and returns the metadata to the renderer.
+ * Reads the file, creates a SoftwareSigner (which validates P-256 and
+ * extracts metadata), stores the signer in memory, and returns metadata.
  * The private key content is NEVER returned or logged.
  */
 async function handleKeyImport(
@@ -56,32 +86,26 @@ async function handleKeyImport(
   request: KeyImportRequest,
 ): Promise<KeyImportResponse> {
   try {
-    const content = await fs.readFile(request.filePath, "utf-8");
-    const parsed: unknown = JSON.parse(content);
+    const { signer, format } = createSoftwareSigner(request.filePath, request.label);
 
-    if (!parsed || typeof parsed !== "object" || !("kty" in parsed)) {
-      return { success: false, error: "Invalid key format: expected a JWK object." };
-    }
-
-    // Compute a fingerprint from the *public* components only — never include "d".
-    const jwk = parsed as Record<string, unknown>;
-    const publicComponents = JSON.stringify({
-      kty: jwk["kty"],
-      crv: jwk["crv"],
-      x: jwk["x"],
-      y: jwk["y"],
-    });
-    const fingerprint = crypto.createHash("sha256").update(publicComponents).digest("hex");
-
-    const id = crypto.randomBytes(16).toString("hex");
     const meta: KeyMetadata = {
-      id,
-      fingerprint,
-      algorithm: `${String(jwk["kty"])} ${String(jwk["crv"] ?? "")}`.trim(),
+      id: signer.id,
+      fingerprint: signer.metadata.fingerprint,
+      algorithm: "ECDSA P-256",
       importedAt: new Date().toISOString(),
+      label: request.label,
+      format,
     };
 
-    importedKeys.set(id, meta);
+    importedKeys.set(signer.id, meta);
+    loadedSigners.set(signer.id, signer);
+
+    // Persist the key path in config so it can be reloaded
+    const store = getStore();
+    const keyPaths = (store.get("preferences" as keyof typeof store.store) as Record<string, unknown>) ?? {};
+    const importedKeyPaths = (keyPaths["importedKeyPaths"] as Record<string, string>) ?? {};
+    importedKeyPaths[signer.id] = request.filePath;
+    store.set("preferences" as keyof typeof store.store, { ...keyPaths, importedKeyPaths });
 
     return { success: true, key: meta };
   } catch (err) {
@@ -95,51 +119,302 @@ async function handleKeyList(): Promise<KeyListResponse> {
   return { keys: Array.from(importedKeys.values()) };
 }
 
+// ---------------------------------------------------------------------------
+// Schema handlers
+// ---------------------------------------------------------------------------
+
+/** SCHEMA_LIST — list all available schema IDs. */
+async function handleSchemaList(): Promise<SchemaListResponse> {
+  return { schemas: listSchemas() };
+}
+
+/** SCHEMA_GET — get a specific schema definition. */
+async function handleSchemaGet(
+  _event: IpcMainInvokeEvent,
+  request: SchemaGetRequest,
+): Promise<SchemaGetResponse> {
+  const definition = getSchemaDefinition(request.schemaId);
+  return {
+    id: definition.id,
+    schema: definition.schema,
+    contextUrl: definition.contextUrl,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Signing handlers
+// ---------------------------------------------------------------------------
+
 /**
  * SIGN_CREDENTIAL — sign an unsigned VC with the specified key.
  *
- * NOTE: This is a scaffold / placeholder. Actual signing logic will be
- * implemented in issue #37 (Desktop: software key signing). For now it
- * returns a stub response to validate the IPC round-trip.
+ * Uses the local signing flow: prepareProof -> sign -> completeProof.
  */
 async function handleSignCredential(
   _event: IpcMainInvokeEvent,
   request: SignCredentialRequest,
 ): Promise<SignCredentialResponse> {
-  if (!importedKeys.has(request.keyId)) {
+  const signer = loadedSigners.get(request.keyId);
+  if (!signer) {
     return { success: false, error: `Key not found: ${request.keyId}` };
   }
 
-  // Placeholder — real implementation in #37.
-  return {
-    success: false,
-    error: "Signing not yet implemented. See issue #37.",
-  };
+  try {
+    const { prepareProof, completeProof } = await import("@opencred/crypto");
+    const unsignedCredential = JSON.parse(request.unsignedCredential);
+
+    const { dataToSign, proofConfig } = await prepareProof(unsignedCredential, {
+      verificationMethod: signer.id,
+      proofPurpose: "assertionMethod",
+    });
+
+    const signatureBytes = await signer.sign(dataToSign);
+    const signedCredential = completeProof(unsignedCredential, proofConfig, signatureBytes);
+
+    return {
+      success: true,
+      signedCredential: JSON.stringify(signedCredential),
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Signing failed.";
+    return { success: false, error: message };
+  }
 }
 
 /**
- * VERIFY_CREDENTIAL — verify a signed VC.
+ * BUILD_AND_SIGN — full flow: validate + build + sign + optionally package.
+ */
+async function handleBuildAndSign(
+  _event: IpcMainInvokeEvent,
+  request: BuildAndSignRequest,
+): Promise<BuildAndSignResponse> {
+  const signer = loadedSigners.get(request.keyId);
+  if (!signer) {
+    return { success: false, error: `Key not found: ${request.keyId}` };
+  }
+
+  try {
+    const result = await buildAndSign(signer, {
+      schemaId: request.schemaId,
+      issuerDid: request.issuerDid,
+      credentialSubject: request.credentialSubject,
+      validFrom: request.validFrom,
+      validUntil: request.validUntil,
+      revocationRegistryUrl: request.revocationRegistryUrl,
+      additionalTypes: request.additionalTypes,
+      subjectDid: request.subjectDid,
+    });
+
+    const response: BuildAndSignResponse = {
+      success: true,
+      signedCredential: JSON.stringify(result.credential),
+    };
+
+    // Package if formats were requested
+    if (request.packageFormats && request.packageFormats.length > 0) {
+      const formats = request.packageFormats as PackageFormat[];
+      const packaging = await packageCredential(result.credential, formats);
+      response.packagedOutputs = packaging.outputs.map((output) => ({
+        format: output.format,
+        data: Buffer.isBuffer(output.data)
+          ? output.data.toString("base64")
+          : output.data,
+        mimeType: output.mimeType,
+        suggestedFileName: output.suggestedFileName,
+      }));
+    }
+
+    return response;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Build and sign failed.";
+    return { success: false, error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Verification handler
+// ---------------------------------------------------------------------------
+
+/**
+ * VERIFY_CREDENTIAL — verify a signed VC offline.
  *
- * NOTE: Placeholder — real verification will use @opencred/verification.
+ * Uses @opencred/crypto verifyProof for offline Data Integrity verification.
+ * The public key is extracted from the did:key verification method.
  */
 async function handleVerifyCredential(
   _event: IpcMainInvokeEvent,
   request: VerifyCredentialRequest,
 ): Promise<VerifyCredentialResponse> {
   try {
-    // Validate that the input is at least valid JSON.
-    JSON.parse(request.credential);
+    const parsed = JSON.parse(request.credential);
+    const credential = parseCredentialJson(JSON.stringify(parsed));
 
-    // Placeholder — real implementation in a follow-up issue.
+    // Attempt to resolve the public key from did:key
+    const { publicKeyFromMultibase } = await import("@opencred/verification");
+    const vm = credential.proof.verificationMethod;
+
+    // Extract the multibase key from the did:key fragment
+    const fragment = vm.includes("#") ? vm.split("#")[1] : undefined;
+    let publicKey = undefined;
+    if (fragment) {
+      publicKey = publicKeyFromMultibase(fragment) ?? undefined;
+    }
+
+    if (!publicKey) {
+      return {
+        success: true,
+        valid: false,
+        message: "Unable to resolve public key from verificationMethod. Only did:key is supported for offline verification.",
+        checks: [{ name: "key-resolution", passed: false, detail: "Could not resolve public key" }],
+      };
+    }
+
+    const result = await verifyProof(credential, { publicKey });
+
+    const checks = [
+      {
+        name: "signature",
+        passed: result.verified,
+        detail: result.error,
+      },
+    ];
+
+    // Check dates
+    const now = new Date();
+    const validFrom = new Date(credential.validFrom);
+    const dateChecks: Array<{ name: string; passed: boolean; detail?: string }> = [];
+
+    if (validFrom > now) {
+      dateChecks.push({
+        name: "not-before",
+        passed: false,
+        detail: `Credential is not yet valid (validFrom: ${credential.validFrom})`,
+      });
+    } else {
+      dateChecks.push({ name: "not-before", passed: true });
+    }
+
+    if (credential.validUntil) {
+      const validUntil = new Date(credential.validUntil);
+      if (validUntil < now) {
+        dateChecks.push({
+          name: "expiry",
+          passed: false,
+          detail: `Credential has expired (validUntil: ${credential.validUntil})`,
+        });
+      } else {
+        dateChecks.push({ name: "expiry", passed: true });
+      }
+    }
+
+    const allChecks = [...checks, ...dateChecks];
+    const allPassed = allChecks.every((c) => c.passed);
+
     return {
       success: true,
-      valid: false,
-      message: "Verification not yet implemented. See follow-up issues.",
+      valid: allPassed,
+      message: allPassed
+        ? "Credential signature is valid."
+        : allChecks.find((c) => !c.passed)?.detail ?? "Verification failed.",
+      checks: allChecks,
     };
-  } catch {
-    return { success: false, error: "Invalid JSON input." };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Verification failed.";
+    return { success: false, error: message };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Packaging handler
+// ---------------------------------------------------------------------------
+
+/**
+ * PACKAGE_CREDENTIAL — package a signed VC into various output formats.
+ */
+async function handlePackageCredential(
+  _event: IpcMainInvokeEvent,
+  request: PackageCredentialRequest,
+): Promise<PackageCredentialResponse> {
+  try {
+    const credential = parseCredentialJson(request.credential);
+    const formats = request.formats as PackageFormat[];
+    const result = await packageCredential(credential, formats);
+
+    return {
+      success: true,
+      outputs: result.outputs.map((output) => ({
+        format: output.format,
+        data: Buffer.isBuffer(output.data)
+          ? output.data.toString("base64")
+          : output.data,
+        mimeType: output.mimeType,
+        suggestedFileName: output.suggestedFileName,
+      })),
+      errors: result.errors,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Packaging failed.";
+    return { success: false, error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Revocation handlers
+// ---------------------------------------------------------------------------
+
+/** REVOCATION_QUEUE — queue a credential revocation. */
+async function handleRevocationQueue(
+  _event: IpcMainInvokeEvent,
+  request: RevocationQueueRequest,
+): Promise<RevocationQueueResponse> {
+  try {
+    const item = queueRevocation(request.credentialId, request.registryUrl, {
+      revocationHash: request.revocationHash,
+      reason: request.reason,
+    });
+
+    return {
+      success: true,
+      item: {
+        queueId: item.queueId,
+        credentialId: item.credentialId,
+        status: item.status,
+        queuedAt: item.queuedAt,
+      },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to queue revocation.";
+    return { success: false, error: message };
+  }
+}
+
+/** REVOCATION_STATUS — get the current revocation queue status. */
+async function handleRevocationStatus(): Promise<RevocationStatusResponse> {
+  const items = getQueueItems();
+  return {
+    items: items.map((item) => ({
+      queueId: item.queueId,
+      credentialId: item.credentialId,
+      registryUrl: item.registryUrl,
+      status: item.status,
+      queuedAt: item.queuedAt,
+      lastAttemptAt: item.lastAttemptAt,
+      lastError: item.lastError,
+      attemptCount: item.attemptCount,
+      reason: item.reason,
+    })),
+  };
+}
+
+/** REVOCATION_PUBLISH — trigger publication of pending revocations. */
+async function handleRevocationPublish(): Promise<RevocationPublishResponse> {
+  const results = await publishPendingRevocations();
+  return { results };
+}
+
+// ---------------------------------------------------------------------------
+// File operation handlers
+// ---------------------------------------------------------------------------
 
 /** FILE_OPEN — show a native open-file dialog and return the file contents. */
 async function handleFileOpen(
@@ -181,9 +456,6 @@ async function handleFileSave(
 
 /** GET_OFFLINE_STATUS — return whether the machine appears to be offline. */
 async function handleGetOfflineStatus(): Promise<boolean> {
-  // In Electron, net.online is the most reliable cross-platform check.
-  // However, in the main process we can use a simple navigator-free heuristic.
-  // For now, we use a DNS lookup as a connectivity probe.
   try {
     const dns = await import("node:dns/promises");
     await dns.lookup("dns.google");
@@ -219,13 +491,37 @@ async function handleSetConfig(
  * Register all IPC handlers. Call once during app initialisation.
  */
 export function registerIpcHandlers(): void {
+  // Key management
   ipcMain.handle(IPC_CHANNELS.KEY_IMPORT, handleKeyImport);
   ipcMain.handle(IPC_CHANNELS.KEY_LIST, handleKeyList);
+
+  // Schema
+  ipcMain.handle(IPC_CHANNELS.SCHEMA_LIST, handleSchemaList);
+  ipcMain.handle(IPC_CHANNELS.SCHEMA_GET, handleSchemaGet);
+
+  // Signing
   ipcMain.handle(IPC_CHANNELS.SIGN_CREDENTIAL, handleSignCredential);
+  ipcMain.handle(IPC_CHANNELS.BUILD_AND_SIGN, handleBuildAndSign);
+
+  // Verification
   ipcMain.handle(IPC_CHANNELS.VERIFY_CREDENTIAL, handleVerifyCredential);
+
+  // Packaging
+  ipcMain.handle(IPC_CHANNELS.PACKAGE_CREDENTIAL, handlePackageCredential);
+
+  // Revocation
+  ipcMain.handle(IPC_CHANNELS.REVOCATION_QUEUE, handleRevocationQueue);
+  ipcMain.handle(IPC_CHANNELS.REVOCATION_STATUS, handleRevocationStatus);
+  ipcMain.handle(IPC_CHANNELS.REVOCATION_PUBLISH, handleRevocationPublish);
+
+  // File operations
   ipcMain.handle(IPC_CHANNELS.FILE_OPEN, handleFileOpen);
   ipcMain.handle(IPC_CHANNELS.FILE_SAVE, handleFileSave);
+
+  // Network status
   ipcMain.handle(IPC_CHANNELS.GET_OFFLINE_STATUS, handleGetOfflineStatus);
+
+  // Config
   ipcMain.handle(IPC_CHANNELS.GET_CONFIG, handleGetConfig);
   ipcMain.handle(IPC_CHANNELS.SET_CONFIG, handleSetConfig);
 }
