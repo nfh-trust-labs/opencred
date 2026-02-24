@@ -5,8 +5,6 @@ import { CredentialBuilder } from "./components/CredentialBuilder";
 import { CredentialVerifier } from "./components/CredentialVerifier";
 import { KeyImport } from "./components/KeyImport";
 import { BatchIssuance } from "./components/BatchIssuance";
-import { SchemaSelector } from "./components/SchemaSelector";
-import { CredentialForm } from "./components/CredentialForm";
 import { DelegatedIssuance } from "./components/DelegatedIssuance";
 
 export type Tab = "builder" | "verifier" | "keys" | "batch" | "delegated";
@@ -50,13 +48,7 @@ export default function App() {
 
       {/* Main content */}
       <main className="mx-auto max-w-5xl w-full px-4 py-6 flex-1">
-        {activeTab === "builder" && (
-          <div className="space-y-6">
-            <SchemaSelector />
-            <CredentialForm />
-            <CredentialBuilder />
-          </div>
-        )}
+        {activeTab === "builder" && <CredentialBuilder />}
         {activeTab === "verifier" && <CredentialVerifier />}
         {activeTab === "keys" && <KeyImport />}
         {activeTab === "batch" && <BatchIssuance />}

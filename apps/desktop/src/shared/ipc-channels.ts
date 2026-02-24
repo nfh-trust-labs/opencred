@@ -14,13 +14,33 @@ export const IPC_CHANNELS = {
   /** List imported key identifiers. Response: array of key metadata. */
   KEY_LIST: "key:list",
 
+  // --- Schema ---
+  /** List all available schema IDs. Response: string array. */
+  SCHEMA_LIST: "schema:list",
+  /** Get a specific schema definition. Payload: schemaId. Response: schema definition. */
+  SCHEMA_GET: "schema:get",
+
   // --- Signing ---
   /** Request the main process to sign a credential. Payload: unsigned VC + key ID. Response: signed VC. */
   SIGN_CREDENTIAL: "credential:sign",
+  /** Build and sign a credential in one step. Payload: signing options + key ID. Response: signed VC + packaging. */
+  BUILD_AND_SIGN: "credential:build-and-sign",
 
   // --- Verification ---
   /** Verify a signed credential. Payload: VC JSON string. Response: verification result. */
   VERIFY_CREDENTIAL: "credential:verify",
+
+  // --- Packaging ---
+  /** Package a signed VC into QR, PDF, JSON formats. Payload: VC + formats. Response: packaged outputs. */
+  PACKAGE_CREDENTIAL: "credential:package",
+
+  // --- Revocation ---
+  /** Queue a credential revocation. Payload: credential ID + registry URL. Response: queue item. */
+  REVOCATION_QUEUE: "revocation:queue",
+  /** Get revocation queue status. Response: queue items array. */
+  REVOCATION_STATUS: "revocation:status",
+  /** Trigger publication of pending revocations. Response: publish results. */
+  REVOCATION_PUBLISH: "revocation:publish",
 
   // --- File operations ---
   /** Open a native file-open dialog. Payload: dialog options. Response: file contents or null. */

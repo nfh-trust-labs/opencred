@@ -12,8 +12,15 @@ describe("IPC_CHANNELS", () => {
   it("should define all required channel names", () => {
     expect(IPC_CHANNELS.KEY_IMPORT).toBe("key:import");
     expect(IPC_CHANNELS.KEY_LIST).toBe("key:list");
+    expect(IPC_CHANNELS.SCHEMA_LIST).toBe("schema:list");
+    expect(IPC_CHANNELS.SCHEMA_GET).toBe("schema:get");
     expect(IPC_CHANNELS.SIGN_CREDENTIAL).toBe("credential:sign");
+    expect(IPC_CHANNELS.BUILD_AND_SIGN).toBe("credential:build-and-sign");
     expect(IPC_CHANNELS.VERIFY_CREDENTIAL).toBe("credential:verify");
+    expect(IPC_CHANNELS.PACKAGE_CREDENTIAL).toBe("credential:package");
+    expect(IPC_CHANNELS.REVOCATION_QUEUE).toBe("revocation:queue");
+    expect(IPC_CHANNELS.REVOCATION_STATUS).toBe("revocation:status");
+    expect(IPC_CHANNELS.REVOCATION_PUBLISH).toBe("revocation:publish");
     expect(IPC_CHANNELS.FILE_OPEN).toBe("file:open");
     expect(IPC_CHANNELS.FILE_SAVE).toBe("file:save");
     expect(IPC_CHANNELS.GET_OFFLINE_STATUS).toBe("status:offline");
@@ -21,9 +28,9 @@ describe("IPC_CHANNELS", () => {
     expect(IPC_CHANNELS.SET_CONFIG).toBe("config:set");
   });
 
-  it("should have exactly 9 channels defined", () => {
+  it("should have exactly 16 channels defined", () => {
     const channelCount = Object.keys(IPC_CHANNELS).length;
-    expect(channelCount).toBe(9);
+    expect(channelCount).toBe(16);
   });
 
   it("should have unique channel values (no duplicate channel names)", () => {
@@ -52,8 +59,15 @@ describe("IPC_CHANNELS", () => {
     const expectedChannels: Record<string, string> = {
       KEY_IMPORT: "key:import",
       KEY_LIST: "key:list",
+      SCHEMA_LIST: "schema:list",
+      SCHEMA_GET: "schema:get",
       SIGN_CREDENTIAL: "credential:sign",
+      BUILD_AND_SIGN: "credential:build-and-sign",
       VERIFY_CREDENTIAL: "credential:verify",
+      PACKAGE_CREDENTIAL: "credential:package",
+      REVOCATION_QUEUE: "revocation:queue",
+      REVOCATION_STATUS: "revocation:status",
+      REVOCATION_PUBLISH: "revocation:publish",
       FILE_OPEN: "file:open",
       FILE_SAVE: "file:save",
       GET_OFFLINE_STATUS: "status:offline",

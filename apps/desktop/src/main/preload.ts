@@ -21,10 +21,21 @@ import type {
   KeyImportRequest,
   KeyImportResponse,
   KeyListResponse,
+  SchemaListResponse,
+  SchemaGetRequest,
+  SchemaGetResponse,
   SignCredentialRequest,
   SignCredentialResponse,
+  BuildAndSignRequest,
+  BuildAndSignResponse,
   VerifyCredentialRequest,
   VerifyCredentialResponse,
+  PackageCredentialRequest,
+  PackageCredentialResponse,
+  RevocationQueueRequest,
+  RevocationQueueResponse,
+  RevocationStatusResponse,
+  RevocationPublishResponse,
   FileOpenRequest,
   FileOpenResponse,
   FileSaveRequest,
@@ -39,12 +50,35 @@ const api: OpenCredDesktopAPI = {
 
   listKeys: (): Promise<KeyListResponse> => ipcRenderer.invoke(IPC_CHANNELS.KEY_LIST),
 
+  // Schema
+  listSchemas: (): Promise<SchemaListResponse> => ipcRenderer.invoke(IPC_CHANNELS.SCHEMA_LIST),
+
+  getSchema: (request: SchemaGetRequest): Promise<SchemaGetResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SCHEMA_GET, request),
+
   // Signing & verification
   signCredential: (request: SignCredentialRequest): Promise<SignCredentialResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.SIGN_CREDENTIAL, request),
 
+  buildAndSign: (request: BuildAndSignRequest): Promise<BuildAndSignResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.BUILD_AND_SIGN, request),
+
   verifyCredential: (request: VerifyCredentialRequest): Promise<VerifyCredentialResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.VERIFY_CREDENTIAL, request),
+
+  // Packaging
+  packageCredential: (request: PackageCredentialRequest): Promise<PackageCredentialResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PACKAGE_CREDENTIAL, request),
+
+  // Revocation
+  queueRevocation: (request: RevocationQueueRequest): Promise<RevocationQueueResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REVOCATION_QUEUE, request),
+
+  getRevocationStatus: (): Promise<RevocationStatusResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REVOCATION_STATUS),
+
+  publishRevocations: (): Promise<RevocationPublishResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REVOCATION_PUBLISH),
 
   // File I/O
   openFile: (request: FileOpenRequest): Promise<FileOpenResponse> =>

@@ -18,8 +18,15 @@ import type { OpenCredDesktopAPI } from "../shared/ipc-types";
 const CHANNEL_TO_METHOD: Record<string, keyof OpenCredDesktopAPI> = {
   [IPC_CHANNELS.KEY_IMPORT]: "importKey",
   [IPC_CHANNELS.KEY_LIST]: "listKeys",
+  [IPC_CHANNELS.SCHEMA_LIST]: "listSchemas",
+  [IPC_CHANNELS.SCHEMA_GET]: "getSchema",
   [IPC_CHANNELS.SIGN_CREDENTIAL]: "signCredential",
+  [IPC_CHANNELS.BUILD_AND_SIGN]: "buildAndSign",
   [IPC_CHANNELS.VERIFY_CREDENTIAL]: "verifyCredential",
+  [IPC_CHANNELS.PACKAGE_CREDENTIAL]: "packageCredential",
+  [IPC_CHANNELS.REVOCATION_QUEUE]: "queueRevocation",
+  [IPC_CHANNELS.REVOCATION_STATUS]: "getRevocationStatus",
+  [IPC_CHANNELS.REVOCATION_PUBLISH]: "publishRevocations",
   [IPC_CHANNELS.FILE_OPEN]: "openFile",
   [IPC_CHANNELS.FILE_SAVE]: "saveFile",
   [IPC_CHANNELS.GET_OFFLINE_STATUS]: "getOfflineStatus",
@@ -55,8 +62,15 @@ describe("Preload API completeness", () => {
     const api: OpenCredDesktopAPI = {
       importKey: async () => ({ success: true }),
       listKeys: async () => ({ keys: [] }),
+      listSchemas: async () => ({ schemas: [] }),
+      getSchema: async () => ({ id: "test", schema: {} }),
       signCredential: async () => ({ success: false, error: "stub" }),
+      buildAndSign: async () => ({ success: false, error: "stub" }),
       verifyCredential: async () => ({ success: true, valid: true }),
+      packageCredential: async () => ({ success: true }),
+      queueRevocation: async () => ({ success: true }),
+      getRevocationStatus: async () => ({ items: [] }),
+      publishRevocations: async () => ({ results: [] }),
       openFile: async () => ({ content: null, filePath: null }),
       saveFile: async () => ({ filePath: null }),
       getOfflineStatus: async () => false,
@@ -73,8 +87,15 @@ describe("Preload API completeness", () => {
     const api: OpenCredDesktopAPI = {
       importKey: async () => ({ success: true }),
       listKeys: async () => ({ keys: [] }),
+      listSchemas: async () => ({ schemas: [] }),
+      getSchema: async () => ({ id: "test", schema: {} }),
       signCredential: async () => ({ success: false, error: "stub" }),
+      buildAndSign: async () => ({ success: false, error: "stub" }),
       verifyCredential: async () => ({ success: true, valid: true }),
+      packageCredential: async () => ({ success: true }),
+      queueRevocation: async () => ({ success: true }),
+      getRevocationStatus: async () => ({ items: [] }),
+      publishRevocations: async () => ({ results: [] }),
       openFile: async () => ({ content: null, filePath: null }),
       saveFile: async () => ({ filePath: null }),
       getOfflineStatus: async () => false,
@@ -89,11 +110,41 @@ describe("Preload API completeness", () => {
     const listResult = api.listKeys();
     expect(listResult).toBeInstanceOf(Promise);
 
+    const schemaListResult = api.listSchemas();
+    expect(schemaListResult).toBeInstanceOf(Promise);
+
+    const schemaGetResult = api.getSchema({ schemaId: "test" });
+    expect(schemaGetResult).toBeInstanceOf(Promise);
+
     const signResult = api.signCredential({ unsignedCredential: "{}", keyId: "k" });
     expect(signResult).toBeInstanceOf(Promise);
 
+    const buildSignResult = api.buildAndSign({
+      schemaId: "test",
+      issuerDid: "did:test:123",
+      credentialSubject: {},
+      validFrom: "2025-01-01T00:00:00Z",
+      keyId: "k",
+    });
+    expect(buildSignResult).toBeInstanceOf(Promise);
+
     const verifyResult = api.verifyCredential({ credential: "{}" });
     expect(verifyResult).toBeInstanceOf(Promise);
+
+    const packageResult = api.packageCredential({ credential: "{}", formats: ["json-ld"] });
+    expect(packageResult).toBeInstanceOf(Promise);
+
+    const revQueueResult = api.queueRevocation({
+      credentialId: "urn:uuid:test",
+      registryUrl: "https://example.com",
+    });
+    expect(revQueueResult).toBeInstanceOf(Promise);
+
+    const revStatusResult = api.getRevocationStatus();
+    expect(revStatusResult).toBeInstanceOf(Promise);
+
+    const revPublishResult = api.publishRevocations();
+    expect(revPublishResult).toBeInstanceOf(Promise);
 
     const openResult = api.openFile({});
     expect(openResult).toBeInstanceOf(Promise);
@@ -114,8 +165,15 @@ describe("Preload API completeness", () => {
     await Promise.all([
       importResult,
       listResult,
+      schemaListResult,
+      schemaGetResult,
       signResult,
+      buildSignResult,
       verifyResult,
+      packageResult,
+      revQueueResult,
+      revStatusResult,
+      revPublishResult,
       openResult,
       saveResult,
       offlineResult,

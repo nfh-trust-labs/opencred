@@ -13,7 +13,7 @@
 
 /** Metadata returned after importing a key — never contains the private key itself. */
 export interface KeyMetadata {
-  /** Unique identifier for this key (internal). */
+  /** Unique identifier for this key (did:key verification method ID). */
   id: string;
   /** Human-readable fingerprint (e.g. SHA-256 of the public key). */
   fingerprint: string;
@@ -23,11 +23,15 @@ export interface KeyMetadata {
   importedAt: string;
   /** Optional user-supplied label. */
   label?: string;
+  /** Detected key format (pem, jwk, pkcs8-der). */
+  format?: string;
 }
 
 export interface KeyImportRequest {
   /** Absolute path to the key file on disk. */
   filePath: string;
+  /** Optional user-friendly label for the key. */
+  label?: string;
 }
 
 export interface KeyImportResponse {
@@ -38,6 +42,24 @@ export interface KeyImportResponse {
 
 export interface KeyListResponse {
   keys: KeyMetadata[];
+}
+
+// ---------------------------------------------------------------------------
+// Schema
+// ---------------------------------------------------------------------------
+
+export interface SchemaListResponse {
+  schemas: string[];
+}
+
+export interface SchemaGetRequest {
+  schemaId: string;
+}
+
+export interface SchemaGetResponse {
+  id: string;
+  schema: Record<string, unknown>;
+  contextUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,6 +81,48 @@ export interface SignCredentialResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Build and Sign (full flow)
+// ---------------------------------------------------------------------------
+
+export interface BuildAndSignRequest {
+  /** The schema ID to validate against. */
+  schemaId: string;
+  /** The issuer DID. */
+  issuerDid: string;
+  /** Credential subject fields. */
+  credentialSubject: Record<string, unknown>;
+  /** ISO 8601 validFrom date. */
+  validFrom: string;
+  /** ISO 8601 validUntil date (optional). */
+  validUntil?: string;
+  /** Revocation registry URL (optional). */
+  revocationRegistryUrl?: string;
+  /** Additional credential types (optional). */
+  additionalTypes?: string[];
+  /** Subject DID (optional). */
+  subjectDid?: string;
+  /** ID of the key to use for signing. */
+  keyId: string;
+  /** Output packaging formats (optional). */
+  packageFormats?: string[];
+}
+
+export interface BuildAndSignResponse {
+  success: boolean;
+  /** JSON-serialised signed Verifiable Credential. */
+  signedCredential?: string;
+  /** Packaged outputs (if packaging was requested). */
+  packagedOutputs?: Array<{
+    format: string;
+    /** Base64-encoded data for binary formats, string for text formats. */
+    data: string;
+    mimeType: string;
+    suggestedFileName: string;
+  }>;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Credential verification
 // ---------------------------------------------------------------------------
 
@@ -73,7 +137,80 @@ export interface VerifyCredentialResponse {
   valid?: boolean;
   /** Human-readable summary of verification. */
   message?: string;
+  /** Detailed verification checks. */
+  checks?: Array<{ name: string; passed: boolean; detail?: string }>;
   error?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Packaging
+// ---------------------------------------------------------------------------
+
+export interface PackageCredentialRequest {
+  /** JSON-serialised signed Verifiable Credential. */
+  credential: string;
+  /** Output formats to produce. */
+  formats: string[];
+}
+
+export interface PackageCredentialResponse {
+  success: boolean;
+  outputs?: Array<{
+    format: string;
+    /** Base64-encoded data for binary formats, string for text formats. */
+    data: string;
+    mimeType: string;
+    suggestedFileName: string;
+  }>;
+  errors?: Array<{ format: string; error: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// Revocation
+// ---------------------------------------------------------------------------
+
+export interface RevocationQueueRequest {
+  /** The credential ID to revoke. */
+  credentialId: string;
+  /** The revocation registry URL. */
+  registryUrl: string;
+  /** Optional revocation hash. */
+  revocationHash?: string;
+  /** Optional reason for revocation. */
+  reason?: string;
+}
+
+export interface RevocationQueueResponse {
+  success: boolean;
+  item?: {
+    queueId: string;
+    credentialId: string;
+    status: string;
+    queuedAt: string;
+  };
+  error?: string;
+}
+
+export interface RevocationStatusResponse {
+  items: Array<{
+    queueId: string;
+    credentialId: string;
+    registryUrl: string;
+    status: string;
+    queuedAt: string;
+    lastAttemptAt?: string;
+    lastError?: string;
+    attemptCount: number;
+    reason?: string;
+  }>;
+}
+
+export interface RevocationPublishResponse {
+  results: Array<{
+    queueId: string;
+    success: boolean;
+    error?: string;
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,9 +267,22 @@ export interface OpenCredDesktopAPI {
   importKey: (request: KeyImportRequest) => Promise<KeyImportResponse>;
   listKeys: () => Promise<KeyListResponse>;
 
+  // Schema
+  listSchemas: () => Promise<SchemaListResponse>;
+  getSchema: (request: SchemaGetRequest) => Promise<SchemaGetResponse>;
+
   // Signing & verification
   signCredential: (request: SignCredentialRequest) => Promise<SignCredentialResponse>;
+  buildAndSign: (request: BuildAndSignRequest) => Promise<BuildAndSignResponse>;
   verifyCredential: (request: VerifyCredentialRequest) => Promise<VerifyCredentialResponse>;
+
+  // Packaging
+  packageCredential: (request: PackageCredentialRequest) => Promise<PackageCredentialResponse>;
+
+  // Revocation
+  queueRevocation: (request: RevocationQueueRequest) => Promise<RevocationQueueResponse>;
+  getRevocationStatus: () => Promise<RevocationStatusResponse>;
+  publishRevocations: () => Promise<RevocationPublishResponse>;
 
   // File I/O
   openFile: (request: FileOpenRequest) => Promise<FileOpenResponse>;
