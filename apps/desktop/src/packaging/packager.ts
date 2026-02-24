@@ -42,9 +42,10 @@ export interface PackagingResult {
  */
 function suggestedBaseName(credential: VerifiableCredential): string {
   const types = credential.type.filter((t) => t !== "VerifiableCredential");
-  const typeSlug = types.length > 0 ? types[0].replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase() : "credential";
+  const typeSlug =
+    types.length > 0 ? types[0].replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase() : "credential";
   const idSuffix = credential.id.includes(":")
-    ? credential.id.split(":").pop()?.slice(0, 8) ?? "unknown"
+    ? (credential.id.split(":").pop()?.slice(0, 8) ?? "unknown")
     : credential.id.slice(0, 8);
   return `${typeSlug}-${idSuffix}`;
 }

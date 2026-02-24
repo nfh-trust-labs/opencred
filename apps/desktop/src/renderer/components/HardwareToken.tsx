@@ -225,8 +225,8 @@ export function HardwareToken() {
       </div>
 
       <p className="text-xs text-gray-500">
-        Connect a USB token (YubiKey, ePass, SafeNet) or smart card via PKCS#11.
-        Your private key never leaves the hardware token.
+        Connect a USB token (YubiKey, ePass, SafeNet) or smart card via PKCS#11. Your private key
+        never leaves the hardware token.
       </p>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -357,7 +357,11 @@ export function HardwareToken() {
                   onClick={() => void handleConnect(key.id)}
                   disabled={loading || !key.hasPublicKey}
                   className="rounded-md bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-40"
-                  title={!key.hasPublicKey ? "No public key available for verification" : "Connect this key for signing"}
+                  title={
+                    !key.hasPublicKey
+                      ? "No public key available for verification"
+                      : "Connect this key for signing"
+                  }
                 >
                   {loading ? "..." : "Connect"}
                 </button>
@@ -375,12 +379,11 @@ export function HardwareToken() {
             <p>Algorithm: {connectedKey.algorithm}</p>
             {connectedKey.label && <p>Label: {connectedKey.label}</p>}
             <p>Fingerprint: {connectedKey.fingerprint.slice(0, 32)}...</p>
-            <p className="font-mono text-[10px] text-green-600 break-all">
-              ID: {connectedKey.id}
-            </p>
+            <p className="font-mono text-[10px] text-green-600 break-all">ID: {connectedKey.id}</p>
           </div>
           <p className="mt-2 text-green-600">
-            This key is now available for credential signing. Select it from the key list when issuing credentials.
+            This key is now available for credential signing. Select it from the key list when
+            issuing credentials.
           </p>
         </div>
       )}

@@ -21,11 +21,7 @@ import { createHash } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
 import { multibaseEncode } from "@opencred/crypto";
 import type { Signer, SignerMetadata } from "./types.js";
-import type {
-  OsCertProvider,
-  OsCertSignerOptions,
-  OsCertListResult,
-} from "./os-cert-types.js";
+import type { OsCertProvider, OsCertSignerOptions, OsCertListResult } from "./os-cert-types.js";
 import { createMacOsCertProvider } from "./macos-cert-provider.js";
 import { createWindowsCertProvider } from "./windows-cert-provider.js";
 
@@ -79,7 +75,9 @@ function computeFingerprintFromCompressedKey(compressedPublicKey: Uint8Array): s
   // display and comparison within the application.
   // SEQUENCE { SEQUENCE { OID ecPublicKey, OID prime256v1 }, BIT STRING { compressed point } }
   const ecPublicKeyOid = new Uint8Array([0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01]);
-  const prime256v1Oid = new Uint8Array([0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]);
+  const prime256v1Oid = new Uint8Array([
+    0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
+  ]);
 
   const innerSeqContent = new Uint8Array(ecPublicKeyOid.length + prime256v1Oid.length);
   innerSeqContent.set(ecPublicKeyOid, 0);
