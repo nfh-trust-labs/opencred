@@ -10,7 +10,7 @@ export type {
   VerifiableCredential,
 } from "./types.js";
 
-export { W3C_CREDENTIALS_V2_CONTEXT, DATA_INTEGRITY_V1_CONTEXT } from "./types.js";
+export { W3C_CREDENTIALS_V2_CONTEXT, DATA_INTEGRITY_V1_CONTEXT, OPENCRED_DELEGATION_V1_CONTEXT } from "./types.js";
 
 export { CredentialBuilder } from "./credential-builder.js";
 

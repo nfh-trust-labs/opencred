@@ -77,3 +77,6 @@ export const W3C_CREDENTIALS_V2_CONTEXT = "https://www.w3.org/ns/credentials/v2"
 
 /** The W3C Data Integrity v1 context URI. */
 export const DATA_INTEGRITY_V1_CONTEXT = "https://w3id.org/security/data-integrity/v1";
+
+/** The OpenCred Delegation v1 context URI. */
+export const OPENCRED_DELEGATION_V1_CONTEXT = "https://opencred.example/ns/delegation/v1";

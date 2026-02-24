@@ -1,0 +1,42 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "ocdeleg": "https://opencred.example/ns/delegation#",
+    "DelegationCertificate": "ocdeleg:DelegationCertificate",
+    "delegator": {
+      "@id": "ocdeleg:delegator",
+      "@type": "@id"
+    },
+    "delegatee": {
+      "@id": "ocdeleg:delegatee",
+      "@type": "@id"
+    },
+    "scope": {
+      "@id": "ocdeleg:scope",
+      "@type": "@id"
+    },
+    "authorisationPath": "ocdeleg:authorisationPath",
+    "credentialTypes": {
+      "@id": "ocdeleg:credentialTypes",
+      "@container": "@set"
+    },
+    "namespaces": {
+      "@id": "ocdeleg:namespaces",
+      "@container": "@set"
+    },
+    "maxIssuanceCount": {
+      "@id": "ocdeleg:maxIssuanceCount",
+      "@type": "http://www.w3.org/2001/XMLSchema#integer"
+    },
+    "businessId": "ocdeleg:businessId",
+    "delegationCertificate": {
+      "@id": "ocdeleg:delegationCertificate",
+      "@type": "@id"
+    },
+    "delegationCertificateUrl": {
+      "@id": "ocdeleg:delegationCertificateUrl",
+      "@type": "@id"
+    },
+    "DeDiDelegationStatus": "ocdeleg:DeDiDelegationStatus"
+  }
+}
