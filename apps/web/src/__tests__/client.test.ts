@@ -109,4 +109,221 @@ describe("OpenCredClient", () => {
     const [, opts] = mockFetch.mock.calls[0];
     expect(opts.headers["Authorization"]).toBeUndefined();
   });
+
+  // --- New endpoint tests ---
+
+  it("sends onboardTypeA request", async () => {
+    const client = new OpenCredClient("http://localhost:3000", "tok");
+    mockFetch.mockReturnValue(jsonResponse({ issuerId: "iss-1", status: "active" }));
+
+    const res = await client.onboardTypeA("-----BEGIN CERTIFICATE-----");
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/onboarding/type-a");
+    expect(JSON.parse(opts.body)).toEqual({ dscChain: "-----BEGIN CERTIFICATE-----" });
+    expect(res.issuerId).toBe("iss-1");
+  });
+
+  it("sends onboardDomainVerify request", async () => {
+    const client = new OpenCredClient("http://localhost:3000");
+    mockFetch.mockReturnValue(
+      jsonResponse({
+        challengeId: "ch-1",
+        challengeType: "dns",
+        challengeValue: "val",
+        instructions: "Add TXT",
+      }),
+    );
+
+    const res = await client.onboardDomainVerify("example.com", "dns");
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/onboarding/domain-verify");
+    expect(JSON.parse(opts.body)).toEqual({ domain: "example.com", method: "dns" });
+    expect(res.challengeId).toBe("ch-1");
+  });
+
+  it("sends onboardDomainConfirm request", async () => {
+    const client = new OpenCredClient("http://localhost:3000");
+    mockFetch.mockReturnValue(jsonResponse({ verified: true, issuerId: "iss-2" }));
+
+    const res = await client.onboardDomainConfirm("ch-1");
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/onboarding/domain-verify/confirm");
+    expect(JSON.parse(opts.body)).toEqual({ challengeId: "ch-1" });
+    expect(res.verified).toBe(true);
+  });
+
+  it("sends onboardBusinessVc request", async () => {
+    const client = new OpenCredClient("http://localhost:3000");
+    mockFetch.mockReturnValue(
+      jsonResponse({
+        delegationId: "del-1",
+        issuerId: "iss-3",
+        capabilityToken: "cap-tok",
+        scope: ["education"],
+        validFrom: "2024-01-01",
+        validUntil: "2025-01-01",
+      }),
+    );
+
+    const vc = { type: "BusinessCredential" };
+    const res = await client.onboardBusinessVc(vc, "delegated", "pub-key");
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/onboarding/business-vc");
+    expect(JSON.parse(opts.body)).toEqual({
+      businessCredential: vc,
+      signingPreference: "delegated",
+      publicKey: "pub-key",
+    });
+    expect(res.delegationId).toBe("del-1");
+  });
+
+  it("sends issueDelegated request", async () => {
+    const client = new OpenCredClient("http://localhost:3000", "tok");
+    mockFetch.mockReturnValue(jsonResponse({ credential: { type: "VC" }, credentialHash: "h-1" }));
+
+    const res = await client.issueDelegated("del-1", "education", { name: "Alice" });
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/credentials/issue-delegated");
+    expect(JSON.parse(opts.body)).toEqual({
+      delegationId: "del-1",
+      schema: "education",
+      credentialSubject: { name: "Alice" },
+    });
+    expect(res.credentialHash).toBe("h-1");
+  });
+
+  it("sends revoke request with hash", async () => {
+    const client = new OpenCredClient("http://localhost:3000");
+    mockFetch.mockReturnValue(jsonResponse({ revoked: true, hash: "h-abc" }));
+
+    const res = await client.revoke("h-abc");
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/credentials/revoke");
+    expect(JSON.parse(opts.body)).toEqual({ hash: "h-abc" });
+    expect(res.revoked).toBe(true);
+  });
+
+  it("sends revoke request with credential object", async () => {
+    const client = new OpenCredClient("http://localhost:3000");
+    mockFetch.mockReturnValue(jsonResponse({ revoked: true, hash: "h-xyz" }));
+
+    const cred = { "@context": [], type: "VC" };
+    const res = await client.revoke(cred);
+
+    const [, opts] = mockFetch.mock.calls[0];
+    expect(JSON.parse(opts.body)).toEqual({ credential: cred });
+    expect(res.revoked).toBe(true);
+  });
+
+  it("sends batchRevoke request", async () => {
+    const client = new OpenCredClient("http://localhost:3000");
+    mockFetch.mockReturnValue(
+      jsonResponse({
+        results: [
+          { hash: "h1", revoked: true },
+          { hash: "h2", revoked: false, error: "Not found" },
+        ],
+      }),
+    );
+
+    const res = await client.batchRevoke(["h1", "h2"]);
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/credentials/revoke/batch");
+    expect(JSON.parse(opts.body)).toEqual({ hashes: ["h1", "h2"] });
+    expect(res.results).toHaveLength(2);
+  });
+
+  it("sends batchSubmit request", async () => {
+    const client = new OpenCredClient("http://localhost:3000");
+    mockFetch.mockReturnValue(
+      jsonResponse({ jobId: "job-1", totalCredentials: 10, status: "pending" }),
+    );
+
+    const res = await client.batchSubmit({
+      schema: "education",
+      signingFlow: "delegated",
+      credentials: [{ name: "Alice" }],
+      delegationId: "del-1",
+    });
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/credentials/batch");
+    expect(res.jobId).toBe("job-1");
+  });
+
+  it("sends batchStatus GET request", async () => {
+    const client = new OpenCredClient("http://localhost:3000");
+    mockFetch.mockReturnValue(
+      jsonResponse({
+        jobId: "job-1",
+        status: "processing",
+        progress: 0.5,
+        totalCredentials: 10,
+        processedCredentials: 5,
+        failedCredentials: 0,
+      }),
+    );
+
+    const res = await client.batchStatus("job-1");
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/credentials/batch/job-1");
+    expect(opts.method).toBe("GET");
+    expect(res.status).toBe("processing");
+  });
+
+  it("sends batchResults GET request", async () => {
+    const client = new OpenCredClient("http://localhost:3000");
+    mockFetch.mockReturnValue(
+      jsonResponse({ jobId: "job-1", results: [{ index: 0, status: "success" }] }),
+    );
+
+    const res = await client.batchResults("job-1");
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/credentials/batch/job-1/results");
+    expect(opts.method).toBe("GET");
+    expect(res.results).toHaveLength(1);
+  });
+
+  it("sends batchSignatures POST request", async () => {
+    const client = new OpenCredClient("http://localhost:3000");
+    mockFetch.mockReturnValue(
+      jsonResponse({ processed: 1, results: [{ index: 0, status: "success" }] }),
+    );
+
+    const res = await client.batchSignatures("job-1", [{ index: 0, signature: "sig-abc" }]);
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/credentials/batch/job-1/signatures");
+    expect(JSON.parse(opts.body)).toEqual({ signatures: [{ index: 0, signature: "sig-abc" }] });
+    expect(res.processed).toBe(1);
+  });
+
+  it("sends batchSubmitCsv with FormData", async () => {
+    const client = new OpenCredClient("http://localhost:3000", "tok");
+    mockFetch.mockReturnValue(
+      jsonResponse({ jobId: "job-2", totalCredentials: 3, status: "pending" }),
+    );
+
+    const formData = new FormData();
+    formData.append("file", new Blob(["test"]), "test.csv");
+
+    const res = await client.batchSubmitCsv(formData);
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/credentials/batch/csv");
+    expect(opts.body).toBe(formData);
+    expect(opts.headers["Authorization"]).toBe("Bearer tok");
+    // FormData should not have Content-Type header (browser sets it with boundary)
+    expect(opts.headers["Content-Type"]).toBeUndefined();
+    expect(res.jobId).toBe("job-2");
+  });
 });

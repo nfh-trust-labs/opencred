@@ -4,11 +4,15 @@ import { describe, it, expect } from "vitest";
 import App from "../App";
 
 describe("App", () => {
-  it("renders the header and tabs", () => {
+  it("renders the header and navigation tabs", () => {
     render(<App />);
     expect(screen.getByText("OpenCred")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /issue credential/i })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /verify credential/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /verify/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /delegated issuance/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /batch issuance/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /revocation/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /onboarding/i })).toBeInTheDocument();
   });
 
   it("defaults to the builder tab", () => {
@@ -21,8 +25,36 @@ describe("App", () => {
   it("switches to the verifier tab", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole("tab", { name: /verify credential/i }));
+    await user.click(screen.getByRole("tab", { name: /^verify$/i }));
     expect(screen.getByText(/verifiable credential/i)).toBeInTheDocument();
+  });
+
+  it("switches to the delegated issuance tab", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("tab", { name: /delegated issuance/i }));
+    expect(screen.getByLabelText(/delegation id/i)).toBeInTheDocument();
+  });
+
+  it("switches to the revocation tab", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("tab", { name: /revocation/i }));
+    expect(screen.getByText(/single revocation/i)).toBeInTheDocument();
+  });
+
+  it("switches to the batch issuance tab", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("tab", { name: /batch issuance/i }));
+    expect(screen.getByText(/upload a csv file/i)).toBeInTheDocument();
+  });
+
+  it("switches to the onboarding tab", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("tab", { name: /onboarding/i }));
+    expect(screen.getByRole("button", { name: /type a/i })).toBeInTheDocument();
   });
 
   it("toggles settings panel", async () => {
