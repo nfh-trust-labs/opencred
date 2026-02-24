@@ -4,6 +4,7 @@ import { verifyDataIntegrity } from "./data-integrity.js";
 import { verifyVcJwt, extractVcJwtCredentialFields } from "./vc-jwt.js";
 import { verifySdJwtVc, extractSdJwtVcCredentialFields } from "./sd-jwt-vc.js";
 import { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
+import { checkDelegationChain } from "./delegation-check.js";
 import type {
   CredentialFormat,
   CredentialVerificationResult,
@@ -141,6 +142,18 @@ export async function verifyCredential(
         return { code: "REVOKED", verified: false, checks };
       }
       return { code: "UNRESOLVABLE", verified: false, checks };
+    }
+  }
+
+  // Delegation chain check (only runs if credential has a delegation reference)
+  if (format === "data-integrity") {
+    const delegationCheck = await checkDelegationChain(
+      input as Record<string, unknown>,
+      { dediClient: config.dediClient, didResolver: config.didResolver },
+    );
+    checks.push(delegationCheck);
+    if (!delegationCheck.passed) {
+      return { code: "DELEGATION_INVALID", verified: false, checks };
     }
   }
 

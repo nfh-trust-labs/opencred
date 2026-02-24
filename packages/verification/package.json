@@ -13,6 +13,7 @@
   "dependencies": {
     "@opencred/crypto": "workspace:*",
     "@opencred/dedi-client": "workspace:*",
+    "@opencred/delegation": "workspace:*",
     "@opencred/did": "workspace:*",
     "@opencred/shared": "workspace:*",
     "@opencred/vc-core": "workspace:*",

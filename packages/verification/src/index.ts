@@ -20,4 +20,6 @@ export {
 } from "./sd-jwt-vc.js";
 export type { SdJwtVcComponents, SdJwtVcPayload, Disclosure } from "./sd-jwt-vc.js";
 export { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
+export { checkDelegationChain } from "./delegation-check.js";
+export type { DelegationCheckOptions } from "./delegation-check.js";
 export { publicKeyFromMultibase } from "./key-utils.js";
