@@ -24,6 +24,7 @@
     "@opencred/state": "workspace:*",
     "@opencred/vc-core": "workspace:*",
     "@opencred/verification": "workspace:*",
+    "csv-parse": "^6.1.0",
     "hono": "^4.12.1",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
