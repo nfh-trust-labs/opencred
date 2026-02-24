@@ -24,6 +24,9 @@ jobs:
           node-version-file: ".nvmrc"
           cache: pnpm
 
+      - name: Install Python setuptools (needed for pkcs11js native rebuild)
+        run: pip install setuptools
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -35,6 +38,6 @@ jobs:
 
       # Smoke test -- build distributable without signing
       - name: Build distributable
-        run: pnpm --filter @opencred/desktop electron-builder --publish never
+        run: pnpm --filter @opencred/desktop exec electron-builder --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
