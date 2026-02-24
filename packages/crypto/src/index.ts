@@ -14,6 +14,8 @@ export {
   verifyProof,
   multibaseEncode,
   multibaseDecode,
+  derToRaw,
+  rawToDer,
 } from "./data-integrity.js";
 
 export { sha256, sha256Hex } from "./hash.js";

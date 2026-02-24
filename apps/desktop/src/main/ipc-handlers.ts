@@ -47,6 +47,14 @@ import type {
   FileSaveResponse,
   ConfigGetRequest,
   ConfigSetRequest,
+  Pkcs11DetectRequest,
+  Pkcs11DetectResponse,
+  Pkcs11ListSlotsRequest,
+  Pkcs11ListSlotsResponse,
+  Pkcs11ListKeysRequest,
+  Pkcs11ListKeysResponse,
+  Pkcs11ConnectRequest,
+  Pkcs11ConnectResponse,
 } from "../shared/ipc-types.js";
 import { getStore } from "./store.js";
 import { createSoftwareSigner } from "../signing/software-signer.js";
@@ -70,6 +78,15 @@ import type { CsvParseResult, Delimiter } from "../batch/csv-parser.js";
 import { createBatchEngine } from "../batch/batch-engine.js";
 import type { BatchEngine, BatchRowResult } from "../batch/batch-engine.js";
 import { exportBatchAsZip } from "../batch/batch-export.js";
+import { createPkcs11Signer } from "../signing/pkcs11-signer.js";
+import {
+  initializePkcs11,
+  finalizePkcs11,
+  listSlots as listPkcs11Slots,
+  openSession as openPkcs11Session,
+  closeSession as closePkcs11Session,
+  listKeys as listPkcs11Keys,
+} from "../signing/pkcs11-session.js";
 
 // ---------------------------------------------------------------------------
 // In-memory registries
@@ -511,22 +528,16 @@ async function handleSetConfig(
 
 /**
  * BATCH_START — parse CSV, validate rows, and start batch processing.
- *
- * Parses the CSV, validates each row against the schema, creates a batch
- * engine, and starts processing. Returns immediately with parse results;
- * the batch runs in the background. Use BATCH_STATUS to poll progress.
  */
 async function handleBatchStart(
   _event: IpcMainInvokeEvent,
   request: BatchStartRequest,
 ): Promise<BatchStartResponse> {
-  // Validate the signing key exists
   const signer = loadedSigners.get(request.keyId);
   if (!signer) {
     return { success: false, error: `Key not found: ${request.keyId}` };
   }
 
-  // Check if a batch is already running
   if (batchState.engine) {
     const progress = batchState.engine.getProgress();
     if (progress.running) {
@@ -535,7 +546,6 @@ async function handleBatchStart(
   }
 
   try {
-    // Parse the CSV
     const parseResult = parseCsv(request.csvContent, {
       schemaId: request.schemaId,
       columnMapping: request.columnMapping,
@@ -544,12 +554,10 @@ async function handleBatchStart(
 
     batchState.parseResult = parseResult;
 
-    // Collect parse errors for invalid rows
     const parseErrors = parseResult.rows
       .filter((r) => !r.valid)
       .map((r) => ({ rowIndex: r.rowIndex, errors: r.errors }));
 
-    // Create and start the batch engine
     const engine = createBatchEngine(signer, parseResult.rows, {
       schemaId: request.schemaId,
       issuerDid: request.issuerDid,
@@ -562,7 +570,6 @@ async function handleBatchStart(
 
     batchState.engine = engine;
 
-    // Start processing in the background (do not await)
     void engine.start().then((finalProgress) => {
       batchState.results = finalProgress.rows;
     });
@@ -658,6 +665,152 @@ async function handleBatchExport(
 }
 
 // ---------------------------------------------------------------------------
+// PKCS#11 hardware token handlers
+// ---------------------------------------------------------------------------
+
+/**
+ * PKCS11_DETECT — check if a PKCS#11 library exists at the given path.
+ */
+async function handlePkcs11Detect(
+  _event: IpcMainInvokeEvent,
+  request: Pkcs11DetectRequest,
+): Promise<Pkcs11DetectResponse> {
+  try {
+    const stat = await fs.stat(request.libraryPath);
+    if (!stat.isFile()) {
+      return { exists: false, error: "Path is not a file" };
+    }
+
+    const ext = request.libraryPath.toLowerCase();
+    const validExtensions = [".so", ".dll", ".dylib"];
+    const hasValidExt = validExtensions.some((e) => ext.endsWith(e));
+    if (!hasValidExt) {
+      return {
+        exists: true,
+        error: "File does not have a shared library extension (.so, .dll, .dylib)",
+      };
+    }
+
+    return { exists: true };
+  } catch {
+    return { exists: false, error: "File not found" };
+  }
+}
+
+/**
+ * PKCS11_LIST_SLOTS — enumerate PKCS#11 slots/tokens.
+ */
+async function handlePkcs11ListSlots(
+  _event: IpcMainInvokeEvent,
+  request: Pkcs11ListSlotsRequest,
+): Promise<Pkcs11ListSlotsResponse> {
+  let p11;
+  try {
+    p11 = initializePkcs11(request.libraryPath);
+    const slots = listPkcs11Slots(p11);
+    finalizePkcs11(p11);
+
+    return {
+      success: true,
+      slots: slots.map((s) => ({
+        index: s.index,
+        description: s.description,
+        tokenPresent: s.tokenPresent,
+        tokenLabel: s.tokenLabel,
+        tokenManufacturer: s.tokenManufacturer,
+      })),
+    };
+  } catch (err) {
+    if (p11) {
+      finalizePkcs11(p11);
+    }
+    const message = err instanceof Error ? err.message : "Failed to list PKCS#11 slots.";
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * PKCS11_LIST_KEYS — list keys on a specific token.
+ */
+async function handlePkcs11ListKeys(
+  _event: IpcMainInvokeEvent,
+  request: Pkcs11ListKeysRequest,
+): Promise<Pkcs11ListKeysResponse> {
+  let p11;
+  let session;
+  try {
+    p11 = initializePkcs11(request.libraryPath);
+    session = openPkcs11Session(p11, request.slotIndex, request.pin);
+    const keys = listPkcs11Keys(session);
+    closePkcs11Session(session);
+    finalizePkcs11(p11);
+
+    return {
+      success: true,
+      keys: keys.map((k) => ({
+        label: k.label,
+        id: k.id,
+        keyType: k.keyType,
+        hasPublicKey: k.hasPublicKey,
+      })),
+    };
+  } catch (err) {
+    if (session) {
+      closePkcs11Session(session);
+    }
+    if (p11) {
+      finalizePkcs11(p11);
+    }
+    const message = err instanceof Error ? err.message : "Failed to list keys.";
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * PKCS11_CONNECT — open a persistent session and make a key available for signing.
+ */
+async function handlePkcs11Connect(
+  _event: IpcMainInvokeEvent,
+  request: Pkcs11ConnectRequest,
+): Promise<Pkcs11ConnectResponse> {
+  try {
+    const { signer, availableKeys } = createPkcs11Signer({
+      libraryPath: request.libraryPath,
+      slotIndex: request.slotIndex,
+      pin: request.pin,
+      keyId: request.keyId,
+      label: request.label,
+    });
+
+    const meta: KeyMetadata = {
+      id: signer.id,
+      fingerprint: signer.metadata.fingerprint,
+      algorithm: "ECDSA P-256",
+      importedAt: new Date().toISOString(),
+      label: signer.metadata.label,
+      format: "pkcs11",
+    };
+
+    importedKeys.set(signer.id, meta);
+    loadedSigners.set(signer.id, signer);
+
+    return {
+      success: true,
+      key: meta,
+      availableKeys: availableKeys.map((k) => ({
+        label: k.label,
+        id: k.id,
+        keyType: k.keyType,
+        hasPublicKey: k.hasPublicKey,
+      })),
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to connect to hardware token.";
+    return { success: false, error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Registration / cleanup
 // ---------------------------------------------------------------------------
 
@@ -700,6 +853,12 @@ export function registerIpcHandlers(): void {
 
   // Network status
   ipcMain.handle(IPC_CHANNELS.GET_OFFLINE_STATUS, handleGetOfflineStatus);
+
+  // PKCS#11 hardware tokens
+  ipcMain.handle(IPC_CHANNELS.PKCS11_DETECT, handlePkcs11Detect);
+  ipcMain.handle(IPC_CHANNELS.PKCS11_LIST_SLOTS, handlePkcs11ListSlots);
+  ipcMain.handle(IPC_CHANNELS.PKCS11_LIST_KEYS, handlePkcs11ListKeys);
+  ipcMain.handle(IPC_CHANNELS.PKCS11_CONNECT, handlePkcs11Connect);
 
   // Config
   ipcMain.handle(IPC_CHANNELS.GET_CONFIG, handleGetConfig);

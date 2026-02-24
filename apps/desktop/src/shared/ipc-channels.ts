@@ -62,6 +62,16 @@ export const IPC_CHANNELS = {
   /** Export batch results as ZIP. Payload: output path. Response: export result. */
   BATCH_EXPORT: "batch:export",
 
+  // --- PKCS#11 hardware tokens ---
+  /** Check if a PKCS#11 library exists at the given path. Payload: { libraryPath }. Response: { exists, error? }. */
+  PKCS11_DETECT: "pkcs11:detect",
+  /** List available PKCS#11 slots/tokens. Payload: { libraryPath }. Response: { slots }. */
+  PKCS11_LIST_SLOTS: "pkcs11:list-slots",
+  /** List keys on a specific token (after PIN entry). Payload: { libraryPath, slotIndex, pin }. Response: { keys }. */
+  PKCS11_LIST_KEYS: "pkcs11:list-keys",
+  /** Open session and select a key for signing. Payload: { libraryPath, slotIndex, pin, keyId?, label? }. Response: key metadata. */
+  PKCS11_CONNECT: "pkcs11:connect",
+
   // --- Config (electron-store) ---
   /** Read a config value. Payload: key string. Response: value or undefined. */
   GET_CONFIG: "config:get",
