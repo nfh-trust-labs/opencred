@@ -26,9 +26,7 @@ export async function registerDelegation(
   const { certificate } = params;
 
   if (!certificate.proof) {
-    throw new DelegationError(
-      "Cannot register an unsigned delegation certificate in DeDi",
-    );
+    throw new DelegationError("Cannot register an unsigned delegation certificate in DeDi");
   }
 
   validateCertificateForRegistration(certificate);
@@ -38,10 +36,7 @@ export async function registerDelegation(
       id: certificate.id,
       issuerDid: certificate.delegator.id,
       delegateDid: certificate.delegatee.id,
-      scope: [
-        ...certificate.scope.credentialTypes,
-        ...certificate.scope.namespaces,
-      ],
+      scope: [...certificate.scope.credentialTypes, ...certificate.scope.namespaces],
       validFrom: certificate.validFrom,
       validUntil: certificate.validUntil,
       certificate,
@@ -77,9 +72,7 @@ export async function resolveDelegation(
     const record = await client.resolveDelegation(params.delegationId);
 
     if (!record.certificate) {
-      throw new DelegationError(
-        `DeDi record ${params.delegationId} has no certificate`,
-      );
+      throw new DelegationError(`DeDi record ${params.delegationId} has no certificate`);
     }
 
     return record.certificate as DelegationCertificate;
@@ -134,9 +127,7 @@ export async function isDelegationRevoked(
   }
 }
 
-function validateCertificateForRegistration(
-  certificate: DelegationCertificate,
-): void {
+function validateCertificateForRegistration(certificate: DelegationCertificate): void {
   if (!certificate.id) {
     throw new DelegationError("Certificate id is required for registration");
   }
@@ -147,8 +138,6 @@ function validateCertificateForRegistration(
     throw new DelegationError("Certificate delegatee.id is required for registration");
   }
   if (!certificate.validFrom || !certificate.validUntil) {
-    throw new DelegationError(
-      "Certificate validFrom and validUntil are required for registration",
-    );
+    throw new DelegationError("Certificate validFrom and validUntil are required for registration");
   }
 }
