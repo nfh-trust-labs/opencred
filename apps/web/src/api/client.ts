@@ -37,13 +37,21 @@ interface CheckResult {
 }
 
 export interface VerifyResponse {
-  status: "VALID" | "REVOKED" | "EXPIRED" | "INVALID" | "UNRESOLVABLE";
+  status: "VALID" | "REVOKED" | "EXPIRED" | "INVALID" | "UNRESOLVABLE" | "DELEGATION_INVALID";
   checks: {
     signature: CheckResult;
     expiry: CheckResult;
     revocation: CheckResult;
     dscChain?: CheckResult;
+    delegation?: CheckResult;
   };
+  delegationChain?: Array<{
+    delegationId: string;
+    issuer: string;
+    scope: string[];
+    validFrom: string;
+    validUntil: string;
+  }>;
 }
 
 export interface ApiError {
@@ -54,21 +62,161 @@ export interface ApiError {
   };
 }
 
+// --- Onboarding Types ---
+
+export interface OnboardTypeARequest {
+  dscChain: string;
+}
+
+export interface OnboardTypeAResponse {
+  issuerId: string;
+  status: string;
+}
+
+export interface OnboardDomainVerifyRequest {
+  domain: string;
+  method: "dns" | "http";
+}
+
+export interface OnboardDomainVerifyResponse {
+  challengeId: string;
+  challengeType: string;
+  challengeValue: string;
+  instructions: string;
+}
+
+export interface OnboardDomainConfirmResponse {
+  verified: boolean;
+  issuerId?: string;
+  error?: string;
+}
+
+export interface OnboardBusinessVcRequest {
+  businessCredential: Record<string, unknown>;
+  signingPreference: "delegated" | "interface";
+  publicKey?: string;
+}
+
+export interface OnboardBusinessVcResponse {
+  delegationId: string;
+  issuerId: string;
+  capabilityToken: string;
+  scope: string[];
+  validFrom: string;
+  validUntil: string;
+}
+
+// --- Delegated Issuance Types ---
+
+export interface IssueDelegatedRequest {
+  delegationId: string;
+  schema: string;
+  credentialSubject: Record<string, unknown>;
+  validFrom?: string;
+  validUntil?: string;
+}
+
+export interface IssueDelegatedResponse {
+  credential: Record<string, unknown>;
+  credentialHash: string;
+}
+
+// --- Revocation Types ---
+
+export interface RevokeRequest {
+  hash?: string;
+  credential?: Record<string, unknown>;
+}
+
+export interface RevokeResponse {
+  revoked: boolean;
+  hash: string;
+}
+
+export interface BatchRevokeRequest {
+  hashes: string[];
+}
+
+export interface BatchRevokeResponse {
+  results: Array<{
+    hash: string;
+    revoked: boolean;
+    error?: string;
+  }>;
+}
+
+// --- Batch Issuance Types ---
+
+export interface BatchSubmitRequest {
+  schema: string;
+  signingFlow: "interface" | "delegated";
+  credentials: Array<Record<string, unknown>>;
+  publicKey?: string;
+  delegationId?: string;
+}
+
+export interface BatchSubmitResponse {
+  jobId: string;
+  totalCredentials: number;
+  status: string;
+}
+
+export interface BatchStatusResponse {
+  jobId: string;
+  status: "pending" | "processing" | "awaiting_signatures" | "completed" | "failed";
+  progress: number;
+  totalCredentials: number;
+  processedCredentials: number;
+  failedCredentials: number;
+}
+
+export interface BatchResultsResponse {
+  jobId: string;
+  results: Array<{
+    index: number;
+    status: "success" | "failed";
+    credential?: Record<string, unknown>;
+    credentialHash?: string;
+    dataToSign?: string;
+    error?: string;
+  }>;
+}
+
+export interface BatchSignaturesRequest {
+  signatures: Array<{
+    index: number;
+    signature: string;
+  }>;
+}
+
+export interface BatchSignaturesResponse {
+  processed: number;
+  results: Array<{
+    index: number;
+    status: "success" | "failed";
+    credential?: Record<string, unknown>;
+    error?: string;
+  }>;
+}
+
 export class OpenCredClient {
   constructor(
     private readonly baseUrl: string,
     private readonly token?: string,
   ) {}
 
-  private async request<T>(path: string, body: unknown): Promise<T> {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+  private headers(): Record<string, string> {
+    const h: Record<string, string> = { "Content-Type": "application/json" };
     if (this.token) {
-      headers["Authorization"] = `Bearer ${this.token}`;
+      h["Authorization"] = `Bearer ${this.token}`;
     }
+    return h;
+  }
 
+  private async request<T>(path: string, body: unknown): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method: "POST",
-      headers,
+      headers: this.headers(),
       body: JSON.stringify(body),
     });
 
@@ -82,6 +230,46 @@ export class OpenCredClient {
     return json as T;
   }
 
+  private async requestGet<T>(path: string): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "GET",
+      headers: this.headers(),
+    });
+
+    const json = await res.json();
+
+    if (!res.ok) {
+      const apiErr = json as ApiError;
+      throw new Error(apiErr.error?.message ?? `Request failed: ${res.status}`);
+    }
+
+    return json as T;
+  }
+
+  private async requestFormData<T>(path: string, formData: FormData): Promise<T> {
+    const h: Record<string, string> = {};
+    if (this.token) {
+      h["Authorization"] = `Bearer ${this.token}`;
+    }
+
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: h,
+      body: formData,
+    });
+
+    const json = await res.json();
+
+    if (!res.ok) {
+      const apiErr = json as ApiError;
+      throw new Error(apiErr.error?.message ?? `Request failed: ${res.status}`);
+    }
+
+    return json as T;
+  }
+
+  // --- Existing Endpoints ---
+
   async buildCredential(req: BuildRequest): Promise<BuildResponse> {
     return this.request<BuildResponse>("/credentials/build", req);
   }
@@ -92,5 +280,98 @@ export class OpenCredClient {
 
   async verifyCredential(credential: unknown): Promise<VerifyResponse> {
     return this.request<VerifyResponse>("/verify", { credential });
+  }
+
+  // --- Onboarding ---
+
+  async onboardTypeA(dscChain: string): Promise<OnboardTypeAResponse> {
+    return this.request<OnboardTypeAResponse>("/onboarding/type-a", { dscChain });
+  }
+
+  async onboardDomainVerify(
+    domain: string,
+    method: "dns" | "http",
+  ): Promise<OnboardDomainVerifyResponse> {
+    return this.request<OnboardDomainVerifyResponse>("/onboarding/domain-verify", {
+      domain,
+      method,
+    });
+  }
+
+  async onboardDomainConfirm(challengeId: string): Promise<OnboardDomainConfirmResponse> {
+    return this.request<OnboardDomainConfirmResponse>("/onboarding/domain-verify/confirm", {
+      challengeId,
+    });
+  }
+
+  async onboardBusinessVc(
+    businessCredential: Record<string, unknown>,
+    signingPreference: "delegated" | "interface",
+    publicKey?: string,
+  ): Promise<OnboardBusinessVcResponse> {
+    return this.request<OnboardBusinessVcResponse>("/onboarding/business-vc", {
+      businessCredential,
+      signingPreference,
+      publicKey,
+    });
+  }
+
+  // --- Delegated Issuance ---
+
+  async issueDelegated(
+    delegationId: string,
+    schema: string,
+    credentialSubject: Record<string, unknown>,
+    validFrom?: string,
+    validUntil?: string,
+  ): Promise<IssueDelegatedResponse> {
+    return this.request<IssueDelegatedResponse>("/credentials/issue-delegated", {
+      delegationId,
+      schema,
+      credentialSubject,
+      validFrom,
+      validUntil,
+    });
+  }
+
+  // --- Revocation ---
+
+  async revoke(hashOrCredential: string | Record<string, unknown>): Promise<RevokeResponse> {
+    const body =
+      typeof hashOrCredential === "string"
+        ? { hash: hashOrCredential }
+        : { credential: hashOrCredential };
+    return this.request<RevokeResponse>("/credentials/revoke", body);
+  }
+
+  async batchRevoke(hashes: string[]): Promise<BatchRevokeResponse> {
+    return this.request<BatchRevokeResponse>("/credentials/revoke/batch", { hashes });
+  }
+
+  // --- Batch Issuance ---
+
+  async batchSubmit(req: BatchSubmitRequest): Promise<BatchSubmitResponse> {
+    return this.request<BatchSubmitResponse>("/credentials/batch", req);
+  }
+
+  async batchSubmitCsv(formData: FormData): Promise<BatchSubmitResponse> {
+    return this.requestFormData<BatchSubmitResponse>("/credentials/batch/csv", formData);
+  }
+
+  async batchStatus(jobId: string): Promise<BatchStatusResponse> {
+    return this.requestGet<BatchStatusResponse>(`/credentials/batch/${jobId}`);
+  }
+
+  async batchResults(jobId: string): Promise<BatchResultsResponse> {
+    return this.requestGet<BatchResultsResponse>(`/credentials/batch/${jobId}/results`);
+  }
+
+  async batchSignatures(
+    jobId: string,
+    signatures: Array<{ index: number; signature: string }>,
+  ): Promise<BatchSignaturesResponse> {
+    return this.request<BatchSignaturesResponse>(`/credentials/batch/${jobId}/signatures`, {
+      signatures,
+    });
   }
 }

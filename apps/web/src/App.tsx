@@ -1,8 +1,13 @@
 import { useState } from "react";
 import { CredentialBuilder } from "./components/CredentialBuilder";
 import { CredentialVerifier } from "./components/CredentialVerifier";
+import { DelegatedIssuance } from "./components/DelegatedIssuance";
+import { BatchIssuance } from "./components/BatchIssuance";
+import { RevocationPage } from "./components/RevocationPage";
+import { OnboardingPage } from "./components/OnboardingPage";
+import { Navigation } from "./components/Navigation";
 
-type Tab = "builder" | "verifier";
+type Tab = "builder" | "delegated" | "batch" | "verifier" | "revocation" | "onboarding";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("builder");
@@ -55,40 +60,16 @@ export default function App() {
       </header>
 
       <nav className="mx-auto max-w-4xl px-4 mt-6">
-        <div className="flex space-x-1 bg-gray-100 rounded-lg p-1" role="tablist">
-          <button
-            role="tab"
-            aria-selected={activeTab === "builder"}
-            onClick={() => setActiveTab("builder")}
-            className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
-              activeTab === "builder"
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            Issue Credential
-          </button>
-          <button
-            role="tab"
-            aria-selected={activeTab === "verifier"}
-            onClick={() => setActiveTab("verifier")}
-            className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
-              activeTab === "verifier"
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            Verify Credential
-          </button>
-        </div>
+        <Navigation activeTab={activeTab} onChange={(tab) => setActiveTab(tab as Tab)} />
       </nav>
 
       <main className="mx-auto max-w-4xl px-4 py-6">
-        {activeTab === "builder" ? (
-          <CredentialBuilder apiUrl={apiUrl} token={token} />
-        ) : (
-          <CredentialVerifier apiUrl={apiUrl} token={token} />
-        )}
+        {activeTab === "builder" && <CredentialBuilder apiUrl={apiUrl} token={token} />}
+        {activeTab === "delegated" && <DelegatedIssuance apiUrl={apiUrl} token={token} />}
+        {activeTab === "batch" && <BatchIssuance apiUrl={apiUrl} token={token} />}
+        {activeTab === "verifier" && <CredentialVerifier apiUrl={apiUrl} token={token} />}
+        {activeTab === "revocation" && <RevocationPage apiUrl={apiUrl} token={token} />}
+        {activeTab === "onboarding" && <OnboardingPage apiUrl={apiUrl} token={token} />}
       </main>
     </div>
   );

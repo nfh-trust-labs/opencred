@@ -19,6 +19,7 @@ interface Props {
 }
 
 type Step = "form" | "signing" | "done";
+type SigningMode = "interface" | "delegated";
 
 export function CredentialBuilder({ apiUrl, token }: Props) {
   const [schemaId, setSchemaId] = useState("");
@@ -28,6 +29,8 @@ export function CredentialBuilder({ apiUrl, token }: Props) {
   const [validUntil, setValidUntil] = useState("");
   const [revocationUrl, setRevocationUrl] = useState("https://dedi.example.com/revocation/list/1");
   const [jwk, setJwk] = useState<EcJwk | null>(null);
+  const [signingMode, setSigningMode] = useState<SigningMode>("interface");
+  const [delegationId, setDelegationId] = useState("");
   const [step, setStep] = useState<Step>("form");
   const [error, setError] = useState<string | null>(null);
   const [credential, setCredential] = useState<Record<string, unknown> | null>(null);
@@ -44,14 +47,21 @@ export function CredentialBuilder({ apiUrl, token }: Props) {
   }
 
   function isFormValid(): boolean {
-    if (!schema || !issuerDid || !validFrom || !revocationUrl || !jwk) return false;
-    return schema.fields
+    if (!schema || !validFrom) return false;
+    const requiredFieldsFilled = schema.fields
       .filter((f) => f.required)
       .every((f) => (subjectValues[f.name] ?? "").trim() !== "");
+    if (!requiredFieldsFilled) return false;
+
+    if (signingMode === "interface") {
+      return !!issuerDid && !!revocationUrl && !!jwk;
+    } else {
+      return !!delegationId.trim();
+    }
   }
 
   async function handleBuildAndSign() {
-    if (!schema || !jwk) return;
+    if (!schema) return;
 
     setStep("signing");
     setError(null);
@@ -59,6 +69,23 @@ export function CredentialBuilder({ apiUrl, token }: Props) {
 
     try {
       const client = new OpenCredClient(apiUrl, token || undefined);
+
+      if (signingMode === "delegated") {
+        // Delegated signing — server signs
+        const res = await client.issueDelegated(
+          delegationId,
+          schemaId,
+          { ...subjectValues },
+          validFrom ? new Date(validFrom).toISOString() : undefined,
+          validUntil ? new Date(validUntil).toISOString() : undefined,
+        );
+        setCredential(res.credential);
+        setStep("done");
+        return;
+      }
+
+      // Interface signing — local key, never leaves browser
+      if (!jwk) return;
       const publicKeyId = extractPublicKeyId(jwk);
 
       // 1. Build — send to API, get back dataToSign
@@ -144,61 +171,114 @@ export function CredentialBuilder({ apiUrl, token }: Props) {
             <CredentialForm schema={schema} values={subjectValues} onChange={handleFieldChange} />
           )}
 
-          <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Signing Mode</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="signing-mode"
+                  checked={signingMode === "interface"}
+                  onChange={() => setSigningMode("interface")}
+                  className="text-blue-600"
+                />
+                Interface Signing (local key)
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="signing-mode"
+                  checked={signingMode === "delegated"}
+                  onChange={() => setSigningMode("delegated")}
+                  className="text-blue-600"
+                />
+                Delegated Signing
+              </label>
+            </div>
+          </div>
+
+          {signingMode === "delegated" && (
             <div>
-              <label htmlFor="issuer-did" className="block text-sm font-medium text-gray-700">
-                Issuer DID
+              <label
+                htmlFor="builder-delegation-id"
+                className="block text-sm font-medium text-gray-700"
+              >
+                Delegation ID
               </label>
               <input
-                id="issuer-did"
+                id="builder-delegation-id"
                 type="text"
-                value={issuerDid}
-                onChange={(e) => setIssuerDid(e.target.value)}
-                placeholder="did:key:z..."
+                value={delegationId}
+                onChange={(e) => setDelegationId(e.target.value)}
+                placeholder="Enter your delegation ID..."
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="valid-from" className="block text-sm font-medium text-gray-700">
-                  Valid From
-                </label>
-                <input
-                  id="valid-from"
-                  type="date"
-                  value={validFrom}
-                  onChange={(e) => setValidFrom(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
+          )}
+
+          {signingMode === "interface" && (
+            <>
+              <div className="space-y-3">
+                <div>
+                  <label htmlFor="issuer-did" className="block text-sm font-medium text-gray-700">
+                    Issuer DID
+                  </label>
+                  <input
+                    id="issuer-did"
+                    type="text"
+                    value={issuerDid}
+                    onChange={(e) => setIssuerDid(e.target.value)}
+                    placeholder="did:key:z..."
+                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="revocation-url"
+                    className="block text-sm font-medium text-gray-700"
+                  >
+                    Revocation Registry URL
+                  </label>
+                  <input
+                    id="revocation-url"
+                    type="url"
+                    value={revocationUrl}
+                    onChange={(e) => setRevocationUrl(e.target.value)}
+                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
               </div>
-              <div>
-                <label htmlFor="valid-until" className="block text-sm font-medium text-gray-700">
-                  Valid Until (optional)
-                </label>
-                <input
-                  id="valid-until"
-                  type="date"
-                  value={validUntil}
-                  onChange={(e) => setValidUntil(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            </div>
+
+              <KeyImport onKeyParsed={setJwk} />
+            </>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="revocation-url" className="block text-sm font-medium text-gray-700">
-                Revocation Registry URL
+              <label htmlFor="valid-from" className="block text-sm font-medium text-gray-700">
+                Valid From
               </label>
               <input
-                id="revocation-url"
-                type="url"
-                value={revocationUrl}
-                onChange={(e) => setRevocationUrl(e.target.value)}
+                id="valid-from"
+                type="date"
+                value={validFrom}
+                onChange={(e) => setValidFrom(e.target.value)}
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label htmlFor="valid-until" className="block text-sm font-medium text-gray-700">
+                Valid Until (optional)
+              </label>
+              <input
+                id="valid-until"
+                type="date"
+                value={validUntil}
+                onChange={(e) => setValidUntil(e.target.value)}
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               />
             </div>
           </div>
-
-          <KeyImport onKeyParsed={setJwk} />
 
           {error && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3">
@@ -212,7 +292,11 @@ export function CredentialBuilder({ apiUrl, token }: Props) {
             disabled={!isFormValid() || step === "signing"}
             className="w-full rounded-md bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
           >
-            {step === "signing" ? "Signing..." : "Build & Sign Credential"}
+            {step === "signing"
+              ? "Signing..."
+              : signingMode === "delegated"
+                ? "Issue Credential (Delegated)"
+                : "Build & Sign Credential"}
           </button>
         </>
       )}
