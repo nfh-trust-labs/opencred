@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { DeDiClient } from "@opencred/dedi-client";
 import type { DelegationCertificate } from "@opencred/delegation";
+import type { DIDResolver } from "@opencred/did";
 import { checkDelegationChain } from "../delegation-check.js";
 
 function createValidDelegationCertificate(
@@ -265,6 +266,7 @@ describe("checkDelegationChain", () => {
         type: ["VerifiableCredential", "UniversityDegreeCredential"],
         proof: {
           type: "DataIntegrityProof",
+          verificationMethod: "did:key:z6MkOpenCredKey1#z6MkOpenCredKey1",
           proofValue: "mock-proof",
           delegationCertificate: delegation,
           // No "created" field
@@ -307,6 +309,129 @@ describe("checkDelegationChain", () => {
       });
 
       const result = await checkDelegationChain(credential);
+
+      expect(result.passed).toBe(true);
+    });
+  });
+
+
+  describe("delegatee-key binding", () => {
+    it("should fail when proof.verificationMethod does not match delegation.delegatee.id", async () => {
+      const delegation = createValidDelegationCertificate({
+        delegatee: { id: "did:key:z6MkAuthorisedKey" },
+      });
+
+      // Credential is signed by a DIFFERENT key than the delegatee
+      const credential = createDelegatedCredential(delegation, {
+        proof: {
+          type: "DataIntegrityProof",
+          cryptosuite: "ecdsa-rdfc-2019",
+          verificationMethod: "did:key:z6MkUnauthorisedKey#z6MkUnauthorisedKey",
+          proofPurpose: "assertionMethod",
+          created: "2026-06-15T12:00:00Z",
+          proofValue: "mock-credential-proof-value",
+          delegationCertificate: delegation,
+        },
+      });
+
+      const result = await checkDelegationChain(credential);
+
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("does not match");
+      expect(result.detail).toContain("z6MkAuthorisedKey");
+      expect(result.detail).toContain("z6MkUnauthorisedKey");
+    });
+
+    it("should pass when proof.verificationMethod matches delegatee.id by base DID", async () => {
+      const delegation = createValidDelegationCertificate({
+        delegatee: { id: "did:key:z6MkOpenCredKey1" },
+      });
+
+      const credential = createDelegatedCredential(delegation, {
+        proof: {
+          type: "DataIntegrityProof",
+          cryptosuite: "ecdsa-rdfc-2019",
+          verificationMethod: "did:key:z6MkOpenCredKey1#z6MkOpenCredKey1",
+          proofPurpose: "assertionMethod",
+          created: "2026-06-15T12:00:00Z",
+          proofValue: "mock-credential-proof-value",
+          delegationCertificate: delegation,
+        },
+      });
+
+      const result = await checkDelegationChain(credential);
+
+      expect(result.passed).toBe(true);
+    });
+
+    it("should pass when proof.verificationMethod exactly matches delegatee.id", async () => {
+      const delegation = createValidDelegationCertificate({
+        delegatee: { id: "did:key:z6MkOpenCredKey1#z6MkOpenCredKey1" },
+      });
+
+      const credential = createDelegatedCredential(delegation, {
+        proof: {
+          type: "DataIntegrityProof",
+          cryptosuite: "ecdsa-rdfc-2019",
+          verificationMethod: "did:key:z6MkOpenCredKey1#z6MkOpenCredKey1",
+          proofPurpose: "assertionMethod",
+          created: "2026-06-15T12:00:00Z",
+          proofValue: "mock-credential-proof-value",
+          delegationCertificate: delegation,
+        },
+      });
+
+      const result = await checkDelegationChain(credential);
+
+      expect(result.passed).toBe(true);
+    });
+
+    it("should fail when proof has no verificationMethod", async () => {
+      const delegation = createValidDelegationCertificate();
+
+      const credential = {
+        "@context": ["https://www.w3.org/ns/credentials/v2"],
+        type: ["VerifiableCredential", "UniversityDegreeCredential"],
+        proof: {
+          type: "DataIntegrityProof",
+          created: "2026-06-15T12:00:00Z",
+          proofValue: "mock-credential-proof-value",
+          delegationCertificate: delegation,
+        },
+      };
+
+      const result = await checkDelegationChain(credential);
+
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("no verificationMethod");
+    });
+  });
+
+  describe("delegator public key resolution", () => {
+    it("should pass delegation check without DID resolver (proof verification skipped)", async () => {
+      const delegation = createValidDelegationCertificate();
+      const credential = createDelegatedCredential(delegation);
+
+      const result = await checkDelegationChain(credential);
+
+      expect(result.passed).toBe(true);
+    });
+
+    it("should pass when DID resolver is provided but delegator DID is not resolvable", async () => {
+      const delegation = createValidDelegationCertificate();
+      const credential = createDelegatedCredential(delegation);
+
+      const mockResolver: DIDResolver = {
+        resolve: vi.fn().mockResolvedValue({
+          didDocument: null,
+          didResolutionMetadata: { error: "notFound" },
+          didDocumentMetadata: {},
+        }),
+      };
+
+      const result = await checkDelegationChain(credential, {
+        didResolver: mockResolver,
+      });
 
       expect(result.passed).toBe(true);
     });

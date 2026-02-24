@@ -149,7 +149,7 @@ export async function verifyCredential(
   if (format === "data-integrity") {
     const delegationCheck = await checkDelegationChain(
       input as Record<string, unknown>,
-      { dediClient: config.dediClient },
+      { dediClient: config.dediClient, didResolver: config.didResolver },
     );
     checks.push(delegationCheck);
     if (!delegationCheck.passed) {
