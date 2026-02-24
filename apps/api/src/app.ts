@@ -20,7 +20,9 @@ import { createOnboardingRoutes, createBusinessVcOnboardingRoutes } from "./rout
 import { createCaRequestRoutes, type CertificateAuthorityAdapter } from "./routes/ca-request.js";
 import {
   createDomainVerificationRoutes,
+  createTypeBOnboardingRoutes,
   type DomainVerificationDeps,
+  type TypeBOnboardingDeps,
 } from "./routes/domain-verification.js";
 import { TrustStore } from "./dsc-chain.js";
 
@@ -36,6 +38,7 @@ export interface AppDependencies {
   /** Optional CA adapter for Type C onboarding. When undefined, the endpoint returns 501. */
   caAdapter?: CertificateAuthorityAdapter;
   domainVerificationDeps?: DomainVerificationDeps;
+  typeBOnboardingDeps?: TypeBOnboardingDeps;
 }
 
 export function createApp(deps: AppDependencies) {
@@ -115,6 +118,21 @@ export function createApp(deps: AppDependencies) {
         opencredSigningKeyDid: deps.opencredSigningKeyDid,
       }),
     );
+
+    // Type B onboarding — domain-verified SSL-based onboarding
+    if (deps.domainVerificationDeps) {
+      app.route(
+        "/onboarding",
+        createTypeBOnboardingRoutes({
+          ...deps.domainVerificationDeps,
+          capabilityTokenKey: onboardingKey,
+          tokenIssuer: config.JWT_ISSUER,
+          tokenExpirySeconds: config.JWT_EXPIRY_SECONDS,
+          dediClient: deps.dediClient,
+          opencredSigningKeyDid: deps.opencredSigningKeyDid,
+        }),
+      );
+    }
   }
 
   // Type B domain ownership verification (unauthenticated — initiates verification flow)
