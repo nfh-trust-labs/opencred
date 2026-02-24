@@ -1,8 +1,13 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import * as tls from "node:tls";
 import { randomBytes } from "node:crypto";
 import { promises as dns } from "node:dns";
 import { ValidationError, VerificationError, NotFoundError } from "@opencred/shared";
+import { createCapabilityToken } from "@opencred/auth";
+import { createDelegationCertificate, registerDelegation } from "@opencred/delegation";
+import type { DelegationCertificate } from "@opencred/delegation";
+import type { DeDiClient } from "@opencred/dedi-client";
 import { TTLStore } from "@opencred/state";
 
 // --- Constants ---
@@ -112,6 +117,56 @@ export interface ChallengeRecord {
   verifiedAt?: string;
 }
 
+/**
+ * SSL certificate subject fields extracted from a domain's TLS certificate.
+ */
+export interface SslSubject {
+  CN?: string;
+  O?: string;
+  OU?: string;
+  C?: string;
+}
+
+/**
+ * Function type for extracting an SSL certificate subject from a domain.
+ * Injectable for testing.
+ */
+export type SslSubjectExtractor = (domain: string) => Promise<SslSubject>;
+
+/**
+ * Default implementation: connect to the domain on port 443 via TLS and
+ * extract the peer certificate's subject fields.
+ *
+ * IMPORTANT: This function connects TO the domain — it does NOT accept any
+ * keys from the domain. The connection is read-only; we only inspect the
+ * certificate that the server presents.
+ */
+function defaultExtractSslSubject(domain: string): Promise<SslSubject> {
+  return new Promise((resolve, reject) => {
+    const socket = tls.connect(443, domain, { servername: domain }, () => {
+      const cert = socket.getPeerCertificate();
+      socket.destroy();
+      if (!cert || !cert.subject) {
+        reject(new Error("No certificate presented by the server"));
+        return;
+      }
+      resolve({
+        CN: cert.subject.CN || undefined,
+        O: cert.subject.O || undefined,
+        OU: cert.subject.OU || undefined,
+        C: cert.subject.C || undefined,
+      });
+    });
+    socket.on("error", (err) => {
+      reject(err);
+    });
+    socket.setTimeout(10_000, () => {
+      socket.destroy();
+      reject(new Error("TLS connection timeout"));
+    });
+  });
+}
+
 // --- Zod schemas ---
 
 const domainRegex = /^(?!-)([a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,}$/;
@@ -130,6 +185,11 @@ const confirmChallengeSchema = z.object({
   challengeId: z.string().min(1, "challengeId is required"),
 });
 
+const typeBOnboardingSchema = z.object({
+  challengeId: z.string().min(1, "challengeId is required"),
+  signingPreference: z.enum(["interface", "delegated"]).optional().default("delegated"),
+});
+
 // --- Dependencies ---
 
 export interface DomainVerificationDeps {
@@ -143,6 +203,27 @@ export interface DomainVerificationDeps {
   dnsResolve4?: (hostname: string) => Promise<string[]>;
   /** DNS resolve6 — injectable for testing (returns IPv6 addresses for SSRF check) */
   dnsResolve6?: (hostname: string) => Promise<string[]>;
+  /** SSL subject extractor — injectable for testing */
+  extractSslSubject?: SslSubjectExtractor;
+}
+
+/**
+ * Dependencies for Type B onboarding (domain-verified SSL-based onboarding).
+ * Extends DomainVerificationDeps with auth and delegation requirements.
+ * Follows the same dependency injection pattern as OnboardingRoutesDeps
+ * and BusinessVcOnboardingDeps in onboarding.ts.
+ */
+export interface TypeBOnboardingDeps extends DomainVerificationDeps {
+  /** HMAC key for signing capability tokens (OpenCred platform key, not an issuer key) */
+  capabilityTokenKey: Uint8Array;
+  /** Issuer claim value for capability tokens */
+  tokenIssuer: string;
+  /** Token expiry duration in seconds */
+  tokenExpirySeconds: number;
+  /** DeDi client for delegation registration */
+  dediClient?: DeDiClient;
+  /** OpenCred platform signing key DID for delegated signing */
+  opencredSigningKeyDid?: string;
 }
 
 // --- Default implementations ---
@@ -317,6 +398,49 @@ async function verifyHttpChallenge(
   }
 }
 
+// --- Type B helpers ---
+
+/**
+ * Lowercase and replace non-alphanumeric chars with hyphens.
+ * Mirrors the slugify function in onboarding.ts.
+ */
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+/**
+ * Build a deterministic issuer namespace for a domain-verified (Type B) issuer.
+ * Uses the SSL certificate subject fields to create a stable identifier.
+ * Format: urn:opencred:issuer:domain:{domain-slug} or with O/CN from the cert.
+ */
+function buildDomainNamespace(domain: string, sslSubject: SslSubject): string {
+  const parts: string[] = [];
+
+  // Prefer structured identity from SSL cert (C, O, CN) when available
+  if (sslSubject.C) parts.push(slugify(sslSubject.C));
+  if (sslSubject.O) parts.push(slugify(sslSubject.O));
+  if (sslSubject.CN) parts.push(slugify(sslSubject.CN));
+
+  // Fall back to the domain itself if no SSL subject fields are usable
+  if (parts.length === 0) {
+    parts.push(slugify(domain));
+  }
+
+  return `urn:opencred:issuer:domain:${parts.join(":")}`;
+}
+
+/**
+ * Build a human-readable issuer name from SSL subject fields.
+ */
+function buildIssuerName(domain: string, sslSubject: SslSubject): string {
+  if (sslSubject.O) return sslSubject.O;
+  if (sslSubject.CN) return sslSubject.CN;
+  return domain;
+}
+
 // --- Factory ---
 
 export function createDomainVerificationRoutes(deps: DomainVerificationDeps = {}) {
@@ -450,5 +574,157 @@ export function createDomainVerificationRoutes(deps: DomainVerificationDeps = {}
   return domainVerify;
 }
 
+/**
+ * Create routes for Type B onboarding (domain-verified SSL-based onboarding).
+ *
+ * This factory creates a POST /type-b endpoint that:
+ * 1. Validates the challenge has been verified (domain ownership confirmed)
+ * 2. Extracts SSL certificate subject from the domain
+ * 3. Builds a deterministic issuer namespace
+ * 4. Issues a capability token
+ * 5. Optionally creates and registers a delegation certificate
+ */
+export function createTypeBOnboardingRoutes(deps: TypeBOnboardingDeps) {
+  const { capabilityTokenKey, tokenIssuer, tokenExpirySeconds, dediClient, opencredSigningKeyDid } =
+    deps;
+
+  const challengeStore =
+    deps.challengeStore ?? new TTLStore<ChallengeRecord>(CHALLENGE_TTL_MS, 60_000);
+  const extractSsl = deps.extractSslSubject ?? defaultExtractSslSubject;
+
+  const typeB = new Hono();
+
+  // POST /type-b — complete Type B onboarding after domain verification
+  typeB.post("/type-b", async (c) => {
+    const rawBody = await c.req.json();
+    const parsed = typeBOnboardingSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      const firstError = parsed.error.issues[0];
+      throw new ValidationError(`${firstError.path.join(".")}: ${firstError.message}`);
+    }
+
+    const { challengeId, signingPreference } = parsed.data;
+
+    // 1. Look up the challenge and verify it was already confirmed
+    const record = challengeStore.get(challengeId);
+    if (!record) {
+      throw new NotFoundError("Challenge not found or has expired");
+    }
+
+    if (!record.verified) {
+      throw new VerificationError(
+        "Domain has not been verified yet. Call /domain-verify/confirm first.",
+      );
+    }
+
+    const domain = record.domain;
+
+    // 2. Extract SSL certificate subject from the domain
+    let sslSubject: SslSubject;
+    try {
+      sslSubject = await extractSsl(domain);
+    } catch {
+      throw new VerificationError("Failed to extract SSL certificate from domain");
+    }
+
+    // 3. Build issuer namespace from domain + SSL subject
+    const namespace = buildDomainNamespace(domain, sslSubject);
+
+    // 4. Build subject identifier
+    const subject = `domain:${slugify(domain)}`;
+
+    // 5. Determine scopes based on signing preference
+    const scope: string[] =
+      signingPreference === "delegated"
+        ? ["credentials:issue-delegated", "credentials:revoke"]
+        : ["credentials:build", "credentials:revoke"];
+
+    // 6. Issue capability token
+    const expiresAt = new Date(Date.now() + tokenExpirySeconds * 1000).toISOString();
+    const capabilityToken = await createCapabilityToken({
+      subject,
+      issuer: tokenIssuer,
+      expiresInSeconds: tokenExpirySeconds,
+      scope,
+      namespace,
+      signingKey: capabilityTokenKey,
+    });
+
+    // 7. If delegated signing, create and register a delegation certificate
+    let delegationId: string | undefined;
+    if (signingPreference === "delegated") {
+      if (!opencredSigningKeyDid) {
+        throw new ValidationError(
+          "Delegated signing is not available: no OpenCred signing key configured",
+        );
+      }
+
+      const issuerName = buildIssuerName(domain, sslSubject);
+      const delegatorId = `https://${domain}`;
+      const now = new Date();
+      const validUntil = new Date(now.getTime() + tokenExpirySeconds * 1000);
+
+      const unsignedCert = createDelegationCertificate({
+        delegator: {
+          id: delegatorId,
+          name: issuerName,
+        },
+        delegatee: {
+          id: opencredSigningKeyDid,
+        },
+        scope: {
+          credentialTypes: [],
+          namespaces: [namespace],
+        },
+        validFrom: now.toISOString(),
+        validUntil: validUntil.toISOString(),
+        authorisationPath: "dedi-registry",
+      });
+
+      delegationId = unsignedCert.id;
+
+      // Register delegation in DeDi if client is available
+      if (dediClient) {
+        const certWithProof: DelegationCertificate = {
+          ...unsignedCert,
+          proof: {
+            type: "DomainVerificationAuthorisation",
+            verificationMethod: delegatorId,
+            proofPurpose: "capabilityDelegation",
+            created: now.toISOString(),
+            proofValue: "",
+          },
+        };
+        await registerDelegation(dediClient, { certificate: certWithProof });
+      }
+    }
+
+    const response: Record<string, unknown> = {
+      namespace,
+      capabilityToken,
+      issuerIdentifier: subject,
+      expiresAt,
+      sslSubject,
+    };
+    if (delegationId) {
+      response.delegationId = delegationId;
+    }
+
+    return c.json(response, 201);
+  });
+
+  return typeB;
+}
+
 // Export helpers for testing
-export { isPrivateIP, generateToken, CHALLENGE_TTL_MS, DNS_SUBDOMAIN, HTTP_WELL_KNOWN_PATH };
+export {
+  isPrivateIP,
+  generateToken,
+  CHALLENGE_TTL_MS,
+  DNS_SUBDOMAIN,
+  HTTP_WELL_KNOWN_PATH,
+  slugify as typeBSlugify,
+  buildDomainNamespace,
+  buildIssuerName,
+  defaultExtractSslSubject,
+};
