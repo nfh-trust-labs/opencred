@@ -22,6 +22,7 @@ import {
   embedDelegation,
 } from "@opencred/delegation";
 import { authMiddleware, type AuthMiddlewareOptions } from "../middleware/auth.js";
+import { packageFormats } from "../output/index.js";
 
 // ---------------------------------------------------------------------------
 // Request schemas
@@ -225,12 +226,13 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
       // 5. Consume the session (one-time use)
       sessionStore.delete(body.sessionId);
 
+      // 6. Generate QR + PDF output formats
+      const formats = await packageFormats(credential as unknown as Record<string, unknown>);
+
       return c.json(
         {
           credential,
-          formats: {
-            jsonld: credential,
-          },
+          formats,
         },
         200,
       );
@@ -343,7 +345,12 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
         // 8. Embed delegation reference in the credential
         const credentialWithDelegation = embedDelegation(signedCredential, delegation);
 
-        return c.json({ credential: credentialWithDelegation }, 201);
+        // 9. Generate QR + PDF output formats
+        const formats = await packageFormats(
+          credentialWithDelegation as unknown as Record<string, unknown>,
+        );
+
+        return c.json({ credential: credentialWithDelegation, formats }, 201);
       },
     );
   }
