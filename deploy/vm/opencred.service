@@ -1,0 +1,59 @@
+# ==============================================================================
+# OpenCred — Systemd Service Unit
+# ==============================================================================
+# Manages the OpenCred Docker Compose stack as a systemd service.
+#
+# Installation:
+#   sudo cp deploy/vm/opencred.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable opencred
+#   sudo systemctl start opencred
+#
+# Logs:
+#   journalctl -u opencred -f
+#   journalctl -u opencred --since "1 hour ago"
+# ==============================================================================
+
+[Unit]
+Description=OpenCred Verifiable Credentials Platform
+Documentation=https://github.com/nfh-trust-labs/opencred
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/opencred
+
+# Load environment variables (API secrets, configuration overrides)
+EnvironmentFile=/opt/opencred/.env
+
+# Pull latest images before starting (ensures we run the deployed version)
+ExecStartPre=/usr/bin/docker compose -f /opt/opencred/docker-compose.yml pull --quiet
+ExecStart=/usr/bin/docker compose -f /opt/opencred/docker-compose.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f /opt/opencred/docker-compose.yml down
+ExecReload=/usr/bin/docker compose -f /opt/opencred/docker-compose.yml pull --quiet && /usr/bin/docker compose -f /opt/opencred/docker-compose.yml up -d --remove-orphans
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/opencred /var/run/docker.sock
+PrivateTmp=true
+
+# Logging — all output goes to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=opencred
+
+# Resource limits (optional — adjust based on VM size)
+# LimitNOFILE=65535
+# MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target
