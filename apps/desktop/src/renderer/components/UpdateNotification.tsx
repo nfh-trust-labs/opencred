@@ -15,18 +15,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import type { UpdateStatusResponse } from "../../shared/ipc-types";
 
-declare global {
-  interface Window {
-    opencred: {
-      updateCheck: () => Promise<UpdateStatusResponse>;
-      updateDownload: () => Promise<UpdateStatusResponse>;
-      updateInstall: () => Promise<void>;
-      updateGetStatus: () => Promise<UpdateStatusResponse>;
-      onUpdateStatus: (callback: (status: UpdateStatusResponse) => void) => () => void;
-    };
-  }
-}
-
 export function UpdateNotification(): React.ReactElement | null {
   const [status, setStatus] = useState<UpdateStatusResponse | null>(null);
   const [dismissed, setDismissed] = useState(false);

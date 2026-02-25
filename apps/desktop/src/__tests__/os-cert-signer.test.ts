@@ -12,7 +12,7 @@
  *  - Security invariants (no key material in errors)
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { generateKeyPairSync, createSign, createHash } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
 import type { OsCertProvider, OsCertInfo } from "../signing/os-cert-types.js";

@@ -14,7 +14,7 @@
  *  - Any required Apple Developer credential env var is missing
  *
  * Usage in electron-builder config (package.json):
- *   "afterSign": "scripts/notarize.js"
+ *   "afterSign": "scripts/notarize.cjs"
  */
 
 const { notarize } = require("@electron/notarize");

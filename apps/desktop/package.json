@@ -3,10 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "description": "OpenCred Desktop — offline credential issuance and signing",
+  "author": {
+    "name": "NFH Trust Labs",
+    "email": "dev@nfh-trust-labs.org"
+  },
+  "homepage": "https://github.com/nfh-trust-labs/opencred",
   "main": "dist/main/main/index.js",
   "scripts": {
     "dev": "concurrently -n vite,electron \"vite\" \"wait-on http://localhost:5174 && electron .\"",
-    "build": "tsc -p tsconfig.main.json && vite build && electron-builder",
+    "build": "tsc -p tsconfig.main.json && vite build",
+    "build:dist": "tsc -p tsconfig.main.json && vite build && electron-builder",
     "build:renderer": "vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
@@ -77,7 +84,7 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "identity": null
     },
-    "afterSign": "scripts/notarize.js",
+    "afterSign": "scripts/notarize.cjs",
     "win": {
       "target": [
         "nsis",
