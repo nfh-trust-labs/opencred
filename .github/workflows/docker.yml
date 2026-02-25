@@ -202,13 +202,17 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build images for smoke test
-        run: docker compose build
+        run: docker compose -f docker-compose.yml build
 
-      - name: Start services
+      - name: Create env file and start services
         run: |
           mkdir -p apps/api
           printf 'NODE_ENV=production\nPORT=3000\nLOG_LEVEL=info\nCORS_ORIGIN=http://localhost:8080\n' > apps/api/.env
-          docker compose -f docker-compose.yml up -d
+          docker compose -f docker-compose.yml up -d api
+          echo "Waiting for API container to start..."
+          sleep 5
+          docker compose -f docker-compose.yml logs api
+          docker compose -f docker-compose.yml up -d web
 
       - name: Wait for API health
         run: |
@@ -223,7 +227,7 @@ jobs:
             sleep 2
           done
           echo "API failed to become healthy"
-          docker compose logs api
+          docker compose -f docker-compose.yml logs api
           exit 1
 
       - name: Wait for Web UI health
@@ -239,7 +243,7 @@ jobs:
             sleep 2
           done
           echo "Web UI failed to respond"
-          docker compose logs web
+          docker compose -f docker-compose.yml logs web
           exit 1
 
       - name: Verify containers run as non-root
