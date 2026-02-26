@@ -80,12 +80,16 @@ services:
       - /tmp:size=32M
       - /var/cache/nginx:size=64M
       - /var/run:size=1M
+      - /var/log/nginx:size=16M
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
+      # nginx master needs CHOWN + DAC_OVERRIDE to set up temp dirs on tmpfs
+      - CHOWN
+      - DAC_OVERRIDE
     deploy:
       resources:
         limits:
