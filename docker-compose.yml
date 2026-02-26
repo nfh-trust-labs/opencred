@@ -62,19 +62,20 @@ services:
     container_name: opencred-web
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-8080}:80"
+      - "${WEB_PORT:-8080}:8080"
     depends_on:
       api:
         condition: service_healthy
     networks:
       - opencred-net
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
       interval: 30s
       timeout: 5s
       start_period: 5s
       retries: 3
     # --- Security Hardening ---
+    # Runs as non-root nginx user on unprivileged port 8080 — no caps needed
     read_only: true
     tmpfs:
       - /tmp:size=32M
@@ -85,11 +86,6 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-      # nginx master needs CHOWN + DAC_OVERRIDE to set up temp dirs on tmpfs
-      - CHOWN
-      - DAC_OVERRIDE
     deploy:
       resources:
         limits:
