@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { DelegationError } from "@opencred/shared";
 import type { DeDiClient } from "@opencred/dedi-client";
-import type { VerifiableCredential } from "@opencred/vc-core";
+import type { VerifiableCredential, Proof } from "@opencred/vc-core";
 import { validateDelegationChain, validateDelegateeMatchesSigningKey } from "../chain.js";
 import { createDelegationCertificate } from "../certificate.js";
 import type {
@@ -262,7 +262,13 @@ describe("validateDelegateeMatchesSigningKey -- strict matching", () => {
   it("should pass when delegatee ID exactly matches verification method", () => {
     const errors: string[] = [];
     const delegation = makeDelegation("did:key:zABC#zABC");
-    const proof = { type: "DataIntegrityProof", verificationMethod: "did:key:zABC#zABC" };
+    const proof = {
+      type: "DataIntegrityProof",
+      verificationMethod: "did:key:zABC#zABC",
+      created: "2024-01-01T00:00:00Z",
+      proofPurpose: "assertionMethod",
+      proofValue: "zStubSignature",
+    };
     validateDelegateeMatchesSigningKey(delegation, proof, errors);
     expect(errors).toHaveLength(0);
   });
@@ -270,7 +276,13 @@ describe("validateDelegateeMatchesSigningKey -- strict matching", () => {
   it("should fail when fragment differs even if base DID matches", () => {
     const errors: string[] = [];
     const delegation = makeDelegation("did:key:zABC#zABC");
-    const proof = { type: "DataIntegrityProof", verificationMethod: "did:key:zABC#zDEF" };
+    const proof = {
+      type: "DataIntegrityProof",
+      verificationMethod: "did:key:zABC#zDEF",
+      created: "2024-01-01T00:00:00Z",
+      proofPurpose: "assertionMethod",
+      proofValue: "zStubSignature",
+    };
     validateDelegateeMatchesSigningKey(delegation, proof, errors);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain("does not match");
@@ -279,7 +291,13 @@ describe("validateDelegateeMatchesSigningKey -- strict matching", () => {
   it("should fail when base DID differs", () => {
     const errors: string[] = [];
     const delegation = makeDelegation("did:key:zABC#zABC");
-    const proof = { type: "DataIntegrityProof", verificationMethod: "did:key:zXYZ#zXYZ" };
+    const proof = {
+      type: "DataIntegrityProof",
+      verificationMethod: "did:key:zXYZ#zXYZ",
+      created: "2024-01-01T00:00:00Z",
+      proofPurpose: "assertionMethod",
+      proofValue: "zStubSignature",
+    };
     validateDelegateeMatchesSigningKey(delegation, proof, errors);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain("does not match");
@@ -288,7 +306,12 @@ describe("validateDelegateeMatchesSigningKey -- strict matching", () => {
   it("should fail when proof has no verificationMethod", () => {
     const errors: string[] = [];
     const delegation = makeDelegation("did:key:zABC#zABC");
-    const proof = { type: "DataIntegrityProof" };
+    const proof = {
+      type: "DataIntegrityProof",
+      created: "2024-01-01T00:00:00Z",
+      proofPurpose: "assertionMethod",
+      proofValue: "zStubSignature",
+    } as Proof;
     validateDelegateeMatchesSigningKey(delegation, proof, errors);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain("no verificationMethod");
