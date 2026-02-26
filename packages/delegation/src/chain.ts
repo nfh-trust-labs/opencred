@@ -151,14 +151,9 @@ export function validateDelegateeMatchesSigningKey(
   const verificationMethod = proof.verificationMethod;
 
   if (delegateeId !== verificationMethod) {
-    const delegateeBase = delegateeId.split("#")[0];
-    const vmBase = verificationMethod.split("#")[0];
-
-    if (delegateeBase !== vmBase) {
-      errors.push(
-        `Delegation delegatee '${delegateeId}' does not match ` +
-          `credential signing key '${verificationMethod}'`,
-      );
-    }
+    errors.push(
+      `Delegation delegatee '${delegateeId}' does not match ` +
+        `credential signing key '${verificationMethod}'`,
+    );
   }
 }

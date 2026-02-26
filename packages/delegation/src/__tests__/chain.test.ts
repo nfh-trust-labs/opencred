@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { DelegationError } from "@opencred/shared";
 import type { DeDiClient } from "@opencred/dedi-client";
 import type { VerifiableCredential } from "@opencred/vc-core";
-import { validateDelegationChain } from "../chain.js";
+import { validateDelegationChain, validateDelegateeMatchesSigningKey } from "../chain.js";
 import { createDelegationCertificate } from "../certificate.js";
 import type {
   CreateDelegationParams,
@@ -251,5 +251,46 @@ describe("validateDelegationChain -- revocation checking", () => {
     expect(
       result.errors.some((e: string) => e.includes("Failed to check delegation revocation status")),
     ).toBe(true);
+  });
+});
+
+describe("validateDelegateeMatchesSigningKey -- strict matching", () => {
+  function makeDelegation(delegateeId: string): DelegationCertificate {
+    return createSignedDelegation({ delegatee: { id: delegateeId } });
+  }
+
+  it("should pass when delegatee ID exactly matches verification method", () => {
+    const errors: string[] = [];
+    const delegation = makeDelegation("did:key:zABC#zABC");
+    const proof = { type: "DataIntegrityProof", verificationMethod: "did:key:zABC#zABC" };
+    validateDelegateeMatchesSigningKey(delegation, proof, errors);
+    expect(errors).toHaveLength(0);
+  });
+
+  it("should fail when fragment differs even if base DID matches", () => {
+    const errors: string[] = [];
+    const delegation = makeDelegation("did:key:zABC#zABC");
+    const proof = { type: "DataIntegrityProof", verificationMethod: "did:key:zABC#zDEF" };
+    validateDelegateeMatchesSigningKey(delegation, proof, errors);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("does not match");
+  });
+
+  it("should fail when base DID differs", () => {
+    const errors: string[] = [];
+    const delegation = makeDelegation("did:key:zABC#zABC");
+    const proof = { type: "DataIntegrityProof", verificationMethod: "did:key:zXYZ#zXYZ" };
+    validateDelegateeMatchesSigningKey(delegation, proof, errors);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("does not match");
+  });
+
+  it("should fail when proof has no verificationMethod", () => {
+    const errors: string[] = [];
+    const delegation = makeDelegation("did:key:zABC#zABC");
+    const proof = { type: "DataIntegrityProof" };
+    validateDelegateeMatchesSigningKey(delegation, proof, errors);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("no verificationMethod");
   });
 });
