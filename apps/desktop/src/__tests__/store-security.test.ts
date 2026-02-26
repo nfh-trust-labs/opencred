@@ -117,8 +117,7 @@ describe("Store security hardening", () => {
 
       mockGet.mockReturnValue(undefined);
 
-      const shouldPersist =
-        store.get("persistKeyPaths" as keyof typeof store.store) ?? true;
+      const shouldPersist = store.get("persistKeyPaths" as keyof typeof store.store) ?? true;
       expect(shouldPersist).toBe(true);
     });
   });
