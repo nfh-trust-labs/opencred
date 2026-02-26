@@ -18,11 +18,9 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opencred/shared": "workspace:*",
-    "uuid": "^11.1.0"
+    "@opencred/shared": "workspace:*"
   },
   "devDependencies": {
-    "@types/uuid": "^10.0.0",
     "typescript": "^5.5.0"
   }
 }

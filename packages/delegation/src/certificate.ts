@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "node:crypto";
 import { DelegationError, ValidationError } from "@opencred/shared";
 import { verifyProof } from "@opencred/crypto";
 import { W3C_CREDENTIALS_V2_CONTEXT } from "@opencred/vc-core";
@@ -33,7 +33,7 @@ export function createDelegationCertificate(
 
   const certificate: UnsignedDelegationCertificate = {
     "@context": [W3C_CREDENTIALS_V2_CONTEXT, OPENCRED_DELEGATION_CONTEXT],
-    id: params.id ?? `urn:uuid:${uuidv4()}`,
+    id: params.id ?? `urn:uuid:${randomUUID()}`,
     type: ["DelegationCertificate"],
     delegator: { ...params.delegator },
     delegatee: { ...params.delegatee },

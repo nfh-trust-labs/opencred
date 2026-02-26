@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "node:crypto";
 import { ValidationError } from "@opencred/shared";
 import type {
   ContextEntry,
@@ -155,7 +155,7 @@ export class CredentialBuilder {
 
     const credential: UnsignedCredential = {
       "@context": [...this._contexts],
-      id: this._id ?? `urn:uuid:${uuidv4()}`,
+      id: this._id ?? `urn:uuid:${randomUUID()}`,
       type: [...this._types],
       issuer: this._issuer,
       validFrom: this._validFrom,
