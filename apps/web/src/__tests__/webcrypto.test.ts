@@ -27,11 +27,10 @@ describe("base64url", () => {
 
 describe("importKeyFile", () => {
   async function makeTestJwkJson(): Promise<{ json: string; publicKey: CryptoKey }> {
-    const keyPair = await crypto.subtle.generateKey(
-      { name: "ECDSA", namedCurve: "P-256" },
-      true,
-      ["sign", "verify"],
-    );
+    const keyPair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+      "sign",
+      "verify",
+    ]);
     const jwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
     return { json: JSON.stringify(jwk), publicKey: keyPair.publicKey };
   }

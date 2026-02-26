@@ -5,11 +5,7 @@ import { KeyImport } from "./KeyImport";
 import type { ImportedKey } from "./KeyImport";
 import { getSchema } from "../schemas";
 import { OpenCredClient } from "../api/client";
-import {
-  signData,
-  base64urlDecode,
-  base64urlEncode,
-} from "../crypto/webcrypto";
+import { signData, base64urlDecode, base64urlEncode } from "../crypto/webcrypto";
 
 interface Props {
   apiUrl: string;
