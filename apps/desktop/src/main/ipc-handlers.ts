@@ -62,7 +62,7 @@ import type {
   OsCertConnectRequest,
   OsCertConnectResponse,
 } from "../shared/ipc-types.js";
-import { getStore } from "./store.js";
+import { getStore, restrictStoreFilePermissions } from "./store.js";
 import { createSoftwareSigner } from "../signing/software-signer.js";
 import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local-signing-flow.js";
 import { verifyProof } from "@opencred/crypto";
@@ -144,13 +144,28 @@ async function handleKeyImport(
     importedKeys.set(signer.id, meta);
     loadedSigners.set(signer.id, signer);
 
-    // Persist the key path in config so it can be reloaded
+    // SECURITY TRADE-OFF: Persisting file paths enables auto-reload on
+    // restart but means an attacker with filesystem read access can discover
+    // file locations. The config file is restricted to owner-only permissions
+    // (0600) to mitigate this. Users can opt out by setting persistKeyPaths
+    // to false in the application settings.
     const store = getStore();
-    const keyPaths =
-      (store.get("preferences" as keyof typeof store.store) as Record<string, unknown>) ?? {};
-    const importedKeyPaths = (keyPaths["importedKeyPaths"] as Record<string, string>) ?? {};
-    importedKeyPaths[signer.id] = request.filePath;
-    store.set("preferences" as keyof typeof store.store, { ...keyPaths, importedKeyPaths });
+    const shouldPersist = store.get("persistKeyPaths" as keyof typeof store.store) ?? true;
+
+    if (shouldPersist) {
+      const prefs =
+        (store.get("preferences" as keyof typeof store.store) as Record<string, unknown>) ?? {};
+      const savedPaths = (prefs["importedKeyPaths"] as Record<string, string>) ?? {};
+      savedPaths[signer.id] = request.filePath;
+      store.set("preferences" as keyof typeof store.store, {
+        ...prefs,
+        importedKeyPaths: savedPaths,
+      });
+
+      // Restrict config file to owner-only read/write (0600) after writing.
+      // On Windows this is a no-op; see store.ts for details.
+      restrictStoreFilePermissions();
+    }
 
     return { success: true, key: meta };
   } catch (err) {

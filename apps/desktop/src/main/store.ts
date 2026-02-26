@@ -10,6 +10,7 @@
  */
 
 import ElectronStore from "electron-store";
+import * as fs from "node:fs";
 
 export interface StoreSchema {
   /** ID of the last-used signing key (for convenience, not the key itself). */
@@ -18,6 +19,13 @@ export interface StoreSchema {
   theme: "light" | "dark" | "system";
   /** Whether to start in offline-first mode. */
   offlineMode: boolean;
+  /**
+   * Whether to persist imported key file paths in the config store.
+   * When true (default), key file paths are saved so they can be auto-reloaded
+   * on restart. When false, key paths are not persisted and must be re-imported
+   * each session.
+   */
+  persistKeyPaths: boolean;
   /** Custom user preferences — intentionally loosely typed for extensibility. */
   preferences: Record<string, unknown>;
 }
@@ -26,6 +34,7 @@ const DEFAULTS: StoreSchema = {
   lastKeyId: undefined,
   theme: "system",
   offlineMode: false,
+  persistKeyPaths: true,
   preferences: {},
 };
 
@@ -53,4 +62,26 @@ export function getStore(): ElectronStore<StoreSchema> {
     throw new Error("Store has not been initialised. Call initStore() first.");
   }
   return store;
+}
+
+/**
+ * Restrict the electron-store config file to owner-only permissions (0600).
+ *
+ * On Unix-like systems (macOS, Linux) this sets read/write for the owner only.
+ * On Windows, Node.js fs.chmod is a no-op for permission bits; Windows ACLs
+ * must be configured separately (noted as a platform limitation).
+ */
+export function restrictStoreFilePermissions(): void {
+  if (!store) {
+    return;
+  }
+
+  try {
+    const storePath = store.path;
+    // 0o600 = owner read + write only (no group, no other)
+    fs.chmodSync(storePath, 0o600);
+  } catch {
+    // Best-effort: on Windows or if the file does not yet exist, chmod may
+    // fail silently. This is acceptable — the mitigation is documented.
+  }
 }
