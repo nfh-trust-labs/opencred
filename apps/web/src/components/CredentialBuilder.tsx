@@ -2,15 +2,13 @@ import { useState } from "react";
 import { SchemaSelector } from "./SchemaSelector";
 import { CredentialForm } from "./CredentialForm";
 import { KeyImport } from "./KeyImport";
+import type { ImportedKey } from "./KeyImport";
 import { getSchema } from "../schemas";
 import { OpenCredClient } from "../api/client";
-import type { EcJwk } from "../crypto/webcrypto";
 import {
-  importPrivateKey,
   signData,
   base64urlDecode,
   base64urlEncode,
-  extractPublicKeyId,
 } from "../crypto/webcrypto";
 
 interface Props {
@@ -28,7 +26,7 @@ export function CredentialBuilder({ apiUrl, token }: Props) {
   const [validFrom, setValidFrom] = useState(new Date().toISOString().split("T")[0]);
   const [validUntil, setValidUntil] = useState("");
   const [revocationUrl, setRevocationUrl] = useState("https://dedi.example.com/revocation/list/1");
-  const [jwk, setJwk] = useState<EcJwk | null>(null);
+  const [importedKey, setImportedKey] = useState<ImportedKey | null>(null);
   const [signingMode, setSigningMode] = useState<SigningMode>("interface");
   const [delegationId, setDelegationId] = useState("");
   const [step, setStep] = useState<Step>("form");
@@ -54,7 +52,7 @@ export function CredentialBuilder({ apiUrl, token }: Props) {
     if (!requiredFieldsFilled) return false;
 
     if (signingMode === "interface") {
-      return !!issuerDid && !!revocationUrl && !!jwk;
+      return !!issuerDid && !!revocationUrl && !!importedKey;
     } else {
       return !!delegationId.trim();
     }
@@ -85,14 +83,13 @@ export function CredentialBuilder({ apiUrl, token }: Props) {
       }
 
       // Interface signing — local key, never leaves browser
-      if (!jwk) return;
-      const publicKeyId = extractPublicKeyId(jwk);
+      if (!importedKey) return;
 
       // 1. Build — send to API, get back dataToSign
       const buildRes = await client.buildCredential({
         schema: schemaId,
         issuer: issuerDid,
-        publicKey: publicKeyId,
+        publicKey: importedKey.publicKeyId,
         credentialSubject: { ...subjectValues },
         validFrom: new Date(validFrom).toISOString(),
         validUntil: validUntil ? new Date(validUntil).toISOString() : undefined,
@@ -101,8 +98,7 @@ export function CredentialBuilder({ apiUrl, token }: Props) {
 
       // 2. Sign locally with WebCrypto — private key never leaves the browser
       const dataBytes = base64urlDecode(buildRes.dataToSign);
-      const cryptoKey = await importPrivateKey(jwk);
-      const signature = await signData(cryptoKey, dataBytes);
+      const signature = await signData(importedKey.signingKey, dataBytes);
       const signatureB64 = base64urlEncode(signature);
 
       // 3. Package — send signature to API, get back final credential
@@ -249,7 +245,7 @@ export function CredentialBuilder({ apiUrl, token }: Props) {
                 </div>
               </div>
 
-              <KeyImport onKeyParsed={setJwk} />
+              <KeyImport onKeyImported={setImportedKey} />
             </>
           )}
 

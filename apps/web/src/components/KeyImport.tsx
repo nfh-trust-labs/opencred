@@ -1,9 +1,13 @@
 import { useState } from "react";
-import type { EcJwk } from "../crypto/webcrypto";
-import { parseJwk } from "../crypto/webcrypto";
+import { importKeyFile } from "../crypto/webcrypto";
+
+export interface ImportedKey {
+  signingKey: CryptoKey;
+  publicKeyId: string;
+}
 
 interface Props {
-  onKeyParsed: (jwk: EcJwk) => void;
+  onKeyImported: (key: ImportedKey) => void;
 }
 
 const SAMPLE_PLACEHOLDER = `{
@@ -14,36 +18,36 @@ const SAMPLE_PLACEHOLDER = `{
   "d": "..."
 }`;
 
-export function KeyImport({ onKeyParsed }: Props) {
+export function KeyImport({ onKeyImported }: Props) {
   const [raw, setRaw] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [imported, setImported] = useState(false);
 
-  function handleImport() {
+  async function handleImport() {
     setError(null);
     setImported(false);
     try {
-      const jwk = parseJwk(raw);
-      onKeyParsed(jwk);
+      const key = await importKeyFile(raw);
+      onKeyImported(key);
       setImported(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to parse key");
+      setError(err instanceof Error ? err.message : "Failed to import key");
     }
   }
 
   function handleFile(file: File) {
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const text = reader.result as string;
       setRaw(text);
       setError(null);
       setImported(false);
       try {
-        const jwk = parseJwk(text);
-        onKeyParsed(jwk);
+        const key = await importKeyFile(text);
+        onKeyImported(key);
         setImported(true);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to parse key");
+        setError(err instanceof Error ? err.message : "Failed to import key");
       }
     };
     reader.readAsText(file);
