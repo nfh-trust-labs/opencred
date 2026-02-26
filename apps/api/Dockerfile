@@ -75,11 +75,19 @@ RUN addgroup -g 1001 -S opencred && \
 WORKDIR /app
 
 # Copy production node_modules from prod-deps stage
+# pnpm uses per-package node_modules with symlinks to the root virtual store.
+# We must copy both the root store AND each package's node_modules directory.
 COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=prod-deps /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=prod-deps /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY --from=prod-deps /app/packages/crypto/node_modules ./packages/crypto/node_modules
+COPY --from=prod-deps /app/packages/did/node_modules ./packages/did/node_modules
 COPY --from=prod-deps /app/packages/vc-core/node_modules ./packages/vc-core/node_modules
 COPY --from=prod-deps /app/packages/verification/node_modules ./packages/verification/node_modules
+COPY --from=prod-deps /app/packages/auth/node_modules ./packages/auth/node_modules
+COPY --from=prod-deps /app/packages/state/node_modules ./packages/state/node_modules
 COPY --from=prod-deps /app/packages/delegation/node_modules ./packages/delegation/node_modules
+COPY --from=prod-deps /app/packages/dedi-client/node_modules ./packages/dedi-client/node_modules
 COPY --from=prod-deps /app/packages/schema-engine/node_modules ./packages/schema-engine/node_modules
 
 # Copy built output from build stage
