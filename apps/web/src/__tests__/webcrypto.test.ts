@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   base64urlEncode,
   base64urlDecode,
-  parseJwk,
-  importPrivateKey,
+  importKeyFile,
   signData,
   extractPublicKeyId,
 } from "../crypto/webcrypto";
@@ -26,42 +25,41 @@ describe("base64url", () => {
   });
 });
 
-describe("parseJwk", () => {
-  const validJwk = JSON.stringify({
-    kty: "EC",
-    crv: "P-256",
-    x: "abc",
-    y: "def",
-    d: "ghi",
+describe("importKeyFile", () => {
+  async function makeTestJwkJson(): Promise<{ json: string; publicKey: CryptoKey }> {
+    const keyPair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+      "sign",
+      "verify",
+    ]);
+    const jwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+    return { json: JSON.stringify(jwk), publicKey: keyPair.publicKey };
+  }
+
+  it("imports a JWK file string and returns a non-extractable CryptoKey", async () => {
+    const { json } = await makeTestJwkJson();
+    const result = await importKeyFile(json);
+    expect(result.signingKey.algorithm).toMatchObject({ name: "ECDSA" });
+    expect(result.signingKey.extractable).toBe(false);
+    expect(result.publicKeyId.length).toBeGreaterThan(0);
   });
 
-  it("parses a valid EC P-256 JWK", () => {
-    const jwk = parseJwk(validJwk);
-    expect(jwk.kty).toBe("EC");
-    expect(jwk.crv).toBe("P-256");
-    expect(jwk.d).toBe("ghi");
+  it("rejects invalid JSON", async () => {
+    await expect(importKeyFile("{bad}")).rejects.toThrow("Invalid JSON");
   });
 
-  it("rejects invalid JSON", () => {
-    expect(() => parseJwk("{bad}")).toThrow("Invalid JSON");
+  it("rejects non-EC kty", async () => {
+    const json = JSON.stringify({ kty: "RSA", crv: "P-256", x: "a", y: "b", d: "c" });
+    await expect(importKeyFile(json)).rejects.toThrow('kty must be "EC"');
   });
 
-  it("rejects non-EC kty", () => {
-    expect(() =>
-      parseJwk(JSON.stringify({ kty: "RSA", crv: "P-256", x: "a", y: "b", d: "c" })),
-    ).toThrow('kty must be "EC"');
+  it("rejects non-P-256 curve", async () => {
+    const json = JSON.stringify({ kty: "EC", crv: "P-384", x: "a", y: "b", d: "c" });
+    await expect(importKeyFile(json)).rejects.toThrow('crv must be "P-256"');
   });
 
-  it("rejects non-P-256 curve", () => {
-    expect(() =>
-      parseJwk(JSON.stringify({ kty: "EC", crv: "P-384", x: "a", y: "b", d: "c" })),
-    ).toThrow('crv must be "P-256"');
-  });
-
-  it("rejects missing private key component", () => {
-    expect(() => parseJwk(JSON.stringify({ kty: "EC", crv: "P-256", x: "a", y: "b" }))).toThrow(
-      "must contain x, y, and d",
-    );
+  it("rejects missing private key component", async () => {
+    const json = JSON.stringify({ kty: "EC", crv: "P-256", x: "a", y: "b" });
+    await expect(importKeyFile(json)).rejects.toThrow("must contain x, y, and d");
   });
 });
 
@@ -79,24 +77,36 @@ describe("WebCrypto integration", () => {
     };
   }
 
-  it("imports a key and signs data", async () => {
-    const { jwk } = await generateTestKey();
-    const key = await importPrivateKey(jwk);
-    expect(key.algorithm).toMatchObject({ name: "ECDSA" });
-    expect(key.extractable).toBe(false);
+  it("imports via importKeyFile and signs data", async () => {
+    const { jwk, publicKey } = await generateTestKey();
+    const json = JSON.stringify(jwk);
+    const result = await importKeyFile(json);
 
-    const data = new Uint8Array([1, 2, 3, 4, 5]);
-    const signature = await signData(key, data);
-    // P-256 ECDSA signature is 64 bytes (r || s)
+    const data = new TextEncoder().encode("hello world");
+    const signature = await signData(result.signingKey, data);
     expect(signature.length).toBe(64);
+
+    // Verify signature with original public key
+    const sigBuf = new ArrayBuffer(signature.byteLength);
+    new Uint8Array(sigBuf).set(signature);
+    const dataBuf = new ArrayBuffer(data.byteLength);
+    new Uint8Array(dataBuf).set(data);
+    const valid = await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      publicKey,
+      sigBuf,
+      dataBuf,
+    );
+    expect(valid).toBe(true);
   });
 
   it("produces a valid signature verifiable with the public key", async () => {
     const { jwk, publicKey } = await generateTestKey();
+    const json = JSON.stringify(jwk);
+    const { signingKey } = await importKeyFile(json);
     const data = new TextEncoder().encode("hello world");
 
-    const key = await importPrivateKey(jwk);
-    const signature = await signData(key, data);
+    const signature = await signData(signingKey, data);
 
     // Copy to plain ArrayBuffer for TypeScript's BufferSource constraint
     const sigBuf = new ArrayBuffer(signature.byteLength);
@@ -112,15 +122,24 @@ describe("WebCrypto integration", () => {
     expect(valid).toBe(true);
   });
 
-  it("extractPublicKeyId produces a stable identifier", async () => {
+  it("extractPublicKeyId produces a stable identifier without d field", async () => {
     const { jwk } = await generateTestKey();
-    const id1 = extractPublicKeyId(jwk);
-    const id2 = extractPublicKeyId(jwk);
+    // extractPublicKeyId should work with just x and y — no d required
+    const id1 = extractPublicKeyId({ x: jwk.x, y: jwk.y });
+    const id2 = extractPublicKeyId({ x: jwk.x, y: jwk.y });
     expect(id1).toBe(id2);
     expect(id1.length).toBeGreaterThan(0);
     // Should be base64url-safe
     expect(id1).not.toContain("+");
     expect(id1).not.toContain("/");
     expect(id1).not.toContain("=");
+  });
+
+  it("importKeyFile publicKeyId matches extractPublicKeyId", async () => {
+    const { jwk } = await generateTestKey();
+    const json = JSON.stringify(jwk);
+    const { publicKeyId } = await importKeyFile(json);
+    const extractedId = extractPublicKeyId({ x: jwk.x, y: jwk.y });
+    expect(publicKeyId).toBe(extractedId);
   });
 });

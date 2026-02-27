@@ -7,8 +7,8 @@ import type {
   BatchResultsResponse,
   BatchSignaturesResponse,
 } from "../api/client";
-import type { EcJwk } from "../crypto/webcrypto";
-import { importPrivateKey, signData, base64urlDecode, base64urlEncode } from "../crypto/webcrypto";
+import type { ImportedKey } from "./KeyImport";
+import { signData, base64urlDecode, base64urlEncode } from "../crypto/webcrypto";
 
 interface Props {
   apiUrl: string;
@@ -22,7 +22,7 @@ export function BatchIssuance({ apiUrl, token }: Props) {
   const [schemaId, setSchemaId] = useState("");
   const [signingFlow, setSigningFlow] = useState<"interface" | "delegated">("delegated");
   const [delegationId, setDelegationId] = useState("");
-  const [jwk, setJwk] = useState<EcJwk | null>(null);
+  const [importedKey, setImportedKey] = useState<ImportedKey | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,11 +90,11 @@ export function BatchIssuance({ apiUrl, token }: Props) {
   }
 
   async function handleSignAll() {
-    if (!jobId || !jobResults || !jwk) return;
+    if (!jobId || !jobResults || !importedKey) return;
     setError(null);
 
     try {
-      const cryptoKey = await importPrivateKey(jwk);
+      const cryptoKey = importedKey.signingKey;
       const itemsToSign = jobResults.results.filter((r) => r.status === "success" && r.dataToSign);
 
       const signatures: Array<{ index: number; signature: string }> = [];
@@ -133,7 +133,7 @@ export function BatchIssuance({ apiUrl, token }: Props) {
     setSchemaId("");
     setCsvFile(null);
     setDelegationId("");
-    setJwk(null);
+    setImportedKey(null);
     setJobId(null);
     setJobStatus(null);
     setJobResults(null);
@@ -205,7 +205,7 @@ export function BatchIssuance({ apiUrl, token }: Props) {
             </div>
           )}
 
-          {signingFlow === "interface" && <KeyImport onKeyParsed={setJwk} />}
+          {signingFlow === "interface" && <KeyImport onKeyImported={setImportedKey} />}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">CSV File</label>
@@ -289,7 +289,7 @@ export function BatchIssuance({ apiUrl, token }: Props) {
             </p>
           </div>
 
-          {!jwk && <KeyImport onKeyParsed={setJwk} />}
+          {!importedKey && <KeyImport onKeyImported={setImportedKey} />}
 
           {error && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3">
@@ -300,7 +300,7 @@ export function BatchIssuance({ apiUrl, token }: Props) {
           <button
             type="button"
             onClick={handleSignAll}
-            disabled={!jwk}
+            disabled={!importedKey}
             className="w-full rounded-md bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
           >
             Sign All Credentials

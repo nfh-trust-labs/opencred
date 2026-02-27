@@ -2,10 +2,13 @@
  * WebCrypto utilities for client-side ECDSA P-256 signing (Interface Signing).
  *
  * SECURITY: The private key never leaves the browser. All signing happens
- * locally via SubtleCrypto. The key is imported as non-extractable.
+ * locally via SubtleCrypto. Keys are imported as non-extractable CryptoKey
+ * handles — raw key material (the JWK `d` field) is never stored in
+ * application state, displayed in the DOM, or logged.
  */
 
-export interface EcJwk {
+/** Internal-only JWK shape used during import. Never exported. */
+interface EcPrivateJwk {
   kty: "EC";
   crv: "P-256";
   x: string;
@@ -13,34 +16,57 @@ export interface EcJwk {
   d: string;
 }
 
+/** Public-only JWK shape (no `d` field). Safe to export / display. */
+interface EcPublicJwk {
+  kty: "EC";
+  crv: "P-256";
+  x: string;
+  y: string;
+}
+
 /**
- * Import an ECDSA P-256 private key from JWK into a non-extractable CryptoKey.
+ * Import a JWK file's contents into a non-extractable CryptoKey.
+ *
+ * The caller reads the file to a string, passes it here, then discards the
+ * string. The returned CryptoKey handle is the only artefact retained.
+ *
+ * @param fileContents - raw JSON text of a JWK file (must be ECDSA P-256)
+ * @returns the signing CryptoKey and a stable public key identifier
  */
-export async function importPrivateKey(jwk: EcJwk): Promise<CryptoKey> {
-  return crypto.subtle.importKey(
+export async function importKeyFile(
+  fileContents: string,
+): Promise<{ signingKey: CryptoKey; publicKeyId: string }> {
+  const parsed = parseJwkInternal(fileContents);
+
+  const signingKey = await crypto.subtle.importKey(
     "jwk",
     {
-      kty: jwk.kty,
-      crv: jwk.crv,
-      x: jwk.x,
-      y: jwk.y,
-      d: jwk.d,
+      kty: parsed.kty,
+      crv: parsed.crv,
+      x: parsed.x,
+      y: parsed.y,
+      d: parsed.d,
     },
     { name: "ECDSA", namedCurve: "P-256" },
     false, // non-extractable
     ["sign"],
   );
+
+  // Derive the public key identifier from the public components only.
+  const publicKeyId = publicJwkToId({ kty: "EC", crv: "P-256", x: parsed.x, y: parsed.y });
+
+  // Defense in depth: zero the private key component now that import is complete.
+  parsed.d = "";
+
+  return { signingKey, publicKeyId };
 }
 
 /**
- * Extract the public key component (x, y) from a private key JWK.
- * Returns a JWK string identifier suitable for the API's `publicKey` field.
+ * Extract the public key component (x, y) from a JWK-like object.
+ * Returns a base64url-encoded identifier. Does NOT require the `d` field.
  */
-export function extractPublicKeyId(jwk: EcJwk): string {
-  return btoa(JSON.stringify({ kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+export function extractPublicKeyId(jwk: { x: string; y: string }): string {
+  return publicJwkToId({ kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y });
 }
 
 /**
@@ -75,10 +101,15 @@ export function base64urlEncode(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
 /**
- * Parse a JWK JSON string into an EcJwk object with basic validation.
+ * Parse a JWK JSON string with validation. Internal only — never exported.
+ * The result contains the `d` field which must not leak into React state.
  */
-export function parseJwk(json: string): EcJwk {
+function parseJwkInternal(json: string): EcPrivateJwk {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
@@ -99,4 +130,14 @@ export function parseJwk(json: string): EcJwk {
     throw new Error("JWK must contain x, y, and d fields (private key)");
   }
   return { kty: "EC", crv: "P-256", x: obj.x, y: obj.y, d: obj.d };
+}
+
+/**
+ * Produce a stable base64url identifier from the public components of a JWK.
+ */
+function publicJwkToId(pub: EcPublicJwk): string {
+  return btoa(JSON.stringify({ kty: pub.kty, crv: pub.crv, x: pub.x, y: pub.y }))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
