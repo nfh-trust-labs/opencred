@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { Hono } from "hono";
 import { createApp } from "../app.js";
+import { createHealthRoutes } from "../routes/health.js";
 import { makeTestConfig, makeTestLogger } from "./helpers.js";
 
 describe("GET /health", () => {
@@ -18,5 +20,66 @@ describe("GET /health", () => {
     const body = (await res.json()) as { timestamp: string };
     const parsed = new Date(body.timestamp);
     expect(parsed.toISOString()).toBe(body.timestamp);
+  });
+});
+
+interface ReadyBody {
+  status: string;
+  timestamp: string;
+  checks: Record<string, { status: string; detail?: string }>;
+}
+
+describe("GET /health/ready", () => {
+  it("returns 200 with status ready when no dediClient is configured", async () => {
+    const healthRouter = createHealthRoutes();
+    const app = new Hono();
+    app.route("/", healthRouter);
+
+    const res = await app.request("/health/ready");
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as ReadyBody;
+    expect(body.status).toBe("ready");
+    expect(body.timestamp).toBeDefined();
+    expect(body.checks).toEqual({});
+  });
+
+  it("returns 200 with dedi ok when getStats succeeds", async () => {
+    const mockDediClient = {
+      apiClient: {
+        getStats: vi.fn().mockResolvedValue({ namespaces: 1, registries: 2, records: 10 }),
+      },
+    };
+
+    const healthRouter = createHealthRoutes({ dediClient: mockDediClient as never });
+    const app = new Hono();
+    app.route("/", healthRouter);
+
+    const res = await app.request("/health/ready");
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as ReadyBody;
+    expect(body.status).toBe("ready");
+    expect(body.checks.dedi.status).toBe("ok");
+  });
+
+  it("returns 503 with degraded status when getStats throws", async () => {
+    const mockDediClient = {
+      apiClient: {
+        getStats: vi.fn().mockRejectedValue(new Error("connection refused")),
+      },
+    };
+
+    const healthRouter = createHealthRoutes({ dediClient: mockDediClient as never });
+    const app = new Hono();
+    app.route("/", healthRouter);
+
+    const res = await app.request("/health/ready");
+    expect(res.status).toBe(503);
+
+    const body = (await res.json()) as ReadyBody;
+    expect(body.status).toBe("degraded");
+    expect(body.checks.dedi.status).toBe("unavailable");
+    expect(body.checks.dedi.detail).toBe("connection refused");
   });
 });
