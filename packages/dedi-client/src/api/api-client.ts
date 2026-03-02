@@ -48,6 +48,15 @@ export class DeDiApiClient {
       throw new DeDiClientError("circuitBreakerThreshold must be positive", 400);
     }
 
+
+    // Enforce HTTPS in production to prevent credentials transmitting in plaintext (#152)
+    const url = new URL(config.baseUrl);
+    if (url.protocol !== "https:" && process.env.NODE_ENV !== "development" && process.env.NODE_ENV !== "test") {
+      throw new DeDiClientError(
+        "DeDi baseUrl must use HTTPS in production",
+        400,
+      );
+    }
     this.config = config;
     this.logger = config.logger ?? noopLogger;
     this.tokenManager = new DeDiTokenManager({

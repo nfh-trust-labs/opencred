@@ -12,7 +12,7 @@ import {
   rateLimitMiddleware,
 } from "./middleware/index.js";
 import type { AuthMiddlewareOptions } from "./middleware/index.js";
-import { health } from "./routes/health.js";
+import { createHealthRoutes } from "./routes/health.js";
 import { createRevokeRoute } from "./routes/revoke.js";
 import { createVerifyRoutes } from "./routes/verify.js";
 import { createCredentialsRoute } from "./routes/credentials.js";
@@ -85,7 +85,7 @@ export function createApp(deps: AppDependencies) {
       : undefined);
 
   // Health check (before auth — unauthenticated)
-  app.route("/", health);
+  app.route("/", createHealthRoutes({ dediClient: deps.dediClient }));
 
   // Public verification endpoint (no auth required)
   app.route("/verify", createVerifyRoutes({ trustStore, dediClient: deps.dediClient }));

@@ -9,7 +9,11 @@ export function errorHandler(logger: Logger) {
       return c.json(err.toJSON(), err.statusCode as 400);
     }
 
-    logger.error({ err: { message: err.message, stack: err.stack } }, "Unhandled error");
+    // In production, omit stack traces to avoid leaking internal file paths (#158)
+    const errInfo = process.env.NODE_ENV === "production"
+      ? { message: err.message }
+      : { message: err.message, stack: err.stack };
+    logger.error({ err: errInfo }, "Unhandled error");
     return c.json(
       {
         error: {
