@@ -468,9 +468,14 @@ export async function verifyProof(
       ? { verified: true }
       : { verified: false, error: "Signature verification failed" };
   } catch (error) {
-    // Re-throw programming bugs (TypeError, ReferenceError) so they surface
+    // Re-throw programming bugs so they surface
     // instead of being silently swallowed as verification failures.
-    if (error instanceof TypeError || error instanceof ReferenceError) {
+    if (
+      error instanceof TypeError ||
+      error instanceof ReferenceError ||
+      error instanceof SyntaxError ||
+      error instanceof RangeError
+    ) {
       throw error;
     }
     return {
