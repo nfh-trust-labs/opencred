@@ -27,7 +27,7 @@ const businessVcOnboardingSchema = z.object({
   ]),
   signingPreference: z.enum(["interface", "delegated"]).optional().default("interface"),
   publicKey: jwkSchema.optional(),
-}).refine((data) => data.signingPreference \!== "interface" || data.publicKey \!== undefined, {
+}).refine((data) => data.signingPreference !== "interface" || data.publicKey !== undefined, {
   message: "publicKey is required when signingPreference is 'interface'",
   path: ["publicKey"],
 });
@@ -98,7 +98,7 @@ async function extractCredentialSubject(input: Record<string, unknown> | string)
   if (format === "data-integrity") {
     const credential = input as unknown as VerifiableCredential;
     const subject = credential.credentialSubject;
-    if (\!subject || typeof subject \!== "object") throw new ValidationError("Business credential has no credentialSubject");
+    if (!subject || typeof subject !== "object") throw new ValidationError("Business credential has no credentialSubject");
     return subject as Record<string, unknown>;
   }
 
@@ -107,7 +107,7 @@ async function extractCredentialSubject(input: Record<string, unknown> | string)
     const parts = (input as string).split(".");
     const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf-8"));
     const subject = payload.vc?.credentialSubject ?? payload.credentialSubject;
-    if (\!subject || typeof subject \!== "object") throw new ValidationError("Business credential has no credentialSubject");
+    if (!subject || typeof subject !== "object") throw new ValidationError("Business credential has no credentialSubject");
     return subject as Record<string, unknown>;
   }
 
@@ -117,13 +117,13 @@ async function extractCredentialSubject(input: Record<string, unknown> | string)
   const sdPayload = JSON.parse(Buffer.from(jwtParts[1], "base64url").toString("utf-8"));
   const resolvedClaims = await processDisclosures(sdPayload, components.disclosures);
   const subject = (resolvedClaims.credentialSubject as Record<string, unknown>) ?? (sdPayload.credentialSubject as Record<string, unknown>);
-  if (\!subject || typeof subject \!== "object") throw new ValidationError("Business credential has no credentialSubject");
+  if (!subject || typeof subject !== "object") throw new ValidationError("Business credential has no credentialSubject");
   return subject as Record<string, unknown>;
 }
 
 function buildBusinessNamespace(orgName: string): string {
   const slug = slugify(orgName);
-  if (\!slug) throw new ValidationError("Organisation name produces an empty slug");
+  if (!slug) throw new ValidationError("Organisation name produces an empty slug");
   return `urn:opencred:issuer:business:${slug}`;
 }
 
@@ -140,13 +140,13 @@ export function createOnboardingRoutes(deps: OnboardingRoutesDeps) {
   onboarding.post("/type-a", async (c) => {
     const rawBody = await c.req.json();
     const parsed = typeAOnboardingSchema.safeParse(rawBody);
-    if (\!parsed.success) {
+    if (!parsed.success) {
       const firstError = parsed.error.issues[0];
       throw new ValidationError(`${firstError.path.join(".")}: ${firstError.message}`);
     }
     const { dscChain } = parsed.data;
     const chainResult = validateDscChain(dscChain, trustStore);
-    if (\!chainResult.passed) throw new ValidationError(`DSC chain validation failed: ${chainResult.detail}`);
+    if (!chainResult.passed) throw new ValidationError(`DSC chain validation failed: ${chainResult.detail}`);
 
     let leafCert: X509Certificate;
     try { leafCert = new X509Certificate(dscChain[0]); } catch { throw new ValidationError("Failed to parse leaf DSC certificate"); }
@@ -172,7 +172,7 @@ export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps)
   businessVc.post("/business-vc", async (c) => {
     const rawBody = await c.req.json();
     const parsed = businessVcOnboardingSchema.safeParse(rawBody);
-    if (\!parsed.success) {
+    if (!parsed.success) {
       const firstError = parsed.error.issues[0];
       throw new ValidationError(`${firstError.path.join(".")}: ${firstError.message}`);
     }
@@ -180,16 +180,16 @@ export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps)
     const { businessCredential, signingPreference } = parsed.data;
 
     const verificationResult = await verifyCredential(businessCredential as Record<string, unknown> | string, verifierConfig);
-    if (\!verificationResult.verified) {
+    if (!verificationResult.verified) {
       const code = verificationResult.code;
-      const detail = verificationResult.checks.filter((ch) => \!ch.passed).map((ch) => ch.detail).filter(Boolean).join("; ");
+      const detail = verificationResult.checks.filter((ch) => !ch.passed).map((ch) => ch.detail).filter(Boolean).join("; ");
       if (code === "EXPIRED") throw new VerificationError(`Business credential has expired: ${detail}`);
       throw new VerificationError(`Business credential verification failed: ${detail || code}`);
     }
 
     const credentialSubject = await extractCredentialSubject(businessCredential as Record<string, unknown> | string);
     const orgName = extractOrgName(credentialSubject);
-    if (\!orgName) throw new ValidationError("Business credential has no usable identity fields (name, legalName, organizationName, or org)");
+    if (!orgName) throw new ValidationError("Business credential has no usable identity fields (name, legalName, organizationName, or org)");
 
     const namespace = buildBusinessNamespace(orgName);
     const subject = buildBusinessSubject(credentialSubject, orgName);
@@ -200,7 +200,7 @@ export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps)
 
     let delegationId: string | undefined;
     if (signingPreference === "delegated") {
-      if (\!opencredSigningKeyDid) throw new ValidationError("Delegated signing is not available: no OpenCred signing key configured");
+      if (!opencredSigningKeyDid) throw new ValidationError("Delegated signing is not available: no OpenCred signing key configured");
       const delegatorId = (credentialSubject.id as string | undefined) ?? `urn:opencred:business:${slugify(orgName)}`;
       const now = new Date();
       const validUntil = new Date(now.getTime() + jwtExpirySeconds * 1000);

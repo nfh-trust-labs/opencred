@@ -26,19 +26,19 @@ export function createCaRequestRoutes(deps: CaRequestRoutesDeps) {
   const caRequest = new Hono();
 
   const handleCaRequest = async (c: Parameters<Parameters<typeof caRequest.post>[1]>[0]) => {
-    if (\!caAdapter) throw new NotImplementedError("Certificate Authority adapter is not configured. Type C onboarding requires a CA adapter to be registered at startup.");
+    if (!caAdapter) throw new NotImplementedError("Certificate Authority adapter is not configured. Type C onboarding requires a CA adapter to be registered at startup.");
     const rawBody = await c.req.json();
     const parsed = caRequestSchema.safeParse(rawBody);
-    if (\!parsed.success) { const firstError = parsed.error.issues[0]; throw new ValidationError(`${firstError.path.join(".")}: ${firstError.message}`); }
+    if (!parsed.success) { const firstError = parsed.error.issues[0]; throw new ValidationError(`${firstError.path.join(".")}: ${firstError.message}`); }
     const result = await caAdapter.requestDSC(parsed.data);
     return c.json({ requestId: result.requestId, status: result.status, ...(result.estimatedCompletion && { estimatedCompletion: result.estimatedCompletion }) }, 202);
   };
 
   const handleCaStatus = async (c: Parameters<Parameters<typeof caRequest.post>[1]>[0]) => {
-    if (\!caAdapter) throw new NotImplementedError("Certificate Authority adapter is not configured. Type C onboarding requires a CA adapter to be registered at startup.");
+    if (!caAdapter) throw new NotImplementedError("Certificate Authority adapter is not configured. Type C onboarding requires a CA adapter to be registered at startup.");
     const rawBody = await c.req.json();
     const parsed = caStatusSchema.safeParse(rawBody);
-    if (\!parsed.success) { const firstError = parsed.error.issues[0]; throw new ValidationError(`${firstError.path.join(".")}: ${firstError.message}`); }
+    if (!parsed.success) { const firstError = parsed.error.issues[0]; throw new ValidationError(`${firstError.path.join(".")}: ${firstError.message}`); }
     const status = await caAdapter.checkStatus(parsed.data.requestId);
     return c.json({ requestId: status.requestId, status: status.status, ...(status.certificateChain && { certificateChain: status.certificateChain }), ...(status.rejectionReason && { rejectionReason: status.rejectionReason }), ...(status.updatedAt && { updatedAt: status.updatedAt }) });
   };
