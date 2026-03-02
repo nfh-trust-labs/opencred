@@ -21,7 +21,7 @@ import type { ContextEntry, Proof } from "@opencred/vc-core";
 export interface DelegationCertificate {
   "@context": ContextEntry[];
   id: string;
-  type: ["DelegationCertificate"];
+  type: ["VerifiableCredential", "DelegationCertificate"];
   delegator: Delegator;
   delegatee: Delegatee;
   scope: DelegationScope;

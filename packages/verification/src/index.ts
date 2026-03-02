@@ -9,7 +9,7 @@ export type {
 
 export { verifyCredential, detectFormat } from "./verifier.js";
 export { verifyDataIntegrity } from "./data-integrity.js";
-export { verifyVcJwt, extractVcJwtCredentialFields } from "./vc-jwt.js";
+export { verifyVcJwt, extractVcJwtCredentialFields, crossValidateVcJwtClaims } from "./vc-jwt.js";
 export type { VcJwtPayload } from "./vc-jwt.js";
 export {
   verifySdJwtVc,
