@@ -105,7 +105,15 @@ export class DeDiTokenManager {
       );
     }
 
-    const body: unknown = await response.json();
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      throw new DeDiClientError(
+        "DeDi auth endpoint returned non-JSON response",
+        502,
+      );
+    }
     if (
       typeof body !== "object" ||
       body === null ||
@@ -136,7 +144,15 @@ export class DeDiTokenManager {
       );
     }
 
-    const body: unknown = await response.json();
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      throw new DeDiClientError(
+        "DeDi auth endpoint returned non-JSON response",
+        502,
+      );
+    }
     if (
       typeof body !== "object" ||
       body === null ||
