@@ -258,9 +258,15 @@ async function defaultDnsResolve4(hostname: string): Promise<string[]> {
 async function defaultDnsResolve6(hostname: string): Promise<string[]> {
   try {
     return await dns.resolve6(hostname);
-  } catch {
-    // No AAAA records is not an error for our purpose
-    return [];
+  } catch (err: unknown) {
+    // ENODATA/ENOTFOUND mean "no AAAA records exist" — safe to treat as empty.
+    // All other errors (SERVFAIL, ETIMEOUT, etc.) must propagate to prevent
+    // SSRF bypass via silent failure on intentionally broken DNS.
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENODATA" || code === "ENOTFOUND") {
+      return [];
+    }
+    throw err;
   }
 }
 

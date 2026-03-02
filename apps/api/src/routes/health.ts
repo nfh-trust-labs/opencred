@@ -16,7 +16,7 @@ export function createHealthRoutes(deps: HealthDeps = {}) {
     });
   });
 
-  // Readiness probe — checks dependency connectivity (#161)
+  // Readiness probe — checks dependency connectivity
   healthRouter.get("/health/ready", async (c) => {
     const checks: Record<string, { status: "ok" | "unavailable"; detail?: string }> = {};
 
@@ -33,7 +33,7 @@ export function createHealthRoutes(deps: HealthDeps = {}) {
       }
     }
 
-    const allOk = Object.values(checks).every((c) => c.status === "ok");
+    const allOk = Object.values(checks).every((ch) => ch.status === "ok");
     const status = allOk ? "ready" : "degraded";
     const statusCode = allOk ? 200 : 503;
 

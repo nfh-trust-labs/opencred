@@ -50,6 +50,22 @@ describe("CORS", () => {
     expect(exposed).toContain("X-RateLimit-Limit");
   });
 
+  it("only allows GET, POST, and OPTIONS methods (#144)", async () => {
+    const { app } = createApp({ config: makeTestConfig(), logger: makeTestLogger() });
+    const res = await app.request("/health", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://localhost:5173",
+        "Access-Control-Request-Method": "GET",
+      },
+    });
+    const methods = res.headers.get("access-control-allow-methods") ?? "";
+    expect(methods).toContain("GET");
+    expect(methods).toContain("POST");
+    expect(methods).not.toContain("PUT");
+    expect(methods).not.toContain("DELETE");
+  });
+
   it("respects custom CORS origin from config", async () => {
     const { app } = createApp({
       config: makeTestConfig({ CORS_ORIGIN: "https://app.opencred.io" }),

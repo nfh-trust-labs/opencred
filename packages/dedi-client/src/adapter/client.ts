@@ -24,7 +24,10 @@ const DELEGATION_DETAIL_KEYS = [
 ] as const;
 
 function validateDelegation(delegation: DelegationRecord): void {
-  if (delegation.scope.length === 0) {
+  if (
+    delegation.scope.credentialTypes.length === 0 &&
+    delegation.scope.namespaces.length === 0
+  ) {
     throw new DeDiClientError("Delegation scope must not be empty", 400);
   }
   const from = new Date(delegation.validFrom);
@@ -58,9 +61,94 @@ function assertDelegationShape(
       );
     }
   }
-  if (!Array.isArray(rec["scope"])) {
+  if (rec["scope"] == null || typeof rec["scope"] !== "object" || Array.isArray(rec["scope"])) {
     throw new DeDiClientError(
-      "Delegation detail field 'scope' must be an array",
+      "Delegation detail field 'scope' must be an object with credentialTypes and namespaces",
+      502,
+    );
+  }
+  const scope = rec["scope"] as Record<string, unknown>;
+  if (!Array.isArray(scope["credentialTypes"])) {
+    throw new DeDiClientError(
+      "Delegation scope field 'credentialTypes' must be an array",
+      502,
+    );
+  }
+  if (!scope["credentialTypes"].every((v: unknown) => typeof v === "string")) {
+    throw new DeDiClientError(
+      "Delegation scope field 'credentialTypes' must contain only strings",
+      502,
+    );
+  }
+  if (!Array.isArray(scope["namespaces"])) {
+    throw new DeDiClientError(
+      "Delegation scope field 'namespaces' must be an array",
+      502,
+    );
+  }
+  if (!scope["namespaces"].every((v: unknown) => typeof v === "string")) {
+    throw new DeDiClientError(
+      "Delegation scope field 'namespaces' must contain only strings",
+      502,
+    );
+  }
+}
+
+function assertRevocationHashShape(
+  detail: unknown,
+): asserts detail is RevocationHashRecord {
+  if (detail == null || typeof detail !== "object") {
+    throw new DeDiClientError(
+      "Revocation hash detail is missing or not an object",
+      502,
+    );
+  }
+  const rec = detail as Record<string, unknown>;
+  if (typeof rec["hash"] !== "string") {
+    throw new DeDiClientError(
+      "Revocation hash detail missing required field: hash",
+      502,
+    );
+  }
+  if (typeof rec["revoked"] !== "boolean") {
+    throw new DeDiClientError(
+      "Revocation hash detail missing required field: revoked",
+      502,
+    );
+  }
+  if (rec["revoked"] === true && typeof rec["revokedAt"] !== "string") {
+    throw new DeDiClientError(
+      "Revocation hash detail missing required field: revokedAt",
+      502,
+    );
+  }
+}
+
+function assertDIDRecordShape(
+  detail: unknown,
+): asserts detail is DIDRecord {
+  if (detail == null || typeof detail !== "object") {
+    throw new DeDiClientError(
+      "DID record detail is missing or not an object",
+      502,
+    );
+  }
+  const rec = detail as Record<string, unknown>;
+  if (typeof rec["did"] !== "string") {
+    throw new DeDiClientError(
+      "DID record detail missing required field: did",
+      502,
+    );
+  }
+  if (!("document" in rec)) {
+    throw new DeDiClientError(
+      "DID record detail missing required field: document",
+      502,
+    );
+  }
+  if (typeof rec["resolvedAt"] !== "string") {
+    throw new DeDiClientError(
+      "DID record detail missing required field: resolvedAt",
       502,
     );
   }
@@ -92,7 +180,8 @@ export class DeDiClient {
       revoked: true,
       revokedAt,
     });
-    return record.detail as RevocationHashRecord;
+    assertRevocationHashShape(record.detail);
+    return record.detail;
   }
 
   async queryRevocationHash(
@@ -101,35 +190,26 @@ export class DeDiClient {
   ): Promise<RevocationHashRecord> {
     const ns = this.resolveNamespace(namespace);
 
-    try {
-      const result = await this.api.search(ns, {
-        registry_name: REVOCATION_REGISTRY,
-        "detail.hash": hash,
-      });
+    const result = await this.api.search(ns, {
+      registry_name: REVOCATION_REGISTRY,
+      "detail.hash": hash,
+    });
 
-      if (result.records.length === 0) {
-        return { hash, revoked: false as const };
-      }
-
-      return result.records[0]!.detail as RevocationHashRecord;
-    } catch (error) {
-      // 404 may indicate registry not yet created, namespace missing, or API path mismatch.
-      // TODO: Inspect structured error codes from DeDi when available to narrow this.
-      if (error instanceof DeDiClientError && error.statusCode === 404) {
-        this.logger.warn(
-          `Received 404 for hash lookup in namespace ${ns}, treating as not-revoked`,
-        );
-        return { hash, revoked: false as const };
-      }
-      throw error;
+    if (result.records.length === 0) {
+      return { hash, revoked: false as const };
     }
+
+    const detail = result.records[0]!.detail;
+    assertRevocationHashShape(detail);
+    return detail;
   }
 
   async resolveDID(did: string, namespace?: string): Promise<DIDRecord> {
     const ns = this.resolveNamespace(namespace);
     const recordName = didToRecordName(did);
     const record = await this.api.lookupRecord(ns, PUBLIC_KEY_REGISTRY, recordName);
-    return record.detail as DIDRecord;
+    assertDIDRecordShape(record.detail);
+    return record.detail;
   }
 
   async registerDelegation(
@@ -144,7 +224,8 @@ export class DeDiClient {
       delegation.id,
       delegation,
     );
-    return record.detail as DelegationRecord;
+    assertDelegationShape(record.detail);
+    return record.detail;
   }
 
   async resolveDelegation(

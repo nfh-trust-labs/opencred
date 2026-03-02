@@ -213,6 +213,7 @@ describe("validateDelegationChain -- revocation checking", () => {
     });
     expect(result.valid).toBe(false);
     expect(result.errors.some((e: string) => e.includes("has been revoked"))).toBe(true);
+    expect(result.revocationStatus).toBe("revoked");
   });
 
   it("should accept a non-revoked delegation when dediClient is provided", async () => {
@@ -226,6 +227,7 @@ describe("validateDelegationChain -- revocation checking", () => {
       dediClient: client,
     });
     expect(result.valid).toBe(true);
+    expect(result.revocationStatus).toBe("not-revoked");
   });
 
   it("should skip revocation check when dediClient is not provided", async () => {
@@ -235,6 +237,7 @@ describe("validateDelegationChain -- revocation checking", () => {
       now: new Date("2026-06-15T00:00:00Z"),
     });
     expect(result.valid).toBe(true);
+    expect(result.revocationStatus).toBeUndefined();
   });
 
   it("should report error when revocation check fails", async () => {
@@ -251,6 +254,7 @@ describe("validateDelegationChain -- revocation checking", () => {
     expect(
       result.errors.some((e: string) => e.includes("Failed to check delegation revocation status")),
     ).toBe(true);
+    expect(result.revocationStatus).toBe("check-failed");
   });
 });
 

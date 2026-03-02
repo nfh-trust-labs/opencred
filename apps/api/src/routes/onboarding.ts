@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { X509Certificate } from "node:crypto";
+import { X509Certificate, createHash } from "node:crypto";
 import { createCapabilityToken } from "@opencred/auth";
 import { ValidationError, VerificationError, PayloadTooLargeError } from "@opencred/shared";
 import type { DeDiClient } from "@opencred/dedi-client";
@@ -11,7 +11,12 @@ import { createDelegationCertificate, registerDelegation } from "@opencred/deleg
 import type { DelegationCertificate } from "@opencred/delegation";
 import { validateDscChain, type TrustStore } from "../dsc-chain.js";
 
+// --- Constants ---
+
+/** Maximum allowed JWT/SD-JWT payload size in bytes (10 KB). */
 const MAX_JWT_BYTES = 10 * 1024;
+
+// --- Zod schemas for request validation ---
 
 const typeAOnboardingSchema = z.object({
   dscChain: z.array(z.string().min(1)).min(1, "dscChain must contain at least one PEM certificate"),
@@ -48,6 +53,11 @@ export interface BusinessVcOnboardingDeps {
   opencredSigningKeyDid?: string;
 }
 
+/**
+ * Validate that a JWT/SD-JWT string does not exceed the maximum allowed size.
+ * Rejects payloads larger than MAX_JWT_BYTES (10 KB) to prevent resource
+ * exhaustion during Base64 decoding and JSON parsing (#139).
+ */
 function validateJwtSize(jwt: string): void {
   const byteLength = Buffer.byteLength(jwt, "utf-8");
   if (byteLength > MAX_JWT_BYTES) {
@@ -57,6 +67,10 @@ function validateJwtSize(jwt: string): void {
   }
 }
 
+/**
+ * Parse X.509 subject string into a key-value map.
+ * Node.js X509Certificate.subject returns newline-delimited "KEY=VALUE" pairs.
+ */
 function parseSubject(subject: string): Record<string, string> {
   const fields: Record<string, string> = {};
   for (const line of subject.split("\n")) {
@@ -103,6 +117,7 @@ async function extractCredentialSubject(input: Record<string, unknown> | string)
   }
 
   if (format === "vc-jwt") {
+    // Bounds check before parsing (#139)
     validateJwtSize(input as string);
     const parts = (input as string).split(".");
     const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf-8"));
@@ -111,6 +126,8 @@ async function extractCredentialSubject(input: Record<string, unknown> | string)
     return subject as Record<string, unknown>;
   }
 
+  // SD-JWT VC: parse the issuer JWT and process disclosures
+  // Bounds check before parsing (#139)
   validateJwtSize(input as string);
   const components = parseSdJwtVc(input as string);
   const jwtParts = components.issuerJwt.split(".");
@@ -207,7 +224,29 @@ export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps)
       const unsignedCert = createDelegationCertificate({ delegator: { id: delegatorId, name: orgName }, delegatee: { id: opencredSigningKeyDid }, scope: { credentialTypes: [], namespaces: [namespace] }, validFrom: now.toISOString(), validUntil: validUntil.toISOString(), authorisationPath: "dedi-registry" });
       delegationId = unsignedCert.id;
       if (dediClient) {
-        const certWithProof: DelegationCertificate = { ...unsignedCert, proof: { type: "BusinessCredentialAuthorisation", verificationMethod: delegatorId, proofPurpose: "capabilityDelegation", created: now.toISOString(), proofValue: "" } };
+        // The delegation certificate is unsigned here — in production the
+        // delegator would sign it. For Type D onboarding, the business VC
+        // itself serves as the authorisation proof, so we register the
+        // unsigned cert as a placeholder and attach the proof field to
+        // satisfy the registry contract.
+        const businessCredentialDigest = createHash("sha256")
+          .update(
+            typeof businessCredential === "string"
+              ? businessCredential
+              : JSON.stringify(businessCredential),
+          )
+          .digest("base64url");
+
+        const certWithProof: DelegationCertificate = {
+          ...unsignedCert,
+          proof: {
+            type: "BusinessCredentialAuthorisation",
+            verificationMethod: delegatorId,
+            proofPurpose: "capabilityDelegation",
+            created: now.toISOString(),
+            proofValue: `z${businessCredentialDigest}`,
+          },
+        };
         await registerDelegation(dediClient, { certificate: certWithProof });
       }
     }

@@ -131,6 +131,13 @@ export class VerificationError extends OpenCredError {
   }
 }
 
+export class PayloadTooLargeError extends OpenCredError {
+  constructor(message: string = "Request body too large") {
+    super(message, "PAYLOAD_TOO_LARGE", 413);
+    this.name = "PayloadTooLargeError";
+  }
+}
+
 export class NotImplementedError extends OpenCredError {
   constructor(message: string = "Not implemented") {
     super(message, "NOT_IMPLEMENTED", 501);

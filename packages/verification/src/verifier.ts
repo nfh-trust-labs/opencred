@@ -135,7 +135,9 @@ export async function verifyCredential(
 
   // BitstringStatusList check
   if (credentialStatus && credentialStatus["type"] === "BitstringStatusListEntry") {
-    const bslCheck = await checkBitstringStatusList(credentialStatus);
+    const bslCheck = await checkBitstringStatusList(credentialStatus, {
+      didResolver: config.didResolver,
+    });
     checks.push(bslCheck);
     if (!bslCheck.passed) {
       if (bslCheck.detail?.includes("revoked")) {

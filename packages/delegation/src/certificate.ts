@@ -34,7 +34,7 @@ export function createDelegationCertificate(
   const certificate: UnsignedDelegationCertificate = {
     "@context": [W3C_CREDENTIALS_V2_CONTEXT, OPENCRED_DELEGATION_CONTEXT],
     id: params.id ?? `urn:uuid:${randomUUID()}`,
-    type: ["DelegationCertificate"],
+    type: ["VerifiableCredential", "DelegationCertificate"],
     delegator: { ...params.delegator },
     delegatee: { ...params.delegatee },
     scope: {
@@ -272,6 +272,13 @@ function validateStructure(certificate: DelegationCertificate, errors: string[])
     !certificate.type.includes("DelegationCertificate")
   ) {
     errors.push("type must include 'DelegationCertificate'");
+  }
+  if (
+    certificate.type &&
+    Array.isArray(certificate.type) &&
+    !certificate.type.includes("VerifiableCredential")
+  ) {
+    errors.push("type must include 'VerifiableCredential'");
   }
   if (!certificate.delegator?.id) {
     errors.push("Missing delegator.id");

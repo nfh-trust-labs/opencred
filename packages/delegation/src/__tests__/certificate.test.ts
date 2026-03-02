@@ -65,7 +65,7 @@ describe("createDelegationCertificate", () => {
     const params = createValidParams();
     const cert = createDelegationCertificate(params);
 
-    expect(cert.type).toEqual(["DelegationCertificate"]);
+    expect(cert.type).toEqual(["VerifiableCredential", "DelegationCertificate"]);
     expect(cert.delegator.id).toBe("https://example.com");
     expect(cert.delegator.name).toBe("Example Corp Ltd");
     expect(cert.delegatee.id).toContain("did:key:");
@@ -439,7 +439,7 @@ describe("embedDelegation", () => {
     expect(embedded.proof).toBeDefined();
     const proof = embedded.proof as { delegationCertificate?: DelegationCertificate };
     expect(proof.delegationCertificate).toBeDefined();
-    expect(proof.delegationCertificate!.type).toEqual(["DelegationCertificate"]);
+    expect(proof.delegationCertificate!.type).toEqual(["VerifiableCredential", "DelegationCertificate"]);
   });
 
   it("should embed delegation certificate by reference", async () => {

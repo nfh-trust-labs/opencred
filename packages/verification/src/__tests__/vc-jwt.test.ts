@@ -7,7 +7,7 @@ import type {
   DIDDocument,
   VerificationMethod,
 } from "@opencred/did";
-import { verifyVcJwt, extractVcJwtCredentialFields } from "../vc-jwt.js";
+import { verifyVcJwt, extractVcJwtCredentialFields, crossValidateVcJwtClaims } from "../vc-jwt.js";
 
 function generateTestKeyPair(): { privateKey: KeyObject; publicKey: KeyObject } {
   return generateKeyPairSync("ec", { namedCurve: "P-256" });
@@ -248,5 +248,119 @@ describe("extractVcJwtCredentialFields", () => {
     // nbf/exp should take precedence
     expect(result.validFrom).toBe("2026-06-01T00:00:00.000Z");
     expect(result.validUntil).toBe("2027-06-01T00:00:00.000Z");
+  });
+});
+
+describe("crossValidateVcJwtClaims (#156)", () => {
+  it("should return no errors when jti matches vc.id", () => {
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      jti: "urn:uuid:12345",
+      vc: {
+        id: "urn:uuid:12345",
+        type: ["VerifiableCredential"],
+        credentialSubject: { name: "Jane" },
+      },
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it("should return error when jti does not match vc.id", () => {
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      jti: "urn:uuid:12345",
+      vc: {
+        id: "urn:uuid:67890",
+        type: ["VerifiableCredential"],
+        credentialSubject: { name: "Jane" },
+      },
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("jti");
+    expect(errors[0]).toContain("vc.id");
+  });
+
+  it("should return no errors when sub matches vc.credentialSubject.id", () => {
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      sub: "did:example:holder456",
+      vc: {
+        type: ["VerifiableCredential"],
+        credentialSubject: { id: "did:example:holder456", name: "Jane" },
+      },
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it("should return error when sub does not match vc.credentialSubject.id", () => {
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      sub: "did:example:holder456",
+      vc: {
+        type: ["VerifiableCredential"],
+        credentialSubject: { id: "did:example:different", name: "Jane" },
+      },
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("sub");
+    expect(errors[0]).toContain("credentialSubject.id");
+  });
+
+  it("should return both errors when both jti and sub mismatch", () => {
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      jti: "urn:uuid:12345",
+      sub: "did:example:holder456",
+      vc: {
+        id: "urn:uuid:67890",
+        type: ["VerifiableCredential"],
+        credentialSubject: { id: "did:example:different", name: "Jane" },
+      },
+    });
+    expect(errors).toHaveLength(2);
+  });
+
+  it("should skip validation when jti is absent", () => {
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      vc: {
+        id: "urn:uuid:67890",
+        type: ["VerifiableCredential"],
+        credentialSubject: { name: "Jane" },
+      },
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it("should skip validation when vc.id is absent", () => {
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      jti: "urn:uuid:12345",
+      vc: {
+        type: ["VerifiableCredential"],
+        credentialSubject: { name: "Jane" },
+      },
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it("should skip validation when sub is absent", () => {
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      vc: {
+        type: ["VerifiableCredential"],
+        credentialSubject: { id: "did:example:holder456", name: "Jane" },
+      },
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it("should skip validation for DM 2.0 payloads (no vc wrapper)", () => {
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      jti: "urn:uuid:12345",
+      sub: "did:example:holder",
+    });
+    expect(errors).toHaveLength(0);
   });
 });

@@ -56,6 +56,7 @@ export class DeDiApiClient {
         400,
       );
     }
+
     this.config = config;
     this.logger = config.logger ?? noopLogger;
     this.tokenManager = new DeDiTokenManager({

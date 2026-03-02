@@ -17,7 +17,15 @@ export interface ChainValidationResult {
   errors: string[];
   /** The resolved delegation certificate, if found. */
   delegation?: DelegationCertificate;
+  /** Status of the revocation check, when a DeDi client was provided. */
+  revocationStatus?: RevocationCheckStatus;
 }
+
+/**
+ * Indicates whether the delegation has been revoked, is not revoked,
+ * or whether the revocation check itself failed.
+ */
+export type RevocationCheckStatus = "not-revoked" | "revoked" | "check-failed";
 
 /**
  * Function signature for resolving a delegation certificate by ID.
@@ -66,13 +74,18 @@ export async function validateDelegationChain(
   }
 
   // 4. Revocation check (when DeDi client is available)
+  let revocationStatus: RevocationCheckStatus | undefined;
   if (options?.dediClient && delegation.id) {
     try {
       const revoked = await isDelegationRevoked(options.dediClient, delegation.id);
       if (revoked) {
+        revocationStatus = "revoked";
         errors.push(`Delegation '${delegation.id}' has been revoked`);
+      } else {
+        revocationStatus = "not-revoked";
       }
     } catch (error) {
+      revocationStatus = "check-failed";
       errors.push(
         `Failed to check delegation revocation status: ${error instanceof Error ? error.message : "unknown error"}`,
       );
@@ -83,6 +96,7 @@ export async function validateDelegationChain(
     valid: errors.length === 0,
     errors,
     delegation,
+    revocationStatus,
   };
 }
 
