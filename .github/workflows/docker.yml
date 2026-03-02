@@ -129,6 +129,7 @@ jobs:
   docker-push:
     name: Push Images to Registry
     runs-on: ubuntu-latest
+    needs: docker-build
     if: github.event_name == 'push' && github.ref == 'refs/heads/anusree-dev'
     permissions:
       contents: read
@@ -155,6 +156,7 @@ jobs:
           tags: |
             type=sha,prefix=
             type=raw,value={{date 'YYYYMMDD'}}-{{sha}}
+            type=raw,value=latest
 
       - name: Generate image metadata (Web)
         id: meta-web
@@ -164,6 +166,7 @@ jobs:
           tags: |
             type=sha,prefix=
             type=raw,value={{date 'YYYYMMDD'}}-{{sha}}
+            type=raw,value=latest
 
       # Build + push API
       - name: Build and push API image
