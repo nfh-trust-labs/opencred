@@ -73,17 +73,23 @@ describe("JWT payload bounds check (#139)", () => {
 
   it("rejects oversized JWT business credential (> 10KB)", async () => {
     const app = createTestApp();
-    const res = await postBusinessVc(app, { businessCredential: makeOversizedVcJwt() });
+    const res = await postBusinessVc(app, {
+      businessCredential: makeOversizedVcJwt(),
+      publicKey: { kty: "EC", crv: "P-256", x: "test", y: "test" },
+    });
     expect(res.status).toBe(413);
-    const body = await res.json();
+    const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("PAYLOAD_TOO_LARGE");
   });
 
   it("rejects oversized SD-JWT VC business credential (> 10KB)", async () => {
     const app = createTestApp();
-    const res = await postBusinessVc(app, { businessCredential: makeOversizedSdJwtVc() });
+    const res = await postBusinessVc(app, {
+      businessCredential: makeOversizedSdJwtVc(),
+      publicKey: { kty: "EC", crv: "P-256", x: "test", y: "test" },
+    });
     expect(res.status).toBe(413);
-    const body = await res.json();
+    const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("PAYLOAD_TOO_LARGE");
   });
 });

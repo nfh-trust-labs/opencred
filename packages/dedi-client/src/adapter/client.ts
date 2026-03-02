@@ -157,7 +157,7 @@ function assertDIDRecordShape(
 export class DeDiClient {
   private readonly api: DeDiApiClient;
   private readonly defaultNamespace?: string;
-  private readonly logger: DeDiLogger;
+  readonly logger: DeDiLogger;
 
   constructor(config: DeDiClientConfig) {
     this.api = new DeDiApiClient(config);

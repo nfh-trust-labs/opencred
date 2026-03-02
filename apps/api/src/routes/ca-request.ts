@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { z } from "zod";
 import { ValidationError, NotImplementedError } from "@opencred/shared";
 
@@ -25,7 +26,7 @@ export function createCaRequestRoutes(deps: CaRequestRoutesDeps) {
   const { caAdapter } = deps;
   const caRequest = new Hono();
 
-  const handleCaRequest = async (c: Parameters<Parameters<typeof caRequest.post>[1]>[0]) => {
+  const handleCaRequest = async (c: Context) => {
     if (!caAdapter) throw new NotImplementedError("Certificate Authority adapter is not configured. Type C onboarding requires a CA adapter to be registered at startup.");
     const rawBody = await c.req.json();
     const parsed = caRequestSchema.safeParse(rawBody);
@@ -34,7 +35,7 @@ export function createCaRequestRoutes(deps: CaRequestRoutesDeps) {
     return c.json({ requestId: result.requestId, status: result.status, ...(result.estimatedCompletion && { estimatedCompletion: result.estimatedCompletion }) }, 202);
   };
 
-  const handleCaStatus = async (c: Parameters<Parameters<typeof caRequest.post>[1]>[0]) => {
+  const handleCaStatus = async (c: Context) => {
     if (!caAdapter) throw new NotImplementedError("Certificate Authority adapter is not configured. Type C onboarding requires a CA adapter to be registered at startup.");
     const rawBody = await c.req.json();
     const parsed = caStatusSchema.safeParse(rawBody);

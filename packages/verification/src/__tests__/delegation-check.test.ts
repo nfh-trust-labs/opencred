@@ -10,7 +10,7 @@ function createValidDelegationCertificate(
   return {
     "@context": ["https://www.w3.org/ns/credentials/v2", "https://opencred.id/ns/delegation/v1"],
     id: "urn:uuid:delegation-001",
-    type: ["DelegationCertificate"],
+    type: ["VerifiableCredential", "DelegationCertificate"],
     delegator: { id: "did:web:issuer.example" },
     delegatee: { id: "did:key:z6MkOpenCredKey1" },
     scope: {

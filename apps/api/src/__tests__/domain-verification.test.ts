@@ -680,7 +680,7 @@ describe("POST /onboarding/domain-verify/confirm", () => {
       expect(res.status).toBe(400);
       const body = (await res.json()) as ErrorBody;
       expect(body.error.code).toBe("VERIFICATION_ERROR");
-      expect(body.error.message).toContain("does not resolve");
+      expect(body.error.message).toContain("DNS resolution failed");
     });
   });
 

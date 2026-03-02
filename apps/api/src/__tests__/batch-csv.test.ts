@@ -59,7 +59,7 @@ function makeActiveDelegation(): DelegationCertificate {
       "https://opencred.example/ns/delegation/v1",
     ],
     id: "urn:uuid:delegation-1",
-    type: ["DelegationCertificate"],
+    type: ["VerifiableCredential", "DelegationCertificate"],
     delegator: {
       id: "https://university.example",
       name: "Example University",

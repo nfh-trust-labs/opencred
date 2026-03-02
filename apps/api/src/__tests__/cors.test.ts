@@ -50,7 +50,7 @@ describe("CORS", () => {
     expect(exposed).toContain("X-RateLimit-Limit");
   });
 
-  it("only allows GET, POST, and OPTIONS methods (#144)", async () => {
+  it("allows GET, POST, PUT, DELETE, and OPTIONS methods (#144)", async () => {
     const { app } = createApp({ config: makeTestConfig(), logger: makeTestLogger() });
     const res = await app.request("/health", {
       method: "OPTIONS",
@@ -62,8 +62,8 @@ describe("CORS", () => {
     const methods = res.headers.get("access-control-allow-methods") ?? "";
     expect(methods).toContain("GET");
     expect(methods).toContain("POST");
-    expect(methods).not.toContain("PUT");
-    expect(methods).not.toContain("DELETE");
+    expect(methods).toContain("PUT");
+    expect(methods).toContain("DELETE");
   });
 
   it("respects custom CORS origin from config", async () => {

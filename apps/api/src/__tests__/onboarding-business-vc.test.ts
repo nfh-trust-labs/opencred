@@ -380,9 +380,10 @@ describe("POST /onboarding/business-vc", () => {
         mockDediClient,
         expect.objectContaining({
           certificate: expect.objectContaining({
-            type: ["DelegationCertificate"],
+            type: ["VerifiableCredential", "DelegationCertificate"],
             proof: expect.objectContaining({
               type: "BusinessCredentialAuthorisation",
+              proofValue: expect.stringMatching(/^z/),
             }),
           }),
         }),
