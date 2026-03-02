@@ -46,6 +46,46 @@ describe("DeDiApiClient", () => {
     vi.useRealTimers();
   });
 
+  // ── HTTPS enforcement ────────────────────────────────────────────
+
+  describe("HTTPS enforcement", () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalNodeEnv;
+    });
+
+    it("throws DeDiClientError for http:// in production", () => {
+      process.env.NODE_ENV = "production";
+      expect(
+        () => new DeDiApiClient(createConfig({ baseUrl: "http://dedi.example.com" })),
+      ).toThrow(DeDiClientError);
+    });
+
+    it("allows http:// in development", () => {
+      process.env.NODE_ENV = "development";
+      expect(
+        () => new DeDiApiClient(createConfig({ baseUrl: "http://dedi.example.com" })),
+      ).not.toThrow();
+    });
+
+    it("allows http:// in test", () => {
+      process.env.NODE_ENV = "test";
+      expect(
+        () => new DeDiApiClient(createConfig({ baseUrl: "http://dedi.example.com" })),
+      ).not.toThrow();
+    });
+
+    it("allows https:// in all environments", () => {
+      for (const env of ["production", "development", "test"]) {
+        process.env.NODE_ENV = env;
+        expect(
+          () => new DeDiApiClient(createConfig({ baseUrl: "https://dedi.example.com" })),
+        ).not.toThrow();
+      }
+    });
+  });
+
   // ── Auth header injection ────────────────────────────────────────
 
   describe("auth header injection", () => {
