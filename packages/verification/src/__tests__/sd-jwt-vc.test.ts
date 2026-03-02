@@ -14,6 +14,7 @@ import {
   verifySdJwtVc,
   extractSdJwtVcCredentialFields,
 } from "../sd-jwt-vc.js";
+import type { SdJwtVcVerifyOptions } from "../sd-jwt-vc.js";
 
 function generateTestKeyPair(): { privateKey: KeyObject; publicKey: KeyObject } {
   return generateKeyPairSync("ec", { namedCurve: "P-256" });
@@ -53,13 +54,13 @@ function computeDigest(disclosure: string): string {
 }
 
 async function createSdJwtVc(
-  privateKey: KeyObject,
+  issuerKeyPair: { privateKey: KeyObject; publicKey: KeyObject },
   payload: Record<string, unknown>,
   disclosures: string[],
   alg: string = "ES256",
 ): Promise<string> {
   const key = await jose.importPKCS8(
-    privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+    issuerKeyPair.privateKey.export({ type: "pkcs8", format: "pem" }) as string,
     alg,
   );
   const jwt = await new jose.SignJWT(payload)
@@ -67,6 +68,48 @@ async function createSdJwtVc(
     .setIssuedAt()
     .sign(key);
   return jwt + "~" + disclosures.join("~") + "~";
+}
+
+/**
+ * Create an SD-JWT VC with a Key Binding JWT for testing.
+ * The issuer payload includes a cnf claim with the holder's public key.
+ * The KB-JWT is signed by the holder and includes sd_hash.
+ */
+async function createSdJwtVcWithKeyBinding(
+  issuerKeyPair: { privateKey: KeyObject; publicKey: KeyObject },
+  holderKeyPair: { privateKey: KeyObject; publicKey: KeyObject },
+  payload: Record<string, unknown>,
+  disclosures: string[],
+  kbClaims: Record<string, unknown> = {},
+  alg: string = "ES256",
+): Promise<string> {
+  const holderJwk = holderKeyPair.publicKey.export({ format: "jwk" });
+  const issuerKey = await jose.importPKCS8(
+    issuerKeyPair.privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+    alg,
+  );
+
+  const payloadWithCnf = { ...payload, cnf: { jwk: holderJwk } };
+  const issuerJwt = await new jose.SignJWT(payloadWithCnf)
+    .setProtectedHeader({ alg, typ: "vc+sd-jwt" })
+    .setIssuedAt()
+    .sign(issuerKey);
+
+  const sdJwtWithoutKb = issuerJwt + "~" + disclosures.join("~") + "~";
+
+  const sdHash = createHash("sha256").update(sdJwtWithoutKb, "ascii").digest();
+  const sdHashB64 = Buffer.from(sdHash).toString("base64url");
+
+  const holderKey = await jose.importPKCS8(
+    holderKeyPair.privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+    alg,
+  );
+  const kbJwt = await new jose.SignJWT({ ...kbClaims, sd_hash: sdHashB64 })
+    .setProtectedHeader({ alg, typ: "kb+jwt" })
+    .setIssuedAt()
+    .sign(holderKey);
+
+  return sdJwtWithoutKb + kbJwt;
 }
 
 describe("parseSdJwtVc", () => {
@@ -147,15 +190,15 @@ describe("processDisclosures", () => {
 
 describe("verifySdJwtVc", () => {
   it("should verify a valid SD-JWT VC", async () => {
-    const { privateKey, publicKey } = generateTestKeyPair();
+    const issuerKeyPair = generateTestKeyPair();
     const issuerDid = "did:web:university.example";
-    const jwk = publicKey.export({ format: "jwk" });
+    const jwk = issuerKeyPair.publicKey.export({ format: "jwk" });
 
     const d1 = createDisclosure("salt1", "given_name", "Jane");
     const digest1 = computeDigest(d1);
 
     const sdJwtVc = await createSdJwtVc(
-      privateKey,
+      issuerKeyPair,
       {
         iss: issuerDid,
         vct: "VerifiableCredential",
@@ -180,9 +223,9 @@ describe("verifySdJwtVc", () => {
   });
 
   it("should fail when no resolver is provided", async () => {
-    const { privateKey } = generateTestKeyPair();
+    const issuerKeyPair = generateTestKeyPair();
     const sdJwtVc = await createSdJwtVc(
-      privateKey,
+      issuerKeyPair,
       {
         iss: "did:web:example",
         vct: "VerifiableCredential",
@@ -196,13 +239,13 @@ describe("verifySdJwtVc", () => {
   });
 
   it("should fail when signed with a different key", async () => {
-    const { privateKey } = generateTestKeyPair();
-    const { publicKey: wrongPublicKey } = generateTestKeyPair();
+    const issuerKeyPair = generateTestKeyPair();
+    const wrongKeyPair = generateTestKeyPair();
     const issuerDid = "did:web:university.example";
-    const jwk = wrongPublicKey.export({ format: "jwk" });
+    const jwk = wrongKeyPair.publicKey.export({ format: "jwk" });
 
     const sdJwtVc = await createSdJwtVc(
-      privateKey,
+      issuerKeyPair,
       {
         iss: issuerDid,
         vct: "VerifiableCredential",
@@ -219,6 +262,465 @@ describe("verifySdJwtVc", () => {
 
     const { check } = await verifySdJwtVc(sdJwtVc, resolver);
     expect(check.passed).toBe(false);
+  });
+});
+
+describe("verifySdJwtVc — vct claim validation (#130)", () => {
+  it("should fail when vct claim is missing", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+
+    // Create SD-JWT VC without vct claim
+    const sdJwtVc = await createSdJwtVc(
+      issuerKeyPair,
+      { iss: issuerDid },
+      [],
+    );
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver);
+    expect(check.passed).toBe(false);
+    expect(check.name).toBe("vct");
+    expect(check.detail).toContain("missing required 'vct' claim");
+  });
+
+  it("should fail when vct does not match expectedVct", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+
+    const sdJwtVc = await createSdJwtVc(
+      issuerKeyPair,
+      { iss: issuerDid, vct: "UniversityDegreeCredential" },
+      [],
+    );
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const options: SdJwtVcVerifyOptions = { expectedVct: "DriverLicenseCredential" };
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver, options);
+    expect(check.passed).toBe(false);
+    expect(check.name).toBe("vct");
+    expect(check.detail).toContain("does not match expected type");
+  });
+
+  it("should pass when vct matches expectedVct", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+
+    const sdJwtVc = await createSdJwtVc(
+      issuerKeyPair,
+      { iss: issuerDid, vct: "UniversityDegreeCredential" },
+      [],
+    );
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const options: SdJwtVcVerifyOptions = { expectedVct: "UniversityDegreeCredential" };
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver, options);
+    expect(check.passed).toBe(true);
+  });
+
+  it("should pass when vct matches one of multiple expectedVct values", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+
+    const sdJwtVc = await createSdJwtVc(
+      issuerKeyPair,
+      { iss: issuerDid, vct: "DriverLicenseCredential" },
+      [],
+    );
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const options: SdJwtVcVerifyOptions = {
+      expectedVct: ["UniversityDegreeCredential", "DriverLicenseCredential"],
+    };
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver, options);
+    expect(check.passed).toBe(true);
+  });
+
+  it("should pass when vct is present and no expectedVct is specified", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+
+    const sdJwtVc = await createSdJwtVc(
+      issuerKeyPair,
+      { iss: issuerDid, vct: "VerifiableCredential" },
+      [],
+    );
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver);
+    expect(check.passed).toBe(true);
+  });
+});
+
+describe("verifySdJwtVc — Key Binding JWT verification (#129)", () => {
+  it("should verify a valid SD-JWT VC with Key Binding JWT", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const holderKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+
+    const sdJwtVc = await createSdJwtVcWithKeyBinding(
+      issuerKeyPair,
+      holderKeyPair,
+      {
+        iss: issuerDid,
+        vct: "VerifiableCredential",
+        _sd_alg: "sha-256",
+      },
+      [],
+      { aud: "https://verifier.example", nonce: "abc123" },
+    );
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver);
+    expect(check.passed).toBe(true);
+  });
+
+  it("should fail when KB-JWT is signed with wrong key", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const holderKeyPair = generateTestKeyPair();
+    const wrongKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const issuerJwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+
+    // Build the issuer JWT with the holder's public key in cnf, but sign
+    // the KB-JWT with the wrong key
+    const holderJwk = holderKeyPair.publicKey.export({ format: "jwk" });
+    const issuerKey = await jose.importPKCS8(
+      issuerKeyPair.privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+      "ES256",
+    );
+
+    const issuerJwt = await new jose.SignJWT({
+      iss: issuerDid,
+      vct: "VerifiableCredential",
+      cnf: { jwk: holderJwk },
+    })
+      .setProtectedHeader({ alg: "ES256", typ: "vc+sd-jwt" })
+      .setIssuedAt()
+      .sign(issuerKey);
+
+    const sdJwtWithoutKb = issuerJwt + "~";
+    const sdHash = createHash("sha256").update(sdJwtWithoutKb, "ascii").digest();
+    const sdHashB64 = Buffer.from(sdHash).toString("base64url");
+
+    // Sign with the wrong key (not the holder's key)
+    const wrongKey = await jose.importPKCS8(
+      wrongKeyPair.privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+      "ES256",
+    );
+    const kbJwt = await new jose.SignJWT({ sd_hash: sdHashB64, aud: "https://verifier.example" })
+      .setProtectedHeader({ alg: "ES256", typ: "kb+jwt" })
+      .setIssuedAt()
+      .sign(wrongKey);
+
+    const sdJwtVc = sdJwtWithoutKb + kbJwt;
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: issuerJwk as import("@opencred/did").JWK,
+    });
+
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver);
+    expect(check.passed).toBe(false);
+    expect(check.name).toBe("key_binding");
+    expect(check.detail).toContain("Key Binding JWT verification failed");
+  });
+
+  it("should fail when issuer payload is missing cnf claim", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const holderKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const issuerJwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+
+    // Create issuer JWT without cnf claim
+    const issuerKey = await jose.importPKCS8(
+      issuerKeyPair.privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+      "ES256",
+    );
+    const issuerJwt = await new jose.SignJWT({
+      iss: issuerDid,
+      vct: "VerifiableCredential",
+      // No cnf claim
+    })
+      .setProtectedHeader({ alg: "ES256", typ: "vc+sd-jwt" })
+      .setIssuedAt()
+      .sign(issuerKey);
+
+    const sdJwtWithoutKb = issuerJwt + "~";
+
+    // Create a KB-JWT (it doesn't matter what key signs it, since cnf is missing)
+    const holderKey = await jose.importPKCS8(
+      holderKeyPair.privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+      "ES256",
+    );
+    const kbJwt = await new jose.SignJWT({ sd_hash: "dummy", aud: "https://verifier.example" })
+      .setProtectedHeader({ alg: "ES256", typ: "kb+jwt" })
+      .setIssuedAt()
+      .sign(holderKey);
+
+    const sdJwtVc = sdJwtWithoutKb + kbJwt;
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: issuerJwk as import("@opencred/did").JWK,
+    });
+
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver);
+    expect(check.passed).toBe(false);
+    expect(check.name).toBe("key_binding");
+    expect(check.detail).toContain("missing 'cnf' claim");
+  });
+
+  it("should fail when KB-JWT has wrong typ header", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const holderKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const issuerJwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+    const holderJwk = holderKeyPair.publicKey.export({ format: "jwk" });
+
+    const issuerKey = await jose.importPKCS8(
+      issuerKeyPair.privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+      "ES256",
+    );
+    const issuerJwt = await new jose.SignJWT({
+      iss: issuerDid,
+      vct: "VerifiableCredential",
+      cnf: { jwk: holderJwk },
+    })
+      .setProtectedHeader({ alg: "ES256", typ: "vc+sd-jwt" })
+      .setIssuedAt()
+      .sign(issuerKey);
+
+    const sdJwtWithoutKb = issuerJwt + "~";
+
+    const holderKey = await jose.importPKCS8(
+      holderKeyPair.privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+      "ES256",
+    );
+    // Sign KB-JWT with wrong typ header
+    const kbJwt = await new jose.SignJWT({ sd_hash: "dummy" })
+      .setProtectedHeader({ alg: "ES256", typ: "JWT" })
+      .setIssuedAt()
+      .sign(holderKey);
+
+    const sdJwtVc = sdJwtWithoutKb + kbJwt;
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: issuerJwk as import("@opencred/did").JWK,
+    });
+
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver);
+    expect(check.passed).toBe(false);
+    expect(check.name).toBe("key_binding");
+    expect(check.detail).toContain("typ");
+    expect(check.detail).toContain("kb+jwt");
+  });
+
+  it("should fail when sd_hash does not match", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const holderKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const issuerJwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+    const holderJwk = holderKeyPair.publicKey.export({ format: "jwk" });
+
+    const issuerKey = await jose.importPKCS8(
+      issuerKeyPair.privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+      "ES256",
+    );
+    const issuerJwt = await new jose.SignJWT({
+      iss: issuerDid,
+      vct: "VerifiableCredential",
+      cnf: { jwk: holderJwk },
+    })
+      .setProtectedHeader({ alg: "ES256", typ: "vc+sd-jwt" })
+      .setIssuedAt()
+      .sign(issuerKey);
+
+    const sdJwtWithoutKb = issuerJwt + "~";
+
+    const holderKey = await jose.importPKCS8(
+      holderKeyPair.privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+      "ES256",
+    );
+    // Create KB-JWT with a wrong sd_hash
+    const kbJwt = await new jose.SignJWT({ sd_hash: "wrong-hash-value" })
+      .setProtectedHeader({ alg: "ES256", typ: "kb+jwt" })
+      .setIssuedAt()
+      .sign(holderKey);
+
+    const sdJwtVc = sdJwtWithoutKb + kbJwt;
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: issuerJwk as import("@opencred/did").JWK,
+    });
+
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver);
+    expect(check.passed).toBe(false);
+    expect(check.name).toBe("key_binding");
+    expect(check.detail).toContain("sd_hash");
+  });
+
+  it("should verify KB-JWT with expected audience", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const holderKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+
+    const sdJwtVc = await createSdJwtVcWithKeyBinding(
+      issuerKeyPair,
+      holderKeyPair,
+      { iss: issuerDid, vct: "VerifiableCredential", _sd_alg: "sha-256" },
+      [],
+      { aud: "https://verifier.example", nonce: "test-nonce" },
+    );
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const options: SdJwtVcVerifyOptions = { expectedAudience: "https://verifier.example" };
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver, options);
+    expect(check.passed).toBe(true);
+  });
+
+  it("should fail when KB-JWT audience does not match expected", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const holderKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+
+    const sdJwtVc = await createSdJwtVcWithKeyBinding(
+      issuerKeyPair,
+      holderKeyPair,
+      { iss: issuerDid, vct: "VerifiableCredential", _sd_alg: "sha-256" },
+      [],
+      { aud: "https://verifier.example", nonce: "test-nonce" },
+    );
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const options: SdJwtVcVerifyOptions = { expectedAudience: "https://different-verifier.example" };
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver, options);
+    expect(check.passed).toBe(false);
+    expect(check.name).toBe("key_binding");
+    expect(check.detail).toContain("aud");
+  });
+
+  it("should fail when KB-JWT nonce does not match expected", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const holderKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+
+    const sdJwtVc = await createSdJwtVcWithKeyBinding(
+      issuerKeyPair,
+      holderKeyPair,
+      { iss: issuerDid, vct: "VerifiableCredential", _sd_alg: "sha-256" },
+      [],
+      { aud: "https://verifier.example", nonce: "original-nonce" },
+    );
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const options: SdJwtVcVerifyOptions = { expectedNonce: "different-nonce" };
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver, options);
+    expect(check.passed).toBe(false);
+    expect(check.name).toBe("key_binding");
+    expect(check.detail).toContain("nonce");
+  });
+
+  it("should verify KB-JWT with both expected audience and nonce", async () => {
+    const issuerKeyPair = generateTestKeyPair();
+    const holderKeyPair = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = issuerKeyPair.publicKey.export({ format: "jwk" });
+
+    const sdJwtVc = await createSdJwtVcWithKeyBinding(
+      issuerKeyPair,
+      holderKeyPair,
+      { iss: issuerDid, vct: "VerifiableCredential", _sd_alg: "sha-256" },
+      [],
+      { aud: "https://verifier.example", nonce: "test-nonce-123" },
+    );
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const options: SdJwtVcVerifyOptions = {
+      expectedAudience: "https://verifier.example",
+      expectedNonce: "test-nonce-123",
+    };
+    const { check } = await verifySdJwtVc(sdJwtVc, resolver, options);
+    expect(check.passed).toBe(true);
   });
 });
 
