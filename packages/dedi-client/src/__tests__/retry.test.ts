@@ -86,7 +86,7 @@ describe("withRetry", () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
-  it("retries on network errors (non-DeDiClientError)", async () => {
+  it("retries on network errors (TypeError with fetch)", async () => {
     const fn = vi.fn().mockRejectedValueOnce(new TypeError("fetch failed")).mockResolvedValue("ok");
 
     const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
@@ -95,5 +95,28 @@ describe("withRetry", () => {
 
     expect(result).toBe("ok");
     expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("does NOT retry on SyntaxError", async () => {
+    const fn = vi.fn().mockRejectedValue(new SyntaxError("Unexpected token"));
+
+    await expect(withRetry(fn, { maxRetries: 3, baseDelayMs: 100 })).rejects.toThrow("Unexpected token");
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT retry on TypeError without fetch message", async () => {
+    const fn = vi.fn().mockRejectedValue(new TypeError("Cannot read properties of undefined"));
+
+    await expect(withRetry(fn, { maxRetries: 3, baseDelayMs: 100 })).rejects.toThrow(
+      "Cannot read properties of undefined",
+    );
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT retry on generic Error", async () => {
+    const fn = vi.fn().mockRejectedValue(new Error("something broke"));
+
+    await expect(withRetry(fn, { maxRetries: 3, baseDelayMs: 100 })).rejects.toThrow("something broke");
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 });
