@@ -88,6 +88,42 @@ describe("CircuitBreaker", () => {
     expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
   });
 
+  it("does NOT trip on a burst of 4xx errors", async () => {
+    const cb = new CircuitBreaker({ threshold: 3 });
+
+    for (let i = 0; i < 10; i++) {
+      await expect(
+        cb.execute(() => Promise.reject(new DeDiClientError("bad request", 400))),
+      ).rejects.toThrow("bad request");
+    }
+
+    expect(cb.getState()).toBe(CircuitBreakerState.CLOSED);
+  });
+
+  it("trips on a burst of 5xx errors", async () => {
+    const cb = new CircuitBreaker({ threshold: 3 });
+
+    for (let i = 0; i < 3; i++) {
+      await expect(
+        cb.execute(() => Promise.reject(new DeDiClientError("server error", 500))),
+      ).rejects.toThrow("server error");
+    }
+
+    expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
+  });
+
+  it("counts network errors (non-DeDiClientError) as failures", async () => {
+    const cb = new CircuitBreaker({ threshold: 3 });
+
+    for (let i = 0; i < 3; i++) {
+      await expect(
+        cb.execute(() => Promise.reject(new TypeError("fetch failed"))),
+      ).rejects.toThrow("fetch failed");
+    }
+
+    expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
+  });
+
   it("resets failure count on success", async () => {
     const cb = new CircuitBreaker({ threshold: 3 });
 
