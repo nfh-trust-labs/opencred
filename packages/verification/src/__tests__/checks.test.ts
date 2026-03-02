@@ -1,14 +1,32 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   checkDates,
   checkRevocation,
   checkBitstringStatusList,
+  resolveAndValidateIp,
   _isPrivateIP,
   _validateStatusListUrl,
   MAX_COMPRESSED_SIZE,
 } from "../checks.js";
 import type { DeDiClient } from "@opencred/dedi-client";
 import { gzipSync } from "node:zlib";
+
+vi.mock("node:dns/promises", () => ({
+  resolve4: vi.fn(),
+  resolve6: vi.fn(),
+}));
+
+import { resolve4, resolve6 } from "node:dns/promises";
+
+const mockResolve4 = vi.mocked(resolve4);
+const mockResolve6 = vi.mocked(resolve6);
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+  // Default: resolve to a public IP so existing tests pass
+  mockResolve4.mockResolvedValue(["93.184.216.34"]);
+  mockResolve6.mockResolvedValue(["2606:2800:220:1:248:1893:25c8:1946"]);
+});
 
 describe("checkDates", () => {
   it("should pass for a credential within its validity period", () => {
@@ -198,6 +216,67 @@ describe("validateStatusListUrl", () => {
   it("should accept exact domain match on allowlist", () => {
     const result = _validateStatusListUrl("https://trusted.org/list/1", ["trusted.org"]);
     expect(result.valid).toBe(true);
+  });
+});
+
+// --- DNS rebinding prevention tests ---
+
+describe("resolveAndValidateIp", () => {
+  it("should reject when DNS resolves to a private IPv4 address", async () => {
+    mockResolve4.mockResolvedValue(["127.0.0.1"]);
+
+    await expect(resolveAndValidateIp("evil.example.com")).rejects.toThrow(
+      "DNS resolved to private/reserved IP",
+    );
+  });
+
+  it("should reject when any resolved IP is private (mixed results)", async () => {
+    mockResolve4.mockResolvedValue(["93.184.216.34", "10.0.0.1"]);
+
+    await expect(resolveAndValidateIp("evil.example.com")).rejects.toThrow(
+      "DNS resolved to private/reserved IP",
+    );
+  });
+
+  it("should resolve to public IPv4 successfully", async () => {
+    mockResolve4.mockResolvedValue(["93.184.216.34"]);
+
+    const result = await resolveAndValidateIp("example.com");
+    expect(result).toEqual({ address: "93.184.216.34", family: 4 });
+  });
+
+  it("should fall back to IPv6 when resolve4 fails", async () => {
+    mockResolve4.mockRejectedValue(new Error("ENODATA"));
+    mockResolve6.mockResolvedValue(["2606:2800:220:1:248:1893:25c8:1946"]);
+
+    const result = await resolveAndValidateIp("ipv6only.example.com");
+    expect(result).toEqual({ address: "2606:2800:220:1:248:1893:25c8:1946", family: 6 });
+  });
+
+  it("should fall back to IPv6 when resolve4 returns empty", async () => {
+    mockResolve4.mockResolvedValue([]);
+    mockResolve6.mockResolvedValue(["2606:2800:220:1:248:1893:25c8:1946"]);
+
+    const result = await resolveAndValidateIp("ipv6only.example.com");
+    expect(result).toEqual({ address: "2606:2800:220:1:248:1893:25c8:1946", family: 6 });
+  });
+
+  it("should throw when both resolve4 and resolve6 fail", async () => {
+    mockResolve4.mockRejectedValue(new Error("ENOTFOUND"));
+    mockResolve6.mockRejectedValue(new Error("ENOTFOUND"));
+
+    await expect(resolveAndValidateIp("nonexistent.example.com")).rejects.toThrow(
+      "DNS resolution failed",
+    );
+  });
+
+  it("should reject private IPv6 addresses (loopback)", async () => {
+    mockResolve4.mockRejectedValue(new Error("ENODATA"));
+    mockResolve6.mockResolvedValue(["::1"]);
+
+    await expect(resolveAndValidateIp("evil.example.com")).rejects.toThrow(
+      "DNS resolved to private/reserved IP",
+    );
   });
 });
 
@@ -462,6 +541,84 @@ describe("checkBitstringStatusList", () => {
     expect(result.detail).toContain("maximum size");
 
     vi.unstubAllGlobals();
+  });
+
+  // --- DNS rebinding prevention tests ---
+
+  describe("DNS rebinding prevention", () => {
+    it("should fail when DNS resolves to a private IP (rebinding attack)", async () => {
+      mockResolve4.mockResolvedValue(["127.0.0.1"]);
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const result = await checkBitstringStatusList({
+        type: "BitstringStatusListEntry",
+        statusPurpose: "revocation",
+        statusListIndex: "0",
+        statusListCredential: "https://evil.example.com/status/1",
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("DNS resolved to private/reserved IP");
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      vi.unstubAllGlobals();
+    });
+
+    it("should fetch with resolved IP in URL and Host header set to original hostname", async () => {
+      mockResolve4.mockResolvedValue(["93.184.216.34"]);
+      const encodedList = createStatusListResponse([], 16);
+      const mockResponse = {
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          credentialSubject: {
+            type: "BitstringStatusList",
+            statusPurpose: "revocation",
+            encodedList,
+          },
+        }),
+      };
+      const fetchSpy = vi.fn().mockResolvedValue(mockResponse);
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const result = await checkBitstringStatusList({
+        type: "BitstringStatusListEntry",
+        statusPurpose: "revocation",
+        statusListIndex: "0",
+        statusListCredential: "https://example.com/status/1",
+      });
+
+      expect(result.passed).toBe(true);
+      // Verify fetch was called with the resolved IP in the URL
+      const calledUrl = fetchSpy.mock.calls[0][0] as string;
+      expect(calledUrl).toContain("93.184.216.34");
+      expect(calledUrl).not.toContain("example.com");
+      // Verify Host header is set to original hostname
+      const calledOptions = fetchSpy.mock.calls[0][1] as { headers: Record<string, string> };
+      expect(calledOptions.headers["Host"]).toBe("example.com");
+
+      vi.unstubAllGlobals();
+    });
+
+    it("should fail when DNS resolution fails entirely", async () => {
+      mockResolve4.mockRejectedValue(new Error("ENOTFOUND"));
+      mockResolve6.mockRejectedValue(new Error("ENOTFOUND"));
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const result = await checkBitstringStatusList({
+        type: "BitstringStatusListEntry",
+        statusPurpose: "revocation",
+        statusListIndex: "0",
+        statusListCredential: "https://nonexistent.example.com/status/1",
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("DNS resolution failed");
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      vi.unstubAllGlobals();
+    });
   });
 
   // --- #128: Proof verification tests ---

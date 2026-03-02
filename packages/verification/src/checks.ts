@@ -1,3 +1,5 @@
+import { resolve4, resolve6 } from "node:dns/promises";
+import { isIP } from "node:net";
 import { promisify } from "node:util";
 import { gunzip as gunzipCb } from "node:zlib";
 import type { DeDiClient } from "@opencred/dedi-client";
@@ -144,7 +146,7 @@ const PRIVATE_HOSTNAMES = new Set([
 function validateStatusListUrl(
   raw: string,
   allowedDomains?: string[],
-): { valid: true; url: string } | { valid: false; detail: string } {
+): { valid: true; url: string; hostname: string } | { valid: false; detail: string } {
   let parsed: URL;
   try {
     parsed = new URL(raw);
@@ -178,7 +180,46 @@ function validateStatusListUrl(
     }
   }
 
-  return { valid: true, url: parsed.toString() };
+  return { valid: true, url: parsed.toString(), hostname };
+}
+
+/**
+ * Resolve a hostname to an IP and validate that none of the resolved IPs are private.
+ * Prevents DNS rebinding attacks by pinning the resolved IP for use in the fetch.
+ */
+export async function resolveAndValidateIp(
+  hostname: string,
+): Promise<{ address: string; family: 4 | 6 }> {
+  let addresses: string[] = [];
+  let family: 4 | 6 = 4;
+
+  try {
+    addresses = await resolve4(hostname);
+  } catch {
+    // resolve4 failed, try IPv6
+  }
+
+  if (addresses.length === 0) {
+    try {
+      addresses = await resolve6(hostname);
+      family = 6;
+    } catch {
+      throw new Error(`DNS resolution failed for ${hostname}`);
+    }
+  }
+
+  if (addresses.length === 0) {
+    throw new Error(`DNS resolution failed for ${hostname}`);
+  }
+
+  // Validate ALL resolved IPs — if any are private, reject
+  for (const addr of addresses) {
+    if (isPrivateIP(addr)) {
+      throw new Error(`DNS resolved to private/reserved IP for ${hostname}`);
+    }
+  }
+
+  return { address: addresses[0], family };
 }
 
 /** Options for the BitstringStatusList check. */
@@ -195,6 +236,7 @@ export interface BitstringStatusListOptions {
  *
  * Security measures:
  * - SSRF: Validates URL scheme (HTTPS only), blocks private IPs and loopback, supports domain allowlist.
+ * - DNS rebinding: Resolves hostname and pins IP before fetch; validates resolved IPs against private ranges.
  * - Decompression bomb: Rejects compressed data larger than MAX_COMPRESSED_SIZE (1 MB).
  * - Event loop blocking: Uses async gunzip instead of gunzipSync.
  * - Proof verification: Optionally verifies the proof on the fetched status list credential.
@@ -237,8 +279,29 @@ export async function checkBitstringStatusList(
       };
     }
 
-    const response = await globalThis.fetch(urlValidation.url, {
+    // DNS rebinding prevention: resolve hostname and pin IP before fetch
+    let fetchUrl = urlValidation.url;
+    const fetchHeaders: Record<string, string> = {};
+
+    const parsedUrl = new URL(urlValidation.url);
+    const hostname = parsedUrl.hostname;
+
+    if (!isIP(hostname)) {
+      const resolved = await resolveAndValidateIp(hostname);
+      // Replace hostname with resolved IP; set Host header to original hostname
+      const pinnedUrl = new URL(urlValidation.url);
+      if (resolved.family === 6) {
+        pinnedUrl.hostname = `[${resolved.address}]`;
+      } else {
+        pinnedUrl.hostname = resolved.address;
+      }
+      fetchUrl = pinnedUrl.toString();
+      fetchHeaders["Host"] = hostname;
+    }
+
+    const response = await globalThis.fetch(fetchUrl, {
       redirect: "error", // Prevent redirect-based SSRF
+      headers: fetchHeaders,
     });
     if (!response.ok) {
       return {
@@ -321,11 +384,12 @@ export async function checkBitstringStatusList(
     }
 
     return { name: "bitstringStatus", passed: true };
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unable to check BitstringStatusList";
     return {
       name: "bitstringStatus",
       passed: false,
-      detail: "Unable to check BitstringStatusList",
+      detail: message,
     };
   }
 }
