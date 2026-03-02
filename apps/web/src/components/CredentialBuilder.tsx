@@ -1,28 +1,28 @@
 import { useState } from "react";
 import { SchemaSelector } from "./SchemaSelector";
 import { CredentialForm } from "./CredentialForm";
-import { KeyImport } from "./KeyImport";
-import type { ImportedKey } from "./KeyImport";
+import { SigningMethodSelector } from "./SigningMethodSelector";
 import { getSchema } from "../schemas";
 import { OpenCredClient } from "../api/client";
-import { signData, base64urlDecode, base64urlEncode } from "../crypto/webcrypto";
+import type { WebSigner } from "../crypto/types";
 
 interface Props {
   apiUrl: string;
   token: string;
+  extensionAvailable: boolean;
 }
 
 type Step = "form" | "signing" | "done";
 type SigningMode = "interface" | "delegated";
 
-export function CredentialBuilder({ apiUrl, token }: Props) {
+export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) {
   const [schemaId, setSchemaId] = useState("");
   const [subjectValues, setSubjectValues] = useState<Record<string, string>>({});
   const [issuerDid, setIssuerDid] = useState("");
   const [validFrom, setValidFrom] = useState(new Date().toISOString().split("T")[0]);
   const [validUntil, setValidUntil] = useState("");
   const [revocationUrl, setRevocationUrl] = useState("https://dedi.example.com/revocation/list/1");
-  const [importedKey, setImportedKey] = useState<ImportedKey | null>(null);
+  const [webSigner, setWebSigner] = useState<WebSigner | null>(null);
   const [signingMode, setSigningMode] = useState<SigningMode>("interface");
   const [delegationId, setDelegationId] = useState("");
   const [step, setStep] = useState<Step>("form");
@@ -48,7 +48,7 @@ export function CredentialBuilder({ apiUrl, token }: Props) {
     if (!requiredFieldsFilled) return false;
 
     if (signingMode === "interface") {
-      return !!issuerDid && !!revocationUrl && !!importedKey;
+      return !!issuerDid && !!revocationUrl && !!webSigner;
     } else {
       return !!delegationId.trim();
     }
@@ -78,24 +78,22 @@ export function CredentialBuilder({ apiUrl, token }: Props) {
         return;
       }
 
-      // Interface signing — local key, never leaves browser
-      if (!importedKey) return;
+      // Interface signing — key never leaves the issuer's control
+      if (!webSigner) return;
 
       // 1. Build — send to API, get back dataToSign
       const buildRes = await client.buildCredential({
         schema: schemaId,
         issuer: issuerDid,
-        publicKey: importedKey.publicKeyId,
+        publicKey: webSigner.publicKeyId,
         credentialSubject: { ...subjectValues },
         validFrom: new Date(validFrom).toISOString(),
         validUntil: validUntil ? new Date(validUntil).toISOString() : undefined,
         revocationRegistryUrl: revocationUrl,
       });
 
-      // 2. Sign locally with WebCrypto — private key never leaves the browser
-      const dataBytes = base64urlDecode(buildRes.dataToSign);
-      const signature = await signData(importedKey.signingKey, dataBytes);
-      const signatureB64 = base64urlEncode(signature);
+      // 2. Sign via the unified signer (JWK, PKCS#11, or OS cert)
+      const signatureB64 = await webSigner.sign(buildRes.dataToSign);
 
       // 3. Package — send signature to API, get back final credential
       const pkgRes = await client.packageCredential({
@@ -241,7 +239,10 @@ export function CredentialBuilder({ apiUrl, token }: Props) {
                 </div>
               </div>
 
-              <KeyImport onKeyImported={setImportedKey} />
+              <SigningMethodSelector
+                extensionAvailable={extensionAvailable}
+                onSignerReady={setWebSigner}
+              />
             </>
           )}
 

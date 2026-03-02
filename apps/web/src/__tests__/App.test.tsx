@@ -1,7 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import App from "../App";
+
+vi.mock("../crypto/extension-client", () => ({
+  detectExtension: vi.fn().mockResolvedValue({ available: false }),
+}));
 
 describe("App", () => {
   it("renders the header and navigation tabs", () => {

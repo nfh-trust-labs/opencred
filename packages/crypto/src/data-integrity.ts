@@ -1,5 +1,10 @@
 import { createSign, createVerify, type KeyObject } from "node:crypto";
-import * as jsonld from "jsonld";
+import * as _jsonldNs from "jsonld";
+
+// jsonld is a CJS package; when loaded via ESM loaders (e.g. tsx) the namespace
+// import may wrap the real module under `.default`.  Resolve once at load time.
+const jsonld: typeof _jsonldNs =
+  (_jsonldNs as unknown as { default?: typeof _jsonldNs }).default ?? _jsonldNs;
 import { CryptoError } from "@opencred/shared";
 import { createDocumentLoader } from "@opencred/vc-core";
 import type { UnsignedCredential, VerifiableCredential, Proof } from "@opencred/vc-core";
@@ -21,7 +26,7 @@ const PROOF_TYPE = "DataIntegrityProof" as const;
  * The jsonld library at runtime accepts a simple async loader, but @types/jsonld
  * declares an older callback-based signature. We cast to satisfy the types.
  */
-function createJsonLdDocumentLoader(): jsonld.Options.DocLoader["documentLoader"] {
+function createJsonLdDocumentLoader(): _jsonldNs.Options.DocLoader["documentLoader"] {
   const bundledLoader = createDocumentLoader();
   const loader = async (url: string) => {
     const result = bundledLoader(url);
@@ -32,7 +37,7 @@ function createJsonLdDocumentLoader(): jsonld.Options.DocLoader["documentLoader"
     };
   };
   // The jsonld runtime accepts Promise-based loaders; the @types are imprecise
-  return loader as unknown as jsonld.Options.DocLoader["documentLoader"];
+  return loader as unknown as _jsonldNs.Options.DocLoader["documentLoader"];
 }
 
 /**
@@ -46,13 +51,13 @@ async function canonicalize(document: Record<string, unknown>): Promise<string> 
   // (e.g. custom credentialSubject properties) not defined in the loaded
   // JSON-LD contexts — this is expected for VCs with application-specific claims.
   const result = await jsonld.canonize(
-    document as jsonld.JsonLdDocument,
+    document as _jsonldNs.JsonLdDocument,
     {
       algorithm: "URDNA2015",
       format: "application/n-quads",
       documentLoader: createJsonLdDocumentLoader(),
       safe: false,
-    } as jsonld.Options.Normalize & { safe: boolean },
+    } as _jsonldNs.Options.Normalize & { safe: boolean },
   );
   return result as string;
 }
@@ -370,13 +375,13 @@ export async function signCredential(
   try {
     const signer = createSign("SHA256");
     signer.update(dataToSign);
-    const derSignature = signer.sign({
+    const rawSignature = signer.sign({
       key: signingKey.privateKey,
       dsaEncoding: "ieee-p1363",
     });
 
     // ieee-p1363 gives us raw r||s directly (64 bytes for P-256)
-    return completeProof(unsignedVC, proofConfig, new Uint8Array(derSignature));
+    return completeProof(unsignedVC, proofConfig, new Uint8Array(rawSignature));
   } catch (error) {
     if (error instanceof CryptoError) throw error;
     throw new CryptoError(

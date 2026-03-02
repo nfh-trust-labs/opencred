@@ -62,7 +62,11 @@ export async function validateDelegationChain(
 
   // 3. Validate the delegation certificate (temporal, structural, scope)
   const proofCreated = credential.proof.created;
-  const validationTime = options?.now ?? (proofCreated ? new Date(proofCreated) : new Date());
+  const validationTime =
+    options?.now ??
+    (proofCreated && !isNaN(Date.parse(proofCreated))
+      ? new Date(proofCreated)
+      : new Date());
 
   const validationResult = await validateDelegationCertificate(delegation, {
     ...options,
