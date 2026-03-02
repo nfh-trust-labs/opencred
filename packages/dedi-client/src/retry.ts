@@ -1,8 +1,10 @@
 import { DeDiClientError } from "@opencred/shared";
+import type { DeDiLogger } from "./logger.js";
 
 export interface RetryOptions {
   maxRetries: number;
   baseDelayMs: number;
+  logger?: DeDiLogger;
 }
 
 const DEFAULT_OPTIONS: RetryOptions = {
@@ -40,8 +42,14 @@ export async function withRetry<T>(
     } catch (error) {
       lastError = error;
       if (attempt >= opts.maxRetries || !isTransientError(error)) {
+        if (attempt >= opts.maxRetries && opts.maxRetries > 0) {
+          opts.logger?.error(`All ${opts.maxRetries} retry attempts exhausted`);
+        }
         throw error;
       }
+      opts.logger?.debug(
+        `Retrying request, attempt ${attempt + 1} of ${opts.maxRetries}`,
+      );
       const delay = opts.baseDelayMs * Math.pow(2, attempt);
       await sleep(delay);
     }
