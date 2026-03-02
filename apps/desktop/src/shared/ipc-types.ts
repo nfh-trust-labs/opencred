@@ -25,6 +25,8 @@ export interface KeyMetadata {
   label?: string;
   /** Detected key format (pem, jwk, pkcs8-der). */
   format?: string;
+  /** How this key was loaded into the application. */
+  source?: "file" | "pkcs11" | "os-cert" | "generated";
 }
 
 export interface KeyImportRequest {
@@ -42,6 +44,17 @@ export interface KeyImportResponse {
 
 export interface KeyListResponse {
   keys: KeyMetadata[];
+}
+
+export interface KeyGenerateRequest {
+  /** Optional user-friendly label for the generated key. */
+  label?: string;
+}
+
+export interface KeyGenerateResponse {
+  success: boolean;
+  key?: KeyMetadata;
+  error?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -538,6 +551,7 @@ export interface OpenCredDesktopAPI {
   // Key management
   importKey: (request: KeyImportRequest) => Promise<KeyImportResponse>;
   listKeys: () => Promise<KeyListResponse>;
+  generateKey: (request: KeyGenerateRequest) => Promise<KeyGenerateResponse>;
 
   // Schema
   listSchemas: () => Promise<SchemaListResponse>;

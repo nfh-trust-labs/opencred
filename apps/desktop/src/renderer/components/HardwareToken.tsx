@@ -41,7 +41,11 @@ interface ConnectedKey {
 
 type Step = "library" | "slots" | "pin" | "keys" | "connected";
 
-export function HardwareToken() {
+interface HardwareTokenProps {
+  onKeyConnected?: () => void;
+}
+
+export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
   const [step, setStep] = useState<Step>("library");
   const [libraryPath, setLibraryPath] = useState("");
   const [slots, setSlots] = useState<SlotInfo[]>([]);
@@ -192,6 +196,7 @@ export function HardwareToken() {
         label: result.key.label,
       });
       setStep("connected");
+      onKeyConnected?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to connect.");
     } finally {

@@ -1,5 +1,5 @@
 /**
- * KeyImport — key management for the desktop app.
+ * KeyImport — file-based key import for the desktop app.
  *
  * This uses the native file dialog via IPC to import key files.
  * Supports PEM, JWK, and PKCS#8 DER formats. Format is auto-detected.
@@ -7,7 +7,7 @@
  * NEVER reaches the renderer. Only key metadata is displayed.
  */
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import type { KeyMetadata } from "../../shared/ipc-types";
 
 /** Map format codes to user-friendly labels. */
@@ -17,24 +17,14 @@ const FORMAT_LABELS: Record<string, string> = {
   "pkcs8-der": "PKCS#8 DER",
 };
 
-export function KeyImport() {
-  const [keys, setKeys] = useState<KeyMetadata[]>([]);
+interface KeyImportProps {
+  onKeyImported?: () => void;
+}
+
+export function KeyImport({ onKeyImported }: KeyImportProps) {
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [lastImported, setLastImported] = useState<KeyMetadata | null>(null);
-
-  async function loadKeys() {
-    try {
-      const response = await window.opencred.listKeys();
-      setKeys(response.keys);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load keys.");
-    }
-  }
-
-  useEffect(() => {
-    void loadKeys();
-  }, []);
 
   async function handleImport() {
     setError(null);
@@ -59,7 +49,7 @@ export function KeyImport() {
 
       if (importResult.success && importResult.key) {
         setLastImported(importResult.key);
-        await loadKeys();
+        onKeyImported?.();
       } else {
         setError(importResult.error ?? "Import failed.");
       }
@@ -71,22 +61,20 @@ export function KeyImport() {
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-gray-700">Key Management</h2>
+        <p className="text-xs text-gray-500">
+          Supports PEM, JWK, and PKCS#8 DER formats. Only ECDSA P-256 keys are accepted. Private
+          keys are stored locally and never leave this machine.
+        </p>
         <button
           onClick={() => void handleImport()}
           disabled={importing}
-          className="rounded-md bg-gray-700 px-3 py-1.5 text-sm text-white hover:bg-gray-800 disabled:opacity-40"
+          className="flex-shrink-0 ml-4 rounded-md bg-gray-700 px-3 py-1.5 text-sm text-white hover:bg-gray-800 disabled:opacity-40"
         >
           {importing ? "Importing..." : "Import Key"}
         </button>
       </div>
-
-      <p className="text-xs text-gray-500">
-        Supports PEM, JWK, and PKCS#8 DER formats. Only ECDSA P-256 keys are accepted. Private keys
-        are stored locally and never leave this machine.
-      </p>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -102,35 +90,6 @@ export function KeyImport() {
             <p className="font-mono text-[10px] text-green-600 break-all">ID: {lastImported.id}</p>
           </div>
         </div>
-      )}
-
-      {keys.length === 0 ? (
-        <p className="text-sm text-gray-400 italic">No keys imported yet.</p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 text-left text-xs text-gray-500">
-              <th className="pb-2">Algorithm</th>
-              <th className="pb-2">Format</th>
-              <th className="pb-2">Fingerprint</th>
-              <th className="pb-2">Imported</th>
-            </tr>
-          </thead>
-          <tbody>
-            {keys.map((key) => (
-              <tr key={key.id} className="border-b border-gray-100">
-                <td className="py-2 text-gray-700">{key.algorithm}</td>
-                <td className="py-2 text-gray-500">
-                  {key.format ? (FORMAT_LABELS[key.format] ?? key.format) : "-"}
-                </td>
-                <td className="py-2 font-mono text-xs text-gray-500">
-                  {key.fingerprint.slice(0, 16)}...
-                </td>
-                <td className="py-2 text-gray-500">{new Date(key.importedAt).toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       )}
     </div>
   );

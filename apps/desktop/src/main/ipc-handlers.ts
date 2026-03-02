@@ -18,6 +18,8 @@ import { IPC_CHANNELS } from "../shared/ipc-channels.js";
 import type {
   KeyImportRequest,
   KeyImportResponse,
+  KeyGenerateRequest,
+  KeyGenerateResponse,
   KeyListResponse,
   KeyMetadata,
   SchemaListResponse,
@@ -63,8 +65,9 @@ import type {
   OsCertConnectResponse,
 } from "../shared/ipc-types.js";
 import { getStore, restrictStoreFilePermissions } from "./store.js";
-import { createSoftwareSigner } from "../signing/software-signer.js";
+import { createSoftwareSigner, buildSigner } from "../signing/software-signer.js";
 import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local-signing-flow.js";
+import { generateKeyPairSync, createPublicKey } from "node:crypto";
 import { verifyProof } from "@opencred/crypto";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
@@ -139,6 +142,7 @@ async function handleKeyImport(
       importedAt: new Date().toISOString(),
       label: request.label,
       format,
+      source: "file",
     };
 
     importedKeys.set(signer.id, meta);
@@ -177,6 +181,42 @@ async function handleKeyImport(
 /** KEY_LIST — return metadata for all imported keys. */
 async function handleKeyList(): Promise<KeyListResponse> {
   return { keys: Array.from(importedKeys.values()) };
+}
+
+/**
+ * KEY_GENERATE — generate a fresh ECDSA P-256 keypair in-app.
+ *
+ * Uses Node.js crypto to generate a keypair, delegates to buildSigner
+ * for did:key derivation and Signer construction, then registers in
+ * memory. The private key stays in-process and is NEVER returned or logged.
+ */
+async function handleKeyGenerate(
+  _event: IpcMainInvokeEvent,
+  request: KeyGenerateRequest,
+): Promise<KeyGenerateResponse> {
+  try {
+    const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const publicKey = createPublicKey(privateKey);
+    const signer = buildSigner(privateKey, publicKey, request.label);
+
+    const meta: KeyMetadata = {
+      id: signer.id,
+      fingerprint: signer.metadata.fingerprint,
+      algorithm: "ECDSA P-256",
+      importedAt: new Date().toISOString(),
+      label: request.label,
+      format: "generated",
+      source: "generated",
+    };
+
+    importedKeys.set(signer.id, meta);
+    loadedSigners.set(signer.id, signer);
+
+    return { success: true, key: meta };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Key generation failed.";
+    return { success: false, error: message };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -807,6 +847,7 @@ async function handlePkcs11Connect(
       importedAt: new Date().toISOString(),
       label: signer.metadata.label,
       format: "pkcs11",
+      source: "pkcs11",
     };
 
     importedKeys.set(signer.id, meta);
@@ -941,6 +982,7 @@ async function handleOsCertConnect(
       importedAt: new Date().toISOString(),
       label: request.label,
       format: `oscert:${request.certificateId}`,
+      source: "os-cert",
     };
 
     importedKeys.set(signer.id, meta);
@@ -967,6 +1009,7 @@ export function registerIpcHandlers(): void {
   // Key management
   ipcMain.handle(IPC_CHANNELS.KEY_IMPORT, handleKeyImport);
   ipcMain.handle(IPC_CHANNELS.KEY_LIST, handleKeyList);
+  ipcMain.handle(IPC_CHANNELS.KEY_GENERATE, handleKeyGenerate);
 
   // Schema
   ipcMain.handle(IPC_CHANNELS.SCHEMA_LIST, handleSchemaList);

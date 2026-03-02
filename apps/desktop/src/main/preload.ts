@@ -20,6 +20,8 @@ import { IPC_CHANNELS } from "../shared/ipc-channels.js";
 import type {
   KeyImportRequest,
   KeyImportResponse,
+  KeyGenerateRequest,
+  KeyGenerateResponse,
   KeyListResponse,
   SchemaListResponse,
   SchemaGetRequest,
@@ -69,6 +71,9 @@ const api: OpenCredDesktopAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.KEY_IMPORT, request),
 
   listKeys: (): Promise<KeyListResponse> => ipcRenderer.invoke(IPC_CHANNELS.KEY_LIST),
+
+  generateKey: (request: KeyGenerateRequest): Promise<KeyGenerateResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.KEY_GENERATE, request),
 
   // Schema
   listSchemas: (): Promise<SchemaListResponse> => ipcRenderer.invoke(IPC_CHANNELS.SCHEMA_LIST),

@@ -3,7 +3,7 @@ import { Navigation } from "./components/Navigation";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { CredentialBuilder } from "./components/CredentialBuilder";
 import { CredentialVerifier } from "./components/CredentialVerifier";
-import { KeyImport } from "./components/KeyImport";
+import { KeyManagement } from "./components/KeyManagement";
 import { BatchIssuance } from "./components/BatchIssuance";
 import { DelegatedIssuance } from "./components/DelegatedIssuance";
 
@@ -50,7 +50,7 @@ export default function App() {
       <main className="mx-auto max-w-5xl w-full px-4 py-6 flex-1">
         {activeTab === "builder" && <CredentialBuilder />}
         {activeTab === "verifier" && <CredentialVerifier />}
-        {activeTab === "keys" && <KeyImport />}
+        {activeTab === "keys" && <KeyManagement />}
         {activeTab === "batch" && <BatchIssuance />}
         {activeTab === "delegated" && <DelegatedIssuance />}
       </main>
