@@ -325,6 +325,61 @@ describe("DeDiTokenManager", () => {
     });
   });
 
+  // ── Non-JSON response handling ──────────────────────────────────
+
+  describe("non-JSON response handling", () => {
+    it("throws DeDiClientError (not SyntaxError) when login returns HTML body", async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response("<html><body>Bad Gateway</body></html>", {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        }),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig());
+      await expect(tm.getToken()).rejects.toThrow(
+        "DeDi auth endpoint returned non-JSON response",
+      );
+      await expect(tm.getToken.bind(tm)).rejects.not.toBeInstanceOf(SyntaxError);
+    });
+
+    it("throws DeDiClientError (not SyntaxError) when refresh returns HTML body", async () => {
+      const soonJwt = jwtExpiringIn(50);
+
+      // Login succeeds
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: soonJwt, refresh_token: "rt_1", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+      // Refresh returns HTML
+      mockFetch.mockResolvedValueOnce(
+        new Response("<html><body>Bad Gateway</body></html>", {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        }),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig({ auth: { refreshBufferMs: 60_000 } }));
+      await tm.getToken(); // login
+      await expect(tm.getToken()).rejects.toThrow(
+        "DeDi auth endpoint returned non-JSON response",
+      );
+    });
+
+    it("throws DeDiClientError when login returns empty body", async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response("", { status: 200 }),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig());
+      await expect(tm.getToken()).rejects.toThrow(
+        "DeDi auth endpoint returned non-JSON response",
+      );
+    });
+  });
+
   // ── decodeExp error handling ────────────────────────────────────
 
   describe("decodeExp error handling", () => {

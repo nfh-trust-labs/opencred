@@ -44,6 +44,9 @@ export class CircuitBreaker {
       this.onSuccess();
       return result;
     } catch (error) {
+      if (error instanceof DeDiClientError && error.statusCode < 500) {
+        throw error;
+      }
       this.onFailure();
       throw error;
     }
