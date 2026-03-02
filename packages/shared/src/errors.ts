@@ -55,6 +55,13 @@ export class ConflictError extends OpenCredError {
   }
 }
 
+export class PayloadTooLargeError extends OpenCredError {
+  constructor(message: string = "Payload too large") {
+    super(message, "PAYLOAD_TOO_LARGE", 413);
+    this.name = "PayloadTooLargeError";
+  }
+}
+
 export class RateLimitError extends OpenCredError {
   constructor(message: string = "Rate limit exceeded") {
     super(message, "RATE_LIMIT_EXCEEDED", 429);
