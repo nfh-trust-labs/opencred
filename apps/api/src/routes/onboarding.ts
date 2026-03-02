@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { X509Certificate } from "node:crypto";
+import { X509Certificate, createHash } from "node:crypto";
 import { createCapabilityToken } from "@opencred/auth";
-import { ValidationError, VerificationError } from "@opencred/shared";
+import { ValidationError, VerificationError, PayloadTooLargeError } from "@opencred/shared";
 import type { DeDiClient } from "@opencred/dedi-client";
 import {
   verifyCredential,
@@ -15,6 +15,11 @@ import type { VerifiableCredential } from "@opencred/vc-core";
 import { createDelegationCertificate, registerDelegation } from "@opencred/delegation";
 import type { DelegationCertificate } from "@opencred/delegation";
 import { validateDscChain, type TrustStore } from "../dsc-chain.js";
+
+// --- Constants ---
+
+/** Maximum allowed JWT/SD-JWT payload size in bytes (10 KB). */
+const MAX_JWT_BYTES = 10 * 1024;
 
 // --- Zod schemas for request validation ---
 
@@ -77,6 +82,20 @@ export interface BusinessVcOnboardingDeps {
 }
 
 // --- Helpers ---
+
+/**
+ * Validate that a JWT/SD-JWT string does not exceed the maximum allowed size.
+ * Rejects payloads larger than MAX_JWT_BYTES (10 KB) to prevent resource
+ * exhaustion during Base64 decoding and JSON parsing (#139).
+ */
+function validateJwtSize(jwt: string): void {
+  const byteLength = Buffer.byteLength(jwt, "utf-8");
+  if (byteLength > MAX_JWT_BYTES) {
+    throw new PayloadTooLargeError(
+      `JWT payload exceeds maximum allowed size (${byteLength} bytes > ${MAX_JWT_BYTES} bytes)`,
+    );
+  }
+}
 
 /**
  * Parse X.509 subject string into a key-value map.
@@ -157,6 +176,8 @@ async function extractCredentialSubject(
   }
 
   if (format === "vc-jwt") {
+    // Bounds check before parsing (#139)
+    validateJwtSize(input as string);
     const parts = (input as string).split(".");
     const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf-8"));
     // DM 1.1: vc.credentialSubject, DM 2.0: credentialSubject directly
@@ -168,6 +189,8 @@ async function extractCredentialSubject(
   }
 
   // SD-JWT VC: parse the issuer JWT and process disclosures
+  // Bounds check before parsing (#139)
+  validateJwtSize(input as string);
   const components = parseSdJwtVc(input as string);
   const jwtParts = components.issuerJwt.split(".");
   const sdPayload = JSON.parse(Buffer.from(jwtParts[1], "base64url").toString("utf-8"));
@@ -395,6 +418,14 @@ export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps)
         // itself serves as the authorisation proof, so we register the
         // unsigned cert as a placeholder and attach the proof field to
         // satisfy the registry contract.
+        const businessCredentialDigest = createHash("sha256")
+          .update(
+            typeof businessCredential === "string"
+              ? businessCredential
+              : JSON.stringify(businessCredential),
+          )
+          .digest("base64url");
+
         const certWithProof: DelegationCertificate = {
           ...unsignedCert,
           proof: {
@@ -402,7 +433,7 @@ export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps)
             verificationMethod: delegatorId,
             proofPurpose: "capabilityDelegation",
             created: now.toISOString(),
-            proofValue: "",
+            proofValue: `z${businessCredentialDigest}`,
           },
         };
         await registerDelegation(dediClient, { certificate: certWithProof });
@@ -420,6 +451,14 @@ export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps)
     }
 
     return c.json(response, 201);
+  });
+
+  // POST /type-d — alias for /business-vc (PRD endpoint path alignment #173)
+  businessVc.post("/type-d", async (c) => {
+    const url = new URL(c.req.url);
+    url.pathname = url.pathname.replace(/\/type-d$/, "/business-vc");
+    const cloned = new Request(url.toString(), c.req.raw);
+    return businessVc.fetch(cloned, c.env);
   });
 
   return businessVc;

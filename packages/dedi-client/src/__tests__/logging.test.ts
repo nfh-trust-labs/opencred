@@ -275,7 +275,7 @@ describe("retry logging", () => {
 
 // ── DeDiClient (adapter) 404 fallback logging ───────────────────────
 
-describe("DeDiClient 404 fallback logging", () => {
+describe("DeDiClient 404 error propagation", () => {
   const originalFetch = globalThis.fetch;
   let mockFetch: ReturnType<typeof vi.fn<typeof globalThis.fetch>>;
 
@@ -290,7 +290,7 @@ describe("DeDiClient 404 fallback logging", () => {
     vi.useRealTimers();
   });
 
-  it("logs warn on 404 fallback in queryRevocationHash", async () => {
+  it("throws on 404 instead of treating as not-revoked", async () => {
     const logger = createLogger();
 
     mockFetch.mockResolvedValue(new Response(null, { status: 404 }));
@@ -305,12 +305,7 @@ describe("DeDiClient 404 fallback logging", () => {
       logger,
     });
 
-    const result = await client.queryRevocationHash("missing-hash");
-
-    expect(result).toEqual({ hash: "missing-hash", revoked: false });
-    expect(logger.warn).toHaveBeenCalledWith(
-      "Received 404 for hash lookup in namespace example.com, treating as not-revoked",
-    );
+    await expect(client.queryRevocationHash("missing-hash")).rejects.toThrow();
   });
 });
 
