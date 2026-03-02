@@ -2,7 +2,8 @@
 # OpenCred — Docker Compose (Production)
 # ==============================================================================
 # Usage:
-#   docker compose up -d          # Start all services
+#   docker compose up -d          # Start all services (local build)
+#   docker compose --profile registry up -d  # Use pre-built registry images
 #   docker compose down            # Stop all services
 #   docker compose logs -f api     # Follow API logs
 #
@@ -22,6 +23,7 @@ services:
       - ./apps/api/.env
     environment:
       - NODE_ENV=production
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:8080}
     volumes:
       # Mount CSCA trust store PEM files (read-only)
       - csca-trust-store:/app/csca-trust-store:ro
@@ -76,6 +78,92 @@ services:
       retries: 3
     # --- Security Hardening ---
     # Runs as non-root nginx user on unprivileged port 8080 — no caps needed
+    read_only: true
+    tmpfs:
+      - /tmp:size=32M
+      - /var/cache/nginx:size=64M
+      - /var/run:size=1M
+      - /var/log/nginx:size=16M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # --- Registry-based services (use with: docker compose --profile registry up -d) ---
+  api-registry:
+    image: ${API_IMAGE:-ghcr.io/nfh-trust-labs/opencred/opencred-api:latest}
+    profiles: ["registry"]
+    container_name: opencred-api-registry
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-3000}:3000"
+    env_file:
+      - ./apps/api/.env
+    environment:
+      - NODE_ENV=production
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:8080}
+    volumes:
+      - csca-trust-store:/app/csca-trust-store:ro
+    networks:
+      - opencred-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  web-registry:
+    image: ${WEB_IMAGE:-ghcr.io/nfh-trust-labs/opencred/opencred-web:latest}
+    profiles: ["registry"]
+    container_name: opencred-web-registry
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    depends_on:
+      api-registry:
+        condition: service_healthy
+    networks:
+      - opencred-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
     read_only: true
     tmpfs:
       - /tmp:size=32M

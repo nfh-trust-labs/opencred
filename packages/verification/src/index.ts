@@ -9,7 +9,7 @@ export type {
 
 export { verifyCredential, detectFormat } from "./verifier.js";
 export { verifyDataIntegrity } from "./data-integrity.js";
-export { verifyVcJwt, extractVcJwtCredentialFields } from "./vc-jwt.js";
+export { verifyVcJwt, extractVcJwtCredentialFields, crossValidateVcJwtClaims } from "./vc-jwt.js";
 export type { VcJwtPayload } from "./vc-jwt.js";
 export {
   verifySdJwtVc,
@@ -18,8 +18,9 @@ export {
   processDisclosures,
   extractSdJwtVcCredentialFields,
 } from "./sd-jwt-vc.js";
-export type { SdJwtVcComponents, SdJwtVcPayload, Disclosure } from "./sd-jwt-vc.js";
+export type { SdJwtVcComponents, SdJwtVcPayload, SdJwtVcVerifyOptions, Disclosure } from "./sd-jwt-vc.js";
 export { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
+export type { BitstringStatusListOptions } from "./checks.js";
 export { checkDelegationChain } from "./delegation-check.js";
 export type { DelegationCheckOptions } from "./delegation-check.js";
 export { publicKeyFromMultibase } from "./key-utils.js";

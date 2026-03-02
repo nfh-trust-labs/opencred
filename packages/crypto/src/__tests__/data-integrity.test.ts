@@ -288,6 +288,119 @@ describe("multibaseEncode / multibaseDecode", () => {
   });
 });
 
+describe("verifyProof — error propagation", () => {
+  it("re-throws TypeError instead of swallowing it", async () => {
+    const unsignedVC = createTestCredential();
+    const signingKey = createTestSigningKey("did:web:university.example#key-1");
+    const signedVC = await signCredential(unsignedVC, signingKey, defaultProofOptions);
+
+    // Use a Proxy to throw TypeError after the early proofValue check passes
+    const corrupted = {
+      ...signedVC,
+      proof: new Proxy(signedVC.proof, {
+        get(target, prop) {
+          if (prop === "verificationMethod") {
+            throw new TypeError("simulated TypeError");
+          }
+          return Reflect.get(target, prop);
+        },
+      }),
+    } as VerifiableCredential;
+
+    await expect(verifyProof(corrupted, { publicKey: signingKey.publicKey })).rejects.toThrow(
+      TypeError,
+    );
+  });
+
+  it("re-throws ReferenceError instead of swallowing it", async () => {
+    const unsignedVC = createTestCredential();
+    const signingKey = createTestSigningKey("did:web:university.example#key-1");
+    const signedVC = await signCredential(unsignedVC, signingKey, defaultProofOptions);
+
+    const corrupted = {
+      ...signedVC,
+      proof: new Proxy(signedVC.proof, {
+        get(target, prop) {
+          if (prop === "verificationMethod") {
+            throw new ReferenceError("simulated ReferenceError");
+          }
+          return Reflect.get(target, prop);
+        },
+      }),
+    } as VerifiableCredential;
+
+    await expect(verifyProof(corrupted, { publicKey: signingKey.publicKey })).rejects.toThrow(
+      ReferenceError,
+    );
+  });
+
+  it("re-throws SyntaxError instead of swallowing it", async () => {
+    const unsignedVC = createTestCredential();
+    const signingKey = createTestSigningKey("did:web:university.example#key-1");
+    const signedVC = await signCredential(unsignedVC, signingKey, defaultProofOptions);
+
+    const corrupted = {
+      ...signedVC,
+      proof: new Proxy(signedVC.proof, {
+        get(target, prop) {
+          if (prop === "verificationMethod") {
+            throw new SyntaxError("simulated SyntaxError");
+          }
+          return Reflect.get(target, prop);
+        },
+      }),
+    } as VerifiableCredential;
+
+    await expect(verifyProof(corrupted, { publicKey: signingKey.publicKey })).rejects.toThrow(
+      SyntaxError,
+    );
+  });
+
+  it("re-throws RangeError instead of swallowing it", async () => {
+    const unsignedVC = createTestCredential();
+    const signingKey = createTestSigningKey("did:web:university.example#key-1");
+    const signedVC = await signCredential(unsignedVC, signingKey, defaultProofOptions);
+
+    const corrupted = {
+      ...signedVC,
+      proof: new Proxy(signedVC.proof, {
+        get(target, prop) {
+          if (prop === "verificationMethod") {
+            throw new RangeError("simulated RangeError");
+          }
+          return Reflect.get(target, prop);
+        },
+      }),
+    } as VerifiableCredential;
+
+    await expect(verifyProof(corrupted, { publicKey: signingKey.publicKey })).rejects.toThrow(
+      RangeError,
+    );
+  });
+
+  it("catches generic Error and returns { verified: false }", async () => {
+    const unsignedVC = createTestCredential();
+    const signingKey = createTestSigningKey("did:web:university.example#key-1");
+    const signedVC = await signCredential(unsignedVC, signingKey, defaultProofOptions);
+
+    const corrupted = {
+      ...signedVC,
+      proof: new Proxy(signedVC.proof, {
+        get(target, prop) {
+          if (prop === "verificationMethod") {
+            throw new Error("simulated generic error");
+          }
+          return Reflect.get(target, prop);
+        },
+      }),
+    } as VerifiableCredential;
+
+    const result = await verifyProof(corrupted, { publicKey: signingKey.publicKey });
+    expect(result.verified).toBe(false);
+    expect(result.error).toContain("simulated generic error");
+  });
+});
+
 describe("proof with domain and challenge", () => {
   it("should include domain and challenge in the proof", async () => {
     const unsignedVC = createTestCredential();

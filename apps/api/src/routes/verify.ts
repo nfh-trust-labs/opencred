@@ -76,13 +76,13 @@ export function createVerifyRoutes(deps: VerifyRoutesDeps = {}) {
         : { passed: false, detail: "Signature check was not performed" },
       expiry: dateCheck
         ? { passed: dateCheck.passed, ...(dateCheck.detail && { detail: dateCheck.detail }) }
-        : { passed: true },
+        : { passed: false, detail: "Expiry check was not performed" },
       revocation: revocationCheck
         ? {
             passed: revocationCheck.passed,
             ...(revocationCheck.detail && { detail: revocationCheck.detail }),
           }
-        : { passed: true },
+        : { passed: false, detail: "Revocation check was not performed" },
     };
 
     // DSC/CSCA chain validation (optional)

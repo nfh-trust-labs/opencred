@@ -33,7 +33,7 @@ EnvironmentFile=/opt/opencred/.env
 ExecStartPre=/usr/bin/docker compose -f /opt/opencred/docker-compose.yml pull --quiet
 ExecStart=/usr/bin/docker compose -f /opt/opencred/docker-compose.yml up -d --remove-orphans
 ExecStop=/usr/bin/docker compose -f /opt/opencred/docker-compose.yml down
-ExecReload=/usr/bin/docker compose -f /opt/opencred/docker-compose.yml pull --quiet && /usr/bin/docker compose -f /opt/opencred/docker-compose.yml up -d --remove-orphans
+ExecReload=/bin/sh -c '/usr/bin/docker compose -f /opt/opencred/docker-compose.yml pull --quiet && /usr/bin/docker compose -f /opt/opencred/docker-compose.yml up -d --remove-orphans'
 
 # Restart policy
 Restart=on-failure
@@ -51,9 +51,9 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=opencred
 
-# Resource limits (optional — adjust based on VM size)
-# LimitNOFILE=65535
-# MemoryMax=2G
+# Resource limits
+LimitNOFILE=65535
+MemoryMax=2G
 
 [Install]
 WantedBy=multi-user.target

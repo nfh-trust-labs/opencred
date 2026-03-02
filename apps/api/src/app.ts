@@ -14,7 +14,7 @@ import {
 } from "./middleware/index.js";
 import type { AuthMiddlewareOptions, RateLimitStore } from "./middleware/index.js";
 import { namespaceRateLimitKey } from "./middleware/rate-limit-keys.js";
-import { health } from "./routes/health.js";
+import { createHealthRoutes } from "./routes/health.js";
 import { createRevokeRoute } from "./routes/revoke.js";
 import { createVerifyRoutes } from "./routes/verify.js";
 import { createCredentialsRoute } from "./routes/credentials.js";
@@ -27,6 +27,11 @@ import {
   type DomainVerificationDeps,
   type TypeBOnboardingDeps,
 } from "./routes/domain-verification.js";
+import {
+  createSchemaStubRoutes,
+  createDelegationStubRoutes,
+  createRevocationStatusStubRoutes,
+} from "./routes/stubs.js";
 import { TrustStore } from "./dsc-chain.js";
 
 export interface AppDependencies {
@@ -42,9 +47,12 @@ export interface AppDependencies {
   caAdapter?: CertificateAuthorityAdapter;
   domainVerificationDeps?: DomainVerificationDeps;
   typeBOnboardingDeps?: TypeBOnboardingDeps;
-  /** Pluggable rate-limit store — defaults to in-memory (#151). */
+  /** Pluggable rate-limit store (e.g. Redis-backed) for multi-instance deployments. */
   rateLimitStore?: RateLimitStore;
-  /** Number of trusted reverse-proxy hops (0 = ignore XFF) (#125). */
+  /**
+   * Number of trusted reverse-proxy hops.  Controls how X-Forwarded-For is
+   * interpreted for rate limiting.  Default `0` ignores the header entirely.
+   */
   trustedProxyHops?: number;
 }
 
@@ -53,12 +61,13 @@ export function createApp(deps: AppDependencies) {
   const logger = deps.logger ?? createLogger(config);
   const app = new Hono();
 
-  // CORS — locked to configured origin
+  // CORS — locked to configured origin.
+  // Only allow HTTP methods that the API actually defines routes for (#144).
   app.use(
     "/*",
     cors({
       origin: config.CORS_ORIGIN,
-      allowMethods: ["GET", "POST", "OPTIONS"],
+      allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
       allowHeaders: ["Content-Type", "Authorization"],
       exposeHeaders: [
         "X-Request-Id",
@@ -75,11 +84,15 @@ export function createApp(deps: AppDependencies) {
   app.use("/*", requestLogger(logger));
 
   // Request body size limit — reject oversized payloads early (#174).
+  // 1 MiB for general endpoints; batch CSV upload routes may need their own
+  // higher limit applied at the route level.
   app.use("/*", bodyLimitMiddleware({ maxSize: 1024 * 1024 }));
 
+  // Shared rate-limit config
   const trustedProxyHops = deps.trustedProxyHops ?? 0;
 
-  // Global rate limit (#125, #175 — uses trusted proxy hops for safe IP extraction)
+  // Global rate limit — applies to all endpoints.
+  // Uses trusted proxy configuration to prevent IP spoofing (#125, #175).
   app.use(
     "/*",
     rateLimitMiddleware({
@@ -90,7 +103,9 @@ export function createApp(deps: AppDependencies) {
     }),
   );
 
-  // Per-namespace rate limit on credential endpoints (#145)
+  // Per-namespace rate limit for credential endpoints (#145).
+  // This is keyed on the issuer namespace extracted from the JWT subject
+  // claim, falling back to the client IP for unauthenticated requests.
   app.use(
     "/credentials/*",
     rateLimitMiddleware({
@@ -109,7 +124,8 @@ export function createApp(deps: AppDependencies) {
       : undefined);
 
   // Health check (before auth — unauthenticated)
-  app.route("/", health);
+  // Liveness at /health, readiness (with dependency checks) at /health/ready
+  app.route("/", createHealthRoutes({ dediClient: deps.dediClient }));
 
   // Public verification endpoint (no auth required)
   app.route("/verify", createVerifyRoutes({ trustStore, dediClient: deps.dediClient }));
@@ -210,6 +226,11 @@ export function createApp(deps: AppDependencies) {
       app.route("/", createBatchRevokeRoute(deps.dediClient));
     }
   }
+
+  // PRD-specified stub endpoints (#132) — 501 Not Implemented placeholders
+  app.route("/schemas", createSchemaStubRoutes());
+  app.route("/delegations", createDelegationStubRoutes());
+  app.route("/revocation-status", createRevocationStatusStubRoutes());
 
   // Error handler
   app.onError(errorHandler(logger));

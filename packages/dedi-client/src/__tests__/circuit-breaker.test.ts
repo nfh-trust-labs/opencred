@@ -124,6 +124,59 @@ describe("CircuitBreaker", () => {
     expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
   });
 
+
+  // ── countAuthFailures ─────────────────────────────────────────────
+
+  describe("countAuthFailures", () => {
+    it("stays CLOSED on repeated 401s when countAuthFailures is false (default)", async () => {
+      const cb = new CircuitBreaker({ threshold: 3 });
+
+      for (let i = 0; i < 10; i++) {
+        await expect(
+          cb.execute(() => Promise.reject(new DeDiClientError("unauthorized", 401))),
+        ).rejects.toThrow("unauthorized");
+      }
+
+      expect(cb.getState()).toBe(CircuitBreakerState.CLOSED);
+    });
+
+    it("opens on repeated 401s when countAuthFailures is true", async () => {
+      const cb = new CircuitBreaker({ threshold: 3, countAuthFailures: true });
+
+      for (let i = 0; i < 3; i++) {
+        await expect(
+          cb.execute(() => Promise.reject(new DeDiClientError("unauthorized", 401))),
+        ).rejects.toThrow("unauthorized");
+      }
+
+      expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
+    });
+
+    it("opens on repeated 403s when countAuthFailures is true", async () => {
+      const cb = new CircuitBreaker({ threshold: 3, countAuthFailures: true });
+
+      for (let i = 0; i < 3; i++) {
+        await expect(
+          cb.execute(() => Promise.reject(new DeDiClientError("forbidden", 403))),
+        ).rejects.toThrow("forbidden");
+      }
+
+      expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
+    });
+
+    it("stays CLOSED on repeated 400s even when countAuthFailures is true", async () => {
+      const cb = new CircuitBreaker({ threshold: 3, countAuthFailures: true });
+
+      for (let i = 0; i < 10; i++) {
+        await expect(
+          cb.execute(() => Promise.reject(new DeDiClientError("bad request", 400))),
+        ).rejects.toThrow("bad request");
+      }
+
+      expect(cb.getState()).toBe(CircuitBreakerState.CLOSED);
+    });
+  });
+
   it("resets failure count on success", async () => {
     const cb = new CircuitBreaker({ threshold: 3 });
 

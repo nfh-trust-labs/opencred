@@ -48,6 +48,9 @@ const batchSubmitSchema = z.object({
   revocationRegistryUrl: z.string().min(1).optional(),
   // Delegated Signing fields
   delegationId: z.string().min(1).optional(),
+  // TODO (#176): Implement webhook callback for batch completion.
+  // When provided, POST a completion notification to this URL when the batch finishes.
+  // webhookUrl: z.string().url().optional(),
 });
 
 const batchSignaturesSchema = z.object({

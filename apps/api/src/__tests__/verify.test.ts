@@ -268,7 +268,7 @@ describe("POST /verify", () => {
   });
 
   describe("result code: VALID", () => {
-    it("returns VALID for a correctly signed credential", async () => {
+    it("returns VALID for a correctly signed credential with all checks", async () => {
       const spy = vi.spyOn(await import("@opencred/verification"), "verifyCredential");
       spy.mockResolvedValueOnce({
         code: "VALID",
@@ -276,6 +276,7 @@ describe("POST /verify", () => {
         checks: [
           { name: "signature", passed: true },
           { name: "date", passed: true },
+          { name: "revocation", passed: true },
         ],
       });
 
@@ -295,6 +296,36 @@ describe("POST /verify", () => {
       expect(body.checks.expiry.passed).toBe(true);
       expect(body.checks.revocation.passed).toBe(true);
       expect(body.checks.dscChain).toBeUndefined();
+
+      spy.mockRestore();
+    });
+
+    it("defaults skipped expiry and revocation checks to failed (not passed)", async () => {
+      const spy = vi.spyOn(await import("@opencred/verification"), "verifyCredential");
+      spy.mockResolvedValueOnce({
+        code: "VALID",
+        verified: true,
+        checks: [
+          { name: "signature", passed: true },
+        ],
+      });
+
+      const app = createTestApp();
+      const res = await app.request("/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          credential: { proof: { type: "DataIntegrityProof" }, type: ["VerifiableCredential"] },
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as VerifyResponseBody;
+      // When checks are missing from verifier result, the API must default to failed
+      expect(body.checks.expiry.passed).toBe(false);
+      expect(body.checks.expiry.detail).toContain("not performed");
+      expect(body.checks.revocation.passed).toBe(false);
+      expect(body.checks.revocation.detail).toContain("not performed");
 
       spy.mockRestore();
     });

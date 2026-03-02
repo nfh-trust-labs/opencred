@@ -20,6 +20,7 @@ export function createHealthRoutes(deps: HealthDeps = {}) {
   healthRouter.get("/health/ready", async (c) => {
     const checks: Record<string, { status: "ok" | "unavailable"; detail?: string }> = {};
 
+    // Check DeDi connectivity if configured
     if (deps.dediClient) {
       try {
         await deps.dediClient.apiClient.getStats();
