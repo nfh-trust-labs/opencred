@@ -15,24 +15,39 @@ import {
  */
 
 type ResponseRule = {
-  data: unknown;
-  ok: boolean;
-  error?: string;
+  result: unknown;
+  success: boolean;
+  error?: { code: string; message: string };
 };
 
 let nextResponse: ResponseRule | null = null;
-let capturedRequests: Array<{ action: string; payload: Record<string, unknown>; id: string }> = [];
+let nextDetectResponse: boolean = false;
+let capturedRequests: Array<{ operation: string; payload: Record<string, unknown>; id: string }> = [];
 let originalPostMessage: typeof window.postMessage;
 
 function setupMockPostMessage() {
   originalPostMessage = window.postMessage.bind(window);
 
   window.postMessage = vi.fn((message: unknown) => {
-    const msg = message as { type?: string; id?: string; action?: string; payload?: Record<string, unknown> };
+    const msg = message as { type?: string; id?: string; operation?: string; payload?: Record<string, unknown> };
+
+    // Handle detect messages
+    if (msg?.type === "opencred-signing-detect") {
+      if (nextDetectResponse) {
+        nextDetectResponse = false;
+        const event = new MessageEvent("message", {
+          data: { type: "opencred-signing-detect-response", available: true, version: "1.0.0" },
+          source: window,
+        });
+        window.dispatchEvent(event);
+      }
+      return;
+    }
+
     if (msg?.type !== "opencred-signing-request") return;
 
     capturedRequests.push({
-      action: msg.action!,
+      operation: msg.operation!,
       payload: msg.payload!,
       id: msg.id!,
     });
@@ -43,10 +58,9 @@ function setupMockPostMessage() {
       const response = {
         type: "opencred-signing-response",
         id: msg.id,
-        ok: rule.ok,
-        ...(rule.ok ? { data: rule.data } : { error: rule.error }),
+        success: rule.success,
+        ...(rule.success ? { result: rule.result } : { error: rule.error }),
       };
-      // Dispatch as a MessageEvent so the listener in extension-client picks it up
       const event = new MessageEvent("message", {
         data: response,
         source: window,
@@ -56,8 +70,17 @@ function setupMockPostMessage() {
   }) as unknown as typeof window.postMessage;
 }
 
-function queueResponse(data: unknown, opts: { ok?: boolean; error?: string } = {}) {
-  nextResponse = { data, ok: opts.ok ?? true, error: opts.error };
+function queueResponse(result: unknown, opts: { success?: boolean; error?: string } = {}) {
+  const success = opts.success ?? true;
+  nextResponse = {
+    result,
+    success,
+    error: success ? undefined : { code: "ERROR", message: opts.error ?? "Unknown error" },
+  };
+}
+
+function queueDetectResponse() {
+  nextDetectResponse = true;
 }
 
 describe("extension-client", () => {
@@ -73,7 +96,7 @@ describe("extension-client", () => {
 
   describe("detectExtension", () => {
     it("returns { available: true } when extension responds", async () => {
-      queueResponse({ available: true, version: "1.0.0" });
+      queueDetectResponse();
       const result = await detectExtension();
       expect(result).toEqual({ available: true, version: "1.0.0" });
     });
@@ -111,7 +134,7 @@ describe("extension-client", () => {
       });
 
       expect(capturedRequests).toHaveLength(1);
-      expect(capturedRequests[0].action).toBe("pkcs11.connect");
+      expect(capturedRequests[0].operation).toBe("pkcs11.connect");
       expect(capturedRequests[0].payload).toEqual({
         libraryPath: "/usr/lib/opensc-pkcs11.so",
         slotIndex: 0,
@@ -130,7 +153,7 @@ describe("extension-client", () => {
       const result = await pkcs11.sign("signer-123", "AQID");
 
       expect(capturedRequests).toHaveLength(1);
-      expect(capturedRequests[0].action).toBe("pkcs11.sign");
+      expect(capturedRequests[0].operation).toBe("pkcs11.sign");
       expect(capturedRequests[0].payload).toEqual({
         signerId: "signer-123",
         dataBase64: "AQID",
@@ -173,7 +196,7 @@ describe("extension-client", () => {
     });
 
     it("error response throws NativeHostError", async () => {
-      queueResponse(null, { ok: false, error: "Token removed" });
+      queueResponse(null, { success: false, error: "Token removed" });
 
       await expect(pkcs11.sign("signer-123", "AQID")).rejects.toThrow(
         NativeHostError,
@@ -181,7 +204,7 @@ describe("extension-client", () => {
     });
 
     it("error response includes message", async () => {
-      queueResponse(null, { ok: false, error: "Token removed" });
+      queueResponse(null, { success: false, error: "Token removed" });
 
       await expect(pkcs11.sign("signer-123", "AQID")).rejects.toThrow(
         "Token removed",

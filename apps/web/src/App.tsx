@@ -16,12 +16,15 @@ export default function App() {
   const [token, setToken] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [extensionAvailable, setExtensionAvailable] = useState(false);
+  const [extensionChecked, setExtensionChecked] = useState(false);
 
   useEffect(() => {
+    if (activeTab !== "builder" || extensionChecked) return;
+    setExtensionChecked(true);
     detectExtension().then((result) => {
       setExtensionAvailable(result.available);
     });
-  }, []);
+  }, [activeTab, extensionChecked]);
 
   return (
     <div className="min-h-screen bg-gray-50">

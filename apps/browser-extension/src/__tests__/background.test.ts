@@ -20,7 +20,7 @@ import { chromeMock, mockPort, TEST_ORIGIN } from "./chrome-mock-setup.js";
 import {
   handleRuntimeMessage,
   isOriginAllowed,
-  pendingRequests,
+  clearPendingRequests,
 } from "../background.js";
 
 // ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@ describe("native host relay", () => {
     // Step 2: Reset everything
     nativePortMessageCb = undefined;
     nativePortDisconnectCb = undefined;
-    pendingRequests.clear();
+    clearPendingRequests();
 
     mockPort.postMessage.mockClear();
     chromeMock.runtime.connectNative.mockClear();
@@ -211,7 +211,7 @@ describe("native host relay", () => {
 
     // Disconnect
     nativePortDisconnectCb!();
-    pendingRequests.clear();
+    clearPendingRequests();
 
     // Re-set mocks for new connection
     mockPort.onMessage.addListener.mockImplementation((cb: MessageCallback) => {

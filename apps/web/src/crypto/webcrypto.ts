@@ -73,10 +73,7 @@ export function extractPublicKeyId(jwk: { x: string; y: string }): string {
  * Sign data using ECDSA P-256 with SHA-256. Returns raw r||s signature (64 bytes).
  */
 export async function signData(key: CryptoKey, data: Uint8Array): Promise<Uint8Array> {
-  // Copy to a plain ArrayBuffer to satisfy TypeScript's BufferSource constraint
-  const buffer = new ArrayBuffer(data.byteLength);
-  new Uint8Array(buffer).set(data);
-  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, buffer);
+  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, data);
   return new Uint8Array(sig);
 }
 
@@ -97,7 +94,10 @@ export function base64urlDecode(str: string): Uint8Array {
  * Encode a Uint8Array as base64url.
  */
 export function base64urlEncode(bytes: Uint8Array): string {
-  const binary = String.fromCharCode(...bytes);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 

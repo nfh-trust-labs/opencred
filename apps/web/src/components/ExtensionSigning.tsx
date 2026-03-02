@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { pkcs11, oscert } from "../crypto/extension-client";
 import { createPkcs11Signer, createOsCertSigner } from "../crypto/signing-provider";
 import type { WebSigner, SlotInfo, TokenKeyInfo, CertInfo } from "../crypto/types";
@@ -29,6 +29,16 @@ function Pkcs11Flow({ onSignerReady }: { onSignerReady: (signer: WebSigner) => v
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const signerIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      const id = signerIdRef.current;
+      if (id) {
+        void pkcs11.disconnect(id).catch(() => {});
+      }
+    };
+  }, []);
 
   async function handleListSlots() {
     setError(null);
@@ -76,6 +86,7 @@ function Pkcs11Flow({ onSignerReady }: { onSignerReady: (signer: WebSigner) => v
         pin,
         keyId: selectedKey ?? undefined,
       });
+      signerIdRef.current = result.signerId;
       const signer = createPkcs11Signer(result.signerId, result.metadata);
       setConnected(true);
       onSignerReady(signer);
@@ -219,6 +230,16 @@ function OsCertFlow({ onSignerReady }: { onSignerReady: (signer: WebSigner) => v
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const signerIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      const id = signerIdRef.current;
+      if (id) {
+        void oscert.disconnect(id).catch(() => {});
+      }
+    };
+  }, []);
 
   async function handleListCerts() {
     setError(null);
@@ -243,6 +264,7 @@ function OsCertFlow({ onSignerReady }: { onSignerReady: (signer: WebSigner) => v
     setLoading(true);
     try {
       const result = await oscert.connect(selectedCertId, cert?.subject);
+      signerIdRef.current = result.signerId;
       const signer = createOsCertSigner(result.signerId, result.metadata);
       setConnected(true);
       onSignerReady(signer);

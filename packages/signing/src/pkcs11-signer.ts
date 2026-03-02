@@ -60,6 +60,10 @@ export interface Pkcs11SignerOptions {
 export interface Pkcs11SignerResult {
   signer: Signer;
   availableKeys: Pkcs11KeyInfo[];
+  /** The PKCS#11 instance (needed for destroyPkcs11Signer). */
+  pkcs11Instance: pkcs11js.PKCS11;
+  /** The PKCS#11 session (needed for destroyPkcs11Signer). */
+  session: Pkcs11Session;
 }
 
 /**
@@ -194,7 +198,7 @@ export function createPkcs11Signer(options: Pkcs11SignerOptions): Pkcs11SignerRe
     },
   };
 
-  return { signer, availableKeys };
+  return { signer, availableKeys, pkcs11Instance: p11, session };
 }
 
 /**

@@ -15,6 +15,7 @@
 import { randomUUID } from "node:crypto";
 import {
   createPkcs11Signer,
+  destroyPkcs11Signer,
   initializePkcs11,
   finalizePkcs11,
   listSlots,
@@ -140,7 +141,7 @@ export function pkcs11Connect(
   keyId?: string,
   label?: string,
 ): { signerId: string; metadata: SignerMetadata } {
-  const { signer, availableKeys: _availableKeys } = createPkcs11Signer({
+  const { signer, pkcs11Instance, session } = createPkcs11Signer({
     libraryPath,
     slotIndex,
     pin,
@@ -148,26 +149,12 @@ export function pkcs11Connect(
     label,
   });
 
-  // The createPkcs11Signer opens its own session internally.
-  // We need the pkcs11 instance and session handle for cleanup.
-  // Re-initialize to get references we can track.
-  // Actually, createPkcs11Signer handles this internally — we need to
-  // extract the PKCS11 instance and session. Since the signer captures
-  // the session in its closure, we re-init to get trackable handles.
-  //
-  // The better approach: create the session ourselves and pass to signer.
-  // But createPkcs11Signer bundles all of this. For cleanup, we'll
-  // re-initialize and track the instance.
-
-  const p11 = initializePkcs11(libraryPath);
-  const session = openSession(p11, slotIndex, pin);
-
   const signerId = randomUUID();
 
   sessions.set(signerId, {
     kind: "pkcs11",
     signer,
-    pkcs11Instance: p11,
+    pkcs11Instance,
     session,
   });
 
@@ -204,22 +191,15 @@ export async function pkcs11Sign(
  */
 export function pkcs11Disconnect(signerId: string): void {
   const managed = sessions.get(signerId);
-  if (!managed) {
-    return; // Already disconnected or never connected
+  if (!managed || managed.kind !== "pkcs11") {
+    sessions.delete(signerId);
+    return;
   }
 
-  if (managed.kind === "pkcs11") {
-    try {
-      closeSession(managed.session);
-    } catch {
-      // Ignore close errors during cleanup
-    }
-
-    try {
-      finalizePkcs11(managed.pkcs11Instance);
-    } catch {
-      // Ignore finalize errors during cleanup
-    }
+  try {
+    destroyPkcs11Signer(managed.session, managed.pkcs11Instance);
+  } catch {
+    // Ignore cleanup errors
   }
 
   sessions.delete(signerId);
@@ -339,7 +319,10 @@ export function getActiveSessionCount(): number {
  * Disconnect all active sessions. Used during shutdown.
  */
 export function disconnectAll(): void {
-  for (const [signerId, managed] of sessions.entries()) {
+  const signerIds = [...sessions.keys()];
+  for (const signerId of signerIds) {
+    const managed = sessions.get(signerId);
+    if (!managed) continue;
     if (managed.kind === "pkcs11") {
       pkcs11Disconnect(signerId);
     } else {

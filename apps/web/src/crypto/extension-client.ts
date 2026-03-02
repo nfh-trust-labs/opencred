@@ -49,20 +49,22 @@ export class TimeoutError extends Error {
 
 const REQUEST_TYPE = "opencred-signing-request";
 const RESPONSE_TYPE = "opencred-signing-response";
+const DETECT_TYPE = "opencred-signing-detect";
+const DETECT_RESPONSE_TYPE = "opencred-signing-detect-response";
 
 interface ExtensionRequest {
   type: typeof REQUEST_TYPE;
   id: string;
-  action: string;
+  operation: string;
   payload: Record<string, unknown>;
 }
 
 interface ExtensionResponse {
   type: typeof RESPONSE_TYPE;
   id: string;
-  ok: boolean;
-  data?: unknown;
-  error?: string;
+  success: boolean;
+  result?: Record<string, unknown>;
+  error?: { code: string; message: string };
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -73,7 +75,7 @@ const DETECT_TIMEOUT_MS = 5_000;
 // ---------------------------------------------------------------------------
 
 function sendRequest<T>(
-  action: string,
+  operation: string,
   payload: Record<string, unknown>,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
@@ -93,10 +95,10 @@ function sendRequest<T>(
       clearTimeout(timer);
       window.removeEventListener("message", handler);
 
-      if (msg.ok) {
-        resolve(msg.data as T);
+      if (msg.success) {
+        resolve(msg.result as T);
       } else {
-        reject(new NativeHostError(msg.error ?? "Unknown extension error"));
+        reject(new NativeHostError(msg.error?.message ?? "Unknown extension error"));
       }
     }
 
@@ -105,7 +107,7 @@ function sendRequest<T>(
     const request: ExtensionRequest = {
       type: REQUEST_TYPE,
       id,
-      action,
+      operation,
       payload,
     };
     window.postMessage(request, "*");
@@ -119,14 +121,25 @@ function sendRequest<T>(
 export function detectExtension(
   timeoutMs = DETECT_TIMEOUT_MS,
 ): Promise<ExtensionDetectResult> {
-  return sendRequest<ExtensionDetectResult>("detect", {}, timeoutMs).catch(
-    (err) => {
-      if (err instanceof TimeoutError) {
-        return { available: false };
-      }
-      throw err;
-    },
-  );
+  return new Promise<ExtensionDetectResult>((resolve) => {
+    const timer = setTimeout(() => {
+      window.removeEventListener("message", handler);
+      resolve({ available: false });
+    }, timeoutMs);
+
+    function handler(event: MessageEvent) {
+      if (event.source !== window) return;
+      const msg = event.data;
+      if (!msg || msg.type !== DETECT_RESPONSE_TYPE) return;
+
+      clearTimeout(timer);
+      window.removeEventListener("message", handler);
+      resolve({ available: true, version: msg.version });
+    }
+
+    window.addEventListener("message", handler);
+    window.postMessage({ type: DETECT_TYPE }, "*");
+  });
 }
 
 // ---------------------------------------------------------------------------
