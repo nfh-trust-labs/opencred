@@ -1,4 +1,6 @@
 import { DeDiClientError } from "@opencred/shared";
+import type { DeDiLogger } from "../logger.js";
+import { noopLogger } from "../logger.js";
 import type { DeDiAuthTokens } from "./types.js";
 
 export interface DeDiAuthConfig {
@@ -6,6 +8,7 @@ export interface DeDiAuthConfig {
   auth:
     | { type: "api-key"; apiKey: string }
     | { type: "bearer"; email: string; password: string; refreshBufferMs?: number };
+  logger?: DeDiLogger;
 }
 
 const DEFAULT_REFRESH_BUFFER_MS = 60_000;
@@ -13,6 +16,7 @@ const DEFAULT_REFRESH_BUFFER_MS = 60_000;
 export class DeDiTokenManager {
   private readonly config: DeDiAuthConfig;
   private readonly refreshBufferMs: number;
+  private readonly logger: DeDiLogger;
 
   private accessToken = "";
   private refreshToken = "";
@@ -22,6 +26,7 @@ export class DeDiTokenManager {
 
   constructor(config: DeDiAuthConfig) {
     this.config = config;
+    this.logger = config.logger ?? noopLogger;
     this.refreshBufferMs =
       config.auth.type === "bearer"
         ? (config.auth.refreshBufferMs ?? DEFAULT_REFRESH_BUFFER_MS)
@@ -99,6 +104,9 @@ export class DeDiTokenManager {
     });
 
     if (!response.ok) {
+      this.logger.error(
+        `DeDi authentication failed with status ${response.status}`,
+      );
       throw new DeDiClientError(
         `DeDi authentication failed: ${response.status}`,
         response.status,
@@ -119,6 +127,7 @@ export class DeDiTokenManager {
     }
     const tokens = body as DeDiAuthTokens;
     this.setTokens(tokens);
+    this.logger.debug("DeDi login successful");
   }
 
   private async performRefresh(): Promise<void> {
@@ -150,6 +159,7 @@ export class DeDiTokenManager {
     }
     const tokens = body as DeDiAuthTokens;
     this.setTokens(tokens);
+    this.logger.debug("DeDi token refresh successful");
   }
 
   private setTokens(tokens: DeDiAuthTokens): void {
