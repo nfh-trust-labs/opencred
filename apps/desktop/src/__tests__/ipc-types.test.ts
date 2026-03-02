@@ -230,11 +230,23 @@ describe("IPC type contracts", () => {
     expect(req.value).toBe("dark");
   });
 
+  it("KeyMetadata should accept optional source field", () => {
+    const meta: KeyMetadata = {
+      id: "abc123",
+      fingerprint: "deadbeef",
+      algorithm: "EC P-256",
+      importedAt: "2026-01-01T00:00:00Z",
+      source: "generated",
+    };
+    expect(meta.source).toBe("generated");
+  });
+
   it("OpenCredDesktopAPI should define all required methods", () => {
     // Create a mock implementation to verify the shape.
     const api: OpenCredDesktopAPI = {
       importKey: async () => ({ success: true }),
       listKeys: async () => ({ keys: [] }),
+      generateKey: async () => ({ success: true }),
       listSchemas: async () => ({ schemas: [] }),
       getSchema: async () => ({ id: "test", schema: {} }),
       signCredential: async () => ({ success: false, error: "stub" }),
@@ -253,6 +265,7 @@ describe("IPC type contracts", () => {
 
     expect(typeof api.importKey).toBe("function");
     expect(typeof api.listKeys).toBe("function");
+    expect(typeof api.generateKey).toBe("function");
     expect(typeof api.listSchemas).toBe("function");
     expect(typeof api.getSchema).toBe("function");
     expect(typeof api.signCredential).toBe("function");
@@ -268,7 +281,7 @@ describe("IPC type contracts", () => {
     expect(typeof api.getConfig).toBe("function");
     expect(typeof api.setConfig).toBe("function");
 
-    // Exactly 16 methods.
-    expect(Object.keys(api)).toHaveLength(16);
+    // Exactly 17 methods.
+    expect(Object.keys(api)).toHaveLength(17);
   });
 });

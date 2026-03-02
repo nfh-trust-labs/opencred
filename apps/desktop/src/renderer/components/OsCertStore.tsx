@@ -37,7 +37,11 @@ interface ConnectedKey {
 
 type Step = "browse" | "certificates" | "connected";
 
-export function OsCertStore() {
+interface OsCertStoreProps {
+  onKeyConnected?: () => void;
+}
+
+export function OsCertStore({ onKeyConnected }: OsCertStoreProps) {
   const [step, setStep] = useState<Step>("browse");
   const [certificates, setCertificates] = useState<CertInfo[]>([]);
   const [storeName, setStoreName] = useState<string>("");
@@ -101,6 +105,7 @@ export function OsCertStore() {
         label: result.key.label,
       });
       setStep("connected");
+      onKeyConnected?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to connect certificate.");
     } finally {

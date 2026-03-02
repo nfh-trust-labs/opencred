@@ -12,6 +12,7 @@ describe("IPC_CHANNELS", () => {
   it("should define all required channel names", () => {
     expect(IPC_CHANNELS.KEY_IMPORT).toBe("key:import");
     expect(IPC_CHANNELS.KEY_LIST).toBe("key:list");
+    expect(IPC_CHANNELS.KEY_GENERATE).toBe("key:generate");
     expect(IPC_CHANNELS.SCHEMA_LIST).toBe("schema:list");
     expect(IPC_CHANNELS.SCHEMA_GET).toBe("schema:get");
     expect(IPC_CHANNELS.SIGN_CREDENTIAL).toBe("credential:sign");
@@ -43,9 +44,9 @@ describe("IPC_CHANNELS", () => {
     expect(IPC_CHANNELS.SET_CONFIG).toBe("config:set");
   });
 
-  it("should have exactly 31 channels defined", () => {
+  it("should have exactly 32 channels defined", () => {
     const channelCount = Object.keys(IPC_CHANNELS).length;
-    expect(channelCount).toBe(31);
+    expect(channelCount).toBe(32);
   });
 
   it("should have unique channel values (no duplicate channel names)", () => {
@@ -74,6 +75,7 @@ describe("IPC_CHANNELS", () => {
     const expectedChannels: Record<string, string> = {
       KEY_IMPORT: "key:import",
       KEY_LIST: "key:list",
+      KEY_GENERATE: "key:generate",
       SCHEMA_LIST: "schema:list",
       SCHEMA_GET: "schema:get",
       SIGN_CREDENTIAL: "credential:sign",

@@ -13,6 +13,8 @@ export const IPC_CHANNELS = {
   KEY_IMPORT: "key:import",
   /** List imported key identifiers. Response: array of key metadata. */
   KEY_LIST: "key:list",
+  /** Generate a fresh ECDSA P-256 keypair in-app. Payload: optional label. Response: key metadata. */
+  KEY_GENERATE: "key:generate",
 
   // --- Schema ---
   /** List all available schema IDs. Response: string array. */

@@ -18,6 +18,7 @@ import type { OpenCredDesktopAPI } from "../shared/ipc-types";
 const CHANNEL_TO_METHOD: Record<string, keyof OpenCredDesktopAPI> = {
   [IPC_CHANNELS.KEY_IMPORT]: "importKey",
   [IPC_CHANNELS.KEY_LIST]: "listKeys",
+  [IPC_CHANNELS.KEY_GENERATE]: "generateKey",
   [IPC_CHANNELS.SCHEMA_LIST]: "listSchemas",
   [IPC_CHANNELS.SCHEMA_GET]: "getSchema",
   [IPC_CHANNELS.SIGN_CREDENTIAL]: "signCredential",
@@ -77,6 +78,7 @@ describe("Preload API completeness", () => {
     const api: OpenCredDesktopAPI = {
       importKey: async () => ({ success: true }),
       listKeys: async () => ({ keys: [] }),
+      generateKey: async () => ({ success: true }),
       listSchemas: async () => ({ schemas: [] }),
       getSchema: async () => ({ id: "test", schema: {} }),
       signCredential: async () => ({ success: false, error: "stub" }),
@@ -142,6 +144,7 @@ describe("Preload API completeness", () => {
     const api: OpenCredDesktopAPI = {
       importKey: async () => ({ success: true }),
       listKeys: async () => ({ keys: [] }),
+      generateKey: async () => ({ success: true }),
       listSchemas: async () => ({ schemas: [] }),
       getSchema: async () => ({ id: "test", schema: {} }),
       signCredential: async () => ({ success: false, error: "stub" }),
@@ -204,6 +207,9 @@ describe("Preload API completeness", () => {
 
     const listResult = api.listKeys();
     expect(listResult).toBeInstanceOf(Promise);
+
+    const generateResult = api.generateKey({});
+    expect(generateResult).toBeInstanceOf(Promise);
 
     const schemaListResult = api.listSchemas();
     expect(schemaListResult).toBeInstanceOf(Promise);
@@ -290,6 +296,7 @@ describe("Preload API completeness", () => {
     await Promise.all([
       importResult,
       listResult,
+      generateResult,
       schemaListResult,
       schemaGetResult,
       signResult,
