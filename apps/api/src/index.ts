@@ -1,9 +1,19 @@
 import { serve } from "@hono/node-server";
 import { DeDiClient } from "@opencred/dedi-client";
+import type { DeDiClientConfig } from "@opencred/dedi-client";
 import { loadConfig } from "@opencred/shared";
+import type { EnvConfig } from "@opencred/shared";
 import { createApp } from "./app.js";
 
 const config = loadConfig();
+
+/** Build DeDi auth from validated env config (credentials come from env vars, never hardcoded). */
+function buildDeDiAuth(env: EnvConfig): DeDiClientConfig["auth"] {
+  if (env.DEDI_AUTH_TYPE === "bearer") {
+    return { type: "bearer", email: env.DEDI_EMAIL!, password: env.DEDI_PASSWORD! };
+  }
+  return { type: "api-key", apiKey: env.DEDI_API_KEY! };
+}
 
 const dediClient = config.DEDI_API_URL
   ? new DeDiClient({
@@ -11,6 +21,8 @@ const dediClient = config.DEDI_API_URL
       timeoutMs: config.DEDI_API_TIMEOUT_MS,
       maxRetries: 3,
       circuitBreakerThreshold: 5,
+      auth: buildDeDiAuth(config),
+      defaultNamespace: config.DEDI_DEFAULT_NAMESPACE,
     })
   : undefined;
 

@@ -8,6 +8,11 @@ export const envSchema = z.object({
   // DeDi integration
   DEDI_API_URL: z.string().url().optional(),
   DEDI_API_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  DEDI_AUTH_TYPE: z.enum(["bearer", "api-key"]).default("api-key"),
+  DEDI_API_KEY: z.string().optional(),
+  DEDI_EMAIL: z.string().email().optional(),
+  DEDI_PASSWORD: z.string().min(1).optional(),
+  DEDI_DEFAULT_NAMESPACE: z.string().optional(),
 
   // Session / state
   SESSION_TTL_MS: z.coerce
@@ -34,6 +39,32 @@ export const envSchema = z.object({
 
   // CORS
   CORS_ORIGIN: z.string().default("http://localhost:5173"),
+}).superRefine((data, ctx) => {
+  if (data.DEDI_API_URL) {
+    if (data.DEDI_AUTH_TYPE === "api-key" && !data.DEDI_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "DEDI_API_KEY is required when DEDI_AUTH_TYPE is 'api-key'",
+        path: ["DEDI_API_KEY"],
+      });
+    }
+    if (data.DEDI_AUTH_TYPE === "bearer") {
+      if (!data.DEDI_EMAIL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "DEDI_EMAIL is required when DEDI_AUTH_TYPE is 'bearer'",
+          path: ["DEDI_EMAIL"],
+        });
+      }
+      if (!data.DEDI_PASSWORD) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "DEDI_PASSWORD is required when DEDI_AUTH_TYPE is 'bearer'",
+          path: ["DEDI_PASSWORD"],
+        });
+      }
+    }
+  }
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

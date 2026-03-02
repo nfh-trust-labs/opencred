@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { DeDiClientError } from "@opencred/shared";
-import { CircuitBreaker } from "../circuit-breaker.js";
-import { CircuitBreakerState } from "../types.js";
+import { CircuitBreaker, CircuitBreakerState } from "../circuit-breaker.js";
 
 describe("CircuitBreaker", () => {
   beforeEach(() => {

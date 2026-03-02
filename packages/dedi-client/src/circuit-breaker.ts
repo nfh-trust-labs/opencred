@@ -1,5 +1,10 @@
 import { DeDiClientError } from "@opencred/shared";
-import { CircuitBreakerState } from "./types.js";
+
+export enum CircuitBreakerState {
+  CLOSED = "CLOSED",
+  OPEN = "OPEN",
+  HALF_OPEN = "HALF_OPEN",
+}
 
 export interface CircuitBreakerOptions {
   threshold: number;
