@@ -7,11 +7,12 @@ import type { EnvConfig } from "@opencred/shared";
 import { createLogger, type Logger } from "./logger.js";
 import {
   authMiddleware,
+  bodyLimitMiddleware,
   errorHandler,
   requestLogger,
   rateLimitMiddleware,
 } from "./middleware/index.js";
-import type { AuthMiddlewareOptions } from "./middleware/index.js";
+import type { AuthMiddlewareOptions, RateLimitStore } from "./middleware/index.js";
 import { health } from "./routes/health.js";
 import { createRevokeRoute } from "./routes/revoke.js";
 import { createVerifyRoutes } from "./routes/verify.js";
@@ -40,6 +41,10 @@ export interface AppDependencies {
   caAdapter?: CertificateAuthorityAdapter;
   domainVerificationDeps?: DomainVerificationDeps;
   typeBOnboardingDeps?: TypeBOnboardingDeps;
+  /** Pluggable rate-limit store — defaults to in-memory (#151). */
+  rateLimitStore?: RateLimitStore;
+  /** Number of trusted reverse-proxy hops (0 = ignore XFF) (#125). */
+  trustedProxyHops?: number;
 }
 
 export function createApp(deps: AppDependencies) {
@@ -52,7 +57,7 @@ export function createApp(deps: AppDependencies) {
     "/*",
     cors({
       origin: config.CORS_ORIGIN,
-      allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      allowMethods: ["GET", "POST", "OPTIONS"],
       allowHeaders: ["Content-Type", "Authorization"],
       exposeHeaders: [
         "X-Request-Id",
@@ -68,12 +73,38 @@ export function createApp(deps: AppDependencies) {
   // Request logger
   app.use("/*", requestLogger(logger));
 
-  // Global rate limit
+  // Request body size limit — reject oversized payloads early (#174).
+  app.use("/*", bodyLimitMiddleware({ maxSize: 1024 * 1024 }));
+
+  const trustedProxyHops = deps.trustedProxyHops ?? 0;
+
+  // Global rate limit (#125, #175 — uses trusted proxy hops for safe IP extraction)
   app.use(
     "/*",
     rateLimitMiddleware({
       windowMs: 60_000,
       maxRequests: 100,
+      store: deps.rateLimitStore,
+      trustedProxyHops,
+    }),
+  );
+
+  // Per-namespace rate limit on credential endpoints (#145)
+  app.use(
+    "/credentials/*",
+    rateLimitMiddleware({
+      windowMs: 60_000,
+      maxRequests: 50,
+      store: deps.rateLimitStore,
+      keyFn: (c) => {
+        const ns = c.get("jwtPayload")?.sub as string | undefined;
+        if (ns) return `ns:${ns}`;
+        const authHeader = c.req.header("authorization");
+        const token =
+          authHeader?.startsWith("Bearer ") ? authHeader.slice(7, 23) : undefined;
+        if (token) return `tok:${token}`;
+        return `anon:credentials`;
+      },
     }),
   );
 
