@@ -44,7 +44,7 @@ function validDelegation(
     id: "del-1",
     issuerDid: "did:key:issuer",
     delegateDid: "did:key:delegate",
-    scope: ["issue"] as const,
+    scope: { credentialTypes: ["UniversityDegreeCredential"], namespaces: ["education"] },
     validFrom: "2026-01-01T00:00:00Z",
     validUntil: "2027-01-01T00:00:00Z",
     certificate: {},
@@ -127,6 +127,25 @@ describe("DeDiClient (adapter)", () => {
         expect.objectContaining({ hash: "abc", revoked: true }),
       );
     });
+
+    it("throws when API returns invalid revocation detail", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord).mockResolvedValue({
+        name: "abc",
+        registry: REVOCATION_REGISTRY,
+        namespace: "example.com",
+        detail: { invalid: true },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.publishRevocationHash("abc")).rejects.toThrow(
+        "Revocation hash detail missing required field: hash",
+      );
+    });
   });
 
   // ── queryRevocationHash ──────────────────────────────────────────
@@ -176,16 +195,16 @@ describe("DeDiClient (adapter)", () => {
       expect(result).toEqual({ hash: "missing", revoked: false });
     });
 
-    it("returns { revoked: false } when registry does not exist (404)", async () => {
+    it("throws on 404 instead of treating as not-revoked", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.search).mockRejectedValue(
         new DeDiClientError("DeDi API error: 404", 404),
       );
 
-      const result = await client.queryRevocationHash("missing");
-
-      expect(result).toEqual({ hash: "missing", revoked: false });
+      await expect(client.queryRevocationHash("missing")).rejects.toThrow(
+        DeDiClientError,
+      );
     });
 
     it("re-throws non-404 errors", async () => {
@@ -197,6 +216,30 @@ describe("DeDiClient (adapter)", () => {
 
       await expect(client.queryRevocationHash("hash")).rejects.toThrow(
         "DeDi API error: 500",
+      );
+    });
+
+    it("throws when revoked record is missing revokedAt", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.search).mockResolvedValue({
+        records: [
+          {
+            name: "abc",
+            registry: REVOCATION_REGISTRY,
+            namespace: "example.com",
+            detail: { hash: "abc", revoked: true },
+            state: "live",
+            version: 1,
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z",
+          },
+        ],
+        total: 1,
+      });
+
+      await expect(client.queryRevocationHash("abc")).rejects.toThrow(
+        "Revocation hash detail missing required field: revokedAt",
       );
     });
   });
@@ -235,15 +278,59 @@ describe("DeDiClient (adapter)", () => {
   // ── registerDelegation validation ──────────────────────────────
 
   describe("registerDelegation validation", () => {
-    it("throws when scope is empty", async () => {
+    it("throws when scope is empty (both credentialTypes and namespaces empty)", async () => {
       const client = createClient("example.com");
       const delegation = validDelegation({
-        scope: [] as unknown as readonly [string, ...string[]],
+        scope: { credentialTypes: [], namespaces: [] },
       });
 
       await expect(client.registerDelegation(delegation)).rejects.toThrow(
         "Delegation scope must not be empty",
       );
+    });
+
+    it("allows scope with only credentialTypes", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const delegation = validDelegation({
+        scope: { credentialTypes: ["TestCredential"], namespaces: [] },
+      });
+
+      vi.mocked(api.publishRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: delegation,
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      const result = await client.registerDelegation(delegation);
+      expect(result).toEqual(delegation);
+    });
+
+    it("allows scope with only namespaces", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const delegation = validDelegation({
+        scope: { credentialTypes: [], namespaces: ["education"] },
+      });
+
+      vi.mocked(api.publishRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: delegation,
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      const result = await client.registerDelegation(delegation);
+      expect(result).toEqual(delegation);
     });
 
     it("throws when validFrom is not a valid date", async () => {
@@ -292,7 +379,7 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       const delegation = validDelegation({
-        scope: ["issue", "revoke"] as const,
+        scope: { credentialTypes: ["UniversityDegreeCredential", "DiplomaCredential"], namespaces: ["education"] },
       });
 
       vi.mocked(api.publishRecord).mockResolvedValue({
@@ -323,7 +410,7 @@ describe("DeDiClient (adapter)", () => {
         id: "del-1",
         issuerDid: "did:key:issuer",
         delegateDid: "did:key:delegate",
-        scope: ["issue"],
+        scope: { credentialTypes: ["UniversityDegreeCredential"], namespaces: ["education"] },
         validFrom: "2026-01-01T00:00:00Z",
         validUntil: "2027-01-01T00:00:00Z",
         certificate: {},
@@ -388,7 +475,7 @@ describe("DeDiClient (adapter)", () => {
       );
     });
 
-    it("throws when scope is not an array", async () => {
+    it("throws when scope is not an object", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.lookupRecord).mockResolvedValue({
@@ -410,7 +497,111 @@ describe("DeDiClient (adapter)", () => {
       });
 
       await expect(client.resolveDelegation("del-1")).rejects.toThrow(
-        "Delegation detail field 'scope' must be an array",
+        "Delegation detail field 'scope' must be an object",
+      );
+    });
+
+    it("throws when scope is an array instead of object", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          id: "del-1",
+          issuerDid: "did:key:issuer",
+          delegateDid: "did:key:delegate",
+          scope: ["issue"],
+          validFrom: "2026-01-01T00:00:00Z",
+          validUntil: "2027-01-01T00:00:00Z",
+        },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation detail field 'scope' must be an object",
+      );
+    });
+
+    it("throws when scope.credentialTypes is not an array", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          id: "del-1",
+          issuerDid: "did:key:issuer",
+          delegateDid: "did:key:delegate",
+          scope: { credentialTypes: "not-array", namespaces: [] },
+          validFrom: "2026-01-01T00:00:00Z",
+          validUntil: "2027-01-01T00:00:00Z",
+        },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation scope field 'credentialTypes' must be an array",
+      );
+    });
+
+    it("throws when scope.credentialTypes contains non-strings", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          id: "del-1",
+          issuerDid: "did:key:issuer",
+          delegateDid: "did:key:delegate",
+          scope: { credentialTypes: [123, true], namespaces: [] },
+          validFrom: "2026-01-01T00:00:00Z",
+          validUntil: "2027-01-01T00:00:00Z",
+        },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation scope field 'credentialTypes' must contain only strings",
+      );
+    });
+
+    it("throws when scope.namespaces contains non-strings", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          id: "del-1",
+          issuerDid: "did:key:issuer",
+          delegateDid: "did:key:delegate",
+          scope: { credentialTypes: [], namespaces: [42] },
+          validFrom: "2026-01-01T00:00:00Z",
+          validUntil: "2027-01-01T00:00:00Z",
+        },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation scope field 'namespaces' must contain only strings",
       );
     });
   });
@@ -468,6 +659,25 @@ describe("DeDiClient (adapter)", () => {
         "example.com",
         PUBLIC_KEY_REGISTRY,
         "did-key-z6Mk123",
+      );
+    });
+
+    it("throws when API returns invalid DID record", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "did-key-z6Mk123",
+        registry: PUBLIC_KEY_REGISTRY,
+        namespace: "example.com",
+        detail: { invalid: true },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDID("did:key:z6Mk123")).rejects.toThrow(
+        "DID record detail missing required field: did",
       );
     });
   });

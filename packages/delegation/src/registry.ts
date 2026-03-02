@@ -36,7 +36,10 @@ export async function registerDelegation(
       id: certificate.id,
       issuerDid: certificate.delegator.id,
       delegateDid: certificate.delegatee.id,
-      scope: [...certificate.scope.credentialTypes, ...certificate.scope.namespaces],
+      scope: {
+        credentialTypes: [...certificate.scope.credentialTypes],
+        namespaces: [...certificate.scope.namespaces],
+      },
       validFrom: certificate.validFrom,
       validUntil: certificate.validUntil,
       certificate,
