@@ -12,6 +12,58 @@ import {
   PUBLIC_KEY_REGISTRY,
 } from "./registry-names.js";
 
+const DELEGATION_DETAIL_KEYS = [
+  "id",
+  "issuerDid",
+  "delegateDid",
+  "scope",
+  "validFrom",
+  "validUntil",
+] as const;
+
+function validateDelegation(delegation: DelegationRecord): void {
+  if (delegation.scope.length === 0) {
+    throw new DeDiClientError("Delegation scope must not be empty", 400);
+  }
+  const from = new Date(delegation.validFrom);
+  const until = new Date(delegation.validUntil);
+  if (isNaN(from.getTime())) {
+    throw new DeDiClientError("validFrom is not a valid date", 400);
+  }
+  if (isNaN(until.getTime())) {
+    throw new DeDiClientError("validUntil is not a valid date", 400);
+  }
+  if (from >= until) {
+    throw new DeDiClientError("validFrom must precede validUntil", 400);
+  }
+}
+
+function assertDelegationShape(
+  detail: unknown,
+): asserts detail is DelegationRecord {
+  if (detail == null || typeof detail !== "object") {
+    throw new DeDiClientError(
+      "Delegation detail is missing or not an object",
+      502,
+    );
+  }
+  const rec = detail as Record<string, unknown>;
+  for (const key of DELEGATION_DETAIL_KEYS) {
+    if (!(key in rec)) {
+      throw new DeDiClientError(
+        `Delegation detail missing required field: ${key}`,
+        502,
+      );
+    }
+  }
+  if (!Array.isArray(rec["scope"])) {
+    throw new DeDiClientError(
+      "Delegation detail field 'scope' must be an array",
+      502,
+    );
+  }
+}
+
 export class DeDiClient {
   private readonly api: DeDiApiClient;
   private readonly defaultNamespace?: string;
@@ -77,6 +129,7 @@ export class DeDiClient {
     delegation: DelegationRecord,
     namespace?: string,
   ): Promise<DelegationRecord> {
+    validateDelegation(delegation);
     const ns = this.resolveNamespace(namespace);
     const record = await this.api.publishRecord(
       ns,
@@ -92,8 +145,13 @@ export class DeDiClient {
     namespace?: string,
   ): Promise<DelegationRecord> {
     const ns = this.resolveNamespace(namespace);
-    const record = await this.api.lookupRecord(ns, DELEGATION_REGISTRY, delegationId);
-    return record.detail as DelegationRecord;
+    const record = await this.api.lookupRecord(
+      ns,
+      DELEGATION_REGISTRY,
+      delegationId,
+    );
+    assertDelegationShape(record.detail);
+    return record.detail;
   }
 
   async ensureRegistries(namespace: string): Promise<void> {

@@ -12,7 +12,7 @@ export interface DelegationRecord {
   id: string;
   issuerDid: string;
   delegateDid: string;
-  scope: string[];
+  scope: readonly [string, ...string[]];
   validFrom: string;
   validUntil: string;
   certificate: unknown;
