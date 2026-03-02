@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { ValidationError } from "@opencred/shared";
 import { CredentialBuilder } from "../credential-builder.js";
-import { W3C_CREDENTIALS_V2_CONTEXT, DATA_INTEGRITY_V1_CONTEXT } from "../types.js";
+import {
+  W3C_CREDENTIALS_V2_CONTEXT,
+  DATA_INTEGRITY_V1_CONTEXT,
+  OPENCRED_DELEGATION_V1_CONTEXT,
+} from "../types.js";
 import { createDocumentLoader, getBundledContextUrls } from "../document-loader.js";
 
 describe("CredentialBuilder", () => {
@@ -59,8 +63,20 @@ describe("CredentialBuilder", () => {
       expect(vc1.id).not.toBe(vc2.id);
     });
 
-    it("should allow setting a custom ID", () => {
+    it("should allow setting a custom urn:uuid ID", () => {
       const customId = "urn:uuid:custom-id-here";
+      const vc = new CredentialBuilder()
+        .setIssuer(validIssuer)
+        .setCredentialSubject(validSubject)
+        .setValidFrom(validFrom)
+        .setId(customId)
+        .build();
+
+      expect(vc.id).toBe(customId);
+    });
+
+    it("should allow setting a custom https:// ID", () => {
+      const customId = "https://example.com/credentials/123";
       const vc = new CredentialBuilder()
         .setIssuer(validIssuer)
         .setCredentialSubject(validSubject)
@@ -105,9 +121,39 @@ describe("CredentialBuilder", () => {
       expect(vc.issuer).toEqual(issuerObj);
     });
 
+    it("should accept https:// issuer URI", () => {
+      const vc = new CredentialBuilder()
+        .setIssuer("https://university.example")
+        .setCredentialSubject(validSubject)
+        .setValidFrom(validFrom)
+        .build();
+
+      expect(vc.issuer).toBe("https://university.example");
+    });
+
     it("should set credentialSubject with nested claims", () => {
       const vc = buildMinimalCredential();
       expect(vc.credentialSubject).toEqual(validSubject);
+    });
+
+    it("should accept dates with fractional seconds", () => {
+      const vc = new CredentialBuilder()
+        .setIssuer(validIssuer)
+        .setCredentialSubject(validSubject)
+        .setValidFrom("2026-02-09T00:00:00.000Z")
+        .build();
+
+      expect(vc.validFrom).toBe("2026-02-09T00:00:00.000Z");
+    });
+
+    it("should accept dates with timezone offset", () => {
+      const vc = new CredentialBuilder()
+        .setIssuer(validIssuer)
+        .setCredentialSubject(validSubject)
+        .setValidFrom("2026-02-09T00:00:00+05:30")
+        .build();
+
+      expect(vc.validFrom).toBe("2026-02-09T00:00:00+05:30");
     });
   });
 
@@ -118,7 +164,7 @@ describe("CredentialBuilder", () => {
       expect(vc["@context"][0]).toBe(W3C_CREDENTIALS_V2_CONTEXT);
     });
 
-    it("should allow adding additional contexts", () => {
+    it("should silently skip data-integrity/v1 since credentials/v2 subsumes it", () => {
       const vc = new CredentialBuilder()
         .setIssuer(validIssuer)
         .setCredentialSubject(validSubject)
@@ -126,7 +172,20 @@ describe("CredentialBuilder", () => {
         .addContext(DATA_INTEGRITY_V1_CONTEXT)
         .build();
 
-      expect(vc["@context"]).toEqual([W3C_CREDENTIALS_V2_CONTEXT, DATA_INTEGRITY_V1_CONTEXT]);
+      // credentials/v2 subsumes data-integrity/v1; should only have v2
+      expect(vc["@context"]).toEqual([W3C_CREDENTIALS_V2_CONTEXT]);
+    });
+
+    it("should allow adding non-redundant additional contexts", () => {
+      const customContext = "https://example.com/context/v1";
+      const vc = new CredentialBuilder()
+        .setIssuer(validIssuer)
+        .setCredentialSubject(validSubject)
+        .setValidFrom(validFrom)
+        .addContext(customContext)
+        .build();
+
+      expect(vc["@context"]).toEqual([W3C_CREDENTIALS_V2_CONTEXT, customContext]);
     });
 
     it("should not duplicate the base credentials/v2 context", () => {
@@ -142,12 +201,13 @@ describe("CredentialBuilder", () => {
     });
 
     it("should not duplicate additional contexts when added multiple times", () => {
+      const customContext = "https://example.com/context/v1";
       const vc = new CredentialBuilder()
         .setIssuer(validIssuer)
         .setCredentialSubject(validSubject)
         .setValidFrom(validFrom)
-        .addContext(DATA_INTEGRITY_V1_CONTEXT)
-        .addContext(DATA_INTEGRITY_V1_CONTEXT)
+        .addContext(customContext)
+        .addContext(customContext)
         .build();
 
       expect(vc["@context"]).toHaveLength(2);
@@ -285,6 +345,218 @@ describe("CredentialBuilder", () => {
     });
   });
 
+  describe("issuer URI validation (#141)", () => {
+    it("should accept did: issuer URIs", () => {
+      const vc = new CredentialBuilder()
+        .setIssuer("did:web:university.example")
+        .setCredentialSubject(validSubject)
+        .setValidFrom(validFrom)
+        .build();
+      expect(vc.issuer).toBe("did:web:university.example");
+    });
+
+    it("should accept https:// issuer URIs", () => {
+      const vc = new CredentialBuilder()
+        .setIssuer("https://university.example")
+        .setCredentialSubject(validSubject)
+        .setValidFrom(validFrom)
+        .build();
+      expect(vc.issuer).toBe("https://university.example");
+    });
+
+    it("should accept https:// issuer URIs in object form", () => {
+      const vc = new CredentialBuilder()
+        .setIssuer({ id: "https://university.example", name: "University" })
+        .setCredentialSubject(validSubject)
+        .setValidFrom(validFrom)
+        .build();
+      expect((vc.issuer as { id: string }).id).toBe("https://university.example");
+    });
+
+    it("should reject issuer without valid URI scheme", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer("university.example")
+          .setCredentialSubject(validSubject)
+          .setValidFrom(validFrom)
+          .build(),
+      ).toThrow(ValidationError);
+    });
+
+    it("should reject issuer with valid URI scheme error message", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer("university.example")
+          .setCredentialSubject(validSubject)
+          .setValidFrom(validFrom)
+          .build(),
+      ).toThrow(/Issuer must be a valid URI/);
+    });
+
+    it("should reject http:// issuer (not https)", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer("http://university.example")
+          .setCredentialSubject(validSubject)
+          .setValidFrom(validFrom)
+          .build(),
+      ).toThrow(ValidationError);
+    });
+
+    it("should reject issuer object with non-URI id", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer({ id: "plain-string", name: "Test" })
+          .setCredentialSubject(validSubject)
+          .setValidFrom(validFrom)
+          .build(),
+      ).toThrow(ValidationError);
+    });
+  });
+
+  describe("strict date format validation (#142)", () => {
+    it("should accept YYYY-MM-DDTHH:mm:ssZ", () => {
+      const vc = new CredentialBuilder()
+        .setIssuer(validIssuer)
+        .setCredentialSubject(validSubject)
+        .setValidFrom("2026-01-01T00:00:00Z")
+        .build();
+      expect(vc.validFrom).toBe("2026-01-01T00:00:00Z");
+    });
+
+    it("should accept dates with fractional seconds", () => {
+      const vc = new CredentialBuilder()
+        .setIssuer(validIssuer)
+        .setCredentialSubject(validSubject)
+        .setValidFrom("2026-01-01T00:00:00.000Z")
+        .build();
+      expect(vc.validFrom).toBe("2026-01-01T00:00:00.000Z");
+    });
+
+    it("should accept dates with positive timezone offset", () => {
+      const vc = new CredentialBuilder()
+        .setIssuer(validIssuer)
+        .setCredentialSubject(validSubject)
+        .setValidFrom("2026-01-01T05:30:00+05:30")
+        .build();
+      expect(vc.validFrom).toBe("2026-01-01T05:30:00+05:30");
+    });
+
+    it("should accept dates with negative timezone offset", () => {
+      const vc = new CredentialBuilder()
+        .setIssuer(validIssuer)
+        .setCredentialSubject(validSubject)
+        .setValidFrom("2026-01-01T00:00:00-05:00")
+        .build();
+      expect(vc.validFrom).toBe("2026-01-01T00:00:00-05:00");
+    });
+
+    it("should reject date-only string (no time component)", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer(validIssuer)
+          .setCredentialSubject(validSubject)
+          .setValidFrom("2026-01-01")
+          .build(),
+      ).toThrow(ValidationError);
+    });
+
+    it("should reject ambiguous date formats", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer(validIssuer)
+          .setCredentialSubject(validSubject)
+          .setValidFrom("Jan 1, 2026")
+          .build(),
+      ).toThrow(ValidationError);
+    });
+
+    it("should reject date without timezone", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer(validIssuer)
+          .setCredentialSubject(validSubject)
+          .setValidFrom("2026-01-01T00:00:00")
+          .build(),
+      ).toThrow(ValidationError);
+    });
+
+    it("should reject year-only date", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer(validIssuer)
+          .setCredentialSubject(validSubject)
+          .setValidFrom("2026")
+          .build(),
+      ).toThrow(ValidationError);
+    });
+
+    it("should include helpful error message for invalid date format", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer(validIssuer)
+          .setCredentialSubject(validSubject)
+          .setValidFrom("2026-01-01")
+          .build(),
+      ).toThrow(/Must be ISO 8601 format/);
+    });
+
+    it("should reject non-date strings", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer(validIssuer)
+          .setCredentialSubject(validSubject)
+          .setValidFrom("not-a-date")
+          .build(),
+      ).toThrow(ValidationError);
+    });
+
+    it("should also validate validUntil strictly", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer(validIssuer)
+          .setCredentialSubject(validSubject)
+          .setValidFrom(validFrom)
+          .setValidUntil("2027-01-01")
+          .build(),
+      ).toThrow(ValidationError);
+    });
+  });
+
+  describe("credential id URI validation (#154)", () => {
+    it("should accept urn:uuid: IDs", () => {
+      const builder = new CredentialBuilder();
+      builder.setId("urn:uuid:12345678-1234-1234-1234-123456789012");
+      // No throw
+    });
+
+    it("should accept https:// IDs", () => {
+      const builder = new CredentialBuilder();
+      builder.setId("https://example.com/credentials/123");
+      // No throw
+    });
+
+    it("should reject non-URI IDs", () => {
+      expect(() => new CredentialBuilder().setId("plain-string")).toThrow(ValidationError);
+    });
+
+    it("should reject http:// IDs (not https)", () => {
+      expect(() => new CredentialBuilder().setId("http://example.com/credentials/123")).toThrow(
+        ValidationError,
+      );
+    });
+
+    it("should reject empty string IDs", () => {
+      expect(() => new CredentialBuilder().setId("")).toThrow(ValidationError);
+    });
+
+    it("should include helpful error message for invalid credential ID", () => {
+      expect(() => new CredentialBuilder().setId("bad-id")).toThrow(
+        /Credential id must be a valid URI/,
+      );
+    });
+  });
+
   describe("validation errors", () => {
     it("should throw when issuer is missing", () => {
       expect(() =>
@@ -416,13 +688,13 @@ describe("CredentialBuilder", () => {
           type: "DeDiRevocationListStatusV1",
           statusPurpose: "revocation",
         })
-        .addContext(DATA_INTEGRITY_V1_CONTEXT)
+        .addContext(OPENCRED_DELEGATION_V1_CONTEXT)
         .build();
 
       // Verify structure matches PRD Section 10.1
       expect(vc["@context"]).toEqual([
         "https://www.w3.org/ns/credentials/v2",
-        "https://w3id.org/security/data-integrity/v1",
+        OPENCRED_DELEGATION_V1_CONTEXT,
       ]);
       expect(vc.id).toMatch(/^urn:uuid:/);
       expect(vc.type).toEqual(["VerifiableCredential"]);

@@ -122,6 +122,44 @@ export function extractVcJwtCredentialFields(payload: VcJwtPayload): {
   };
 }
 
+/**
+ * Cross-validate JWT-level claims (jti, sub) against the nested VC fields.
+ *
+ * Per the VC-JWT specification:
+ * - `jti` MUST equal `vc.id` (if both are present)
+ * - `sub` MUST equal `vc.credentialSubject.id` (if both are present)
+ *
+ * Returns a list of mismatches (empty if consistent).
+ */
+export function crossValidateVcJwtClaims(payload: VcJwtPayload): string[] {
+  const errors: string[] = [];
+
+  if (!payload.vc) {
+    return errors; // Only applicable to DM 1.1 layout with nested vc
+  }
+
+  // Cross-validate jti against vc.id
+  const vcId = payload.vc["id"] as string | undefined;
+  if (payload.jti && vcId && payload.jti !== vcId) {
+    errors.push(
+      `JWT jti claim "${payload.jti}" does not match vc.id "${vcId}"`,
+    );
+  }
+
+  // Cross-validate sub against vc.credentialSubject.id
+  const credentialSubject = payload.vc["credentialSubject"] as
+    | Record<string, unknown>
+    | undefined;
+  const subjectId = credentialSubject?.["id"] as string | undefined;
+  if (payload.sub && subjectId && payload.sub !== subjectId) {
+    errors.push(
+      `JWT sub claim "${payload.sub}" does not match vc.credentialSubject.id "${subjectId}"`,
+    );
+  }
+
+  return errors;
+}
+
 async function resolveIssuerKey(
   issuer: string,
   header: jose.ProtectedHeaderParameters,
