@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DeDiClientError } from "@opencred/shared";
 import { DeDiClient } from "../adapter/client.js";
 import { DeDiApiClient } from "../api/api-client.js";
-import { REVOCATION_REGISTRY, DELEGATION_REGISTRY, PUBLIC_KEY_REGISTRY } from "../adapter/registry-names.js";
+import type { DelegationRecord } from "../adapter/types.js";
+import {
+  REVOCATION_REGISTRY,
+  DELEGATION_REGISTRY,
+  PUBLIC_KEY_REGISTRY,
+} from "../adapter/registry-names.js";
 
 // Mock the DeDiApiClient
 vi.mock("../api/api-client.js", () => {
@@ -30,6 +35,21 @@ function mockApi(): InstanceType<typeof DeDiApiClient> {
   // Get the most recent instance created by the mock constructor
   const instances = vi.mocked(DeDiApiClient).mock.instances;
   return instances[instances.length - 1]!;
+}
+
+function validDelegation(
+  overrides?: Partial<DelegationRecord>,
+): DelegationRecord {
+  return {
+    id: "del-1",
+    issuerDid: "did:key:issuer",
+    delegateDid: "did:key:delegate",
+    scope: ["issue"] as const,
+    validFrom: "2026-01-01T00:00:00Z",
+    validUntil: "2027-01-01T00:00:00Z",
+    certificate: {},
+    ...overrides,
+  };
 }
 
 describe("DeDiClient (adapter)", () => {
@@ -84,7 +104,11 @@ describe("DeDiClient (adapter)", () => {
         name: "abc",
         registry: REVOCATION_REGISTRY,
         namespace: "example.com",
-        detail: { hash: "abc", revoked: true, revokedAt: "2026-01-01T00:00:00Z" },
+        detail: {
+          hash: "abc",
+          revoked: true,
+          revokedAt: "2026-01-01T00:00:00Z",
+        },
         state: "live",
         version: 1,
         created_at: "2026-01-01T00:00:00Z",
@@ -117,7 +141,11 @@ describe("DeDiClient (adapter)", () => {
             name: "abc",
             registry: REVOCATION_REGISTRY,
             namespace: "example.com",
-            detail: { hash: "abc", revoked: true, revokedAt: "2026-01-01T00:00:00Z" },
+            detail: {
+              hash: "abc",
+              revoked: true,
+              revokedAt: "2026-01-01T00:00:00Z",
+            },
             state: "live",
             version: 1,
             created_at: "2026-01-01T00:00:00Z",
@@ -151,7 +179,9 @@ describe("DeDiClient (adapter)", () => {
     it("returns { revoked: false } when registry does not exist (404)", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockRejectedValue(new DeDiClientError("DeDi API error: 404", 404));
+      vi.mocked(api.search).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 404", 404),
+      );
 
       const result = await client.queryRevocationHash("missing");
 
@@ -161,9 +191,13 @@ describe("DeDiClient (adapter)", () => {
     it("re-throws non-404 errors", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockRejectedValue(new DeDiClientError("DeDi API error: 500", 502));
+      vi.mocked(api.search).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 500", 502),
+      );
 
-      await expect(client.queryRevocationHash("hash")).rejects.toThrow("DeDi API error: 500");
+      await expect(client.queryRevocationHash("hash")).rejects.toThrow(
+        "DeDi API error: 500",
+      );
     });
   });
 
@@ -173,15 +207,7 @@ describe("DeDiClient (adapter)", () => {
     it("publishes delegation to delegation_registry", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      const delegation = {
-        id: "del-1",
-        issuerDid: "did:key:issuer",
-        delegateDid: "did:key:delegate",
-        scope: ["issue"],
-        validFrom: "2026-01-01T00:00:00Z",
-        validUntil: "2027-01-01T00:00:00Z",
-        certificate: {},
-      };
+      const delegation = validDelegation();
 
       vi.mocked(api.publishRecord).mockResolvedValue({
         name: "del-1",
@@ -202,6 +228,87 @@ describe("DeDiClient (adapter)", () => {
         "del-1",
         delegation,
       );
+      expect(result).toEqual(delegation);
+    });
+  });
+
+  // ── registerDelegation validation ──────────────────────────────
+
+  describe("registerDelegation validation", () => {
+    it("throws when scope is empty", async () => {
+      const client = createClient("example.com");
+      const delegation = validDelegation({
+        scope: [] as unknown as readonly [string, ...string[]],
+      });
+
+      await expect(client.registerDelegation(delegation)).rejects.toThrow(
+        "Delegation scope must not be empty",
+      );
+    });
+
+    it("throws when validFrom is not a valid date", async () => {
+      const client = createClient("example.com");
+      const delegation = validDelegation({ validFrom: "not-a-date" });
+
+      await expect(client.registerDelegation(delegation)).rejects.toThrow(
+        "validFrom is not a valid date",
+      );
+    });
+
+    it("throws when validUntil is not a valid date", async () => {
+      const client = createClient("example.com");
+      const delegation = validDelegation({ validUntil: "not-a-date" });
+
+      await expect(client.registerDelegation(delegation)).rejects.toThrow(
+        "validUntil is not a valid date",
+      );
+    });
+
+    it("throws when validFrom >= validUntil", async () => {
+      const client = createClient("example.com");
+      const delegation = validDelegation({
+        validFrom: "2027-01-01T00:00:00Z",
+        validUntil: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.registerDelegation(delegation)).rejects.toThrow(
+        "validFrom must precede validUntil",
+      );
+    });
+
+    it("throws when validFrom equals validUntil", async () => {
+      const client = createClient("example.com");
+      const delegation = validDelegation({
+        validFrom: "2026-01-01T00:00:00Z",
+        validUntil: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.registerDelegation(delegation)).rejects.toThrow(
+        "validFrom must precede validUntil",
+      );
+    });
+
+    it("passes valid delegation through to API", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const delegation = validDelegation({
+        scope: ["issue", "revoke"] as const,
+      });
+
+      vi.mocked(api.publishRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: delegation,
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      const result = await client.registerDelegation(delegation);
+
+      expect(api.publishRecord).toHaveBeenCalled();
       expect(result).toEqual(delegation);
     });
   });
@@ -241,6 +348,70 @@ describe("DeDiClient (adapter)", () => {
         "del-1",
       );
       expect(result).toEqual(delegation);
+    });
+
+    it("throws when detail is null", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: null,
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation detail is missing or not an object",
+      );
+    });
+
+    it("throws when detail is missing required fields", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: { id: "del-1" },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation detail missing required field",
+      );
+    });
+
+    it("throws when scope is not an array", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          id: "del-1",
+          issuerDid: "did:key:issuer",
+          delegateDid: "did:key:delegate",
+          scope: "issue",
+          validFrom: "2026-01-01T00:00:00Z",
+          validUntil: "2027-01-01T00:00:00Z",
+        },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation detail field 'scope' must be an array",
+      );
     });
   });
 
@@ -328,7 +499,10 @@ describe("DeDiClient (adapter)", () => {
 
       await client.ensureRegistries("example.com");
 
-      expect(api.createNamespace).toHaveBeenCalledWith("example.com", expect.any(String));
+      expect(api.createNamespace).toHaveBeenCalledWith(
+        "example.com",
+        expect.any(String),
+      );
       expect(api.createRegistry).toHaveBeenCalledTimes(3);
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
@@ -361,7 +535,9 @@ describe("DeDiClient (adapter)", () => {
       );
 
       // Should not throw
-      await expect(client.ensureRegistries("example.com")).resolves.toBeUndefined();
+      await expect(
+        client.ensureRegistries("example.com"),
+      ).resolves.toBeUndefined();
     });
 
     it("re-throws non-409 errors", async () => {
@@ -371,7 +547,9 @@ describe("DeDiClient (adapter)", () => {
         new DeDiClientError("DeDi API error: 500", 502),
       );
 
-      await expect(client.ensureRegistries("example.com")).rejects.toThrow("DeDi API error: 500");
+      await expect(client.ensureRegistries("example.com")).rejects.toThrow(
+        "DeDi API error: 500",
+      );
     });
   });
 
