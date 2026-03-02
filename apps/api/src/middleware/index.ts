@@ -8,4 +8,5 @@ export {
   type RateLimitOptions,
   type RateLimitStore,
 } from "./rate-limit.js";
+export { namespaceRateLimitKey } from "./rate-limit-keys.js";
 export { requestLogger } from "./request-logger.js";
