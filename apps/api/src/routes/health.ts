@@ -33,7 +33,7 @@ export function createHealthRoutes(deps: HealthDeps = {}) {
       }
     }
 
-    const allOk = Object.values(checks).every((c) => c.status === "ok");
+    const allOk = Object.values(checks).every((ch) => ch.status === "ok");
     const status = allOk ? "ready" : "degraded";
     const statusCode = allOk ? 200 : 503;
 

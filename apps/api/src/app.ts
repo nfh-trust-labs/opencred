@@ -13,6 +13,7 @@ import {
   rateLimitMiddleware,
 } from "./middleware/index.js";
 import type { AuthMiddlewareOptions, RateLimitStore } from "./middleware/index.js";
+import { namespaceRateLimitKey } from "./middleware/rate-limit-keys.js";
 import { createHealthRoutes } from "./routes/health.js";
 import { createRevokeRoute } from "./routes/revoke.js";
 import { createVerifyRoutes } from "./routes/verify.js";
@@ -111,18 +112,7 @@ export function createApp(deps: AppDependencies) {
       windowMs: 60_000,
       maxRequests: 50,
       store: deps.rateLimitStore,
-      keyFn: (c) => {
-        // If the auth middleware has already decoded the JWT, the subject
-        // (issuer namespace) is available on the context.  Fall back to the
-        // route path + IP to still get a per-endpoint limit for
-        // unauthenticated or pre-auth requests.
-        const ns = c.get("jwtPayload")?.sub as string | undefined;
-        if (ns) return `ns:${ns}`;
-        const authHeader = c.req.header("authorization");
-        const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7, 23) : undefined;
-        if (token) return `tok:${token}`;
-        return `anon:credentials`;
-      },
+      keyFn: namespaceRateLimitKey,
     }),
   );
 
