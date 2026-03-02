@@ -1,5 +1,7 @@
 import { DeDiClientError } from "@opencred/shared";
 import { CircuitBreaker } from "../circuit-breaker.js";
+import type { DeDiLogger } from "../logger.js";
+import { noopLogger } from "../logger.js";
 import { withRetry } from "../retry.js";
 import { DeDiTokenManager } from "./auth.js";
 import type { DeDiAuthConfig } from "./auth.js";
@@ -26,12 +28,14 @@ export interface DeDiApiClientConfig {
   auth: DeDiAuthConfig["auth"];
   circuitBreakerThreshold: number;
   maxRetries: number;
+  logger?: DeDiLogger;
 }
 
 export class DeDiApiClient {
   private readonly config: DeDiApiClientConfig;
   private readonly tokenManager: DeDiTokenManager;
   private readonly circuitBreaker: CircuitBreaker;
+  private readonly logger: DeDiLogger;
 
   constructor(config: DeDiApiClientConfig) {
     if (config.timeoutMs <= 0) {
@@ -45,12 +49,15 @@ export class DeDiApiClient {
     }
 
     this.config = config;
+    this.logger = config.logger ?? noopLogger;
     this.tokenManager = new DeDiTokenManager({
       baseUrl: config.baseUrl,
       auth: config.auth,
+      logger: this.logger,
     });
     this.circuitBreaker = new CircuitBreaker({
       threshold: config.circuitBreakerThreshold,
+      logger: this.logger,
     });
   }
 
@@ -258,7 +265,7 @@ export class DeDiApiClient {
             clearTimeout(timeoutId);
           }
         },
-        { maxRetries: this.config.maxRetries },
+        { maxRetries: this.config.maxRetries, logger: this.logger },
       ),
     );
   }
@@ -296,6 +303,7 @@ export class DeDiApiClient {
     return this.circuitBreaker.execute(() =>
       withRetry(() => this.fetchJson<T>(path, init), {
         maxRetries: this.config.maxRetries,
+        logger: this.logger,
       }),
     );
   }
@@ -304,6 +312,7 @@ export class DeDiApiClient {
     await this.circuitBreaker.execute(() =>
       withRetry(() => this.fetchVoid(path, init), {
         maxRetries: this.config.maxRetries,
+        logger: this.logger,
       }),
     );
   }

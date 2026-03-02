@@ -42,3 +42,7 @@ export { CircuitBreaker, CircuitBreakerState } from "./circuit-breaker.js";
 export type { CircuitBreakerOptions } from "./circuit-breaker.js";
 export { withRetry } from "./retry.js";
 export type { RetryOptions } from "./retry.js";
+
+// Logging
+export type { DeDiLogger } from "./logger.js";
+export { noopLogger } from "./logger.js";

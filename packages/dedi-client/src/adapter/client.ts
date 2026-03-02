@@ -1,5 +1,7 @@
 import { DeDiClientError } from "@opencred/shared";
 import { DeDiApiClient } from "../api/api-client.js";
+import type { DeDiLogger } from "../logger.js";
+import { noopLogger } from "../logger.js";
 import type {
   DeDiClientConfig,
   RevocationHashRecord,
@@ -67,10 +69,12 @@ function assertDelegationShape(
 export class DeDiClient {
   private readonly api: DeDiApiClient;
   private readonly defaultNamespace?: string;
+  private readonly logger: DeDiLogger;
 
   constructor(config: DeDiClientConfig) {
     this.api = new DeDiApiClient(config);
     this.defaultNamespace = config.defaultNamespace;
+    this.logger = config.logger ?? noopLogger;
   }
 
   get apiClient(): DeDiApiClient {
@@ -112,6 +116,9 @@ export class DeDiClient {
       // 404 may indicate registry not yet created, namespace missing, or API path mismatch.
       // TODO: Inspect structured error codes from DeDi when available to narrow this.
       if (error instanceof DeDiClientError && error.statusCode === 404) {
+        this.logger.warn(
+          `Received 404 for hash lookup in namespace ${ns}, treating as not-revoked`,
+        );
         return { hash, revoked: false as const };
       }
       throw error;
