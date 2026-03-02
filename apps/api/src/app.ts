@@ -67,7 +67,7 @@ export function createApp(deps: AppDependencies) {
     "/*",
     cors({
       origin: config.CORS_ORIGIN,
-      allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+      allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       allowHeaders: ["Content-Type", "Authorization"],
       exposeHeaders: [
         "X-Request-Id",

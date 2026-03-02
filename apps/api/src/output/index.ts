@@ -14,34 +14,37 @@ import { ValidationError } from "@opencred/shared";
 export interface PackagedFormats {
   /** The credential itself in JSON-LD form */
   jsonld: Record<string, unknown>;
-  /** QR code as a data:image/png;base64,… data-URL */
-  qr: string;
+  /** QR code as a data:image/png;base64,… data-URL, or null if credential exceeds QR capacity */
+  qr: string | null;
   /** PDF document as a base64-encoded string */
   pdf: string;
+  /** Present when QR generation failed due to credential size (#137) */
+  qrError?: string;
 }
 
 /**
  * Produce all three output formats for a packaged credential.
  *
- * If the credential is too large for a QR code the `qr` field will
- * contain a descriptive error message prefixed with `error:` rather
- * than throwing, so the remaining formats are still returned.
+ * If the credential is too large for a QR code the `qr` field will be
+ * `null` and `qrError` will contain a sanitised error code, so the
+ * remaining formats are still returned.
  */
 export async function packageFormats(
   credential: Record<string, unknown>,
 ): Promise<PackagedFormats> {
   const credentialJson = JSON.stringify(credential);
 
-  let qrDataUrl: string;
+  let qrDataUrl: string | null;
   let qrBuffer: Buffer | undefined;
+  let qrError: string | undefined;
 
   try {
     qrBuffer = await generateQrBuffer(credentialJson);
     qrDataUrl = await generateQrDataUrl(credentialJson);
   } catch (err) {
     if (err instanceof ValidationError && err.message.includes("exceeds QR code capacity")) {
-      // Credential is too large — degrade gracefully
-      qrDataUrl = `error: ${err.message}`;
+      qrDataUrl = null;
+      qrError = "CREDENTIAL_TOO_LARGE_FOR_QR";
       qrBuffer = undefined;
     } else {
       throw err;
@@ -54,5 +57,6 @@ export async function packageFormats(
     jsonld: credential,
     qr: qrDataUrl,
     pdf: pdfBuffer.toString("base64"),
+    ...(qrError && { qrError }),
   };
 }
