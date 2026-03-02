@@ -17,13 +17,7 @@ export class DeDiClient {
   private readonly defaultNamespace?: string;
 
   constructor(config: DeDiClientConfig) {
-    this.api = new DeDiApiClient({
-      baseUrl: config.baseUrl,
-      timeoutMs: config.timeoutMs,
-      auth: config.auth,
-      circuitBreakerThreshold: config.circuitBreakerThreshold,
-      maxRetries: config.maxRetries,
-    });
+    this.api = new DeDiApiClient(config);
     this.defaultNamespace = config.defaultNamespace;
   }
 
@@ -58,14 +52,15 @@ export class DeDiClient {
       });
 
       if (result.records.length === 0) {
-        return { hash, revoked: false };
+        return { hash, revoked: false as const };
       }
 
       return result.records[0]!.detail as RevocationHashRecord;
     } catch (error) {
-      // If registry doesn't exist yet, treat as not revoked
+      // 404 may indicate registry not yet created, namespace missing, or API path mismatch.
+      // TODO: Inspect structured error codes from DeDi when available to narrow this.
       if (error instanceof DeDiClientError && error.statusCode === 404) {
-        return { hash, revoked: false };
+        return { hash, revoked: false as const };
       }
       throw error;
     }
@@ -79,15 +74,14 @@ export class DeDiClient {
   }
 
   async registerDelegation(
-    delegation: unknown,
+    delegation: DelegationRecord,
     namespace?: string,
   ): Promise<DelegationRecord> {
     const ns = this.resolveNamespace(namespace);
-    const del = delegation as DelegationRecord;
     const record = await this.api.publishRecord(
       ns,
       DELEGATION_REGISTRY,
-      del.id,
+      delegation.id,
       delegation,
     );
     return record.detail as DelegationRecord;

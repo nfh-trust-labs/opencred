@@ -11,7 +11,7 @@ export const envSchema = z.object({
   DEDI_AUTH_TYPE: z.enum(["bearer", "api-key"]).default("api-key"),
   DEDI_API_KEY: z.string().optional(),
   DEDI_EMAIL: z.string().email().optional(),
-  DEDI_PASSWORD: z.string().optional(),
+  DEDI_PASSWORD: z.string().min(1).optional(),
   DEDI_DEFAULT_NAMESPACE: z.string().optional(),
 
   // Session / state

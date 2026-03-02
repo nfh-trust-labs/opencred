@@ -165,15 +165,3 @@ export interface DeDiStats {
   records: number;
 }
 
-// ── API response wrappers ────────────────────────────────────────────
-
-export interface DeDiSuccessResponse<T> {
-  data: T;
-}
-
-export interface DeDiErrorResponse {
-  error: {
-    code: string;
-    message: string;
-  };
-}

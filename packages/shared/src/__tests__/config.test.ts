@@ -52,4 +52,15 @@ describe("loadConfig", () => {
     expect(config.DEDI_API_URL).toBeUndefined();
     expect(config.DEDI_AUTH_TYPE).toBe("api-key");
   });
+
+  it("rejects empty DEDI_PASSWORD", () => {
+    expect(() =>
+      loadConfig({
+        DEDI_API_URL: "https://dedi.example.com",
+        DEDI_AUTH_TYPE: "bearer",
+        DEDI_EMAIL: "user@example.com",
+        DEDI_PASSWORD: "",
+      }),
+    ).toThrow("Invalid environment configuration");
+  });
 });

@@ -3,13 +3,19 @@ import { DeDiTokenManager } from "../api/auth.js";
 import type { DeDiAuthConfig } from "../api/auth.js";
 
 function createBearerConfig(
-  overrides?: Partial<DeDiAuthConfig>,
+  overrides?: Partial<Pick<DeDiAuthConfig, "baseUrl">> & {
+    auth?: Partial<Extract<DeDiAuthConfig["auth"], { type: "bearer" }>>;
+  },
 ): DeDiAuthConfig {
   return {
-    baseUrl: "https://dedi.example.com",
-    auth: { type: "bearer", email: "user@test.com", password: "s3cret" },
-    refreshBufferMs: 60_000,
-    ...overrides,
+    baseUrl: overrides?.baseUrl ?? "https://dedi.example.com",
+    auth: {
+      type: "bearer",
+      email: "user@test.com",
+      password: "s3cret",
+      refreshBufferMs: 60_000,
+      ...overrides?.auth,
+    },
   };
 }
 
@@ -143,7 +149,7 @@ describe("DeDiTokenManager", () => {
         ),
       );
 
-      const tm = new DeDiTokenManager(createBearerConfig({ refreshBufferMs: 60_000 }));
+      const tm = new DeDiTokenManager(createBearerConfig({ auth: { refreshBufferMs: 60_000 } }));
       await tm.getToken(); // triggers login
       const token = await tm.getToken(); // token expires within buffer → refresh
 
@@ -176,7 +182,7 @@ describe("DeDiTokenManager", () => {
         ),
       );
 
-      const tm = new DeDiTokenManager(createBearerConfig({ refreshBufferMs: 60_000 }));
+      const tm = new DeDiTokenManager(createBearerConfig({ auth: { refreshBufferMs: 60_000 } }));
       await tm.getToken(); // login
       const token = await tm.getToken(); // refresh fails → login again
 
@@ -252,7 +258,7 @@ describe("DeDiTokenManager", () => {
         ),
       );
 
-      const tm = new DeDiTokenManager(createBearerConfig({ refreshBufferMs: 60_000 }));
+      const tm = new DeDiTokenManager(createBearerConfig({ auth: { refreshBufferMs: 60_000 } }));
       const first = await tm.getToken();
       expect(first).toBe(oldJwt);
 
@@ -316,6 +322,214 @@ describe("DeDiTokenManager", () => {
       errorSpy.mockRestore();
       infoSpy.mockRestore();
       debugSpy.mockRestore();
+    });
+  });
+
+  // ── decodeExp error handling ────────────────────────────────────
+
+  describe("decodeExp error handling", () => {
+    it("throws on malformed JWT (fewer than 2 parts)", async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: "not-a-jwt", refresh_token: "rt_1", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig());
+      await expect(tm.getToken()).rejects.toThrow("DeDi API returned a malformed JWT");
+    });
+
+    it("throws on JWT without exp claim", async () => {
+      const header = btoa(JSON.stringify({ alg: "HS256" }));
+      const payload = btoa(JSON.stringify({ sub: "user" })); // no exp
+      const noExpJwt = `${header}.${payload}.sig`;
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: noExpJwt, refresh_token: "rt_1", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig());
+      await expect(tm.getToken()).rejects.toThrow("DeDi API returned a JWT without an exp claim");
+    });
+
+    it("throws on JWT with undecodable payload", async () => {
+      const header = btoa(JSON.stringify({ alg: "HS256" }));
+      const badJwt = `${header}.%%%not-base64%%%.sig`;
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: badJwt, refresh_token: "rt_1", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig());
+      await expect(tm.getToken()).rejects.toThrow("DeDi API returned a JWT with an undecodable payload");
+    });
+  });
+
+  // ── acquireToken selective catch ──────────────────────────────────
+
+  describe("acquireToken selective catch", () => {
+    it("re-throws 429 rate limit from refresh instead of falling back to login", async () => {
+      const soonJwt = jwtExpiringIn(50);
+
+      // First call: login returns soon-expiring token
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: soonJwt, refresh_token: "rt_1", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+      // Second call: refresh returns 429
+      mockFetch.mockResolvedValueOnce(new Response("Too Many Requests", { status: 429 }));
+
+      const tm = new DeDiTokenManager(createBearerConfig({ auth: { refreshBufferMs: 60_000 } }));
+      await tm.getToken(); // login
+      await expect(tm.getToken()).rejects.toThrow("DeDi token refresh failed: 429");
+      // Should NOT have attempted a fallback login (only 2 fetch calls total)
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("re-throws 500 server error from refresh instead of falling back to login", async () => {
+      const soonJwt = jwtExpiringIn(50);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: soonJwt, refresh_token: "rt_1", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+      mockFetch.mockResolvedValueOnce(new Response("Internal Server Error", { status: 500 }));
+
+      const tm = new DeDiTokenManager(createBearerConfig({ auth: { refreshBufferMs: 60_000 } }));
+      await tm.getToken();
+      await expect(tm.getToken()).rejects.toThrow("DeDi token refresh failed: 500");
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("falls back to login on 401 refresh rejection", async () => {
+      const soonJwt = jwtExpiringIn(50);
+      const freshJwt = jwtExpiringIn(3600);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: soonJwt, refresh_token: "rt_1", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+      mockFetch.mockResolvedValueOnce(new Response("Unauthorized", { status: 401 }));
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: freshJwt, refresh_token: "rt_2", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig({ auth: { refreshBufferMs: 60_000 } }));
+      await tm.getToken();
+      const token = await tm.getToken();
+
+      expect(token).toBe(freshJwt);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it("falls back to login on 403 refresh rejection", async () => {
+      const soonJwt = jwtExpiringIn(50);
+      const freshJwt = jwtExpiringIn(3600);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: soonJwt, refresh_token: "rt_1", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+      mockFetch.mockResolvedValueOnce(new Response("Forbidden", { status: 403 }));
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: freshJwt, refresh_token: "rt_2", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig({ auth: { refreshBufferMs: 60_000 } }));
+      await tm.getToken();
+      const token = await tm.getToken();
+
+      expect(token).toBe(freshJwt);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  // ── Response validation ───────────────────────────────────────────
+
+  describe("response shape validation", () => {
+    it("throws on login response missing access_token", async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ refresh_token: "rt_1", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig());
+      await expect(tm.getToken()).rejects.toThrow(
+        "DeDi API returned an unexpected auth response format",
+      );
+    });
+
+    it("throws on login response missing refresh_token", async () => {
+      const jwt = jwtExpiringIn(3600);
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: jwt, token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig());
+      await expect(tm.getToken()).rejects.toThrow(
+        "DeDi API returned an unexpected auth response format",
+      );
+    });
+
+    it("throws on login response with non-string access_token", async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: 12345, refresh_token: "rt_1", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig());
+      await expect(tm.getToken()).rejects.toThrow(
+        "DeDi API returned an unexpected auth response format",
+      );
+    });
+
+    it("throws on refresh response with unexpected shape", async () => {
+      const soonJwt = jwtExpiringIn(50);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: soonJwt, refresh_token: "rt_1", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+      // Refresh returns invalid shape
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "unexpected" }), { status: 200 }),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig({ auth: { refreshBufferMs: 60_000 } }));
+      await tm.getToken();
+      await expect(tm.getToken()).rejects.toThrow(
+        "DeDi API returned an unexpected auth response format",
+      );
     });
   });
 

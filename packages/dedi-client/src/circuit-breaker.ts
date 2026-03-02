@@ -1,6 +1,6 @@
 import { DeDiClientError } from "@opencred/shared";
 
-export const enum CircuitBreakerState {
+export enum CircuitBreakerState {
   CLOSED = "CLOSED",
   OPEN = "OPEN",
   HALF_OPEN = "HALF_OPEN",

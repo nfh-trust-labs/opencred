@@ -5,8 +5,7 @@ export interface DeDiAuthConfig {
   baseUrl: string;
   auth:
     | { type: "api-key"; apiKey: string }
-    | { type: "bearer"; email: string; password: string };
-  refreshBufferMs?: number;
+    | { type: "bearer"; email: string; password: string; refreshBufferMs?: number };
 }
 
 const DEFAULT_REFRESH_BUFFER_MS = 60_000;
@@ -23,7 +22,10 @@ export class DeDiTokenManager {
 
   constructor(config: DeDiAuthConfig) {
     this.config = config;
-    this.refreshBufferMs = config.refreshBufferMs ?? DEFAULT_REFRESH_BUFFER_MS;
+    this.refreshBufferMs =
+      config.auth.type === "bearer"
+        ? (config.auth.refreshBufferMs ?? DEFAULT_REFRESH_BUFFER_MS)
+        : DEFAULT_REFRESH_BUFFER_MS;
   }
 
   async getToken(): Promise<string> {
@@ -64,8 +66,15 @@ export class DeDiTokenManager {
       try {
         await this.performRefresh();
         return this.accessToken;
-      } catch {
-        // Refresh failed — fall back to full login
+      } catch (error) {
+        if (
+          error instanceof DeDiClientError &&
+          (error.statusCode === 401 || error.statusCode === 403)
+        ) {
+          // Refresh token rejected — fall back to full login
+        } else {
+          throw error;
+        }
       }
     }
 
@@ -96,7 +105,19 @@ export class DeDiTokenManager {
       );
     }
 
-    const tokens = (await response.json()) as DeDiAuthTokens;
+    const body: unknown = await response.json();
+    if (
+      typeof body !== "object" ||
+      body === null ||
+      typeof (body as Record<string, unknown>).access_token !== "string" ||
+      typeof (body as Record<string, unknown>).refresh_token !== "string"
+    ) {
+      throw new DeDiClientError(
+        "DeDi API returned an unexpected auth response format",
+        502,
+      );
+    }
+    const tokens = body as DeDiAuthTokens;
     this.setTokens(tokens);
   }
 
@@ -115,7 +136,19 @@ export class DeDiTokenManager {
       );
     }
 
-    const tokens = (await response.json()) as DeDiAuthTokens;
+    const body: unknown = await response.json();
+    if (
+      typeof body !== "object" ||
+      body === null ||
+      typeof (body as Record<string, unknown>).access_token !== "string" ||
+      typeof (body as Record<string, unknown>).refresh_token !== "string"
+    ) {
+      throw new DeDiClientError(
+        "DeDi API returned an unexpected auth response format",
+        502,
+      );
+    }
+    const tokens = body as DeDiAuthTokens;
     this.setTokens(tokens);
   }
 
@@ -134,13 +167,25 @@ export class DeDiTokenManager {
   }
 
   private decodeExp(jwt: string): number {
+    const parts = jwt.split(".");
+    if (parts.length < 2) {
+      throw new DeDiClientError("DeDi API returned a malformed JWT", 502);
+    }
     try {
-      const parts = jwt.split(".");
-      if (parts.length < 2) return 0;
       const payload = JSON.parse(atob(parts[1]!)) as { exp?: number };
-      return (payload.exp ?? 0) * 1000; // convert seconds to ms
-    } catch {
-      return 0;
+      if (payload.exp === undefined) {
+        throw new DeDiClientError(
+          "DeDi API returned a JWT without an exp claim",
+          502,
+        );
+      }
+      return payload.exp * 1000;
+    } catch (error) {
+      if (error instanceof DeDiClientError) throw error;
+      throw new DeDiClientError(
+        "DeDi API returned a JWT with an undecodable payload",
+        502,
+      );
     }
   }
 }

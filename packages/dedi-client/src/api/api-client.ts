@@ -6,7 +6,9 @@ import type { DeDiAuthConfig } from "./auth.js";
 import type {
   DeDiNamespace,
   DeDiRegistry,
+  DeDiRegistryTag,
   DeDiRecord,
+  DeDiRecordState,
   DeDiQueryParams,
   DeDiQueryResult,
   DeDiSearchResult,
@@ -32,6 +34,16 @@ export class DeDiApiClient {
   private readonly circuitBreaker: CircuitBreaker;
 
   constructor(config: DeDiApiClientConfig) {
+    if (config.timeoutMs <= 0) {
+      throw new DeDiClientError("timeoutMs must be positive", 400);
+    }
+    if (config.maxRetries < 0) {
+      throw new DeDiClientError("maxRetries must be non-negative", 400);
+    }
+    if (config.circuitBreakerThreshold <= 0) {
+      throw new DeDiClientError("circuitBreakerThreshold must be positive", 400);
+    }
+
     this.config = config;
     this.tokenManager = new DeDiTokenManager({
       baseUrl: config.baseUrl,
@@ -61,7 +73,7 @@ export class DeDiApiClient {
     ns: string,
     name: string,
     schema: unknown,
-    tag?: string,
+    tag?: DeDiRegistryTag,
   ): Promise<DeDiRegistry> {
     return this.request<DeDiRegistry>(`/dedi/namespace/${enc(ns)}/registry`, {
       method: "POST",
@@ -114,7 +126,7 @@ export class DeDiApiClient {
     ns: string,
     reg: string,
     recordName: string,
-    state: string,
+    state: DeDiRecordState,
   ): Promise<void> {
     await this.requestVoid(
       `/dedi/namespace/${enc(ns)}/registry/${enc(reg)}/record/${enc(recordName)}/state`,
@@ -203,13 +215,13 @@ export class DeDiApiClient {
     reg: string,
     file: Blob,
   ): Promise<{ job_id: string }> {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const token = await this.tokenManager.getToken();
     return this.circuitBreaker.execute(() =>
       withRetry(
         async () => {
+          const formData = new FormData();
+          formData.append("file", file);
+          const token = await this.tokenManager.getToken();
+
           const url = `${this.config.baseUrl}/dedi/namespace/${enc(ns)}/registry/${enc(reg)}/bulk`;
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), this.config.timeoutMs);
@@ -238,7 +250,10 @@ export class DeDiApiClient {
                 504,
               );
             }
-            throw new DeDiClientError("DeDi API network error", 502);
+            throw new DeDiClientError(
+              `DeDi API network error: ${error instanceof Error ? error.message : "unknown"}`,
+              502,
+            );
           } finally {
             clearTimeout(timeoutId);
           }
@@ -303,7 +318,11 @@ export class DeDiApiClient {
       );
     }
 
-    return (await response.json()) as T;
+    try {
+      return (await response.json()) as T;
+    } catch {
+      throw new DeDiClientError(`DeDi API returned non-JSON response`, 502);
+    }
   }
 
   private async fetchVoid(path: string, init?: RequestInit): Promise<void> {
@@ -328,7 +347,7 @@ export class DeDiApiClient {
         ...init,
         signal: controller.signal,
         headers: {
-          "Content-Type": "application/json",
+          ...(init?.body ? { "Content-Type": "application/json" } : {}),
           Accept: "application/json",
           Authorization: `Bearer ${token}`,
           ...init?.headers,
@@ -344,7 +363,10 @@ export class DeDiApiClient {
           504,
         );
       }
-      throw new DeDiClientError("DeDi API network error", 502);
+      throw new DeDiClientError(
+        `DeDi API network error: ${error instanceof Error ? error.message : "unknown"}`,
+        502,
+      );
     } finally {
       clearTimeout(timeoutId);
     }

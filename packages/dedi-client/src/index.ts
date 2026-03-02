@@ -35,8 +35,6 @@ export type {
   DeDiNamespaceState,
   DeDiRegistryTag,
   DeDiAuthTokens,
-  DeDiSuccessResponse,
-  DeDiErrorResponse,
 } from "./api/types.js";
 
 // Resilience

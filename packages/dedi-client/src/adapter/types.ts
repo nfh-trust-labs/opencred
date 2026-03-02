@@ -1,19 +1,12 @@
-import type { DeDiAuthConfig } from "../api/auth.js";
+import type { DeDiApiClientConfig } from "../api/api-client.js";
 
-export interface DeDiClientConfig {
-  baseUrl: string;
-  timeoutMs: number;
-  maxRetries: number;
-  circuitBreakerThreshold: number;
-  auth: DeDiAuthConfig["auth"];
+export interface DeDiClientConfig extends DeDiApiClientConfig {
   defaultNamespace?: string;
 }
 
-export interface RevocationHashRecord {
-  hash: string;
-  revoked: boolean;
-  revokedAt?: string;
-}
+export type RevocationHashRecord =
+  | { hash: string; revoked: false }
+  | { hash: string; revoked: true; revokedAt: string };
 
 export interface DelegationRecord {
   id: string;

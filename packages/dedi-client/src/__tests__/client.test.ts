@@ -157,6 +157,14 @@ describe("DeDiClient (adapter)", () => {
 
       expect(result).toEqual({ hash: "missing", revoked: false });
     });
+
+    it("re-throws non-404 errors", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.search).mockRejectedValue(new DeDiClientError("DeDi API error: 500", 502));
+
+      await expect(client.queryRevocationHash("hash")).rejects.toThrow("DeDi API error: 500");
+    });
   });
 
   // ── registerDelegation ───────────────────────────────────────────
@@ -268,6 +276,29 @@ describe("DeDiClient (adapter)", () => {
       );
       expect(result).toEqual(didRecord);
     });
+
+    it("converts DID colons to hyphens for record name", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "did-key-z6Mk123",
+        registry: PUBLIC_KEY_REGISTRY,
+        namespace: "example.com",
+        detail: { did: "did:key:z6Mk123", document: {}, resolvedAt: "" },
+        state: "live",
+        version: 1,
+        created_at: "",
+        updated_at: "",
+      });
+
+      await client.resolveDID("did:key:z6Mk123");
+
+      expect(api.lookupRecord).toHaveBeenCalledWith(
+        "example.com",
+        PUBLIC_KEY_REGISTRY,
+        "did-key-z6Mk123",
+      );
+    });
   });
 
   // ── ensureRegistries ─────────────────────────────────────────────
@@ -350,6 +381,26 @@ describe("DeDiClient (adapter)", () => {
     it("exposes the underlying DeDiApiClient", () => {
       const client = createClient("example.com");
       expect(client.apiClient).toBeInstanceOf(DeDiApiClient);
+    });
+  });
+
+  // ── constructor validation ──────────────────────────────────────
+
+  describe("constructor validation", () => {
+    // DeDiApiClient constructor is mocked in this test file.
+    // Validation tests for numeric config are in api-client.test.ts.
+    // This section verifies DeDiClient forwards config correctly.
+
+    it("passes config through to DeDiApiClient", () => {
+      createClient("example.com");
+      expect(DeDiApiClient).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baseUrl: "https://dedi.example.com",
+          timeoutMs: 5000,
+          maxRetries: 0,
+          circuitBreakerThreshold: 5,
+        }),
+      );
     });
   });
 });
