@@ -143,9 +143,12 @@ function loadFromPkcs8Der(buffer: Buffer): { privateKey: KeyObject; publicKey: K
 }
 
 /**
- * Internal helper that builds a Signer from loaded key material.
+ * Build a Signer from loaded key material.
+ *
+ * Validates that the key is P-256, derives the did:key identifier,
+ * computes the fingerprint, and returns a ready-to-use Signer.
  */
-function buildSigner(privateKey: KeyObject, publicKey: KeyObject, label?: string): Signer {
+export function buildSigner(privateKey: KeyObject, publicKey: KeyObject, label?: string): Signer {
   validateP256Key(publicKey);
 
   const id = deriveDidKeyId(publicKey);

@@ -16,6 +16,7 @@ import type { KeyMetadata } from "../../shared/ipc-types";
 import { KeyImport } from "./KeyImport";
 import { HardwareToken } from "./HardwareToken";
 import { OsCertStore } from "./OsCertStore";
+import { KeyGenerate } from "./KeyGenerate";
 
 type SubTab = "import" | "hardware" | "oscert" | "generate";
 
@@ -26,7 +27,7 @@ const SUB_TABS: { id: SubTab; label: string }[] = [
   { id: "generate", label: "Generate Key" },
 ];
 
-const SOURCE_LABELS: Record<string, string> = {
+const SOURCE_LABELS: Record<NonNullable<KeyMetadata["source"]>, string> = {
   file: "File",
   pkcs11: "PKCS#11",
   "os-cert": "OS Cert",
@@ -37,12 +38,6 @@ export function KeyManagement() {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>("import");
   const [keys, setKeys] = useState<KeyMetadata[]>([]);
   const [keysError, setKeysError] = useState<string | null>(null);
-
-  // Generate key state
-  const [genLabel, setGenLabel] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [genError, setGenError] = useState<string | null>(null);
-  const [genSuccess, setGenSuccess] = useState<KeyMetadata | null>(null);
 
   const loadKeys = useCallback(async () => {
     try {
@@ -58,42 +53,8 @@ export function KeyManagement() {
     void loadKeys();
   }, [loadKeys]);
 
-  const handleRefreshKeys = useCallback(() => {
-    void loadKeys();
-  }, [loadKeys]);
-
-  async function handleGenerateKey() {
-    setGenError(null);
-    setGenSuccess(null);
-    setGenerating(true);
-    try {
-      const result = await window.opencred.generateKey({
-        label: genLabel.trim() || undefined,
-      });
-
-      if (result.success && result.key) {
-        setGenSuccess(result.key);
-        setGenLabel("");
-        void loadKeys();
-      } else {
-        setGenError(result.error ?? "Key generation failed.");
-      }
-    } catch (err) {
-      setGenError(err instanceof Error ? err.message : "Key generation failed.");
-    } finally {
-      setGenerating(false);
-    }
-  }
-
   function getSourceLabel(key: KeyMetadata): string {
-    if (key.source) {
-      return SOURCE_LABELS[key.source] ?? key.source;
-    }
-    // Backward compatibility: infer source from format
-    if (key.format === "pkcs11") return "PKCS#11";
-    if (key.format?.startsWith("oscert:")) return "OS Cert";
-    if (key.format === "generated") return "Generated";
-    return "File";
+    return key.source ? (SOURCE_LABELS[key.source] ?? key.source) : "File";
   }
 
   return (
@@ -121,58 +82,13 @@ export function KeyManagement() {
 
         {/* Sub-tab content */}
         <div className="pt-2">
-          {activeSubTab === "import" && <KeyImport onKeyImported={handleRefreshKeys} />}
+          {activeSubTab === "import" && <KeyImport onKeyImported={loadKeys} />}
 
-          {activeSubTab === "hardware" && <HardwareToken onKeyConnected={handleRefreshKeys} />}
+          {activeSubTab === "hardware" && <HardwareToken onKeyConnected={loadKeys} />}
 
-          {activeSubTab === "oscert" && <OsCertStore onKeyConnected={handleRefreshKeys} />}
+          {activeSubTab === "oscert" && <OsCertStore onKeyConnected={loadKeys} />}
 
-          {activeSubTab === "generate" && (
-            <div className="space-y-4">
-              <p className="text-xs text-gray-500">
-                Generate a fresh ECDSA P-256 keypair. The private key stays in memory and never
-                leaves this application. Suitable for testing or ephemeral signing.
-              </p>
-              <div className="flex gap-2 items-end">
-                <div className="flex-1">
-                  <label className="block text-xs text-gray-600 mb-1">Label (optional)</label>
-                  <input
-                    type="text"
-                    value={genLabel}
-                    onChange={(e) => setGenLabel(e.target.value)}
-                    placeholder="e.g. Test Issuer Key"
-                    className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") void handleGenerateKey();
-                    }}
-                  />
-                </div>
-                <button
-                  onClick={() => void handleGenerateKey()}
-                  disabled={generating}
-                  className="rounded-md bg-gray-700 px-4 py-1.5 text-sm text-white hover:bg-gray-800 disabled:opacity-40"
-                >
-                  {generating ? "Generating..." : "Generate P-256 Key"}
-                </button>
-              </div>
-
-              {genError && <p className="text-sm text-red-600">{genError}</p>}
-
-              {genSuccess && (
-                <div className="rounded-md border border-green-200 bg-green-50 p-3 text-xs">
-                  <p className="font-medium text-green-800">Key generated successfully</p>
-                  <div className="mt-1 text-green-700 space-y-0.5">
-                    <p>Algorithm: {genSuccess.algorithm}</p>
-                    {genSuccess.label && <p>Label: {genSuccess.label}</p>}
-                    <p>Fingerprint: {genSuccess.fingerprint.slice(0, 32)}...</p>
-                    <p className="font-mono text-[10px] text-green-600 break-all">
-                      ID: {genSuccess.id}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+          {activeSubTab === "generate" && <KeyGenerate onKeyGenerated={loadKeys} />}
         </div>
       </div>
 
