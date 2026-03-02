@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { Hono } from "hono";
 import {
   OpenCredError,
@@ -115,6 +115,66 @@ describe("Error handler middleware", () => {
     expect(body.error.code).toBe("INTERNAL_ERROR");
     expect(body.error.message).toBe("An unexpected error occurred");
     expect(JSON.stringify(body)).not.toContain("private.pem");
+  });
+
+
+  // ── Stack trace suppression by NODE_ENV ─────────────────────────
+
+  describe("stack trace suppression", () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalNodeEnv;
+    });
+
+    it("omits stack trace from logged error info in production", async () => {
+      process.env.NODE_ENV = "production";
+      const spyLogger = makeTestLogger();
+      const logged: Record<string, unknown>[] = [];
+      vi.spyOn(spyLogger, "error").mockImplementation(
+        (obj: unknown, ..._args: unknown[]) => {
+          logged.push(obj as Record<string, unknown>);
+        },
+      );
+
+      const app = new Hono();
+      app.get("/test", () => {
+        throw new Error("boom");
+      });
+      app.onError(errorHandler(spyLogger));
+
+      await app.request("/test");
+
+      expect(logged.length).toBeGreaterThan(0);
+      const errInfo = logged[0]!.err as { message: string; stack?: string };
+      expect(errInfo.message).toBe("boom");
+      expect(errInfo).not.toHaveProperty("stack");
+    });
+
+    it("includes stack trace in logged error info in development", async () => {
+      process.env.NODE_ENV = "development";
+      const spyLogger = makeTestLogger();
+      const logged: Record<string, unknown>[] = [];
+      vi.spyOn(spyLogger, "error").mockImplementation(
+        (obj: unknown, ..._args: unknown[]) => {
+          logged.push(obj as Record<string, unknown>);
+        },
+      );
+
+      const app = new Hono();
+      app.get("/test", () => {
+        throw new Error("boom");
+      });
+      app.onError(errorHandler(spyLogger));
+
+      await app.request("/test");
+
+      expect(logged.length).toBeGreaterThan(0);
+      const errInfo = logged[0]!.err as { message: string; stack?: string };
+      expect(errInfo.message).toBe("boom");
+      expect(errInfo).toHaveProperty("stack");
+      expect(errInfo.stack).toContain("Error: boom");
+    });
   });
 
   it("maps generic OpenCredError with custom status code", async () => {

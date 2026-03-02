@@ -192,6 +192,11 @@ const typeBOnboardingSchema = z.object({
 
 // --- Dependencies ---
 
+/** Minimal logger interface for domain verification (avoids coupling to pino). */
+export interface DomainVerificationLogger {
+  warn(msg: string): void;
+}
+
 export interface DomainVerificationDeps {
   /** TTL store for challenge state. If not provided, a module-scoped default is created. */
   challengeStore?: TTLStore<ChallengeRecord>;
@@ -205,6 +210,8 @@ export interface DomainVerificationDeps {
   dnsResolve6?: (hostname: string) => Promise<string[]>;
   /** SSL subject extractor — injectable for testing */
   extractSslSubject?: SslSubjectExtractor;
+  /** Logger for surfacing DNS/network errors that would otherwise be silently caught */
+  logger?: DomainVerificationLogger;
 }
 
 /**
@@ -251,9 +258,15 @@ async function defaultDnsResolve4(hostname: string): Promise<string[]> {
 async function defaultDnsResolve6(hostname: string): Promise<string[]> {
   try {
     return await dns.resolve6(hostname);
-  } catch {
-    // No AAAA records is not an error for our purpose
-    return [];
+  } catch (err: unknown) {
+    // ENODATA/ENOTFOUND mean "no AAAA records exist" — safe to treat as empty.
+    // All other errors (SERVFAIL, ETIMEOUT, etc.) must propagate to prevent
+    // SSRF bypass via silent failure on intentionally broken DNS.
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENODATA" || code === "ENOTFOUND") {
+      return [];
+    }
+    throw err;
   }
 }
 
@@ -301,6 +314,7 @@ async function verifyDnsChallenge(
   domain: string,
   token: string,
   resolveTxt: (hostname: string, resolverIp: string) => Promise<string[][]>,
+  logger?: DomainVerificationLogger,
 ): Promise<{ verified: boolean; detail?: string }> {
   const lookupHost = `${DNS_SUBDOMAIN}.${domain}`;
   const expectedValue = `${DNS_TXT_PREFIX}${token}`;
@@ -318,8 +332,10 @@ async function verifyDnsChallenge(
       if (flatRecords.includes(expectedValue)) {
         matchCount++;
       }
-    } catch {
-      errors.push(`Resolver ${resolverIp} failed`);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "unknown error";
+      errors.push(`Resolver ${resolverIp} failed: ${detail}`);
+      logger?.warn(`DNS resolver ${resolverIp} failed for ${lookupHost}: ${detail}`);
     }
   }
 
@@ -347,21 +363,35 @@ async function verifyHttpChallenge(
   httpFetch: (url: string) => Promise<{ ok: boolean; text: () => Promise<string> }>,
   resolve4: (hostname: string) => Promise<string[]>,
   resolve6: (hostname: string) => Promise<string[]>,
+  logger?: DomainVerificationLogger,
 ): Promise<{ verified: boolean; detail?: string }> {
-  // SSRF prevention: resolve the domain and validate all IPs are public
+  // SSRF prevention: resolve the domain and validate all IPs are public.
+  // DNS lookup failures (SERVFAIL, ETIMEOUT) are treated as verification
+  // failures — not silently ignored — to prevent SSRF bypass.
   let ipv4Addrs: string[] = [];
   let ipv6Addrs: string[] = [];
+  let v4Failed = false;
+  let v6Failed = false;
 
   try {
     ipv4Addrs = await resolve4(domain);
-  } catch {
-    // No A records — may have only AAAA
+  } catch (err) {
+    v4Failed = true;
+    const detail = err instanceof Error ? err.message : "unknown error";
+    logger?.warn(`DNS A record resolution failed for ${domain}: ${detail}`);
   }
 
   try {
     ipv6Addrs = await resolve6(domain);
-  } catch {
-    // No AAAA records
+  } catch (err) {
+    v6Failed = true;
+    const detail = err instanceof Error ? err.message : "unknown error";
+    logger?.warn(`DNS AAAA record resolution failed for ${domain}: ${detail}`);
+  }
+
+  // If both lookups failed, report the failure rather than treating as "no IPs"
+  if (v4Failed && v6Failed) {
+    return { verified: false, detail: "DNS resolution failed for domain" };
   }
 
   const allAddrs = [...ipv4Addrs, ...ipv6Addrs];
@@ -539,7 +569,7 @@ export function createDomainVerificationRoutes(deps: DomainVerificationDeps = {}
     let result: { verified: boolean; detail?: string };
 
     if (record.method === "dns-txt") {
-      result = await verifyDnsChallenge(record.domain, record.token, resolveTxt);
+      result = await verifyDnsChallenge(record.domain, record.token, resolveTxt, deps.logger);
     } else {
       result = await verifyHttpChallenge(
         record.domain,
@@ -547,6 +577,7 @@ export function createDomainVerificationRoutes(deps: DomainVerificationDeps = {}
         httpFetch,
         resolve4,
         resolve6,
+        deps.logger,
       );
     }
 
