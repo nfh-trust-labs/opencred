@@ -563,7 +563,7 @@ export function createDomainVerificationRoutes(deps: DomainVerificationDeps = {}
     let result: { verified: boolean; detail?: string };
 
     if (record.method === "dns-txt") {
-      result = await verifyDnsChallenge(record.domain, record.token, resolveTxt);
+      result = await verifyDnsChallenge(record.domain, record.token, resolveTxt, deps.logger);
     } else {
       result = await verifyHttpChallenge(
         record.domain,
@@ -571,6 +571,7 @@ export function createDomainVerificationRoutes(deps: DomainVerificationDeps = {}
         httpFetch,
         resolve4,
         resolve6,
+        deps.logger,
       );
     }
 
