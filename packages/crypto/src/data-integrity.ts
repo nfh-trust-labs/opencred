@@ -468,6 +468,11 @@ export async function verifyProof(
       ? { verified: true }
       : { verified: false, error: "Signature verification failed" };
   } catch (error) {
+    // Re-throw programming bugs (TypeError, ReferenceError) so they surface
+    // instead of being silently swallowed as verification failures.
+    if (error instanceof TypeError || error instanceof ReferenceError) {
+      throw error;
+    }
     return {
       verified: false,
       error: `Verification error: ${error instanceof Error ? error.message : "unknown error"}`,

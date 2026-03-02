@@ -12,12 +12,15 @@ export interface CircuitBreakerOptions {
   threshold: number;
   resetTimeoutMs: number;
   logger: DeDiLogger;
+  /** When true, persistent 401/403 errors also count towards the failure threshold. */
+  countAuthFailures: boolean;
 }
 
 const DEFAULT_OPTIONS: CircuitBreakerOptions = {
   threshold: 5,
   resetTimeoutMs: 30_000,
   logger: noopLogger,
+  countAuthFailures: false,
 };
 
 export class CircuitBreaker {
@@ -52,6 +55,14 @@ export class CircuitBreaker {
       return result;
     } catch (error) {
       if (error instanceof DeDiClientError && error.statusCode < 500) {
+        // Count persistent 401/403 as failures when configured, since
+        // e.g. an expired API key will fail indefinitely without tripping the breaker.
+        if (
+          this.options.countAuthFailures &&
+          (error.statusCode === 401 || error.statusCode === 403)
+        ) {
+          this.onFailure();
+        }
         throw error;
       }
       this.onFailure();
