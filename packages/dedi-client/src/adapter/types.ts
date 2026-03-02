@@ -1,8 +1,12 @@
+import type { DeDiAuthConfig } from "../api/auth.js";
+
 export interface DeDiClientConfig {
   baseUrl: string;
   timeoutMs: number;
   maxRetries: number;
   circuitBreakerThreshold: number;
+  auth: DeDiAuthConfig["auth"];
+  defaultNamespace?: string;
 }
 
 export interface RevocationHashRecord {
@@ -25,10 +29,4 @@ export interface DIDRecord {
   did: string;
   document: unknown;
   resolvedAt: string;
-}
-
-export const enum CircuitBreakerState {
-  CLOSED = "CLOSED",
-  OPEN = "OPEN",
-  HALF_OPEN = "HALF_OPEN",
 }

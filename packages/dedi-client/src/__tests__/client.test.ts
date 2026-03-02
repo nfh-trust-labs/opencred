@@ -1,222 +1,355 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DeDiClientError } from "@opencred/shared";
-import { DeDiClient } from "../client.js";
+import { DeDiClient } from "../adapter/client.js";
+import { DeDiApiClient } from "../api/api-client.js";
+import { REVOCATION_REGISTRY, DELEGATION_REGISTRY, PUBLIC_KEY_REGISTRY } from "../adapter/registry-names.js";
 
-function createClient() {
+// Mock the DeDiApiClient
+vi.mock("../api/api-client.js", () => {
+  const MockDeDiApiClient = vi.fn();
+  MockDeDiApiClient.prototype.publishRecord = vi.fn();
+  MockDeDiApiClient.prototype.lookupRecord = vi.fn();
+  MockDeDiApiClient.prototype.search = vi.fn();
+  MockDeDiApiClient.prototype.createNamespace = vi.fn();
+  MockDeDiApiClient.prototype.createRegistry = vi.fn();
+  return { DeDiApiClient: MockDeDiApiClient };
+});
+
+function createClient(defaultNamespace?: string) {
   return new DeDiClient({
-    baseUrl: "https://dedi.example.com/api",
+    baseUrl: "https://dedi.example.com",
     timeoutMs: 5000,
     maxRetries: 0,
     circuitBreakerThreshold: 5,
+    auth: { type: "api-key", apiKey: "dk_test" },
+    defaultNamespace,
   });
 }
 
-const mockRevocation = { hash: "abc123", revoked: false };
-const mockDID = {
-  did: "did:key:z6Mk...",
-  document: { id: "did:key:z6Mk..." },
-  resolvedAt: "2026-01-01T00:00:00Z",
-};
-const mockDelegation = {
-  id: "del-1",
-  issuerDid: "did:key:issuer",
-  delegateDid: "did:key:delegate",
-  scope: ["issue"],
-  validFrom: "2026-01-01T00:00:00Z",
-  validUntil: "2027-01-01T00:00:00Z",
-  certificate: {},
-};
+function mockApi(): InstanceType<typeof DeDiApiClient> {
+  // Get the most recent instance created by the mock constructor
+  const instances = vi.mocked(DeDiApiClient).mock.instances;
+  return instances[instances.length - 1]!;
+}
 
-describe("DeDiClient", () => {
-  const originalFetch = globalThis.fetch;
-  let mockFetch: ReturnType<typeof vi.fn<typeof globalThis.fetch>>;
-
+describe("DeDiClient (adapter)", () => {
   beforeEach(() => {
-    mockFetch = vi.fn<typeof globalThis.fetch>();
-    globalThis.fetch = mockFetch;
+    vi.clearAllMocks();
   });
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
+  // ── Namespace resolution ─────────────────────────────────────────
+
+  describe("namespace resolution", () => {
+    it("uses defaultNamespace when no explicit namespace provided", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.search).mockResolvedValue({ records: [], total: 0 });
+
+      await client.queryRevocationHash("abc");
+
+      expect(api.search).toHaveBeenCalledWith(
+        "example.com",
+        expect.any(Object),
+      );
+    });
+
+    it("uses explicit namespace over defaultNamespace", async () => {
+      const client = createClient("default.com");
+      const api = mockApi();
+      vi.mocked(api.search).mockResolvedValue({ records: [], total: 0 });
+
+      await client.queryRevocationHash("abc", "explicit.com");
+
+      expect(api.search).toHaveBeenCalledWith(
+        "explicit.com",
+        expect.any(Object),
+      );
+    });
+
+    it("throws when no namespace available", async () => {
+      const client = createClient(); // no default
+      await expect(client.queryRevocationHash("abc")).rejects.toThrow(
+        "No namespace provided",
+      );
+    });
   });
+
+  // ── publishRevocationHash ────────────────────────────────────────
 
   describe("publishRevocationHash", () => {
-    it("POSTs a revocation hash", async () => {
-      mockFetch.mockResolvedValue(new Response(JSON.stringify(mockRevocation), { status: 200 }));
+    it("publishes a record to the revocation_list registry", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord).mockResolvedValue({
+        name: "abc",
+        registry: REVOCATION_REGISTRY,
+        namespace: "example.com",
+        detail: { hash: "abc", revoked: true, revokedAt: "2026-01-01T00:00:00Z" },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
 
-      const client = createClient();
-      const result = await client.publishRevocationHash("abc123");
+      const result = await client.publishRevocationHash("abc");
 
-      expect(result).toEqual(mockRevocation);
-      expect(mockFetch).toHaveBeenCalledWith(
-        "https://dedi.example.com/api/revocations",
-        expect.objectContaining({
-          method: "POST",
-          body: JSON.stringify({ hash: "abc123" }),
-        }),
+      expect(api.publishRecord).toHaveBeenCalledWith(
+        "example.com",
+        REVOCATION_REGISTRY,
+        "abc",
+        expect.objectContaining({ hash: "abc", revoked: true }),
+      );
+      expect(result).toEqual(
+        expect.objectContaining({ hash: "abc", revoked: true }),
       );
     });
   });
+
+  // ── queryRevocationHash ──────────────────────────────────────────
 
   describe("queryRevocationHash", () => {
-    it("GETs a revocation status", async () => {
-      mockFetch.mockResolvedValue(new Response(JSON.stringify(mockRevocation), { status: 200 }));
+    it("searches for hash in revocation_list and returns found record", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.search).mockResolvedValue({
+        records: [
+          {
+            name: "abc",
+            registry: REVOCATION_REGISTRY,
+            namespace: "example.com",
+            detail: { hash: "abc", revoked: true, revokedAt: "2026-01-01T00:00:00Z" },
+            state: "live",
+            version: 1,
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z",
+          },
+        ],
+        total: 1,
+      });
 
-      const client = createClient();
-      const result = await client.queryRevocationHash("abc123");
+      const result = await client.queryRevocationHash("abc");
 
-      expect(result).toEqual(mockRevocation);
-      expect(mockFetch).toHaveBeenCalledWith(
-        "https://dedi.example.com/api/revocations/abc123",
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      expect(api.search).toHaveBeenCalledWith("example.com", {
+        registry_name: REVOCATION_REGISTRY,
+        "detail.hash": "abc",
+      });
+      expect(result).toEqual(
+        expect.objectContaining({ hash: "abc", revoked: true }),
       );
+    });
+
+    it("returns { revoked: false } when hash not found", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.search).mockResolvedValue({ records: [], total: 0 });
+
+      const result = await client.queryRevocationHash("missing");
+
+      expect(result).toEqual({ hash: "missing", revoked: false });
+    });
+
+    it("returns { revoked: false } when registry does not exist (404)", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.search).mockRejectedValue(new DeDiClientError("DeDi API error: 404", 404));
+
+      const result = await client.queryRevocationHash("missing");
+
+      expect(result).toEqual({ hash: "missing", revoked: false });
     });
   });
 
-  describe("resolveDID", () => {
-    it("GETs a DID document", async () => {
-      mockFetch.mockResolvedValue(new Response(JSON.stringify(mockDID), { status: 200 }));
-
-      const client = createClient();
-      const result = await client.resolveDID("did:key:z6Mk...");
-
-      expect(result).toEqual(mockDID);
-      expect(mockFetch).toHaveBeenCalledWith(
-        "https://dedi.example.com/api/dids/did%3Akey%3Az6Mk...",
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
-      );
-    });
-  });
+  // ── registerDelegation ───────────────────────────────────────────
 
   describe("registerDelegation", () => {
-    it("POSTs a delegation certificate", async () => {
-      mockFetch.mockResolvedValue(new Response(JSON.stringify(mockDelegation), { status: 200 }));
+    it("publishes delegation to delegation_registry", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const delegation = {
+        id: "del-1",
+        issuerDid: "did:key:issuer",
+        delegateDid: "did:key:delegate",
+        scope: ["issue"],
+        validFrom: "2026-01-01T00:00:00Z",
+        validUntil: "2027-01-01T00:00:00Z",
+        certificate: {},
+      };
 
-      const client = createClient();
-      const delegation = { issuerDid: "did:key:issuer", scope: ["issue"] };
+      vi.mocked(api.publishRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: delegation,
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
       const result = await client.registerDelegation(delegation);
 
-      expect(result).toEqual(mockDelegation);
-      expect(mockFetch).toHaveBeenCalledWith(
-        "https://dedi.example.com/api/delegations",
-        expect.objectContaining({
-          method: "POST",
-          body: JSON.stringify(delegation),
-        }),
+      expect(api.publishRecord).toHaveBeenCalledWith(
+        "example.com",
+        DELEGATION_REGISTRY,
+        "del-1",
+        delegation,
       );
+      expect(result).toEqual(delegation);
     });
   });
+
+  // ── resolveDelegation ────────────────────────────────────────────
 
   describe("resolveDelegation", () => {
-    it("GETs a delegation record", async () => {
-      mockFetch.mockResolvedValue(new Response(JSON.stringify(mockDelegation), { status: 200 }));
+    it("looks up delegation record by id", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const delegation = {
+        id: "del-1",
+        issuerDid: "did:key:issuer",
+        delegateDid: "did:key:delegate",
+        scope: ["issue"],
+        validFrom: "2026-01-01T00:00:00Z",
+        validUntil: "2027-01-01T00:00:00Z",
+        certificate: {},
+      };
 
-      const client = createClient();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: delegation,
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
       const result = await client.resolveDelegation("del-1");
 
-      expect(result).toEqual(mockDelegation);
-      expect(mockFetch).toHaveBeenCalledWith(
-        "https://dedi.example.com/api/delegations/del-1",
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      expect(api.lookupRecord).toHaveBeenCalledWith(
+        "example.com",
+        DELEGATION_REGISTRY,
+        "del-1",
       );
+      expect(result).toEqual(delegation);
     });
   });
 
-  describe("error handling", () => {
-    it("throws DeDiClientError on 4xx response", async () => {
-      mockFetch.mockResolvedValue(
-        new Response(JSON.stringify({ error: "not found" }), { status: 404 }),
+  // ── resolveDID ───────────────────────────────────────────────────
+
+  describe("resolveDID", () => {
+    it("looks up DID record in public_key_registry", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const didRecord = {
+        did: "did:key:z6Mk123",
+        document: { id: "did:key:z6Mk123" },
+        resolvedAt: "2026-01-01T00:00:00Z",
+      };
+
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "did-key-z6Mk123",
+        registry: PUBLIC_KEY_REGISTRY,
+        namespace: "example.com",
+        detail: didRecord,
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      const result = await client.resolveDID("did:key:z6Mk123");
+
+      expect(api.lookupRecord).toHaveBeenCalledWith(
+        "example.com",
+        PUBLIC_KEY_REGISTRY,
+        expect.any(String), // DID to record name conversion
       );
-
-      const client = createClient();
-      await expect(client.queryRevocationHash("missing")).rejects.toThrow(DeDiClientError);
-      await expect(client.queryRevocationHash("missing")).rejects.toMatchObject({
-        statusCode: 404,
-      });
-    });
-
-    it("throws DeDiClientError with 502 on 5xx response", async () => {
-      mockFetch.mockResolvedValue(new Response("Internal Server Error", { status: 500 }));
-
-      const client = createClient();
-      await expect(client.resolveDID("did:key:abc")).rejects.toThrow(DeDiClientError);
-      await expect(client.resolveDID("did:key:abc")).rejects.toMatchObject({
-        statusCode: 502,
-      });
-    });
-
-    it("throws DeDiClientError on network failure", async () => {
-      mockFetch.mockRejectedValue(new TypeError("fetch failed"));
-
-      const client = createClient();
-      await expect(client.resolveDID("did:key:abc")).rejects.toThrow(DeDiClientError);
-      await expect(client.resolveDID("did:key:abc")).rejects.toThrow("DeDi API network error");
-    });
-
-    it("throws DeDiClientError on timeout", async () => {
-      mockFetch.mockImplementation(
-        (_url: string | URL | Request, init?: RequestInit) =>
-          new Promise<Response>((_resolve, reject) => {
-            if (init?.signal) {
-              init.signal.addEventListener("abort", () => {
-                reject(new DOMException("The operation was aborted", "AbortError"));
-              });
-            }
-          }),
-      );
-
-      const client = new DeDiClient({
-        baseUrl: "https://dedi.example.com/api",
-        timeoutMs: 50,
-        maxRetries: 0,
-        circuitBreakerThreshold: 5,
-      });
-
-      const error = await client.resolveDID("did:key:abc").catch((e: unknown) => e);
-      expect(error).toBeInstanceOf(DeDiClientError);
-      expect((error as DeDiClientError).message).toMatch(/timed out/);
+      expect(result).toEqual(didRecord);
     });
   });
 
-  describe("retry + circuit breaker integration", () => {
-    it("retries on transient errors and succeeds", async () => {
-      mockFetch
-        .mockResolvedValueOnce(new Response("error", { status: 500 }))
-        .mockResolvedValue(new Response(JSON.stringify(mockRevocation), { status: 200 }));
+  // ── ensureRegistries ─────────────────────────────────────────────
 
-      vi.useFakeTimers();
-      const client = new DeDiClient({
-        baseUrl: "https://dedi.example.com/api",
-        timeoutMs: 5000,
-        maxRetries: 2,
-        circuitBreakerThreshold: 5,
+  describe("ensureRegistries", () => {
+    it("creates namespace and all three registries", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.createNamespace).mockResolvedValue({
+        name: "example.com",
+        description: "OpenCred namespace",
+        state: "active",
+        verified: false,
+        created_at: "",
+        updated_at: "",
+      });
+      vi.mocked(api.createRegistry).mockResolvedValue({
+        name: "test",
+        namespace: "example.com",
+        schema: {},
+        tag: "revoke",
+        state: "active",
+        record_count: 0,
+        created_at: "",
+        updated_at: "",
       });
 
-      const promise = client.queryRevocationHash("abc123");
-      await vi.advanceTimersByTimeAsync(200);
-      const result = await promise;
+      await client.ensureRegistries("example.com");
 
-      expect(result).toEqual(mockRevocation);
-      expect(mockFetch).toHaveBeenCalledTimes(2);
-      vi.useRealTimers();
+      expect(api.createNamespace).toHaveBeenCalledWith("example.com", expect.any(String));
+      expect(api.createRegistry).toHaveBeenCalledTimes(3);
+      expect(api.createRegistry).toHaveBeenCalledWith(
+        "example.com",
+        REVOCATION_REGISTRY,
+        expect.any(Object),
+        "revoke",
+      );
+      expect(api.createRegistry).toHaveBeenCalledWith(
+        "example.com",
+        DELEGATION_REGISTRY,
+        expect.any(Object),
+        "membership",
+      );
+      expect(api.createRegistry).toHaveBeenCalledWith(
+        "example.com",
+        PUBLIC_KEY_REGISTRY,
+        expect.any(Object),
+        "public_key",
+      );
     });
 
-    it("opens circuit breaker after repeated failures", async () => {
-      mockFetch.mockResolvedValue(new Response("error", { status: 500 }));
+    it("treats 409 Conflict as success (idempotent)", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.createNamespace).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 409", 409),
+      );
+      vi.mocked(api.createRegistry).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 409", 409),
+      );
 
-      const client = new DeDiClient({
-        baseUrl: "https://dedi.example.com/api",
-        timeoutMs: 5000,
-        maxRetries: 0,
-        circuitBreakerThreshold: 2,
-      });
+      // Should not throw
+      await expect(client.ensureRegistries("example.com")).resolves.toBeUndefined();
+    });
 
-      await expect(client.resolveDID("did:key:a")).rejects.toThrow(DeDiClientError);
-      await expect(client.resolveDID("did:key:b")).rejects.toThrow(DeDiClientError);
-      // Circuit is now open — should reject without calling fetch
-      const callCount = mockFetch.mock.calls.length;
-      await expect(client.resolveDID("did:key:c")).rejects.toThrow("Circuit breaker is open");
-      expect(mockFetch).toHaveBeenCalledTimes(callCount);
+    it("re-throws non-409 errors", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.createNamespace).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 500", 502),
+      );
+
+      await expect(client.ensureRegistries("example.com")).rejects.toThrow("DeDi API error: 500");
+    });
+  });
+
+  // ── apiClient getter ─────────────────────────────────────────────
+
+  describe("apiClient getter", () => {
+    it("exposes the underlying DeDiApiClient", () => {
+      const client = createClient("example.com");
+      expect(client.apiClient).toBeInstanceOf(DeDiApiClient);
     });
   });
 });
