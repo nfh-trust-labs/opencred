@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { detectExtension } from "./crypto/extension-client";
 import { CredentialBuilder } from "./components/CredentialBuilder";
 import { CredentialVerifier } from "./components/CredentialVerifier";
 import { DelegatedIssuance } from "./components/DelegatedIssuance";
@@ -14,6 +15,13 @@ export default function App() {
   const [apiUrl, setApiUrl] = useState("/api");
   const [token, setToken] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [extensionAvailable, setExtensionAvailable] = useState(false);
+
+  useEffect(() => {
+    detectExtension().then((result) => {
+      setExtensionAvailable(result.available);
+    });
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -64,7 +72,7 @@ export default function App() {
       </nav>
 
       <main className="mx-auto max-w-4xl px-4 py-6">
-        {activeTab === "builder" && <CredentialBuilder apiUrl={apiUrl} token={token} />}
+        {activeTab === "builder" && <CredentialBuilder apiUrl={apiUrl} token={token} extensionAvailable={extensionAvailable} />}
         {activeTab === "delegated" && <DelegatedIssuance apiUrl={apiUrl} token={token} />}
         {activeTab === "batch" && <BatchIssuance apiUrl={apiUrl} token={token} />}
         {activeTab === "verifier" && <CredentialVerifier apiUrl={apiUrl} token={token} />}

@@ -1,0 +1,63 @@
+{
+  "name": "@opencred/signing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
+    "./software-signer": {
+      "types": "./dist/software-signer.d.ts",
+      "import": "./dist/software-signer.js"
+    },
+    "./pkcs11-signer": {
+      "types": "./dist/pkcs11-signer.d.ts",
+      "import": "./dist/pkcs11-signer.js"
+    },
+    "./pkcs11-session": {
+      "types": "./dist/pkcs11-session.d.ts",
+      "import": "./dist/pkcs11-session.js"
+    },
+    "./pkcs11-utils": {
+      "types": "./dist/pkcs11-utils.d.ts",
+      "import": "./dist/pkcs11-utils.js"
+    },
+    "./os-cert-types": {
+      "types": "./dist/os-cert-types.d.ts",
+      "import": "./dist/os-cert-types.js"
+    },
+    "./os-cert-signer": {
+      "types": "./dist/os-cert-signer.d.ts",
+      "import": "./dist/os-cert-signer.js"
+    },
+    "./macos-cert-provider": {
+      "types": "./dist/macos-cert-provider.d.ts",
+      "import": "./dist/macos-cert-provider.js"
+    },
+    "./windows-cert-provider": {
+      "types": "./dist/windows-cert-provider.d.ts",
+      "import": "./dist/windows-cert-provider.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@opencred/shared": "workspace:*",
+    "@opencred/crypto": "workspace:*",
+    "pkcs11js": "^2.1.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

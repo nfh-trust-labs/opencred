@@ -1,0 +1,34 @@
+{
+  "manifest_version": 2,
+  "name": "OpenCred Signing",
+  "description": "OpenCred Native Signing Host bridge — connects web app to local signing keys (PKCS#11, OS certificates, software keys).",
+  "version": "0.1.0",
+  "permissions": [
+    "nativeMessaging",
+    "storage"
+  ],
+  "background": {
+    "scripts": ["dist/background.js"],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.opencred.example.com/*"
+      ],
+      "js": ["dist/content-script.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "opencred-signing@opencred.example.com",
+      "strict_min_version": "109.0"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

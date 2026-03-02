@@ -1,0 +1,17 @@
+{
+  "name": "@opencred/browser-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "jsdom": "^24.0.0",
+    "typescript": "^5.5.0"
+  }
+}
