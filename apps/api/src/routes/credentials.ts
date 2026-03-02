@@ -350,7 +350,10 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
           credentialWithDelegation as unknown as Record<string, unknown>,
         );
 
-        return c.json({ credential: credentialWithDelegation, formats }, 201);
+        // 10. Compute credential hash for revocation tracking
+        const credentialHash = computeRevocationHash(credentialWithDelegation);
+
+        return c.json({ credential: credentialWithDelegation, credentialHash, formats }, 201);
       },
     );
   }

@@ -62,15 +62,31 @@ export async function validateCapabilityToken(
       return { valid: false, error: "Missing or invalid namespace claim" };
     }
 
+    if (!payload.sub || typeof payload.sub !== "string") {
+      return { valid: false, error: "Missing or invalid sub claim" };
+    }
+    if (!payload.iss || typeof payload.iss !== "string") {
+      return { valid: false, error: "Missing or invalid iss claim" };
+    }
+    if (typeof payload.exp !== "number") {
+      return { valid: false, error: "Missing or invalid exp claim" };
+    }
+    if (typeof payload.iat !== "number") {
+      return { valid: false, error: "Missing or invalid iat claim" };
+    }
+    if (!payload.jti || typeof payload.jti !== "string") {
+      return { valid: false, error: "Missing or invalid jti claim" };
+    }
+
     return {
       valid: true,
       payload: {
-        sub: payload.sub!,
-        iss: payload.iss!,
+        sub: payload.sub,
+        iss: payload.iss,
         aud: payload.aud as string | undefined,
-        exp: payload.exp!,
-        iat: payload.iat!,
-        jti: payload.jti!,
+        exp: payload.exp,
+        iat: payload.iat,
+        jti: payload.jti,
         scope: payload.scope as string[],
         namespace: payload.namespace as string,
       },

@@ -198,7 +198,9 @@ export class DeDiTokenManager {
       throw new DeDiClientError("DeDi API returned a malformed JWT", 502);
     }
     try {
-      const payload = JSON.parse(atob(parts[1]!)) as { exp?: number };
+      const payload = JSON.parse(
+        Buffer.from(parts[1]!, "base64url").toString(),
+      ) as { exp?: number };
       if (payload.exp === undefined) {
         throw new DeDiClientError(
           "DeDi API returned a JWT without an exp claim",

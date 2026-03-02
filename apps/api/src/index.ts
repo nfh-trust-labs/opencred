@@ -1,9 +1,11 @@
 import { serve } from "@hono/node-server";
 import { DeDiClient } from "@opencred/dedi-client";
 import type { DeDiClientConfig } from "@opencred/dedi-client";
+import { LocalSigningKeyProvider } from "@opencred/crypto";
 import { loadConfig } from "@opencred/shared";
 import type { EnvConfig } from "@opencred/shared";
 import { createApp } from "./app.js";
+import type { AuthMiddlewareOptions } from "./middleware/index.js";
 
 const config = loadConfig();
 
@@ -26,7 +28,19 @@ const dediClient = config.DEDI_API_URL
     })
   : undefined;
 
-const { app, logger } = createApp({ config, dediClient });
+// Build auth + signing dependencies when JWT is configured
+const authOptions: AuthMiddlewareOptions | undefined = config.JWT_SECRET
+  ? { verificationKey: new TextEncoder().encode(config.JWT_SECRET), issuer: config.JWT_ISSUER }
+  : undefined;
+
+const signingKeyProvider = config.JWT_SECRET ? new LocalSigningKeyProvider() : undefined;
+
+const { app, logger } = createApp({ config, dediClient, authOptions, signingKeyProvider });
+
+if (signingKeyProvider) {
+  const activeKey = signingKeyProvider.getActiveKey();
+  logger.info({ did: activeKey.id }, "OpenCred signing key loaded");
+}
 
 const server = serve(
   {
