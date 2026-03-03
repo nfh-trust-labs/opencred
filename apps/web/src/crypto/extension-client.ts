@@ -5,8 +5,8 @@
  * which forwards them to the background service worker, which relays to the
  * native signing host.
  *
- * SECURITY: PIN material travels via postMessage → content script → extension
- * → native host. Used for single C_Login call, immediately discarded. Never
+ * SECURITY: PIN material travels via postMessage -> content script -> extension
+ * -> native host. Used for single C_Login call, immediately discarded. Never
  * stored or logged.
  */
 

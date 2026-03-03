@@ -11,7 +11,7 @@ import { pkcs11, oscert } from "./extension-client";
 import { signData, base64urlDecode, base64urlEncode } from "./webcrypto";
 
 // ---------------------------------------------------------------------------
-// Helpers: base64url ↔ standard base64
+// Helpers: base64url <-> standard base64
 // ---------------------------------------------------------------------------
 
 /** Convert base64url to standard base64 (for extension protocol). */
