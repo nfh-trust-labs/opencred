@@ -63,6 +63,8 @@ services:
       dockerfile: apps/web/Dockerfile
     container_name: opencred-web
     restart: unless-stopped
+    environment:
+      - API_BACKEND_URL=http://api:3000/
     ports:
       - "${WEB_PORT:-8080}:8080"
     depends_on:

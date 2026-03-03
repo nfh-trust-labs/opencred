@@ -309,6 +309,9 @@ importers:
       '@opencred/schema-engine':
         specifier: workspace:*
         version: link:../packages/schema-engine
+      '@opencred/signing':
+        specifier: workspace:*
+        version: link:../packages/signing
       '@opencred/vc-core':
         specifier: workspace:*
         version: link:../packages/vc-core

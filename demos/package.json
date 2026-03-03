@@ -1,0 +1,30 @@
+{
+  "name": "@opencred/demos",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:01": "tsx 01-key-generation.ts",
+    "demo:02": "tsx 02-credential-issuance.ts",
+    "demo:03": "tsx 03-interface-signing.ts",
+    "demo:04": "tsx 04-delegation-lifecycle.ts",
+    "demo:05": "tsx 05-verification.ts",
+    "demo:06": "tsx 06-schema-validation.ts",
+    "demo:07": "tsx 07-revocation.ts",
+    "demo:08": "tsx 08-auth-tokens.ts",
+    "demo:09": "tsx 09-all-signers.ts",
+    "demo:all": "tsx run-all.ts"
+  },
+  "dependencies": {
+    "@opencred/crypto": "workspace:*",
+    "@opencred/vc-core": "workspace:*",
+    "@opencred/verification": "workspace:*",
+    "@opencred/delegation": "workspace:*",
+    "@opencred/schema-engine": "workspace:*",
+    "@opencred/auth": "workspace:*",
+    "@opencred/signing": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0"
+  }
+}

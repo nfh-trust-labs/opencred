@@ -73,7 +73,11 @@ export function extractPublicKeyId(jwk: { x: string; y: string }): string {
  * Sign data using ECDSA P-256 with SHA-256. Returns raw r||s signature (64 bytes).
  */
 export async function signData(key: CryptoKey, data: Uint8Array): Promise<Uint8Array> {
-  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, data);
+  const sig = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    key,
+    data as Uint8Array<ArrayBuffer>,
+  );
   return new Uint8Array(sig);
 }
 

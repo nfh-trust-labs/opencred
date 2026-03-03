@@ -49,6 +49,7 @@ COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 RUN chown -R nginx:nginx /usr/share/nginx/html && \
     chown -R nginx:nginx /var/cache/nginx && \
     chown -R nginx:nginx /var/log/nginx && \
+    chown -R nginx:nginx /etc/nginx/conf.d && \
     touch /var/run/nginx.pid && \
     chown -R nginx:nginx /var/run/nginx.pid && \
     # Remove default nginx.conf 'user' directive so nginx runs as current user
@@ -56,9 +57,13 @@ RUN chown -R nginx:nginx /usr/share/nginx/html && \
 
 EXPOSE 8080
 
+# Default API backend URL — overridable at runtime via env var
+ENV API_BACKEND_URL=http://api:3000/
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
 
 USER nginx
 
-CMD ["nginx", "-g", "daemon off;"]
+# Substitute env vars in nginx config at startup, then run nginx
+CMD ["/bin/sh", "-c", "envsubst '${API_BACKEND_URL}' < /etc/nginx/conf.d/default.conf > /tmp/default.conf && mv /tmp/default.conf /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
