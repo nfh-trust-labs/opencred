@@ -14,13 +14,13 @@ const { mockPkcs11, mockOscert, mockCreatePkcs11Signer, mockCreateOsCertSigner }
       listKeys: vi.fn(),
       connect: vi.fn(),
       sign: vi.fn(),
-      disconnect: vi.fn(),
+      disconnect: vi.fn().mockResolvedValue(undefined),
     };
     const mockOscert = {
       list: vi.fn(),
       connect: vi.fn(),
       sign: vi.fn(),
-      disconnect: vi.fn(),
+      disconnect: vi.fn().mockResolvedValue(undefined),
     };
     const mockCreatePkcs11Signer = vi.fn();
     const mockCreateOsCertSigner = vi.fn();

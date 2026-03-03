@@ -5,7 +5,7 @@
  * manifest directories, and cleans up Windows Registry entries.
  */
 
-import { unlinkSync, existsSync } from "node:fs";
+import { unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import {
   getManifestPath,
@@ -80,8 +80,10 @@ function removeManifest(browser: Browser, platform: Platform): UninstallResult {
     };
   }
 
-  if (existsSync(manifestPath)) {
+  try {
     unlinkSync(manifestPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
 
   return {
@@ -97,8 +99,10 @@ function removeWindowsManifest(browser: Browser): UninstallResult {
   const manifestPath = resolve(".", MANIFEST_FILENAME);
 
   // Remove the manifest file
-  if (existsSync(manifestPath)) {
+  try {
     unlinkSync(manifestPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
 
   // Remove the registry key

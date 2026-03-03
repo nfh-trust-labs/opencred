@@ -79,22 +79,17 @@ import type { CsvParseResult, Delimiter } from "../batch/csv-parser.js";
 import { createBatchEngine } from "../batch/batch-engine.js";
 import type { BatchEngine, BatchRowResult } from "../batch/batch-engine.js";
 import { exportBatchAsZip } from "../batch/batch-export.js";
-import { createPkcs11Signer } from "../signing/pkcs11-signer.js";
-import {
-  initializePkcs11,
-  finalizePkcs11,
-  listSlots as listPkcs11Slots,
-  openSession as openPkcs11Session,
-  closeSession as closePkcs11Session,
-  listKeys as listPkcs11Keys,
-} from "../signing/pkcs11-session.js";
+// PKCS#11 imports are lazy to avoid requiring the native pkcs11.node addon at startup.
+// The actual imports happen inside the handler functions via dynamic import().
+
 import {
   checkForUpdates,
   downloadUpdate,
   quitAndInstall,
   getUpdateStatus,
 } from "./auto-updater.js";
-import { listOsCertificates, createOsCertSigner } from "../signing/os-cert-signer.js";
+// OS cert imports are lazy to avoid requiring the native addon at startup.
+
 
 // ---------------------------------------------------------------------------
 // In-memory registries
@@ -764,6 +759,11 @@ async function handlePkcs11ListSlots(
 ): Promise<Pkcs11ListSlotsResponse> {
   let p11;
   try {
+    const {
+      initializePkcs11,
+      finalizePkcs11,
+      listSlots: listPkcs11Slots,
+    } = await import("../signing/pkcs11-session.js");
     p11 = initializePkcs11(request.libraryPath);
     const slots = listPkcs11Slots(p11);
     finalizePkcs11(p11);
@@ -780,6 +780,7 @@ async function handlePkcs11ListSlots(
     };
   } catch (err) {
     if (p11) {
+      const { finalizePkcs11 } = await import("../signing/pkcs11-session.js");
       finalizePkcs11(p11);
     }
     const message = err instanceof Error ? err.message : "Failed to list PKCS#11 slots.";
@@ -797,6 +798,13 @@ async function handlePkcs11ListKeys(
   let p11;
   let session;
   try {
+    const {
+      initializePkcs11,
+      finalizePkcs11,
+      openSession: openPkcs11Session,
+      closeSession: closePkcs11Session,
+      listKeys: listPkcs11Keys,
+    } = await import("../signing/pkcs11-session.js");
     p11 = initializePkcs11(request.libraryPath);
     session = openPkcs11Session(p11, request.slotIndex, request.pin);
     const keys = listPkcs11Keys(session);
@@ -813,11 +821,12 @@ async function handlePkcs11ListKeys(
       })),
     };
   } catch (err) {
-    if (session) {
-      closePkcs11Session(session);
+    const pkcs11Session = await import("../signing/pkcs11-session.js").catch(() => null);
+    if (session && pkcs11Session) {
+      pkcs11Session.closeSession(session);
     }
-    if (p11) {
-      finalizePkcs11(p11);
+    if (p11 && pkcs11Session) {
+      pkcs11Session.finalizePkcs11(p11);
     }
     const message = err instanceof Error ? err.message : "Failed to list keys.";
     return { success: false, error: message };
@@ -832,6 +841,7 @@ async function handlePkcs11Connect(
   request: Pkcs11ConnectRequest,
 ): Promise<Pkcs11ConnectResponse> {
   try {
+    const { createPkcs11Signer } = await import("../signing/pkcs11-signer.js");
     const { signer, availableKeys } = createPkcs11Signer({
       libraryPath: request.libraryPath,
       slotIndex: request.slotIndex,
@@ -905,6 +915,7 @@ async function handleUpdateStatus(): Promise<UpdateStatusResponse> {
 async function handleOsCertList(): Promise<OsCertListResponse> {
   try {
     const platform = process.platform as "darwin" | "win32" | "linux";
+    const { listOsCertificates } = await import("../signing/os-cert-signer.js");
     const result = await listOsCertificates(platform);
 
     return {
@@ -969,6 +980,7 @@ async function handleOsCertConnect(
   try {
     const platform = process.platform as "darwin" | "win32" | "linux";
 
+    const { createOsCertSigner } = await import("../signing/os-cert-signer.js");
     const { signer } = await createOsCertSigner({
       platform,
       certificateId: request.certificateId,

@@ -11,7 +11,7 @@ import { pkcs11, oscert } from "./extension-client";
 import { signData, base64urlDecode, base64urlEncode } from "./webcrypto";
 
 // ---------------------------------------------------------------------------
-// Helpers: base64url ↔ standard base64
+// Helpers: base64url <-> standard base64
 // ---------------------------------------------------------------------------
 
 /** Convert base64url to standard base64 (for extension protocol). */
@@ -54,53 +54,30 @@ export function createJwkSigner(
 }
 
 // ---------------------------------------------------------------------------
-// PKCS#11 signer (via extension)
+// Extension-backed signers (PKCS#11 and OS cert)
 // ---------------------------------------------------------------------------
 
-/**
- * Create a WebSigner that delegates signing to a PKCS#11 token via the
- * browser extension.
- *
- * @param signerId - signer session ID returned from pkcs11.connect()
- * @param metadata - signer metadata from pkcs11.connect()
- */
-export function createPkcs11Signer(
+function createExtensionSigner(
   signerId: string,
   metadata: SignerMetadata,
+  type: "pkcs11" | "os-cert",
+  signFn: (signerId: string, dataBase64: string) => Promise<{ signature: string }>,
 ): WebSigner {
   return {
     publicKeyId: metadata.id,
-    metadata: { type: "pkcs11", label: metadata.label },
+    metadata: { type, label: metadata.label },
     async sign(dataBase64url: string): Promise<string> {
       const dataBase64 = base64urlToBase64(dataBase64url);
-      const result = await pkcs11.sign(signerId, dataBase64);
+      const result = await signFn(signerId, dataBase64);
       return base64ToBase64url(result.signature);
     },
   };
 }
 
-// ---------------------------------------------------------------------------
-// OS Certificate signer (via extension)
-// ---------------------------------------------------------------------------
+export function createPkcs11Signer(signerId: string, metadata: SignerMetadata): WebSigner {
+  return createExtensionSigner(signerId, metadata, "pkcs11", pkcs11.sign);
+}
 
-/**
- * Create a WebSigner that delegates signing to an OS certificate store key
- * via the browser extension.
- *
- * @param signerId - signer session ID returned from oscert.connect()
- * @param metadata - signer metadata from oscert.connect()
- */
-export function createOsCertSigner(
-  signerId: string,
-  metadata: SignerMetadata,
-): WebSigner {
-  return {
-    publicKeyId: metadata.id,
-    metadata: { type: "os-cert", label: metadata.label },
-    async sign(dataBase64url: string): Promise<string> {
-      const dataBase64 = base64urlToBase64(dataBase64url);
-      const result = await oscert.sign(signerId, dataBase64);
-      return base64ToBase64url(result.signature);
-    },
-  };
+export function createOsCertSigner(signerId: string, metadata: SignerMetadata): WebSigner {
+  return createExtensionSigner(signerId, metadata, "os-cert", oscert.sign);
 }

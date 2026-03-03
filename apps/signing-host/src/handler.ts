@@ -28,6 +28,50 @@ import {
 /** The native host version. Returned by the ping handler. */
 const HOST_VERSION = "0.1.0";
 
+// ---------------------------------------------------------------------------
+// Validation helpers
+// ---------------------------------------------------------------------------
+
+function requireString(
+  request: NativeRequest,
+  payload: Record<string, unknown>,
+  name: string,
+): string | NativeResponse {
+  const value = payload[name];
+  if (!value || typeof value !== "string") {
+    return {
+      id: request.id,
+      success: false,
+      error: { code: "INVALID_PARAMS", message: `Missing required parameter: ${name}` },
+    };
+  }
+  return value;
+}
+
+function requireNumber(
+  request: NativeRequest,
+  payload: Record<string, unknown>,
+  name: string,
+): number | NativeResponse {
+  const value = payload[name];
+  if (typeof value !== "number") {
+    return {
+      id: request.id,
+      success: false,
+      error: { code: "INVALID_PARAMS", message: `Missing required parameter: ${name}` },
+    };
+  }
+  return value;
+}
+
+function isErrorResponse(value: unknown): value is NativeResponse {
+  return typeof value === "object" && value !== null && "success" in value;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 /**
  * Handle an incoming native messaging request.
  *
@@ -113,114 +157,55 @@ function handlePkcs11Detect(request: NativeRequest): NativeResponse {
 }
 
 function handlePkcs11ListSlots(request: NativeRequest): NativeResponse {
-  const { libraryPath } = request.payload;
-
-  if (!libraryPath || typeof libraryPath !== "string") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: libraryPath" },
-    };
-  }
+  const libraryPath = requireString(request, request.payload, "libraryPath");
+  if (isErrorResponse(libraryPath)) return libraryPath;
 
   try {
     const slots = pkcs11ListSlots(libraryPath);
-    return {
-      id: request.id,
-      success: true,
-      result: { slots },
-    };
+    return { id: request.id, success: true, result: { slots } };
   } catch (error) {
     return {
       id: request.id,
       success: false,
-      error: {
-        code: "PKCS11_ERROR",
-        message: error instanceof Error ? error.message : "Failed to list PKCS#11 slots",
-      },
+      error: { code: "PKCS11_ERROR", message: getErrorMessage(error, "Failed to list PKCS#11 slots") },
     };
   }
 }
 
 function handlePkcs11ListKeys(request: NativeRequest): NativeResponse {
-  const { libraryPath, slotIndex, pin } = request.payload;
-
-  if (!libraryPath || typeof libraryPath !== "string") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: libraryPath" },
-    };
-  }
-
-  if (typeof slotIndex !== "number") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: slotIndex" },
-    };
-  }
-
-  if (!pin || typeof pin !== "string") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: pin" },
-    };
-  }
+  const libraryPath = requireString(request, request.payload, "libraryPath");
+  if (isErrorResponse(libraryPath)) return libraryPath;
+  const slotIndex = requireNumber(request, request.payload, "slotIndex");
+  if (isErrorResponse(slotIndex)) return slotIndex;
+  const pin = requireString(request, request.payload, "pin");
+  if (isErrorResponse(pin)) return pin;
 
   try {
     const keys = pkcs11ListKeys(libraryPath, slotIndex, pin);
-    // Serialize keys — strip ecPoint (raw bytes) and return safe metadata
     const serializedKeys = keys.map((k) => ({
       label: k.label,
       id: k.id,
       keyType: k.keyType,
       hasPublicKey: k.hasPublicKey,
     }));
-    return {
-      id: request.id,
-      success: true,
-      result: { keys: serializedKeys },
-    };
+    return { id: request.id, success: true, result: { keys: serializedKeys } };
   } catch (error) {
     return {
       id: request.id,
       success: false,
-      error: {
-        code: "PKCS11_ERROR",
-        message: error instanceof Error ? error.message : "Failed to list keys",
-      },
+      error: { code: "PKCS11_ERROR", message: getErrorMessage(error, "Failed to list keys") },
     };
   }
 }
 
 function handlePkcs11Connect(request: NativeRequest): NativeResponse {
-  const { libraryPath, slotIndex, pin, keyId, label } = request.payload;
-
-  if (!libraryPath || typeof libraryPath !== "string") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: libraryPath" },
-    };
-  }
-
-  if (typeof slotIndex !== "number") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: slotIndex" },
-    };
-  }
-
-  if (!pin || typeof pin !== "string") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: pin" },
-    };
-  }
+  const { keyId, label } = request.payload;
+  const libraryPath = requireString(request, request.payload, "libraryPath");
+  if (isErrorResponse(libraryPath)) return libraryPath;
+  const slotIndex = requireNumber(request, request.payload, "slotIndex");
+  if (isErrorResponse(slotIndex)) return slotIndex;
+  const pin = requireString(request, request.payload, "pin");
+  if (isErrorResponse(pin)) return pin;
 
   try {
     const result = pkcs11Connect(
@@ -236,106 +221,24 @@ function handlePkcs11Connect(request: NativeRequest): NativeResponse {
       success: true,
       result: {
         signerId: result.signerId,
-        metadata: {
-          id: result.metadata.id,
-          algorithm: result.metadata.algorithm,
-          type: result.metadata.type,
-          fingerprint: result.metadata.fingerprint,
-          label: result.metadata.label,
-        },
+        metadata: result.metadata,
       },
     };
   } catch (error) {
     return {
       id: request.id,
       success: false,
-      error: {
-        code: "PKCS11_ERROR",
-        message: error instanceof Error ? error.message : "Failed to connect to PKCS#11 token",
-      },
+      error: { code: "PKCS11_ERROR", message: getErrorMessage(error, "Failed to connect to PKCS#11 token") },
     };
   }
 }
 
 async function handlePkcs11Sign(request: NativeRequest): Promise<NativeResponse> {
-  const { signerId, data } = request.payload;
-
-  if (!signerId || typeof signerId !== "string") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: signerId" },
-    };
-  }
-
-  if (!data || typeof data !== "string") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: data (base64)" },
-    };
-  }
-
-  let dataBytes: Uint8Array;
-  try {
-    dataBytes = new Uint8Array(Buffer.from(data, "base64"));
-  } catch {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Invalid base64 data" },
-    };
-  }
-
-  try {
-    const signature = await pkcs11Sign(signerId, dataBytes);
-    return {
-      id: request.id,
-      success: true,
-      result: {
-        signature: Buffer.from(signature).toString("base64"),
-      },
-    };
-  } catch (error) {
-    return {
-      id: request.id,
-      success: false,
-      error: {
-        code: "PKCS11_ERROR",
-        message: error instanceof Error ? error.message : "Signing operation failed",
-      },
-    };
-  }
+  return handleSign(request, pkcs11Sign, "PKCS11_ERROR");
 }
 
 function handlePkcs11Disconnect(request: NativeRequest): NativeResponse {
-  const { signerId } = request.payload;
-
-  if (!signerId || typeof signerId !== "string") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: signerId" },
-    };
-  }
-
-  try {
-    pkcs11Disconnect(signerId);
-    return {
-      id: request.id,
-      success: true,
-      result: {},
-    };
-  } catch (error) {
-    return {
-      id: request.id,
-      success: false,
-      error: {
-        code: "PKCS11_ERROR",
-        message: error instanceof Error ? error.message : "Failed to disconnect",
-      },
-    };
-  }
+  return handleDisconnect(request, pkcs11Disconnect, "PKCS11_ERROR");
 }
 
 // ---------------------------------------------------------------------------
@@ -375,24 +278,15 @@ async function handleOscertList(request: NativeRequest): Promise<NativeResponse>
     return {
       id: request.id,
       success: false,
-      error: {
-        code: "OSCERT_ERROR",
-        message: error instanceof Error ? error.message : "Failed to list OS certificates",
-      },
+      error: { code: "OSCERT_ERROR", message: getErrorMessage(error, "Failed to list OS certificates") },
     };
   }
 }
 
 async function handleOscertConnect(request: NativeRequest): Promise<NativeResponse> {
-  const { certificateId, platform, label } = request.payload;
-
-  if (!certificateId || typeof certificateId !== "string") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: certificateId" },
-    };
-  }
+  const { platform, label } = request.payload;
+  const certificateId = requireString(request, request.payload, "certificateId");
+  if (isErrorResponse(certificateId)) return certificateId;
 
   try {
     const result = await oscertConnect(
@@ -406,45 +300,39 @@ async function handleOscertConnect(request: NativeRequest): Promise<NativeRespon
       success: true,
       result: {
         signerId: result.signerId,
-        metadata: {
-          id: result.metadata.id,
-          algorithm: result.metadata.algorithm,
-          type: result.metadata.type,
-          fingerprint: result.metadata.fingerprint,
-          label: result.metadata.label,
-        },
+        metadata: result.metadata,
       },
     };
   } catch (error) {
     return {
       id: request.id,
       success: false,
-      error: {
-        code: "OSCERT_ERROR",
-        message: error instanceof Error ? error.message : "Failed to connect to OS certificate",
-      },
+      error: { code: "OSCERT_ERROR", message: getErrorMessage(error, "Failed to connect to OS certificate") },
     };
   }
 }
 
 async function handleOscertSign(request: NativeRequest): Promise<NativeResponse> {
-  const { signerId, data } = request.payload;
+  return handleSign(request, oscertSign, "OSCERT_ERROR");
+}
 
-  if (!signerId || typeof signerId !== "string") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: signerId" },
-    };
-  }
+function handleOscertDisconnect(request: NativeRequest): NativeResponse {
+  return handleDisconnect(request, oscertDisconnect, "OSCERT_ERROR");
+}
 
-  if (!data || typeof data !== "string") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: data (base64)" },
-    };
-  }
+// ---------------------------------------------------------------------------
+// Shared sign/disconnect handlers
+// ---------------------------------------------------------------------------
+
+async function handleSign(
+  request: NativeRequest,
+  signFn: (signerId: string, data: Uint8Array) => Promise<Uint8Array>,
+  errorCode: string,
+): Promise<NativeResponse> {
+  const signerId = requireString(request, request.payload, "signerId");
+  if (isErrorResponse(signerId)) return signerId;
+  const data = requireString(request, request.payload, "data");
+  if (isErrorResponse(data)) return data;
 
   let dataBytes: Uint8Array;
   try {
@@ -458,52 +346,37 @@ async function handleOscertSign(request: NativeRequest): Promise<NativeResponse>
   }
 
   try {
-    const signature = await oscertSign(signerId, dataBytes);
+    const signature = await signFn(signerId, dataBytes);
     return {
       id: request.id,
       success: true,
-      result: {
-        signature: Buffer.from(signature).toString("base64"),
-      },
+      result: { signature: Buffer.from(signature).toString("base64") },
     };
   } catch (error) {
     return {
       id: request.id,
       success: false,
-      error: {
-        code: "OSCERT_ERROR",
-        message: error instanceof Error ? error.message : "Signing operation failed",
-      },
+      error: { code: errorCode, message: getErrorMessage(error, "Signing operation failed") },
     };
   }
 }
 
-function handleOscertDisconnect(request: NativeRequest): NativeResponse {
-  const { signerId } = request.payload;
-
-  if (!signerId || typeof signerId !== "string") {
-    return {
-      id: request.id,
-      success: false,
-      error: { code: "INVALID_PARAMS", message: "Missing required parameter: signerId" },
-    };
-  }
+function handleDisconnect(
+  request: NativeRequest,
+  disconnectFn: (signerId: string) => void,
+  errorCode: string,
+): NativeResponse {
+  const signerId = requireString(request, request.payload, "signerId");
+  if (isErrorResponse(signerId)) return signerId;
 
   try {
-    oscertDisconnect(signerId);
-    return {
-      id: request.id,
-      success: true,
-      result: {},
-    };
+    disconnectFn(signerId);
+    return { id: request.id, success: true, result: {} };
   } catch (error) {
     return {
       id: request.id,
       success: false,
-      error: {
-        code: "OSCERT_ERROR",
-        message: error instanceof Error ? error.message : "Failed to disconnect",
-      },
+      error: { code: errorCode, message: getErrorMessage(error, "Failed to disconnect") },
     };
   }
 }

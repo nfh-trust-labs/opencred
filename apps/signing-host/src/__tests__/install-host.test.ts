@@ -251,7 +251,8 @@ describe("uninstallHost", () => {
   });
 
   it("should succeed even if manifest doesn't exist", () => {
-    mockExistsSync.mockReturnValue(false);
+    const enoent = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    mockUnlinkSync.mockImplementation(() => { throw enoent; });
 
     const results = uninstallHost({
       browser: "chrome",
@@ -260,7 +261,7 @@ describe("uninstallHost", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0].success).toBe(true);
-    expect(mockUnlinkSync).not.toHaveBeenCalled();
+    expect(mockUnlinkSync).toHaveBeenCalled();
   });
 
   it("should uninstall from both browsers", () => {

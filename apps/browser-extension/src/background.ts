@@ -34,26 +34,28 @@ import {
  * injected into matching pages (manifest matches), and the native host
  * does its own validation. But we check here too.
  */
-const ALLOWED_ORIGINS: string[] = [
+const ALLOWED_ORIGINS = new Set<string>([
   // Add production origins here when deployed
   // "https://app.opencred.example.com",
-];
+]);
 
 /**
  * Additional origins loaded from extension storage (for development).
  * Populated at startup from chrome.storage.local.
  */
-let dynamicOrigins: string[] = [];
+const dynamicOrigins = new Set<string>();
 
 function isOriginAllowed(origin: string): boolean {
   if (!origin || typeof origin !== "string") return false;
-  return ALLOWED_ORIGINS.includes(origin) || dynamicOrigins.includes(origin);
+  return ALLOWED_ORIGINS.has(origin) || dynamicOrigins.has(origin);
 }
 
 // Load dynamic origins from storage at startup
 chrome.storage?.local?.get(["allowedOrigins"], (result) => {
   if (Array.isArray(result?.["allowedOrigins"])) {
-    dynamicOrigins = result["allowedOrigins"];
+    for (const origin of result["allowedOrigins"]) {
+      if (typeof origin === "string") dynamicOrigins.add(origin);
+    }
   }
 });
 
@@ -61,8 +63,17 @@ chrome.storage?.local?.get(["allowedOrigins"], (result) => {
 // Native host connection management
 // ---------------------------------------------------------------------------
 
+const REQUEST_TIMEOUT_MS = 30_000;
+
 let nativePort: chrome.runtime.Port | null = null;
-const pendingRequests = new Map<string, (response: RuntimeResponse) => void>();
+const pendingRequests = new Map<string, { callback: (response: RuntimeResponse) => void; timer: ReturnType<typeof setTimeout> }>();
+
+function clearPendingRequests(): void {
+  for (const [, entry] of pendingRequests) {
+    clearTimeout(entry.timer);
+  }
+  pendingRequests.clear();
+}
 
 function ensureNativeConnection(): chrome.runtime.Port {
   if (nativePort) return nativePort;
@@ -73,10 +84,11 @@ function ensureNativeConnection(): chrome.runtime.Port {
     const id = message["id"] as string | undefined;
     if (!id) return;
 
-    const callback = pendingRequests.get(id);
-    if (callback) {
+    const entry = pendingRequests.get(id);
+    if (entry) {
+      clearTimeout(entry.timer);
       pendingRequests.delete(id);
-      callback({
+      entry.callback({
         id,
         success: message["success"] as boolean,
         result: message["result"] as Record<string, unknown> | undefined,
@@ -89,8 +101,9 @@ function ensureNativeConnection(): chrome.runtime.Port {
     nativePort = null;
 
     // Reject all pending requests
-    for (const [id, callback] of pendingRequests) {
-      callback({
+    for (const [id, entry] of pendingRequests) {
+      clearTimeout(entry.timer);
+      entry.callback({
         id,
         success: false,
         error: {
@@ -133,7 +146,16 @@ function handleRuntimeMessage(
   try {
     const port = ensureNativeConnection();
 
-    pendingRequests.set(message.id, sendResponse);
+    const timer = setTimeout(() => {
+      pendingRequests.delete(message.id);
+      sendResponse({
+        id: message.id,
+        success: false,
+        error: { code: "TIMEOUT", message: "Native host did not respond in time" },
+      });
+    }, REQUEST_TIMEOUT_MS);
+
+    pendingRequests.set(message.id, { callback: sendResponse, timer });
 
     port.postMessage({
       id: message.id,
@@ -161,4 +183,4 @@ function handleRuntimeMessage(
 chrome.runtime.onMessage.addListener(handleRuntimeMessage);
 
 // Export for testing
-export { handleRuntimeMessage, isOriginAllowed, ALLOWED_ORIGINS, pendingRequests };
+export { handleRuntimeMessage, isOriginAllowed, ALLOWED_ORIGINS, clearPendingRequests };

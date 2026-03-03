@@ -12,16 +12,19 @@ type Tab = "builder" | "delegated" | "batch" | "verifier" | "revocation" | "onbo
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("builder");
-  const [apiUrl, setApiUrl] = useState("/api");
+  const [apiUrl, setApiUrl] = useState(import.meta.env.VITE_API_URL || "/api");
   const [token, setToken] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [extensionAvailable, setExtensionAvailable] = useState(false);
+  const [extensionChecked, setExtensionChecked] = useState(false);
 
   useEffect(() => {
+    if (activeTab !== "builder" || extensionChecked) return;
+    setExtensionChecked(true);
     detectExtension().then((result) => {
       setExtensionAvailable(result.available);
     });
-  }, []);
+  }, [activeTab, extensionChecked]);
 
   return (
     <div className="min-h-screen bg-gray-50">

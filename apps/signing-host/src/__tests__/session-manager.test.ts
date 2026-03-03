@@ -93,22 +93,27 @@ const { mockSigner, mockSession, mockSlots, mockKeys, mockOsCertSigner, mockOsCe
   return { mockSigner, mockSession, mockSlots, mockKeys, mockOsCertSigner, mockOsCertList };
 });
 
-vi.mock("@opencred/signing", () => ({
-  createPkcs11Signer: vi.fn().mockReturnValue({
-    signer: mockSigner,
-    availableKeys: mockKeys,
-  }),
-  destroyPkcs11Signer: vi.fn(),
-  initializePkcs11: vi.fn().mockReturnValue({ C_Finalize: vi.fn() }),
-  finalizePkcs11: vi.fn(),
-  listSlots: vi.fn().mockReturnValue(mockSlots),
-  openSession: vi.fn().mockReturnValue(mockSession),
-  closeSession: vi.fn(),
-  listKeys: vi.fn().mockReturnValue(mockKeys),
-  findPrivateKey: vi.fn(),
-  listOsCertificates: vi.fn().mockResolvedValue(mockOsCertList),
-  createOsCertSigner: vi.fn().mockResolvedValue({ signer: mockOsCertSigner }),
-}));
+vi.mock("@opencred/signing", () => {
+  const p11Instance = { C_Finalize: vi.fn() };
+  return {
+    createPkcs11Signer: vi.fn().mockImplementation(() => ({
+      signer: mockSigner,
+      availableKeys: mockKeys,
+      pkcs11Instance: p11Instance,
+      session: mockSession,
+    })),
+    destroyPkcs11Signer: vi.fn(),
+    initializePkcs11: vi.fn().mockReturnValue(p11Instance),
+    finalizePkcs11: vi.fn(),
+    listSlots: vi.fn().mockReturnValue(mockSlots),
+    openSession: vi.fn().mockReturnValue(mockSession),
+    closeSession: vi.fn(),
+    listKeys: vi.fn().mockReturnValue(mockKeys),
+    findPrivateKey: vi.fn(),
+    listOsCertificates: vi.fn().mockResolvedValue(mockOsCertList),
+    createOsCertSigner: vi.fn().mockResolvedValue({ signer: mockOsCertSigner }),
+  };
+});
 
 vi.mock("pkcs11js", () => {
   class MockPKCS11 {}
