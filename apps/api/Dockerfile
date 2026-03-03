@@ -32,8 +32,17 @@ COPY apps/api/package.json apps/api/package.json
 # Install all dependencies (including dev — needed for build)
 RUN pnpm install --frozen-lockfile
 
-# Copy source code
-COPY packages/ packages/
+# Copy source code (only packages the API needs — exclude signing/desktop-only packages)
+COPY packages/shared/ packages/shared/
+COPY packages/crypto/ packages/crypto/
+COPY packages/did/ packages/did/
+COPY packages/vc-core/ packages/vc-core/
+COPY packages/verification/ packages/verification/
+COPY packages/auth/ packages/auth/
+COPY packages/state/ packages/state/
+COPY packages/delegation/ packages/delegation/
+COPY packages/dedi-client/ packages/dedi-client/
+COPY packages/schema-engine/ packages/schema-engine/
 COPY apps/api/ apps/api/
 
 # Build all packages and the API
