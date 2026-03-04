@@ -103,6 +103,16 @@ export interface VerifyOptions {
 }
 
 /**
+ * Options for VC-JWT signing.
+ */
+export interface VcJwtSigningOptions {
+  /** The verification method identifier (e.g., "did:key:z...#z..."). */
+  verificationMethod: string;
+  /** ISO 8601 timestamp for issuance. Auto-generated if omitted. */
+  created?: string;
+}
+
+/**
  * Options for SD-JWT VC signing.
  */
 export interface SdJwtVcSigningOptions {
@@ -128,16 +138,6 @@ export interface SdJwtVcPreparedProof {
   disclosures: string[];
   /** The JWS algorithm used. */
   algorithm: string;
-}
-
-/**
- * Options for VC-JWT signing.
- */
-export interface VcJwtSigningOptions {
-  /** The verification method identifier (e.g., "did:key:z...#z..."). */
-  verificationMethod: string;
-  /** ISO 8601 timestamp for issuance. Auto-generated if omitted. */
-  created?: string;
 }
 
 /**

@@ -8,10 +8,10 @@ export type {
   SigningKey,
   VerificationResult,
   VerifyOptions,
-  SdJwtVcSigningOptions,
-  SdJwtVcPreparedProof,
   VcJwtSigningOptions,
   ProofFormat,
+  SdJwtVcSigningOptions,
+  SdJwtVcPreparedProof,
 } from "./types.js";
 
 export {
