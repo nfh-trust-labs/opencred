@@ -1,9 +1,11 @@
 import { createPublicKey, type KeyObject } from "node:crypto";
-import { verifyProof } from "@opencred/crypto";
+import { verifyProof, verifyEdDsaProof } from "@opencred/crypto";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import type { DIDResolver } from "@opencred/did";
 import { publicKeyFromMultibase } from "./key-utils.js";
 import type { VerificationCheck } from "./types.js";
+
+const SUPPORTED_CRYPTOSUITES = ["ecdsa-rdfc-2019", "eddsa-rdfc-2022"] as const;
 
 /**
  * Verify a Data Integrity proof on a VerifiableCredential.
@@ -22,7 +24,8 @@ export async function verifyDataIntegrity(
     return { name: "signature", passed: false, detail: `Unsupported proof type: ${proof.type}` };
   }
 
-  if (proof.cryptosuite !== "ecdsa-rdfc-2019") {
+  const cryptosuite = proof.cryptosuite as string;
+  if (!SUPPORTED_CRYPTOSUITES.includes(cryptosuite as typeof SUPPORTED_CRYPTOSUITES[number])) {
     return {
       name: "signature",
       passed: false,
@@ -43,7 +46,9 @@ export async function verifyDataIntegrity(
     };
   }
 
-  const result = await verifyProof(credential, { publicKey });
+  // Route to appropriate verifier based on cryptosuite
+  const verifyFn = cryptosuite === "eddsa-rdfc-2022" ? verifyEdDsaProof : verifyProof;
+  const result = await verifyFn(credential, { publicKey });
   if (result.verified) {
     return { name: "signature", passed: true };
   }

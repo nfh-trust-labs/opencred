@@ -44,7 +44,7 @@ function createJsonLdDocumentLoader(): _jsonldNs.Options.DocLoader["documentLoad
 /**
  * Canonicalize a JSON-LD document using RDFC-1.0 (URDNA2015).
  */
-async function canonicalize(document: Record<string, unknown>): Promise<string> {
+export async function canonicalize(document: Record<string, unknown>): Promise<string> {
   // Cast to JsonLdDocument since our documents are valid JSON-LD NodeObjects.
   // The `safe` option is supported by jsonld 8.x at runtime but not yet in
   // @types/jsonld, so we cast the options to include it.  Disabling safe mode
@@ -66,11 +66,15 @@ async function canonicalize(document: Record<string, unknown>): Promise<string> 
 /**
  * Build a proof configuration object from proof options and the document's @context.
  */
-function buildProofConfig(unsignedVC: UnsignedCredential, options: ProofOptions): ProofConfig {
+function buildProofConfig(
+  unsignedVC: UnsignedCredential,
+  options: ProofOptions,
+  cryptosuite: string = CRYPTOSUITE,
+): ProofConfig {
   const config: ProofConfig = {
     "@context": unsignedVC["@context"] as (string | Record<string, unknown>)[],
     type: PROOF_TYPE,
-    cryptosuite: CRYPTOSUITE,
+    cryptosuite,
     created: options.created ?? new Date().toISOString(),
     verificationMethod: options.verificationMethod,
     proofPurpose: options.proofPurpose,
@@ -91,7 +95,7 @@ function buildProofConfig(unsignedVC: UnsignedCredential, options: ProofOptions)
  * - P-256: SHA-256(canonicalized proofConfig) || SHA-256(canonicalized document)
  * - P-384: SHA-384(canonicalized proofConfig) || SHA-384(canonicalized document)
  */
-async function computeSigningInput(
+export async function computeSigningInput(
   document: Record<string, unknown>,
   proofConfig: ProofConfig,
   hashAlgorithm: "sha256" | "sha384" = "sha256",
@@ -551,4 +555,4 @@ function resolvePublicKey(
 }
 
 // Export the encoding helpers for testing and for use by other packages
-export { multibaseEncode, multibaseDecode, derToRaw, rawToDer };
+export { multibaseEncode, multibaseDecode, derToRaw, rawToDer, buildProofConfig };
