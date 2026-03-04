@@ -106,7 +106,7 @@ describe("signCredentialVcJwt", () => {
     expect(payload.exp).toBeUndefined();
   });
 
-  it("should include vc claim with @context, type, and credentialSubject", async () => {
+  it("should include vc claim with @context, type, and credentialSubject (without redundant fields)", async () => {
     const keys = generateEcKeyPair("P-256");
     const signingKey = createSigningKey(verificationMethod, "P-256", keys);
     const jwt = await signCredentialVcJwt(unsignedVC, signingKey, { verificationMethod });
@@ -116,10 +116,36 @@ describe("signCredentialVcJwt", () => {
     expect(vc).toBeDefined();
     expect(vc["@context"]).toEqual(["https://www.w3.org/2018/credentials/v1"]);
     expect(vc["type"]).toEqual(["VerifiableCredential"]);
-    expect(vc["credentialSubject"]).toEqual({
-      id: "did:example:subject",
-      name: "Test Subject",
-    });
+    // credentialSubject.id is stripped (already in `sub`), only name remains
+    expect(vc["credentialSubject"]).toEqual({ name: "Test Subject" });
+    // issuer, issuanceDate are stripped (already in `iss`, `nbf`)
+    expect(vc["issuer"]).toBeUndefined();
+    expect(vc["issuanceDate"]).toBeUndefined();
+  });
+
+  it("should include iat claim", async () => {
+    const keys = generateEcKeyPair("P-256");
+    const signingKey = createSigningKey(verificationMethod, "P-256", keys);
+    const before = Math.floor(Date.now() / 1000);
+    const jwt = await signCredentialVcJwt(unsignedVC, signingKey, { verificationMethod });
+    const after = Math.floor(Date.now() / 1000);
+
+    const payload = jose.decodeJwt(jwt);
+    expect(payload.iat).toBeGreaterThanOrEqual(before);
+    expect(payload.iat).toBeLessThanOrEqual(after);
+  });
+
+  it("should strip validFrom/validUntil from vc claim (DM 2.0)", async () => {
+    const keys = generateEcKeyPair("P-256");
+    const signingKey = createSigningKey(verificationMethod, "P-256", keys);
+    const jwt = await signCredentialVcJwt(unsignedVCDm2, signingKey, { verificationMethod });
+
+    const payload = jose.decodeJwt(jwt) as Record<string, unknown>;
+    const vc = payload.vc as Record<string, unknown>;
+    expect(vc["validFrom"]).toBeUndefined();
+    expect(vc["validUntil"]).toBeUndefined();
+    expect(vc["issuer"]).toBeUndefined();
+    expect((vc["credentialSubject"] as Record<string, unknown>)["id"]).toBeUndefined();
   });
 
   it("should set exp claim when expirationDate is present", async () => {
@@ -241,7 +267,11 @@ describe("prepareVcJwtProof", () => {
     expect(payload.sub).toBe("did:example:subject");
     expect(payload.jti).toBe("urn:uuid:test-credential");
     expect(payload.nbf).toBe(1704067200);
+    expect(payload.iat).toBeDefined();
     expect(payload.vc).toBeDefined();
+    // vc should not contain redundant fields
+    expect(payload.vc.issuer).toBeUndefined();
+    expect(payload.vc.issuanceDate).toBeUndefined();
   });
 
   it("should return the protectedHeader object", () => {

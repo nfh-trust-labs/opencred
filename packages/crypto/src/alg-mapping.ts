@@ -1,3 +1,4 @@
+import { CryptoError } from "@opencred/shared";
 import type { SigningAlgorithm } from "./types.js";
 
 /**
@@ -16,6 +17,6 @@ export function signingAlgorithmToJwsAlg(algorithm: SigningAlgorithm): string {
     case "Ed25519":
       return "EdDSA";
     default:
-      throw new Error(`Unsupported algorithm: ${algorithm}`);
+      throw new CryptoError(`Unsupported algorithm for JWS: ${algorithm}`);
   }
 }

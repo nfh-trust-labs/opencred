@@ -1,24 +1,7 @@
 import { SignJWT } from "jose";
 import { CryptoError } from "@opencred/shared";
 import type { SigningKey, SigningAlgorithm, VcJwtSigningOptions } from "./types.js";
-
-/**
- * Map a SigningAlgorithm to the corresponding JWS algorithm identifier.
- */
-function signingAlgorithmToJwsAlg(algorithm: SigningAlgorithm): string {
-  switch (algorithm) {
-    case "P-256":
-      return "ES256";
-    case "P-384":
-      return "ES384";
-    case "RSA-2048":
-    case "RSA-3072":
-    case "RSA-4096":
-      return "PS256";
-    default:
-      throw new CryptoError(`Unsupported algorithm for VC-JWT: ${algorithm}`);
-  }
-}
+import { signingAlgorithmToJwsAlg } from "./alg-mapping.js";
 
 /**
  * Convert an ISO 8601 date string to a Unix timestamp (seconds).
@@ -62,8 +45,22 @@ function buildVcJwtClaims(unsignedVC: Record<string, unknown>): Record<string, u
     claims.exp = isoToUnixTimestamp(validUntil);
   }
 
-  // vc: the full credential object (without proof)
-  claims.vc = unsignedVC;
+  // iat: issued at
+  claims.iat = Math.floor(Date.now() / 1000);
+
+  // vc: the credential object, stripped of fields already represented by top-level JWT claims
+  const vc = { ...unsignedVC };
+  delete vc["issuer"];
+  delete vc["validFrom"];
+  delete vc["validUntil"];
+  delete vc["issuanceDate"];
+  delete vc["expirationDate"];
+  if (vc["credentialSubject"] && typeof vc["credentialSubject"] === "object") {
+    const subjectCopy = { ...(vc["credentialSubject"] as Record<string, unknown>) };
+    delete subjectCopy["id"];
+    vc["credentialSubject"] = subjectCopy;
+  }
+  claims.vc = vc;
 
   return claims;
 }
