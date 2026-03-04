@@ -75,7 +75,7 @@ export function completeEdDsaProof(
 ): VerifiableCredential {
   if (signatureBytes.length !== ED25519_SIGNATURE_LENGTH) {
     throw new CryptoError(
-      `Ed25519 signature must be ${ED25519_SIGNATURE_LENGTH} bytes, got ${signatureBytes.length}`,
+      `EdDSA signature must be exactly ${ED25519_SIGNATURE_LENGTH} bytes (Ed25519), got ${signatureBytes.length}`,
     );
   }
 
