@@ -72,4 +72,4 @@ USER nginx
 # Substitute env vars in nginx config at startup, then run nginx.
 # NGINX_RESOLVER is extracted from the container's /etc/resolv.conf so DNS
 # resolution works on both Docker Compose (127.0.0.11) and Railway.
-CMD ["/bin/sh", "-c", "envsubst '${API_BACKEND_URL}' < /etc/nginx/conf.d/default.conf > /tmp/default.conf && mv /tmp/default.conf /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+CMD ["/bin/sh", "-c", "export NGINX_RESOLVER=$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf || echo '8.8.8.8') && envsubst '${API_BACKEND_URL} ${NGINX_RESOLVER}' < /etc/nginx/conf.d/default.conf > /tmp/default.conf && mv /tmp/default.conf /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
