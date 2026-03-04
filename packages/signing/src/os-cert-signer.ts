@@ -32,6 +32,7 @@ import type { Signer, SignerMetadata } from "./types.js";
 import type { OsCertProvider, OsCertSignerOptions, OsCertListResult } from "./os-cert-types.js";
 import { createMacOsCertProvider } from "./macos-cert-provider.js";
 import { createWindowsCertProvider } from "./windows-cert-provider.js";
+import { autoDiscoverP11KitModule } from "./p11-kit-discovery.js";
 
 /**
  * Expected raw signature lengths for EC algorithms.
@@ -63,11 +64,17 @@ export function getProviderForPlatform(
       return createMacOsCertProvider();
     case "win32":
       return createWindowsCertProvider();
-    case "linux":
+    case "linux": {
+      const p11Module = autoDiscoverP11KitModule();
+      const hint = p11Module
+        ? ` p11-kit-proxy detected at ${p11Module} — use the PKCS#11 signer with this module path.`
+        : " Install p11-kit for automatic PKCS#11 module discovery, or specify a module path manually.";
       throw new CryptoError(
-        "Linux does not have a native OS certificate store for signing. " +
-          "Use a PKCS#11 hardware token or import a software key instead.",
+        "Linux does not have a native OS certificate store for signing." +
+          hint +
+          " Alternatively, import a software key.",
       );
+    }
     default:
       throw new CryptoError(
         `Unsupported platform for OS certificate store signing: ${platform as string}`,

@@ -42,8 +42,11 @@
  *    authorize access via Touch ID or password).
  */
 
+import { createRequire } from "node:module";
 import { CryptoError } from "@opencred/shared";
 import type { OsCertProvider, OsCertInfo } from "./os-cert-types.js";
+
+const require = createRequire(import.meta.url);
 
 /**
  * Interface for the native macOS addon module.
@@ -94,8 +97,7 @@ export interface MacOsNativeAddon {
 function loadNativeAddon(): MacOsNativeAddon | null {
   try {
     // The native addon will be at this path when built with node-gyp.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const addon = require("../../native/macos-keychain.node") as MacOsNativeAddon;
+    const addon = require("../../native/build/Release/macos-keychain.node") as MacOsNativeAddon;
     if (
       typeof addon.listSigningCertificates === "function" &&
       typeof addon.signWithCertificate === "function" &&

@@ -45,10 +45,15 @@
     "./windows-cert-provider": {
       "types": "./dist/windows-cert-provider.d.ts",
       "import": "./dist/windows-cert-provider.js"
+    },
+    "./p11-kit-discovery": {
+      "types": "./dist/p11-kit-discovery.d.ts",
+      "import": "./dist/p11-kit-discovery.js"
     }
   },
   "scripts": {
     "build": "tsc",
+    "build:native": "cd native && node-gyp rebuild",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
@@ -56,11 +61,13 @@
     "@opencred/crypto": "workspace:*",
     "@opencred/did": "workspace:*",
     "@opencred/shared": "workspace:*",
+    "node-addon-api": "^8.3.0",
     "node-forge": "^1.3.3",
     "pkcs11js": "^2.1.6"
   },
   "devDependencies": {
     "@types/node-forge": "^1.3.14",
+    "node-gyp": "^10.3.1",
     "typescript": "^5.5.0"
   }
 }

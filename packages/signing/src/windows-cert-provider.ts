@@ -54,8 +54,11 @@
  *    protection dialog) — this is handled by CNG/CryptoAPI.
  */
 
+import { createRequire } from "node:module";
 import { CryptoError } from "@opencred/shared";
 import type { OsCertProvider, OsCertInfo } from "./os-cert-types.js";
+
+const require = createRequire(import.meta.url);
 
 /**
  * Interface for the native Windows CNG addon module.
@@ -106,8 +109,7 @@ export interface WindowsNativeAddon {
 function loadNativeAddon(): WindowsNativeAddon | null {
   try {
     // The native addon will be at this path when built with node-gyp.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const addon = require("../../native/windows-cng.node") as WindowsNativeAddon;
+    const addon = require("../../native/build/Release/windows-cng.node") as WindowsNativeAddon;
     if (
       typeof addon.listSigningCertificates === "function" &&
       typeof addon.signWithCertificate === "function" &&
