@@ -101,3 +101,31 @@ export interface VerifyOptions {
   /** A pre-resolved public key to use for verification (skips key resolution). */
   publicKey?: KeyObject;
 }
+
+/**
+ * Options for SD-JWT VC signing.
+ */
+export interface SdJwtVcSigningOptions {
+  /** Claims to make selectively disclosable (by claim name). */
+  selectiveDisclosureClaims: string[];
+  /** The Verifiable Credential Type (vct) — required for SD-JWT VC. */
+  vct: string;
+  /** Holder's public key JWK for key binding (optional). */
+  holderPublicKeyJwk?: Record<string, unknown>;
+  /** The verification method identifier. */
+  verificationMethod: string;
+  /** ISO 8601 timestamp for issuance. */
+  created?: string;
+}
+
+/**
+ * A prepared SD-JWT VC proof for two-phase (Interface) signing.
+ */
+export interface SdJwtVcPreparedProof {
+  /** The base64url(header).base64url(payload) string to be signed. */
+  signingInput: string;
+  /** The generated disclosures (base64url strings). */
+  disclosures: string[];
+  /** The JWS algorithm used. */
+  algorithm: string;
+}

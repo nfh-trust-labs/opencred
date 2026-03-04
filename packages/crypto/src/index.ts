@@ -8,6 +8,8 @@ export type {
   SigningKey,
   VerificationResult,
   VerifyOptions,
+  SdJwtVcSigningOptions,
+  SdJwtVcPreparedProof,
 } from "./types.js";
 
 export {
@@ -39,6 +41,13 @@ export {
   signCredentialAuto,
 } from "./jws-proof.js";
 export { jcsCanonicalize, computeRevocationHash } from "./jcs.js";
+
+export { signingAlgorithmToJwsAlg } from "./alg-mapping.js";
+export {
+  signCredentialSdJwtVc,
+  prepareSdJwtVcProof,
+  completeSdJwtVcProof,
+} from "./sd-jwt-vc-signing.js";
 
 export type {
   SigningKeyProvider,
