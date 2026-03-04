@@ -17,7 +17,7 @@ test.describe("Multi-Method Signing", () => {
 
   test("Software Key tab is selected by default and shows JWK import", async ({ page }) => {
     // Software Key should be the active tab
-    await expect(page.getByLabel("Signing Key (ECDSA P-256 JWK", { exact: false })).toBeVisible();
+    await expect(page.getByLabel("Signing Key (EC P-256/P-384", { exact: false })).toBeVisible();
   });
 
   test("Hardware Token and OS Certificate tabs are disabled without extension", async ({
@@ -67,7 +67,7 @@ test.describe("Multi-Method Signing", () => {
     await page.getByLabel("Issuer DID").fill("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK");
 
     // Import JWK via Software Key tab (default)
-    await page.getByLabel("Signing Key (ECDSA P-256 JWK", { exact: false }).fill(SAMPLE_JWK);
+    await page.getByLabel("Signing Key (EC P-256/P-384", { exact: false }).fill(SAMPLE_JWK);
     await page.getByRole("button", { name: "Import Key" }).click();
     await expect(page.getByText("Key imported")).toBeVisible();
 
@@ -86,7 +86,7 @@ test.describe("Multi-Method Signing", () => {
     await page.getByLabel("Issuer DID").fill("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK");
 
     // Import key
-    await page.getByLabel("Signing Key (ECDSA P-256 JWK", { exact: false }).fill(SAMPLE_JWK);
+    await page.getByLabel("Signing Key (EC P-256/P-384", { exact: false }).fill(SAMPLE_JWK);
     await page.getByRole("button", { name: "Import Key" }).click();
     await expect(page.getByText("Key imported")).toBeVisible();
 
@@ -134,7 +134,7 @@ test.describe("Multi-Method Signing — Error Handling", () => {
     await page.getByLabel("Issuer DID").fill("did:key:z123");
 
     // Import key
-    await page.getByLabel("Signing Key (ECDSA P-256 JWK", { exact: false }).fill(SAMPLE_JWK);
+    await page.getByLabel("Signing Key (EC P-256/P-384", { exact: false }).fill(SAMPLE_JWK);
     await page.getByRole("button", { name: "Import Key" }).click();
     await expect(page.getByText("Key imported")).toBeVisible();
 
