@@ -117,7 +117,7 @@ export async function mockApiResponses(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ hash: "mock-revocation-hash", algorithm: "jcs-sha256" }),
+      body: JSON.stringify({ hash: "mock-revocation-hash" }),
     });
   });
 
