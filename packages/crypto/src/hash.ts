@@ -17,3 +17,12 @@ export function sha256(data: string | Uint8Array): Uint8Array {
 export function sha256Hex(data: string | Uint8Array): string {
   return createHash("sha256").update(data).digest("hex");
 }
+
+/**
+ * Compute SHA-384 hash of the given data.
+ * @param data — string or Buffer to hash.
+ * @returns The 48-byte SHA-384 digest as a Uint8Array.
+ */
+export function sha384(data: string | Uint8Array): Uint8Array {
+  return new Uint8Array(createHash("sha384").update(data).digest());
+}

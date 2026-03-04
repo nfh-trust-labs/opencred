@@ -55,24 +55,34 @@ import type { OsCertProvider, OsCertInfo } from "./os-cert-types.js";
 export interface MacOsNativeAddon {
   /**
    * List signing certificates from macOS Keychain.
-   * Filters for EC P-256 certificates with signing capability.
+   * Includes EC (P-256, P-384) and RSA certificates with signing capability.
    */
   listSigningCertificates(): OsCertInfo[];
 
   /**
    * Sign data with a Keychain-managed private key.
    * @param certificateId - The Keychain persistent reference identifier.
-   * @param data - SHA-256 hash of the data to sign (32 bytes).
-   * @returns Raw r||s signature (64 bytes for P-256).
+   * @param data - Hash of the data to sign.
+   * @returns Raw signature bytes (r||s for EC, RSASSA-PSS for RSA).
    */
   signWithCertificate(certificateId: string, data: Buffer): Buffer;
 
   /**
-   * Get the SEC1 compressed public key from a certificate.
+   * Get the public key from a certificate.
+   * For EC keys: SEC1 compressed public key (33 bytes for P-256, 49 for P-384).
+   * For RSA keys: SPKI DER-encoded public key.
    * @param certificateId - The Keychain persistent reference identifier.
-   * @returns SEC1 compressed public key (33 bytes for P-256).
+   * @returns Public key bytes.
    */
   getPublicKey(certificateId: string): Buffer;
+
+  /**
+   * Get the certificate chain (PEM-encoded) for a certificate.
+   * Optional — only available when the addon supports chain extraction.
+   * @param certificateId - The Keychain persistent reference identifier.
+   * @returns Array of PEM-encoded certificates (DSC first, then intermediates).
+   */
+  getCertificateChain?(certificateId: string): string[];
 }
 
 /**
@@ -141,10 +151,8 @@ export function createMacOsCertProvider(nativeAddon?: MacOsNativeAddon | null): 
         const result = addon.signWithCertificate(certificateId, Buffer.from(data));
         const signature = new Uint8Array(result);
 
-        if (signature.length !== 64) {
-          throw new CryptoError(
-            `Unexpected signature length from macOS Keychain: expected 64 bytes, got ${signature.length}`,
-          );
+        if (signature.length === 0) {
+          throw new CryptoError("macOS Keychain returned an empty signature");
         }
 
         return signature;
@@ -167,16 +175,25 @@ export function createMacOsCertProvider(nativeAddon?: MacOsNativeAddon | null): 
         const result = addon.getPublicKey(certificateId);
         const publicKey = new Uint8Array(result);
 
-        if (publicKey.length !== 33) {
-          throw new CryptoError(
-            `Unexpected public key length from macOS Keychain: expected 33 bytes, got ${publicKey.length}`,
-          );
+        if (publicKey.length === 0) {
+          throw new CryptoError("macOS Keychain returned an empty public key");
         }
 
         return publicKey;
       } catch (error) {
         if (error instanceof CryptoError) throw error;
         throw new CryptoError("Failed to extract public key from macOS Keychain certificate");
+      }
+    },
+
+    async getCertificateChain(certificateId: string): Promise<string[]> {
+      if (!addon?.getCertificateChain) {
+        return [];
+      }
+      try {
+        return addon.getCertificateChain(certificateId);
+      } catch {
+        return [];
       }
     },
   };

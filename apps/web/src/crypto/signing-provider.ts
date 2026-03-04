@@ -6,7 +6,7 @@
  * to be signing-method agnostic.
  */
 
-import type { SignerMetadata, WebSigner } from "./types";
+import type { SignerMetadata, WebSigner, WebSigningAlgorithm } from "./types";
 import { pkcs11, oscert } from "./extension-client";
 import { signData, base64urlDecode, base64urlEncode } from "./webcrypto";
 
@@ -29,25 +29,27 @@ function base64ToBase64url(b64: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// JWK signer (WebCrypto)
+// JWK / PEM / PFX signer (WebCrypto)
 // ---------------------------------------------------------------------------
 
 /**
- * Create a WebSigner that wraps the existing WebCrypto signData function.
- *
- * @param cryptoKey - a non-extractable CryptoKey from importKeyFile()
- * @param publicKeyId - the stable identifier from importKeyFile()
+ * Create a WebSigner that wraps a WebCrypto CryptoKey.
+ * Works for JWK, PEM, and PFX-imported keys.
  */
 export function createJwkSigner(
   cryptoKey: CryptoKey,
   publicKeyId: string,
+  algorithm: WebSigningAlgorithm = "P-256",
+  options?: { type?: "jwk" | "pfx" | "pem"; certificateChain?: string[]; label?: string },
 ): WebSigner {
   return {
     publicKeyId,
-    metadata: { type: "jwk" },
+    algorithm,
+    certificateChain: options?.certificateChain,
+    metadata: { type: options?.type ?? "jwk", label: options?.label },
     async sign(dataBase64url: string): Promise<string> {
       const data = base64urlDecode(dataBase64url);
-      const sig = await signData(cryptoKey, data);
+      const sig = await signData(cryptoKey, data, algorithm);
       return base64urlEncode(sig);
     },
   };
@@ -65,6 +67,8 @@ function createExtensionSigner(
 ): WebSigner {
   return {
     publicKeyId: metadata.id,
+    algorithm: metadata.algorithm,
+    certificateChain: metadata.certificateChain,
     metadata: { type, label: metadata.label },
     async sign(dataBase64url: string): Promise<string> {
       const dataBase64 = base64urlToBase64(dataBase64url);

@@ -6,13 +6,17 @@
  * the browser).
  */
 
+/** Supported signing algorithms. EC keys use Data Integrity proofs, RSA keys use JWS proofs. */
+export type WebSigningAlgorithm = "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RSA-4096";
+
 /** Metadata about a signer — safe to display in the UI. */
 export interface SignerMetadata {
   id: string;
-  algorithm: "P-256";
+  algorithm: WebSigningAlgorithm;
   type: "software" | "pkcs11" | "os-cert";
   fingerprint: string;
   label?: string;
+  certificateChain?: string[];
 }
 
 /** PKCS#11 slot information. */
@@ -57,9 +61,13 @@ export interface WebSigner {
   publicKeyId: string;
   /** Sign data (base64url encoded) and return base64url signature. */
   sign(dataBase64url: string): Promise<string>;
+  /** The key algorithm — determines proof mechanism (DI vs JWS). */
+  algorithm: WebSigningAlgorithm;
+  /** Certificate chain from PFX/token/OS store, if available (PEM strings). */
+  certificateChain?: string[];
   /** Signer metadata for display. */
   metadata: {
-    type: "jwk" | "pkcs11" | "os-cert";
+    type: "jwk" | "pfx" | "pem" | "pkcs11" | "os-cert";
     label?: string;
   };
 }

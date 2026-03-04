@@ -10,13 +10,17 @@ export interface BuildRequest {
   validFrom: string;
   validUntil?: string;
   revocationRegistryUrl: string;
+  keyAlgorithm?: "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RSA-4096";
+  dscCertificateChain?: string[];
 }
 
 export interface BuildResponse {
   sessionId: string;
   unsignedCredential: Record<string, unknown>;
   dataToSign: string; // base64url
-  proofConfig: Record<string, unknown>;
+  proofConfig?: Record<string, unknown>;
+  proofMechanism: "data-integrity" | "jws";
+  protectedHeader?: Record<string, unknown>;
 }
 
 export interface PackageRequest {
@@ -25,10 +29,11 @@ export interface PackageRequest {
 }
 
 export interface PackageResponse {
-  credential: Record<string, unknown>;
+  credential: Record<string, unknown> | string;
   formats: {
-    jsonld: Record<string, unknown>;
+    jsonld?: Record<string, unknown>;
   };
+  dscCertificateChain?: string[];
 }
 
 interface CheckResult {
@@ -278,8 +283,11 @@ export class OpenCredClient {
     return this.request<PackageResponse>("/credentials/package", req);
   }
 
-  async verifyCredential(credential: unknown): Promise<VerifyResponse> {
-    return this.request<VerifyResponse>("/verify", { credential });
+  async verifyCredential(
+    credential: unknown,
+    dscCertificateChain?: string[],
+  ): Promise<VerifyResponse> {
+    return this.request<VerifyResponse>("/verify", { credential, dscCertificateChain });
   }
 
   // --- Onboarding ---

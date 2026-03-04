@@ -4,21 +4,25 @@
  * Implements the Signer interface using a hardware token via PKCS#11.
  * The private key NEVER leaves the hardware token — all signing operations
  * are performed on-device via C_Sign. Only the public key is extracted
- * for did:key derivation and metadata.
+ * for DID derivation and metadata.
  *
  * SECURITY INVARIANTS:
  *  - The private key stays on the hardware token at all times.
  *  - The PIN is used for session login only and is never stored.
- *  - No key material is logged. Only the key fingerprint and did:key ID
+ *  - No key material is logged. Only the key fingerprint and DID ID
  *    appear in metadata.
  *  - Sessions are always closed in a finally block.
- *  - Signature format: CKM_ECDSA returns raw r||s (64 bytes for P-256).
- *    Some tokens may return DER — normalizeSignature handles conversion.
+ *  - EC signature format: CKM_ECDSA returns raw r||s (64 bytes for P-256,
+ *    96 bytes for P-384). Some tokens may return DER — normalizeSignature
+ *    handles conversion.
+ *  - RSA signature format: CKM_RSA_PKCS_PSS returns RSASSA-PSS signature.
  */
 
 import * as pkcs11js from "pkcs11js";
 import { createHash } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
+import { encodeDidJwk, didJwkVerificationMethodId } from "@opencred/did";
+import type { SigningAlgorithm } from "@opencred/crypto";
 import type { Signer, SignerMetadata } from "./types.js";
 import {
   initializePkcs11,
@@ -26,15 +30,19 @@ import {
   openSession,
   closeSession,
   listKeys,
+  listCertificates,
   findPrivateKey,
   type Pkcs11Session,
   type Pkcs11KeyInfo,
 } from "./pkcs11-session.js";
 import {
   publicKeyFromEcPoint,
+  publicKeyFromRsaComponents,
+  rsaAlgorithmFromModulusBits,
   deriveDidKeyIdFromPublicKey,
   computeFingerprint,
   normalizeSignature,
+  derCertToPem,
 } from "./pkcs11-utils.js";
 
 /**
@@ -47,7 +55,7 @@ export interface Pkcs11SignerOptions {
   slotIndex?: number;
   /** Token PIN — entered by user, never stored. */
   pin: string;
-  /** Hex-encoded CKA_ID of the key to use. If not provided, uses first EC key. */
+  /** Hex-encoded CKA_ID of the key to use. If not provided, uses first available key. */
   keyId?: string;
   /** Optional user-friendly label. */
   label?: string;
@@ -70,8 +78,10 @@ export interface Pkcs11SignerResult {
  * Create a PKCS#11 signer for a hardware token.
  *
  * Opens a session to the token, enumerates keys, selects the target key,
- * extracts the public key (for did:key derivation), and returns a Signer
+ * extracts the public key (for DID derivation), and returns a Signer
  * that delegates all signing to the hardware token via C_Sign.
+ *
+ * Supports EC (P-256, P-384) and RSA (2048, 3072, 4096) keys.
  *
  * The session remains open for the lifetime of the signer. Call the
  * returned signer's destroy method (or close the session) when done.
@@ -106,7 +116,7 @@ export function createPkcs11Signer(options: Pkcs11SignerOptions): Pkcs11SignerRe
   if (availableKeys.length === 0) {
     closeSession(session);
     finalizePkcs11(p11);
-    throw new CryptoError("No EC private keys found on the hardware token");
+    throw new CryptoError("No private keys found on the hardware token");
   }
 
   // Select the target key
@@ -120,64 +130,78 @@ export function createPkcs11Signer(options: Pkcs11SignerOptions): Pkcs11SignerRe
     }
     targetKey = found;
   } else {
-    // Use the first available EC key
+    // Use the first available key
     targetKey = availableKeys[0];
   }
 
-  if (!targetKey.ecPoint) {
+  // Build signer based on key type
+  let signer: Signer;
+  try {
+    if (targetKey.keyType === "RSA") {
+      signer = buildRsaSigner(session, targetKey, options.label);
+    } else {
+      signer = buildEcSigner(session, targetKey, options.label);
+    }
+  } catch (error) {
     closeSession(session);
     finalizePkcs11(p11);
+    throw error;
+  }
+
+  // Attach certificate chain if available
+  try {
+    const certs = listCertificates(session);
+    const matchingCerts = certs.filter((c) => c.id === targetKey.id);
+    if (matchingCerts.length > 0) {
+      signer.metadata.certificateChain = matchingCerts.map((c) => derCertToPem(c.derValue));
+    }
+  } catch {
+    // Certificate discovery is optional — don't fail the signer creation
+  }
+
+  return { signer, availableKeys, pkcs11Instance: p11, session };
+}
+
+/**
+ * Build an EC signer (P-256 or P-384) from a PKCS#11 key.
+ */
+function buildEcSigner(session: Pkcs11Session, targetKey: Pkcs11KeyInfo, label?: string): Signer {
+  if (!targetKey.ecPoint) {
     throw new CryptoError(
       "Cannot extract public key from token — the key has no associated public key object",
     );
   }
 
-  // Derive did:key and fingerprint from the public key
-  let id: string;
-  let fingerprint: string;
-  try {
-    const publicKey = publicKeyFromEcPoint(targetKey.ecPoint);
-    id = deriveDidKeyIdFromPublicKey(publicKey);
-    fingerprint = computeFingerprint(publicKey);
-  } catch (error) {
-    closeSession(session);
-    finalizePkcs11(p11);
-    throw error;
-  }
+  const publicKey = publicKeyFromEcPoint(targetKey.ecPoint);
+  const id = deriveDidKeyIdFromPublicKey(publicKey);
+  const fingerprint = computeFingerprint(publicKey);
+
+  // Determine algorithm from EC point length
+  const algorithm: SigningAlgorithm = targetKey.ecPoint.length === 97 ? "P-384" : "P-256";
+  const hashAlgorithm = algorithm === "P-384" ? "sha384" : "sha256";
 
   // Find the private key handle for signing
-  let privateKeyHandle: Buffer;
-  try {
-    privateKeyHandle = findPrivateKey(session, targetKey.id);
-  } catch (error) {
-    closeSession(session);
-    finalizePkcs11(p11);
-    throw error;
-  }
+  const privateKeyHandle = findPrivateKey(session, targetKey.id);
 
   const metadata: SignerMetadata = {
     id,
-    algorithm: "P-256",
+    algorithm,
     type: "pkcs11",
     fingerprint,
-    label: options.label ?? (targetKey.label || undefined),
+    label: label ?? (targetKey.label || undefined),
   };
 
-  const signer: Signer = {
+  return {
     id,
-    algorithm: "P-256",
+    algorithm,
     type: "pkcs11",
     metadata,
 
     async sign(data: Uint8Array): Promise<Uint8Array> {
       try {
         // PKCS#11 CKM_ECDSA mechanism expects pre-hashed data.
-        // The caller provides the concatenated hash pair (proofConfigHash || documentHash,
-        // 64 bytes). The signing flow in software-signer uses createSign("SHA256") which
-        // applies SHA-256 before ECDSA. For PKCS#11 CKM_ECDSA, we must hash first.
-        const hash = createHash("sha256").update(data).digest();
+        const hash = createHash(hashAlgorithm).update(data).digest();
 
-        // Sign using the hardware token
         session.pkcs11.C_SignInit(
           session.handle,
           { mechanism: pkcs11js.CKM_ECDSA },
@@ -186,19 +210,84 @@ export function createPkcs11Signer(options: Pkcs11SignerOptions): Pkcs11SignerRe
         const rawSignature = session.pkcs11.C_Sign(
           session.handle,
           Buffer.from(hash),
-          Buffer.alloc(128),
+          Buffer.alloc(256),
         );
 
-        // Normalize the signature to raw r||s (64 bytes)
-        return normalizeSignature(new Uint8Array(rawSignature));
+        return normalizeSignature(new Uint8Array(rawSignature), "EC");
       } catch (error) {
         if (error instanceof CryptoError) throw error;
         throw new CryptoError("PKCS#11 signing operation failed");
       }
     },
   };
+}
 
-  return { signer, availableKeys, pkcs11Instance: p11, session };
+/**
+ * Build an RSA signer from a PKCS#11 key.
+ */
+function buildRsaSigner(session: Pkcs11Session, targetKey: Pkcs11KeyInfo, label?: string): Signer {
+  if (!targetKey.rsaModulus || !targetKey.rsaPublicExponent) {
+    throw new CryptoError(
+      "Cannot extract RSA public key from token — missing modulus or exponent",
+    );
+  }
+
+  const publicKey = publicKeyFromRsaComponents(targetKey.rsaModulus, targetKey.rsaPublicExponent);
+  const jwk = publicKey.export({ format: "jwk" }) as { kty: string; [key: string]: unknown };
+  const did = encodeDidJwk(jwk);
+  const id = didJwkVerificationMethodId(did);
+  const fingerprint = computeFingerprint(publicKey);
+
+  // Determine RSA algorithm from modulus bit length
+  const modulusBitLength = targetKey.rsaModulus.length * 8;
+  const algorithm = rsaAlgorithmFromModulusBits(modulusBitLength);
+
+  // Find the private key handle for signing
+  const privateKeyHandle = findPrivateKey(session, targetKey.id);
+
+  const metadata: SignerMetadata = {
+    id,
+    algorithm,
+    type: "pkcs11",
+    fingerprint,
+    label: label ?? (targetKey.label || undefined),
+  };
+
+  return {
+    id,
+    algorithm,
+    type: "pkcs11",
+    metadata,
+
+    async sign(data: Uint8Array): Promise<Uint8Array> {
+      try {
+        // RSA-PSS with SHA-256 hash, MGF1-SHA256, salt length = 32
+        const rsaPssParams: pkcs11js.RsaPSS = {
+          type: pkcs11js.CK_PARAMS_RSA_PSS,
+          hashAlg: pkcs11js.CKM_SHA256,
+          mgf: pkcs11js.CKG_MGF1_SHA256,
+          saltLen: 32,
+        };
+        session.pkcs11.C_SignInit(
+          session.handle,
+          { mechanism: pkcs11js.CKM_RSA_PKCS_PSS, parameter: rsaPssParams },
+          privateKeyHandle,
+        );
+
+        const hash = createHash("sha256").update(data).digest();
+        const rawSignature = session.pkcs11.C_Sign(
+          session.handle,
+          Buffer.from(hash),
+          Buffer.alloc(512),
+        );
+
+        return normalizeSignature(new Uint8Array(rawSignature), "RSA");
+      } catch (error) {
+        if (error instanceof CryptoError) throw error;
+        throw new CryptoError("PKCS#11 RSA signing operation failed");
+      }
+    },
+  };
 }
 
 /**

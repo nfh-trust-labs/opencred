@@ -5,9 +5,10 @@
  * the pkcs11js module to simulate the full PKCS#11 session lifecycle:
  *  - Library initialization
  *  - Session open/PIN/close
- *  - Key enumeration
- *  - Signing via C_Sign
+ *  - Key enumeration (EC P-256, P-384, and RSA)
+ *  - Signing via C_Sign (ECDSA and RSA-PSS)
  *  - DER -> raw signature conversion
+ *  - Certificate chain attachment
  *  - Error handling (wrong PIN, no token, etc.)
  */
 
@@ -16,42 +17,28 @@ import { CryptoError } from "@opencred/shared";
 
 // ---------------------------------------------------------------------------
 // vi.hoisted() — variables available inside the mock factory
-//
-// IMPORTANT: Do NOT call generateKeyPairSync or createSign here.
-// vitest hoists this block above all imports, so node:crypto imports
-// are not yet available. Instead we use a hardcoded valid P-256 point.
 // ---------------------------------------------------------------------------
 
 const {
   testEcPoint,
   testKeyId,
+  testRsaKeyId,
   mockState,
   resetMockState,
   mockSlotHandle,
   mockSessionHandle,
   mockPrivateKeyHandle,
+  mockRsaPrivateKeyHandle,
   mockPublicKeyHandle,
   CONSTS,
 } = vi.hoisted(() => {
-  // Hardcoded valid P-256 uncompressed point (04 || x || y)
-  // This is a well-known test vector: x = all 0x01 (32 bytes), y = all 0x02 (32 bytes)
-  // is NOT on the P-256 curve, but we only need a valid-looking 65-byte array for
-  // the mock PKCS#11 layer. The publicKeyFromEcPoint function constructs the SPKI
-  // from these bytes and lets Node validate. For signer tests where we need a
-  // real key, we generate one lazily (see getTestKeyPair below).
-  //
-  // For utility tests that call publicKeyFromEcPoint, we generate a real key
-  // pair AFTER imports resolve.
-
   const _testKeyId = Buffer.from("01020304", "hex");
+  const _testRsaKeyId = Buffer.from("05060708", "hex");
 
-  /**
-   * Find operation state — supports nesting (outer find for private keys,
-   * inner find for public keys within findPublicKeyPoint).
-   */
   interface FindState {
-    findType: "private" | "public" | null;
+    findType: "private" | "public" | "certificate" | null;
     findCallCount: number;
+    maxObjects: number;
   }
 
   const _mockState = {
@@ -59,12 +46,13 @@ const {
     sessionOpen: false,
     loggedIn: false,
     shouldReturnDer: false,
-    /** Stack of find operations to support nesting. */
     findStack: [] as FindState[],
-    /** Lazily populated with a real EC point once tests set it. */
     realEcPoint: null as Uint8Array | null,
-    /** Lazily populated with a signing function. */
     signFn: null as ((data: Buffer, der: boolean) => Buffer) | null,
+    /** When true, listKeys returns an RSA key as the first key. */
+    useRsaKey: false,
+    /** When true, include certificates in enumeration. */
+    includeCerts: false,
   };
 
   const _CONSTS = {
@@ -73,14 +61,23 @@ const {
     CKA_ID: 0x00000102,
     CKA_KEY_TYPE: 0x00000100,
     CKA_EC_POINT: 0x00000161,
+    CKA_MODULUS: 0x00000120,
+    CKA_PUBLIC_EXPONENT: 0x00000122,
+    CKA_VALUE: 0x00000011,
     CKO_PRIVATE_KEY: 0x00000003,
     CKO_PUBLIC_KEY: 0x00000002,
+    CKO_CERTIFICATE: 0x00000001,
     CKK_EC: 0x00000003,
+    CKK_RSA: 0x00000000,
     CKF_TOKEN_PRESENT: 0x00000001,
     CKF_SERIAL_SESSION: 0x00000004,
     CKF_RW_SESSION: 0x00000002,
     CKU_USER: 1,
     CKM_ECDSA: 0x00001041,
+    CKM_RSA_PKCS_PSS: 0x0000000d,
+    CKM_SHA256: 0x00000250,
+    CKG_MGF1_SHA256: 0x00000002,
+    CK_PARAMS_RSA_PSS: 0x00000033,
   };
 
   function _resetMockState() {
@@ -89,11 +86,10 @@ const {
     _mockState.loggedIn = false;
     _mockState.shouldReturnDer = false;
     _mockState.findStack = [];
-    // Do NOT reset realEcPoint or signFn — they persist across tests
+    _mockState.useRsaKey = false;
+    _mockState.includeCerts = false;
   }
 
-  // A placeholder EC point for the mock. This is replaced with a real one
-  // in beforeEach after imports resolve and a real key pair is generated.
   const _placeholderEcPoint = new Uint8Array(65);
   _placeholderEcPoint[0] = 0x04;
   _placeholderEcPoint.fill(0x01, 1, 33);
@@ -102,15 +98,26 @@ const {
   return {
     testEcPoint: _placeholderEcPoint,
     testKeyId: _testKeyId,
+    testRsaKeyId: _testRsaKeyId,
     mockState: _mockState,
     resetMockState: _resetMockState,
     mockSlotHandle: Buffer.from("slot0"),
     mockSessionHandle: Buffer.from("session0"),
     mockPrivateKeyHandle: Buffer.from("privkey0"),
+    mockRsaPrivateKeyHandle: Buffer.from("rsaprivkey0"),
     mockPublicKeyHandle: Buffer.from("pubkey0"),
     CONSTS: _CONSTS,
   };
 });
+
+// Fake RSA modulus (256 bytes = 2048 bits)
+const fakeRsaModulus = new Uint8Array(256);
+fakeRsaModulus.fill(0xff);
+fakeRsaModulus[0] = 0x00; // leading zero for sign
+const fakeRsaExponent = new Uint8Array([0x01, 0x00, 0x01]);
+
+// Fake DER certificate
+const fakeDerCert = new Uint8Array([0x30, 0x82, 0x01, 0x00]);
 
 vi.mock("pkcs11js", () => {
   class MockPKCS11 {
@@ -166,25 +173,35 @@ vi.mock("pkcs11js", () => {
     }
 
     C_FindObjectsInit(_session: Buffer, template: Array<{ type: number; value: unknown }>) {
-      let findType: "private" | "public" | null = null;
+      let findType: "private" | "public" | "certificate" | null = null;
+      let maxObjects = 1;
       const classAttr = template.find((a) => a.type === CONSTS.CKA_CLASS);
       if (classAttr) {
         if (classAttr.value === CONSTS.CKO_PRIVATE_KEY) {
           findType = "private";
         } else if (classAttr.value === CONSTS.CKO_PUBLIC_KEY) {
           findType = "public";
+        } else if (classAttr.value === CONSTS.CKO_CERTIFICATE) {
+          findType = "certificate";
+          maxObjects = mockState.includeCerts ? 1 : 0;
         }
       }
-      mockState.findStack.push({ findType, findCallCount: 0 });
+      mockState.findStack.push({ findType, findCallCount: 0, maxObjects });
     }
 
     C_FindObjects(_session: Buffer): Buffer | null {
       const current = mockState.findStack[mockState.findStack.length - 1];
       if (!current) throw new Error("FindObjectsInit not called");
 
-      if (current.findCallCount === 0) {
+      if (current.findCallCount < current.maxObjects) {
         current.findCallCount++;
-        return current.findType === "private" ? mockPrivateKeyHandle : mockPublicKeyHandle;
+        if (current.findType === "private") {
+          return mockState.useRsaKey ? mockRsaPrivateKeyHandle : mockPrivateKeyHandle;
+        } else if (current.findType === "public") {
+          return mockPublicKeyHandle;
+        } else if (current.findType === "certificate") {
+          return Buffer.from("cert0");
+        }
       }
       return null;
     }
@@ -195,42 +212,66 @@ vi.mock("pkcs11js", () => {
 
     C_GetAttributeValue(
       _session: Buffer,
-      _obj: Buffer,
+      obj: Buffer,
       template: Array<{ type: number; value?: unknown }>,
     ) {
+      const isRsa = mockState.useRsaKey && (
+        obj === mockRsaPrivateKeyHandle || obj === mockPublicKeyHandle
+      );
+      const isCert = obj.toString() === "cert0";
+
       return template.map((attr) => {
         switch (attr.type) {
           case CONSTS.CKA_LABEL:
-            return { type: attr.type, value: Buffer.from("Test Key") };
+            if (isCert) return { type: attr.type, value: Buffer.from("Token Certificate") };
+            return { type: attr.type, value: Buffer.from(isRsa ? "RSA Key" : "Test Key") };
           case CONSTS.CKA_ID:
-            return { type: attr.type, value: testKeyId };
+            if (isCert) {
+              // Match the key ID for cert-to-key matching
+              return {
+                type: attr.type,
+                value: mockState.useRsaKey ? testRsaKeyId : testKeyId,
+              };
+            }
+            return {
+              type: attr.type,
+              value: isRsa ? testRsaKeyId : testKeyId,
+            };
           case CONSTS.CKA_KEY_TYPE: {
             const buf = Buffer.alloc(4);
-            buf.writeUInt32LE(CONSTS.CKK_EC);
+            buf.writeUInt32LE(isRsa ? CONSTS.CKK_RSA : CONSTS.CKK_EC);
             return { type: attr.type, value: buf };
           }
           case CONSTS.CKA_EC_POINT:
-            // Return the real EC point if available, otherwise the placeholder
             return {
               type: attr.type,
               value: mockState.realEcPoint
                 ? Buffer.from(mockState.realEcPoint)
                 : Buffer.from(testEcPoint),
             };
+          case CONSTS.CKA_MODULUS:
+            return { type: attr.type, value: Buffer.from(fakeRsaModulus) };
+          case CONSTS.CKA_PUBLIC_EXPONENT:
+            return { type: attr.type, value: Buffer.from(fakeRsaExponent) };
+          case CONSTS.CKA_VALUE:
+            return { type: attr.type, value: Buffer.from(fakeDerCert) };
           default:
             return { type: attr.type, value: null };
         }
       });
     }
 
-    C_SignInit(_session: Buffer, mechanism: { mechanism: number }, _key: Buffer) {
-      if (mechanism.mechanism !== CONSTS.CKM_ECDSA) {
-        throw new Error("Unsupported mechanism");
-      }
+    C_SignInit(_session: Buffer, _mechanism: unknown, _key: Buffer) {
+      // Accept any mechanism
     }
 
     C_Sign(_session: Buffer, data: Buffer, _outputBuf: Buffer): Buffer {
-      // Use the lazily-set signing function
+      if (mockState.useRsaKey) {
+        // Return a fake RSA signature (256 bytes for RSA-2048)
+        const sig = Buffer.alloc(256);
+        sig.fill(0xab);
+        return sig;
+      }
       if (!mockState.signFn) {
         throw new Error("Mock signFn not configured — set mockState.signFn in beforeEach");
       }
@@ -260,14 +301,17 @@ import {
 } from "../pkcs11-session.js";
 import {
   publicKeyFromEcPoint,
+  publicKeyFromRsaComponents,
+  rsaAlgorithmFromModulusBits,
   deriveDidKeyIdFromPublicKey,
+  deriveDidJwkIdFromPublicKey,
   computeFingerprint,
   normalizeSignature,
+  derCertToPem,
 } from "../pkcs11-utils.js";
 
 // ---------------------------------------------------------------------------
 // Generate a real EC key pair once, after imports resolve.
-// This is used to populate the mock state and for utility tests.
 // ---------------------------------------------------------------------------
 
 const testKeyPair = generateKeyPairSync("ec", { namedCurve: "P-256" });
@@ -275,15 +319,27 @@ const testPublicKeyJwk = testKeyPair.publicKey.export({ format: "jwk" });
 const xBytes = Buffer.from(testPublicKeyJwk.x!, "base64url");
 const yBytes = Buffer.from(testPublicKeyJwk.y!, "base64url");
 
-/** Real P-256 uncompressed point from the test key pair. */
 const realEcPoint = new Uint8Array(65);
 realEcPoint[0] = 0x04;
 realEcPoint.set(xBytes, 1);
 realEcPoint.set(yBytes, 33);
 
+// Generate a real P-384 key pair for P-384 tests
+const testP384KeyPair = generateKeyPairSync("ec", { namedCurve: "P-384" });
+const testP384PublicKeyJwk = testP384KeyPair.publicKey.export({ format: "jwk" });
+const xBytesP384 = Buffer.from(testP384PublicKeyJwk.x!, "base64url");
+const yBytesP384 = Buffer.from(testP384PublicKeyJwk.y!, "base64url");
+
+const realP384EcPoint = new Uint8Array(97);
+realP384EcPoint[0] = 0x04;
+realP384EcPoint.set(xBytesP384, 1);
+realP384EcPoint.set(yBytesP384, 49);
+
+// Generate a real RSA key pair for RSA tests
+const testRsaKeyPair = generateKeyPairSync("rsa", { modulusLength: 2048 });
+
 /**
- * Signing function that uses the real test key pair.
- * Called by the mock C_Sign method.
+ * Signing function that uses the real EC test key pair.
  */
 function testSignFn(data: Buffer, useDer: boolean): Buffer {
   const signer = createSign("SHA256");
@@ -301,12 +357,11 @@ function testSignFn(data: Buffer, useDer: boolean): Buffer {
 describe("PKCS#11 Signer", () => {
   beforeEach(() => {
     resetMockState();
-    // Wire up the real EC point and signing function for the mock layer
     mockState.realEcPoint = realEcPoint;
     mockState.signFn = testSignFn;
   });
 
-  describe("createPkcs11Signer", () => {
+  describe("createPkcs11Signer — EC key", () => {
     it("should create a signer with correct metadata", () => {
       const { signer, availableKeys } = createPkcs11Signer({
         libraryPath: "/mock/pkcs11.so",
@@ -380,6 +435,78 @@ describe("PKCS#11 Signer", () => {
       });
 
       expect(signer.metadata.label).toBe("My YubiKey");
+    });
+  });
+
+  describe("createPkcs11Signer — RSA key", () => {
+    beforeEach(() => {
+      mockState.useRsaKey = true;
+    });
+
+    it("should create an RSA signer with correct metadata", () => {
+      const { signer } = createPkcs11Signer({
+        libraryPath: "/mock/pkcs11.so",
+        pin: "1234",
+      });
+
+      expect(signer).toBeDefined();
+      expect(signer.algorithm).toBe("RSA-2048");
+      expect(signer.type).toBe("pkcs11");
+      expect(signer.id).toMatch(/^did:jwk:/);
+      expect(signer.id).toContain("#0");
+      expect(signer.metadata.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    });
+
+    it("should produce an RSA signature from sign()", async () => {
+      const { signer } = createPkcs11Signer({
+        libraryPath: "/mock/pkcs11.so",
+        pin: "1234",
+      });
+
+      const testData = new Uint8Array(64);
+      testData.fill(0xab);
+
+      const signature = await signer.sign(testData);
+      expect(signature).toBeInstanceOf(Uint8Array);
+      expect(signature.length).toBe(256); // RSA-2048 signature
+    });
+  });
+
+  describe("certificate chain attachment", () => {
+    it("should attach certificate chain when certs match key ID", () => {
+      mockState.includeCerts = true;
+
+      const { signer } = createPkcs11Signer({
+        libraryPath: "/mock/pkcs11.so",
+        pin: "1234",
+      });
+
+      expect(signer.metadata.certificateChain).toBeDefined();
+      expect(signer.metadata.certificateChain!.length).toBe(1);
+      expect(signer.metadata.certificateChain![0]).toContain("-----BEGIN CERTIFICATE-----");
+      expect(signer.metadata.certificateChain![0]).toContain("-----END CERTIFICATE-----");
+    });
+
+    it("should not have certificate chain when no certs present", () => {
+      const { signer } = createPkcs11Signer({
+        libraryPath: "/mock/pkcs11.so",
+        pin: "1234",
+      });
+
+      expect(signer.metadata.certificateChain).toBeUndefined();
+    });
+
+    it("should attach certificate chain to RSA signer", () => {
+      mockState.useRsaKey = true;
+      mockState.includeCerts = true;
+
+      const { signer } = createPkcs11Signer({
+        libraryPath: "/mock/pkcs11.so",
+        pin: "1234",
+      });
+
+      expect(signer.metadata.certificateChain).toBeDefined();
+      expect(signer.metadata.certificateChain!.length).toBe(1);
     });
   });
 
@@ -479,8 +606,8 @@ describe("PKCS#11 Session Manager (from signer test)", () => {
 });
 
 describe("PKCS#11 Utilities", () => {
-  describe("publicKeyFromEcPoint", () => {
-    it("should create a KeyObject from valid EC point", () => {
+  describe("publicKeyFromEcPoint — P-256", () => {
+    it("should create a KeyObject from valid P-256 EC point", () => {
       const keyObj = publicKeyFromEcPoint(realEcPoint);
       expect(keyObj).toBeDefined();
 
@@ -500,6 +627,77 @@ describe("PKCS#11 Utilities", () => {
     });
   });
 
+  describe("publicKeyFromEcPoint — P-384", () => {
+    it("should create a KeyObject from valid P-384 EC point", () => {
+      const keyObj = publicKeyFromEcPoint(realP384EcPoint);
+      expect(keyObj).toBeDefined();
+
+      const jwk = keyObj.export({ format: "jwk" });
+      expect(jwk.crv).toBe("P-384");
+      expect(jwk.kty).toBe("EC");
+    });
+
+    it("should throw on 97-byte point with wrong prefix", () => {
+      const bad = new Uint8Array(97);
+      bad[0] = 0x02;
+      expect(() => publicKeyFromEcPoint(bad)).toThrow(CryptoError);
+    });
+  });
+
+  describe("publicKeyFromRsaComponents", () => {
+    it("should create a KeyObject from RSA modulus and exponent", () => {
+      const rsaJwk = testRsaKeyPair.publicKey.export({ format: "jwk" });
+      const modulus = Buffer.from(rsaJwk.n!, "base64url");
+      const exponent = Buffer.from(rsaJwk.e!, "base64url");
+
+      const keyObj = publicKeyFromRsaComponents(
+        new Uint8Array(modulus),
+        new Uint8Array(exponent),
+      );
+
+      expect(keyObj).toBeDefined();
+      const jwk = keyObj.export({ format: "jwk" });
+      expect(jwk.kty).toBe("RSA");
+      expect(jwk.n).toBeDefined();
+      expect(jwk.e).toBeDefined();
+    });
+
+    it("should strip leading zero bytes from modulus", () => {
+      const rsaJwk = testRsaKeyPair.publicKey.export({ format: "jwk" });
+      const modulus = Buffer.from(rsaJwk.n!, "base64url");
+      const exponent = Buffer.from(rsaJwk.e!, "base64url");
+
+      // Add leading zeros
+      const paddedModulus = new Uint8Array(modulus.length + 2);
+      paddedModulus[0] = 0x00;
+      paddedModulus[1] = 0x00;
+      paddedModulus.set(modulus, 2);
+
+      const keyObj = publicKeyFromRsaComponents(paddedModulus, new Uint8Array(exponent));
+      expect(keyObj).toBeDefined();
+      const jwk = keyObj.export({ format: "jwk" });
+      expect(jwk.kty).toBe("RSA");
+    });
+  });
+
+  describe("rsaAlgorithmFromModulusBits", () => {
+    it("should return RSA-2048 for 2048 bits", () => {
+      expect(rsaAlgorithmFromModulusBits(2048)).toBe("RSA-2048");
+    });
+
+    it("should return RSA-3072 for 3072 bits", () => {
+      expect(rsaAlgorithmFromModulusBits(3072)).toBe("RSA-3072");
+    });
+
+    it("should return RSA-4096 for 4096 bits", () => {
+      expect(rsaAlgorithmFromModulusBits(4096)).toBe("RSA-4096");
+    });
+
+    it("should return RSA-2048 for smaller bit lengths", () => {
+      expect(rsaAlgorithmFromModulusBits(1024)).toBe("RSA-2048");
+    });
+  });
+
   describe("deriveDidKeyIdFromPublicKey", () => {
     it("should produce a valid did:key ID", () => {
       const keyObj = publicKeyFromEcPoint(realEcPoint);
@@ -510,6 +708,14 @@ describe("PKCS#11 Utilities", () => {
       const [did, fragment] = didKeyId.split("#");
       const suffix = did.replace("did:key:", "");
       expect(fragment).toBe(suffix);
+    });
+  });
+
+  describe("deriveDidJwkIdFromPublicKey", () => {
+    it("should produce a valid did:jwk ID for RSA key", () => {
+      const didJwkId = deriveDidJwkIdFromPublicKey(testRsaKeyPair.publicKey);
+
+      expect(didJwkId).toMatch(/^did:jwk:.+#0$/);
     });
   });
 
@@ -528,8 +734,24 @@ describe("PKCS#11 Utilities", () => {
     });
   });
 
+  describe("derCertToPem", () => {
+    it("should wrap DER bytes in PEM headers", () => {
+      const der = new Uint8Array([0x30, 0x82, 0x01, 0x00, 0xAA, 0xBB]);
+      const pem = derCertToPem(der);
+
+      expect(pem).toContain("-----BEGIN CERTIFICATE-----");
+      expect(pem).toContain("-----END CERTIFICATE-----");
+      // Check that the base64 content is valid
+      const b64Content = pem
+        .replace("-----BEGIN CERTIFICATE-----\n", "")
+        .replace("\n-----END CERTIFICATE-----", "");
+      const decoded = Buffer.from(b64Content, "base64");
+      expect(new Uint8Array(decoded)).toEqual(der);
+    });
+  });
+
   describe("normalizeSignature", () => {
-    it("should pass through 64-byte raw signatures unchanged", () => {
+    it("should pass through 64-byte raw signatures unchanged (P-256)", () => {
       const raw = new Uint8Array(64);
       raw.fill(0xaa, 0, 32);
       raw.fill(0xbb, 32, 64);
@@ -539,7 +761,26 @@ describe("PKCS#11 Utilities", () => {
       expect(result).toEqual(raw);
     });
 
-    it("should convert DER-encoded signatures to raw", () => {
+    it("should pass through 96-byte raw signatures unchanged (P-384)", () => {
+      const raw = new Uint8Array(96);
+      raw.fill(0xaa, 0, 48);
+      raw.fill(0xbb, 48, 96);
+
+      const result = normalizeSignature(raw, "EC");
+      expect(result.length).toBe(96);
+      expect(result).toEqual(raw);
+    });
+
+    it("should pass through RSA signatures unchanged", () => {
+      const rsaSig = new Uint8Array(256);
+      rsaSig.fill(0xcc);
+
+      const result = normalizeSignature(rsaSig, "RSA");
+      expect(result.length).toBe(256);
+      expect(result).toEqual(rsaSig);
+    });
+
+    it("should convert DER-encoded EC signatures to raw", () => {
       const testData = Buffer.from("test data");
       const signer = createSign("SHA256");
       signer.update(testData);
@@ -552,8 +793,14 @@ describe("PKCS#11 Utilities", () => {
       expect(raw.length).toBe(64);
     });
 
-    it("should throw on unexpected signature length", () => {
+    it("should throw on unexpected EC signature length", () => {
       expect(() => normalizeSignature(new Uint8Array(48))).toThrow(CryptoError);
+    });
+
+    it("should not throw on unexpected length for RSA", () => {
+      const oddLenSig = new Uint8Array(48);
+      const result = normalizeSignature(oddLenSig, "RSA");
+      expect(result.length).toBe(48);
     });
   });
 });

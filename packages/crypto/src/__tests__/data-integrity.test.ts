@@ -245,11 +245,11 @@ describe("prepareProof — validation", () => {
 });
 
 describe("signCredential — validation", () => {
-  it("should throw for non-P-256 keys", async () => {
+  it("should throw for RSA keys (Data Integrity only supports EC)", async () => {
     const unsignedVC = createTestCredential();
     const signingKey = createTestSigningKey("did:web:example#key-1");
-    // Tamper the algorithm
-    const badKey = { ...signingKey, algorithm: "P-384" as const } as unknown as SigningKey;
+    // Tamper the algorithm to RSA, which is not supported by Data Integrity
+    const badKey = { ...signingKey, algorithm: "RSA-2048" as const } as unknown as SigningKey;
 
     await expect(signCredential(unsignedVC, badKey, defaultProofOptions)).rejects.toThrow(
       CryptoError,

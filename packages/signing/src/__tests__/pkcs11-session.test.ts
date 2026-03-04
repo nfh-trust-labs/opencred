@@ -2,7 +2,8 @@
  * Tests for the PKCS#11 session manager.
  *
  * Uses a mock of pkcs11js to test session lifecycle, slot enumeration,
- * key discovery, and error handling without requiring real hardware.
+ * key discovery (EC and RSA), certificate discovery, and error handling
+ * without requiring real hardware.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -12,14 +13,16 @@ import { CryptoError } from "@opencred/shared";
 // vi.hoisted() — variables available inside the mock factory
 // ---------------------------------------------------------------------------
 
-const { mockState, resetMocks, testKeyId, testEcPoint, CONSTS } = vi.hoisted(() => {
+const { mockState, resetMocks, testKeyId, testEcPoint, testRsaKeyId, CONSTS } = vi.hoisted(() => {
   /**
    * Find operation state — supports nesting (outer find for private keys,
    * inner find for public keys within findPublicKeyPoint).
    */
   interface FindState {
-    findType: "private" | "public" | null;
+    findType: "private" | "public" | "certificate" | null;
     findCallCount: number;
+    /** For private key finds, cycle through both EC and RSA keys. */
+    maxObjects: number;
   }
 
   const _mockState = {
@@ -28,6 +31,10 @@ const { mockState, resetMocks, testKeyId, testEcPoint, CONSTS } = vi.hoisted(() 
     loadShouldFail: false,
     /** Stack of find operations to support nesting. */
     findStack: [] as FindState[],
+    /** Whether to include RSA keys in enumeration. */
+    includeRsaKeys: false,
+    /** Whether to include certificates in enumeration. */
+    includeCerts: false,
   };
 
   const _CONSTS = {
@@ -36,9 +43,14 @@ const { mockState, resetMocks, testKeyId, testEcPoint, CONSTS } = vi.hoisted(() 
     CKA_ID: 0x00000102,
     CKA_KEY_TYPE: 0x00000100,
     CKA_EC_POINT: 0x00000161,
+    CKA_MODULUS: 0x00000120,
+    CKA_PUBLIC_EXPONENT: 0x00000122,
+    CKA_VALUE: 0x00000011,
     CKO_PRIVATE_KEY: 0x00000003,
     CKO_PUBLIC_KEY: 0x00000002,
+    CKO_CERTIFICATE: 0x00000001,
     CKK_EC: 0x00000003,
+    CKK_RSA: 0x00000000,
     CKF_TOKEN_PRESENT: 0x00000001,
     CKF_SERIAL_SESSION: 0x00000004,
     CKF_RW_SESSION: 0x00000002,
@@ -47,6 +59,7 @@ const { mockState, resetMocks, testKeyId, testEcPoint, CONSTS } = vi.hoisted(() 
   };
 
   const _testKeyId = Buffer.from("aabb", "hex");
+  const _testRsaKeyId = Buffer.from("ccdd", "hex");
 
   // Minimal valid uncompressed P-256 point (65 bytes, prefix 0x04)
   const _testEcPoint = new Uint8Array(65);
@@ -59,16 +72,28 @@ const { mockState, resetMocks, testKeyId, testEcPoint, CONSTS } = vi.hoisted(() 
     _mockState.sessionCount = 0;
     _mockState.loadShouldFail = false;
     _mockState.findStack = [];
+    _mockState.includeRsaKeys = false;
+    _mockState.includeCerts = false;
   }
 
   return {
     mockState: _mockState,
     resetMocks: _resetMocks,
     testKeyId: _testKeyId,
+    testRsaKeyId: _testRsaKeyId,
     testEcPoint: _testEcPoint,
     CONSTS: _CONSTS,
   };
 });
+
+// A fake RSA modulus (256 bytes = 2048 bits)
+const fakeRsaModulus = new Uint8Array(256);
+fakeRsaModulus.fill(0x01);
+// A fake RSA public exponent (3 bytes = 65537)
+const fakeRsaExponent = new Uint8Array([0x01, 0x00, 0x01]);
+
+// A fake DER certificate
+const fakeDerCert = new Uint8Array([0x30, 0x82, 0x01, 0x00, 0xAA, 0xBB, 0xCC]);
 
 vi.mock("pkcs11js", () => {
   class MockPKCS11 {
@@ -126,25 +151,40 @@ vi.mock("pkcs11js", () => {
     }
 
     C_FindObjectsInit(_session: Buffer, template: Array<{ type: number; value: unknown }>) {
-      let findType: "private" | "public" | null = null;
+      let findType: "private" | "public" | "certificate" | null = null;
+      let maxObjects = 1;
       const classAttr = template.find((a) => a.type === CONSTS.CKA_CLASS);
       if (classAttr) {
         if (classAttr.value === CONSTS.CKO_PRIVATE_KEY) {
           findType = "private";
+          // Return 2 keys when RSA is included
+          if (mockState.includeRsaKeys) maxObjects = 2;
         } else if (classAttr.value === CONSTS.CKO_PUBLIC_KEY) {
           findType = "public";
+        } else if (classAttr.value === CONSTS.CKO_CERTIFICATE) {
+          findType = "certificate";
+          if (mockState.includeCerts) maxObjects = 1;
+          else maxObjects = 0;
         }
       }
-      mockState.findStack.push({ findType, findCallCount: 0 });
+      mockState.findStack.push({ findType, findCallCount: 0, maxObjects });
     }
 
     C_FindObjects(_session: Buffer): Buffer | null {
       const current = mockState.findStack[mockState.findStack.length - 1];
       if (!current) return null;
 
-      if (current.findCallCount === 0) {
+      if (current.findCallCount < current.maxObjects) {
+        const idx = current.findCallCount;
         current.findCallCount++;
-        return current.findType === "private" ? Buffer.from("privkey0") : Buffer.from("pubkey0");
+
+        if (current.findType === "private") {
+          return idx === 0 ? Buffer.from("privkey0") : Buffer.from("privkey1");
+        } else if (current.findType === "public") {
+          return Buffer.from("pubkey0");
+        } else if (current.findType === "certificate") {
+          return Buffer.from("cert0");
+        }
       }
       return null;
     }
@@ -155,27 +195,48 @@ vi.mock("pkcs11js", () => {
 
     C_GetAttributeValue(
       _session: Buffer,
-      _obj: Buffer,
+      obj: Buffer,
       template: Array<{ type: number; value?: unknown }>,
     ) {
+      const objName = obj.toString();
+      const isRsaKey = objName === "privkey1" || (objName === "pubkey0" && this._lastFindForRsa);
+      const isCert = objName === "cert0";
+
       return template.map((attr) => {
         switch (attr.type) {
           case CONSTS.CKA_LABEL:
-            return { type: attr.type, value: Buffer.from("Signing Key 1") };
+            if (isCert) return { type: attr.type, value: Buffer.from("Token Certificate") };
+            return {
+              type: attr.type,
+              value: Buffer.from(isRsaKey ? "RSA Key 1" : "Signing Key 1"),
+            };
           case CONSTS.CKA_ID:
-            return { type: attr.type, value: testKeyId };
+            if (isCert) return { type: attr.type, value: testKeyId };
+            return {
+              type: attr.type,
+              value: isRsaKey ? testRsaKeyId : testKeyId,
+            };
           case CONSTS.CKA_KEY_TYPE: {
             const buf = Buffer.alloc(4);
-            buf.writeUInt32LE(CONSTS.CKK_EC);
+            buf.writeUInt32LE(isRsaKey ? CONSTS.CKK_RSA : CONSTS.CKK_EC);
             return { type: attr.type, value: buf };
           }
           case CONSTS.CKA_EC_POINT:
             return { type: attr.type, value: Buffer.from(testEcPoint) };
+          case CONSTS.CKA_MODULUS:
+            return { type: attr.type, value: Buffer.from(fakeRsaModulus) };
+          case CONSTS.CKA_PUBLIC_EXPONENT:
+            return { type: attr.type, value: Buffer.from(fakeRsaExponent) };
+          case CONSTS.CKA_VALUE:
+            return { type: attr.type, value: Buffer.from(fakeDerCert) };
           default:
             return { type: attr.type, value: null };
         }
       });
     }
+
+    /** Track whether last find was for RSA public key lookup. */
+    _lastFindForRsa = false;
   }
 
   return {
@@ -192,6 +253,7 @@ import {
   openSession,
   closeSession,
   listKeys,
+  listCertificates,
   findPrivateKey,
 } from "../pkcs11-session.js";
 
@@ -301,7 +363,7 @@ describe("PKCS#11 Session Manager", () => {
   });
 
   describe("listKeys", () => {
-    it("should return key metadata", () => {
+    it("should return EC key metadata", () => {
       const p11 = initializePkcs11("/mock/lib.so");
       const session = openSession(p11, 0, "1234");
       const keys = listKeys(session);
@@ -330,7 +392,50 @@ describe("PKCS#11 Session Manager", () => {
       finalizePkcs11(p11);
     });
 
+    it("should return both EC and RSA keys when RSA keys are present", () => {
+      mockState.includeRsaKeys = true;
+
+      const p11 = initializePkcs11("/mock/lib.so");
+      const session = openSession(p11, 0, "1234");
+      const keys = listKeys(session);
+
+      expect(keys.length).toBe(2);
+
+      // First key: EC
+      const ecKey = keys.find((k) => k.keyType === "EC");
+      expect(ecKey).toBeDefined();
+      expect(ecKey!.ecPoint).toBeDefined();
+      expect(ecKey!.rsaModulus).toBeUndefined();
+
+      // Second key: RSA
+      const rsaKey = keys.find((k) => k.keyType === "RSA");
+      expect(rsaKey).toBeDefined();
+      expect(rsaKey!.rsaModulus).toBeDefined();
+      expect(rsaKey!.rsaPublicExponent).toBeDefined();
+      expect(rsaKey!.ecPoint).toBeUndefined();
+
+      closeSession(session);
+      finalizePkcs11(p11);
+    });
+
+    it("should return RSA modulus and exponent", () => {
+      mockState.includeRsaKeys = true;
+
+      const p11 = initializePkcs11("/mock/lib.so");
+      const session = openSession(p11, 0, "1234");
+      const keys = listKeys(session);
+
+      const rsaKey = keys.find((k) => k.keyType === "RSA")!;
+      expect(rsaKey.rsaModulus!.length).toBe(256); // 2048-bit modulus
+      expect(rsaKey.rsaPublicExponent).toEqual(new Uint8Array([0x01, 0x00, 0x01]));
+
+      closeSession(session);
+      finalizePkcs11(p11);
+    });
+
     it("should never return private key material", () => {
+      mockState.includeRsaKeys = true;
+
       const p11 = initializePkcs11("/mock/lib.so");
       const session = openSession(p11, 0, "1234");
       const keys = listKeys(session);
@@ -347,6 +452,54 @@ describe("PKCS#11 Session Manager", () => {
         expect(keyObj["secret"]).toBeUndefined();
         expect(keyObj["d"]).toBeUndefined();
       }
+
+      closeSession(session);
+      finalizePkcs11(p11);
+    });
+  });
+
+  describe("listCertificates", () => {
+    it("should return empty array when no certificates", () => {
+      const p11 = initializePkcs11("/mock/lib.so");
+      const session = openSession(p11, 0, "1234");
+      const certs = listCertificates(session);
+
+      expect(certs).toEqual([]);
+
+      closeSession(session);
+      finalizePkcs11(p11);
+    });
+
+    it("should return certificate info when certificates are present", () => {
+      mockState.includeCerts = true;
+
+      const p11 = initializePkcs11("/mock/lib.so");
+      const session = openSession(p11, 0, "1234");
+      const certs = listCertificates(session);
+
+      expect(certs.length).toBe(1);
+      expect(certs[0].label).toBe("Token Certificate");
+      expect(certs[0].id).toBe(testKeyId.toString("hex"));
+      expect(certs[0].derValue).toBeInstanceOf(Uint8Array);
+      expect(certs[0].derValue.length).toBeGreaterThan(0);
+
+      closeSession(session);
+      finalizePkcs11(p11);
+    });
+
+    it("should match certificates to keys by CKA_ID", () => {
+      mockState.includeCerts = true;
+
+      const p11 = initializePkcs11("/mock/lib.so");
+      const session = openSession(p11, 0, "1234");
+
+      const keys = listKeys(session);
+      const certs = listCertificates(session);
+
+      // The certificate's ID should match the EC key's ID
+      const ecKey = keys[0];
+      const matchingCerts = certs.filter((c) => c.id === ecKey.id);
+      expect(matchingCerts.length).toBe(1);
 
       closeSession(session);
       finalizePkcs11(p11);
@@ -392,6 +545,25 @@ describe("PKCS#11 Session Manager", () => {
         // Expected
       }
 
+      finalizePkcs11(p11);
+    });
+
+    it("should handle full flow with RSA keys and certificates", () => {
+      mockState.includeRsaKeys = true;
+      mockState.includeCerts = true;
+
+      const p11 = initializePkcs11("/mock/lib.so");
+      const session = openSession(p11, 0, "1234");
+
+      const keys = listKeys(session);
+      expect(keys.length).toBe(2);
+      expect(keys.some((k) => k.keyType === "EC")).toBe(true);
+      expect(keys.some((k) => k.keyType === "RSA")).toBe(true);
+
+      const certs = listCertificates(session);
+      expect(certs.length).toBe(1);
+
+      closeSession(session);
       finalizePkcs11(p11);
     });
   });

@@ -1,7 +1,10 @@
 export type {
+  SigningAlgorithm,
   ProofOptions,
   PreparedProof,
   ProofConfig,
+  JwsProofOptions,
+  JwsPreparedProof,
   SigningKey,
   VerificationResult,
   VerifyOptions,
@@ -18,7 +21,14 @@ export {
   rawToDer,
 } from "./data-integrity.js";
 
-export { sha256, sha256Hex } from "./hash.js";
+export { sha256, sha256Hex, sha384 } from "./hash.js";
+
+export {
+  signCredentialJws,
+  prepareJwsProof,
+  completeJwsProof,
+  signCredentialAuto,
+} from "./jws-proof.js";
 export { jcsCanonicalize, computeRevocationHash } from "./jcs.js";
 
 export type {

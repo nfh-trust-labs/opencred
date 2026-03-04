@@ -10,24 +10,28 @@
  *  - The sign() method must never leak key material in errors or logs.
  *  - Metadata contains the key fingerprint (SHA-256 of public key), never
  *    the key itself.
- *  - The id is a did:key verification method ID derived from the public key.
+ *  - The id is a did:key or did:jwk verification method ID derived from the public key.
  */
+
+import type { SigningAlgorithm } from "@opencred/crypto";
 
 /**
  * Metadata about a signer -- safe to transmit over IPC and display in the UI.
  * Never contains private key material.
  */
 export interface SignerMetadata {
-  /** The did:key verification method identifier. */
+  /** The did:key or did:jwk verification method identifier. */
   id: string;
-  /** The ECDSA curve -- only P-256 is supported for ecdsa-rdfc-2019. */
-  algorithm: "P-256";
+  /** The signing algorithm (EC curve or RSA modulus size). */
+  algorithm: SigningAlgorithm;
   /** The signer type. */
   type: "software" | "pkcs11" | "os-cert";
   /** SHA-256 fingerprint of the public key (hex-encoded). */
   fingerprint: string;
   /** Optional user-friendly label. */
   label?: string;
+  /** PEM-encoded certificate chain (DSC, intermediates). Present when imported from PFX/token/OS store. */
+  certificateChain?: string[];
 }
 
 /**
@@ -37,21 +41,19 @@ export interface SignerMetadata {
  * interface so the signing flow can be key-source agnostic.
  */
 export interface Signer {
-  /** The did:key verification method identifier. */
+  /** The did:key or did:jwk verification method identifier. */
   readonly id: string;
-  /** The ECDSA curve. */
-  readonly algorithm: "P-256";
+  /** The signing algorithm. */
+  readonly algorithm: SigningAlgorithm;
   /** The signer type. */
   readonly type: "software" | "pkcs11" | "os-cert";
   /** Safe metadata (no private key material). */
   readonly metadata: SignerMetadata;
   /**
-   * Sign data and return a raw r||s ECDSA signature (64 bytes for P-256).
+   * Sign data and return a raw signature.
    *
-   * The caller provides the bytes to sign (the concatenated hash pair from
-   * proof preparation). The signer uses createSign("SHA256") which applies
-   * SHA-256 before ECDSA -- this matches the existing signCredential() flow
-   * in @opencred/crypto.
+   * For EC keys: raw r||s (64 bytes for P-256, 96 bytes for P-384).
+   * For RSA keys: RSASSA-PSS signature (256/384/512 bytes depending on modulus).
    */
   sign(data: Uint8Array): Promise<Uint8Array>;
 }
@@ -59,4 +61,4 @@ export interface Signer {
 /**
  * Detected key format when importing from a file.
  */
-export type KeyFormat = "pem" | "jwk" | "pkcs8-der";
+export type KeyFormat = "pem" | "jwk" | "pkcs8-der" | "pfx";

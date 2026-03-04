@@ -1,6 +1,14 @@
 import type { KeyObject } from "node:crypto";
 
 /**
+ * Supported signing algorithms.
+ *
+ * EC keys use Data Integrity proofs (ecdsa-rdfc-2019).
+ * RSA keys use VC-JOSE-COSE enveloping proofs (JWS with PS256).
+ */
+export type SigningAlgorithm = "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RSA-4096";
+
+/**
  * Options for creating a Data Integrity proof.
  */
 export interface ProofOptions {
@@ -33,7 +41,7 @@ export interface PreparedProof {
 export interface ProofConfig {
   "@context": (string | Record<string, unknown>)[];
   type: "DataIntegrityProof";
-  cryptosuite: "ecdsa-rdfc-2019";
+  cryptosuite: string;
   created: string;
   verificationMethod: string;
   proofPurpose: string;
@@ -42,18 +50,38 @@ export interface ProofConfig {
 }
 
 /**
+ * Options for creating a VC-JOSE-COSE JWS enveloping proof.
+ */
+export interface JwsProofOptions {
+  /** The verification method identifier (e.g., "did:jwk:...#0"). */
+  verificationMethod: string;
+  /** ISO 8601 timestamp for the proof creation. Auto-generated if omitted. */
+  created?: string;
+}
+
+/**
+ * A prepared JWS proof for two-phase (Interface) signing.
+ */
+export interface JwsPreparedProof {
+  /** The base64url(header) + "." + base64url(payload) string that must be signed. */
+  signingInput: string;
+  /** The JWS protected header (for reference). */
+  protectedHeader: Record<string, unknown>;
+}
+
+/**
  * A signing key for delegated signing (OpenCred-managed keys).
  * Uses Node.js KeyObject to prevent accidental key material exposure.
  */
 export interface SigningKey {
-  /** The verification method identifier (e.g., "did:key:z...#z..."). */
+  /** The verification method identifier (e.g., "did:key:z...#z..." or "did:jwk:...#0"). */
   id: string;
   /** The private key as a Node.js KeyObject (never logged or serialized). */
   privateKey: KeyObject;
   /** The public key as a Node.js KeyObject. */
   publicKey: KeyObject;
-  /** The ECDSA curve — only P-256 is supported for ecdsa-rdfc-2019. */
-  algorithm: "P-256";
+  /** The signing algorithm. EC keys use Data Integrity proofs, RSA keys use JWS proofs. */
+  algorithm: SigningAlgorithm;
 }
 
 /**

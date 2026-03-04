@@ -27,7 +27,8 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
   const [delegationId, setDelegationId] = useState("");
   const [step, setStep] = useState<Step>("form");
   const [error, setError] = useState<string | null>(null);
-  const [credential, setCredential] = useState<Record<string, unknown> | null>(null);
+  const [credential, setCredential] = useState<Record<string, unknown> | string | null>(null);
+  const [proofMechanism, setProofMechanism] = useState<"data-integrity" | "jws" | null>(null);
 
   const schema = schemaId ? getSchema(schemaId) : null;
 
@@ -82,7 +83,7 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
       if (!webSigner) return;
 
       // 1. Build — send to API, get back dataToSign
-      const buildRes = await client.buildCredential({
+      const buildReq: import("../api/client").BuildRequest = {
         schema: schemaId,
         issuer: issuerDid,
         publicKey: webSigner.publicKeyId,
@@ -90,7 +91,19 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
         validFrom: new Date(validFrom).toISOString(),
         validUntil: validUntil ? new Date(validUntil).toISOString() : undefined,
         revocationRegistryUrl: revocationUrl,
-      });
+      };
+
+      // Include key algorithm if available (determines proof mechanism)
+      if (webSigner.algorithm) {
+        buildReq.keyAlgorithm = webSigner.algorithm;
+      }
+
+      // Include DSC certificate chain if available
+      if (webSigner.certificateChain) {
+        buildReq.dscCertificateChain = webSigner.certificateChain;
+      }
+
+      const buildRes = await client.buildCredential(buildReq);
 
       // 2. Sign via the unified signer (JWK, PKCS#11, or OS cert)
       const signatureB64 = await webSigner.sign(buildRes.dataToSign);
@@ -102,6 +115,7 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
       });
 
       setCredential(pkgRes.credential);
+      setProofMechanism(buildRes.proofMechanism);
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Signing failed");
@@ -111,11 +125,15 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
 
   function handleDownload() {
     if (!credential) return;
-    const blob = new Blob([JSON.stringify(credential, null, 2)], { type: "application/json" });
+    const isJws = typeof credential === "string";
+    const content = isJws ? credential : JSON.stringify(credential, null, 2);
+    const mimeType = isJws ? "text/plain" : "application/json";
+    const ext = isJws ? "jws" : "json";
+    const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "credential.json";
+    a.download = `credential.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -123,6 +141,7 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
   function handleReset() {
     setStep("form");
     setCredential(null);
+    setProofMechanism(null);
     setError(null);
   }
 
@@ -130,11 +149,20 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
     <div className="space-y-6">
       {step === "done" && credential ? (
         <div className="space-y-4">
-          <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+          <div className="rounded-lg border border-green-200 bg-green-50 p-4 flex items-center gap-3">
             <p className="text-sm font-medium text-green-800">Credential issued successfully</p>
+            {proofMechanism && (
+              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                proofMechanism === "jws"
+                  ? "bg-purple-100 text-purple-800"
+                  : "bg-blue-100 text-blue-800"
+              }`}>
+                {proofMechanism === "jws" ? "JWS (VC-JOSE-COSE)" : "Data Integrity"}
+              </span>
+            )}
           </div>
           <pre className="max-h-96 overflow-auto rounded-lg border border-gray-200 bg-gray-900 p-4 text-xs text-gray-100">
-            {JSON.stringify(credential, null, 2)}
+            {typeof credential === "string" ? credential : JSON.stringify(credential, null, 2)}
           </pre>
           <div className="flex gap-3">
             <button

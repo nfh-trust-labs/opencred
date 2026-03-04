@@ -3,7 +3,7 @@
  *
  * Wraps the pkcs11js library to manage sessions with hardware tokens.
  * Handles library initialization, slot enumeration, session open/close,
- * PIN authentication, and key enumeration.
+ * PIN authentication, key enumeration, and certificate discovery.
  *
  * SECURITY INVARIANTS:
  *  - Private keys NEVER leave the token. Only metadata (label, ID, type)
@@ -22,6 +22,21 @@ import { CryptoError } from "@opencred/shared";
  */
 const CKF_TOKEN_PRESENT = 0x00000001;
 
+/** PKCS#11 key type constant for RSA keys. */
+const CKK_RSA = 0x00000000;
+
+/** PKCS#11 attribute: RSA modulus. */
+const CKA_MODULUS = 0x00000120;
+
+/** PKCS#11 attribute: RSA public exponent. */
+const CKA_PUBLIC_EXPONENT = 0x00000122;
+
+/** PKCS#11 object class: certificate. */
+const CKO_CERTIFICATE = 0x00000001;
+
+/** PKCS#11 attribute: object value (for certificates). */
+const CKA_VALUE = 0x00000011;
+
 /**
  * Metadata about a key on a PKCS#11 token — safe to transmit over IPC.
  * NEVER contains the actual private key.
@@ -31,12 +46,28 @@ export interface Pkcs11KeyInfo {
   label: string;
   /** The CKA_ID of the key (hex-encoded). */
   id: string;
-  /** The key type (e.g., "EC"). */
-  keyType: string;
+  /** The key type. */
+  keyType: "EC" | "RSA";
   /** Whether this key has a matching public key on the token. */
   hasPublicKey: boolean;
   /** The EC point bytes of the associated public key (uncompressed, if available). */
   ecPoint?: Uint8Array;
+  /** The RSA modulus bytes (if RSA key). */
+  rsaModulus?: Uint8Array;
+  /** The RSA public exponent bytes (if RSA key). */
+  rsaPublicExponent?: Uint8Array;
+}
+
+/**
+ * Metadata about an X.509 certificate on a PKCS#11 token.
+ */
+export interface Pkcs11CertInfo {
+  /** The CKA_LABEL of the certificate. */
+  label: string;
+  /** The CKA_ID — matches the key's CKA_ID (hex-encoded). */
+  id: string;
+  /** The DER-encoded X.509 certificate (CKA_VALUE). */
+  derValue: Uint8Array;
 }
 
 /**
@@ -204,6 +235,7 @@ export function openSession(
  * List private keys on the token.
  *
  * Returns metadata only — the private key material NEVER leaves the token.
+ * Supports both EC (P-256, P-384) and RSA keys.
  *
  * @param session - An open and logged-in PKCS#11 session.
  * @returns Array of key metadata.
@@ -233,19 +265,15 @@ export function listKeys(session: Pkcs11Session): Pkcs11KeyInfo[] {
               .trim()
           : "";
         const id = attrs[1].value ? Buffer.from(attrs[1].value as Buffer).toString("hex") : "";
-        const keyTypeVal = attrs[2].value ? (attrs[2].value as Buffer).readUInt32LE(0) : 0;
+        const keyTypeVal = attrs[2].value ? (attrs[2].value as Buffer).readUInt32LE(0) : -1;
 
-        // Map PKCS#11 key type to string
-        const keyType = keyTypeVal === pkcs11js.CKK_EC ? "EC" : `unknown(${keyTypeVal})`;
-
-        // Only include EC keys (we only support P-256)
         if (keyTypeVal === pkcs11js.CKK_EC) {
-          // Try to find the matching public key to get the EC point
+          // EC key — try to find the matching public key to get the EC point
           let ecPoint: Uint8Array | undefined;
           let hasPublicKey = false;
 
           try {
-            ecPoint = findPublicKeyPoint(session, attrs[1].value as Buffer);
+            ecPoint = findPublicKeyEcPoint(session, attrs[1].value as Buffer);
             hasPublicKey = ecPoint !== undefined;
           } catch {
             // Public key lookup failed — still report the key
@@ -254,11 +282,37 @@ export function listKeys(session: Pkcs11Session): Pkcs11KeyInfo[] {
           keys.push({
             label,
             id,
-            keyType,
+            keyType: "EC",
             hasPublicKey,
             ecPoint,
           });
+        } else if (keyTypeVal === CKK_RSA) {
+          // RSA key — read modulus and public exponent from the public key object
+          let rsaModulus: Uint8Array | undefined;
+          let rsaPublicExponent: Uint8Array | undefined;
+          let hasPublicKey = false;
+
+          try {
+            const rsaComponents = findPublicKeyRsaComponents(session, attrs[1].value as Buffer);
+            if (rsaComponents) {
+              rsaModulus = rsaComponents.modulus;
+              rsaPublicExponent = rsaComponents.publicExponent;
+              hasPublicKey = true;
+            }
+          } catch {
+            // Public key lookup failed — still report the key
+          }
+
+          keys.push({
+            label,
+            id,
+            keyType: "RSA",
+            hasPublicKey,
+            rsaModulus,
+            rsaPublicExponent,
+          });
         }
+        // Unknown key types are silently skipped
       } catch {
         // Skip keys we can't read
       }
@@ -282,13 +336,74 @@ export function listKeys(session: Pkcs11Session): Pkcs11KeyInfo[] {
 }
 
 /**
+ * List X.509 certificates on the token.
+ *
+ * @param session - An open and logged-in PKCS#11 session.
+ * @returns Array of certificate metadata.
+ */
+export function listCertificates(session: Pkcs11Session): Pkcs11CertInfo[] {
+  const { pkcs11, handle } = session;
+  const certs: Pkcs11CertInfo[] = [];
+
+  try {
+    pkcs11.C_FindObjectsInit(handle, [
+      { type: pkcs11js.CKA_CLASS, value: CKO_CERTIFICATE },
+    ]);
+
+    let obj = pkcs11.C_FindObjects(handle);
+    while (obj) {
+      try {
+        const attrs = pkcs11.C_GetAttributeValue(handle, obj, [
+          { type: pkcs11js.CKA_LABEL },
+          { type: pkcs11js.CKA_ID },
+          { type: CKA_VALUE },
+        ]);
+
+        const label = attrs[0].value
+          ? Buffer.from(attrs[0].value as Buffer)
+              .toString("utf-8")
+              .trim()
+          : "";
+        const id = attrs[1].value ? Buffer.from(attrs[1].value as Buffer).toString("hex") : "";
+        const derValue = attrs[2].value
+          ? new Uint8Array(Buffer.from(attrs[2].value as Buffer))
+          : undefined;
+
+        if (derValue) {
+          certs.push({ label, id, derValue });
+        }
+      } catch {
+        // Skip certs we can't read
+      }
+
+      obj = pkcs11.C_FindObjects(handle);
+    }
+
+    pkcs11.C_FindObjectsFinal(handle);
+  } catch (error) {
+    try {
+      pkcs11.C_FindObjectsFinal(handle);
+    } catch {
+      // Ignore
+    }
+    throw new CryptoError(
+      `Failed to enumerate certificates: ${error instanceof Error ? error.message : "unknown error"}`,
+    );
+  }
+
+  return certs;
+}
+
+/**
  * Find the EC public key point matching a given CKA_ID.
+ *
+ * Supports both P-256 (65-byte) and P-384 (97-byte) uncompressed points.
  *
  * @param session - An open PKCS#11 session.
  * @param keyId - The CKA_ID to search for.
  * @returns The EC point bytes (uncompressed), or undefined if not found.
  */
-function findPublicKeyPoint(session: Pkcs11Session, keyId: Buffer): Uint8Array | undefined {
+function findPublicKeyEcPoint(session: Pkcs11Session, keyId: Buffer): Uint8Array | undefined {
   const { pkcs11, handle } = session;
 
   try {
@@ -312,29 +427,84 @@ function findPublicKeyPoint(session: Pkcs11Session, keyId: Buffer): Uint8Array |
 
     const raw = Buffer.from(attrs[0].value as Buffer);
 
-    // The EC_POINT may be DER-encoded (OCTET STRING wrapping the point)
-    // or raw uncompressed point. Check for DER wrapper.
+    // P-256: raw uncompressed point (65 bytes starting with 0x04)
     if (raw[0] === 0x04 && raw.length === 65) {
-      // Raw uncompressed point
       return new Uint8Array(raw);
     }
 
-    // DER OCTET STRING: tag(0x04) length(65) point(65 bytes)
+    // P-384: raw uncompressed point (97 bytes starting with 0x04)
+    if (raw[0] === 0x04 && raw.length === 97) {
+      return new Uint8Array(raw);
+    }
+
+    // DER OCTET STRING wrapping P-256: tag(0x04) length(65) point(65 bytes) = 67 bytes
     if (raw.length > 2 && raw[0] === 0x04 && raw[1] === 65 && raw.length === 67) {
       return new Uint8Array(raw.subarray(2));
     }
 
-    // Fallback: try to use what we have
+    // DER OCTET STRING wrapping P-384: tag(0x04) length(97) point(97 bytes) = 99 bytes
+    if (raw.length > 2 && raw[0] === 0x04 && raw[1] === 97 && raw.length === 99) {
+      return new Uint8Array(raw.subarray(2));
+    }
+
+    // Fallback: try to find the 0x04 point prefix for P-256
     if (raw.length >= 65) {
-      // Might have extra wrapper bytes — try to find the 0x04 point prefix
       for (let i = 0; i <= raw.length - 65; i++) {
         if (raw[i] === 0x04) {
+          // Check if it could be P-384 first (97 bytes from this offset)
+          if (i <= raw.length - 97) {
+            return new Uint8Array(raw.subarray(i, i + 97));
+          }
           return new Uint8Array(raw.subarray(i, i + 65));
         }
       }
     }
 
     return new Uint8Array(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Find the RSA public key components (modulus and exponent) matching a given CKA_ID.
+ *
+ * @param session - An open PKCS#11 session.
+ * @param keyId - The CKA_ID to search for.
+ * @returns The RSA modulus and public exponent, or undefined if not found.
+ */
+function findPublicKeyRsaComponents(
+  session: Pkcs11Session,
+  keyId: Buffer,
+): { modulus: Uint8Array; publicExponent: Uint8Array } | undefined {
+  const { pkcs11, handle } = session;
+
+  try {
+    pkcs11.C_FindObjectsInit(handle, [
+      { type: pkcs11js.CKA_CLASS, value: pkcs11js.CKO_PUBLIC_KEY },
+      { type: pkcs11js.CKA_ID, value: keyId },
+    ]);
+
+    const obj = pkcs11.C_FindObjects(handle);
+    pkcs11.C_FindObjectsFinal(handle);
+
+    if (!obj) {
+      return undefined;
+    }
+
+    const attrs = pkcs11.C_GetAttributeValue(handle, obj, [
+      { type: CKA_MODULUS },
+      { type: CKA_PUBLIC_EXPONENT },
+    ]);
+
+    const modulus = attrs[0].value ? new Uint8Array(Buffer.from(attrs[0].value as Buffer)) : undefined;
+    const publicExponent = attrs[1].value ? new Uint8Array(Buffer.from(attrs[1].value as Buffer)) : undefined;
+
+    if (!modulus || !publicExponent) {
+      return undefined;
+    }
+
+    return { modulus, publicExponent };
   } catch {
     return undefined;
   }

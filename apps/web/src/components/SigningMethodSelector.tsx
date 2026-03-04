@@ -27,7 +27,12 @@ export function SigningMethodSelector({ extensionAvailable, onSignerReady }: Pro
   }
 
   function handleKeyImported(key: ImportedKey) {
-    const signer = createJwkSigner(key.signingKey, key.publicKeyId);
+    const algo = (key.algorithm ?? "P-256") as import("../crypto/types").WebSigningAlgorithm;
+    const signerType = key.certificateChain ? "pfx" : "jwk";
+    const signer = createJwkSigner(key.signingKey, key.publicKeyId, algo, {
+      type: signerType as "jwk" | "pfx",
+      certificateChain: key.certificateChain,
+    });
     onSignerReady(signer);
   }
 

@@ -2,38 +2,43 @@
  * Software signer for the OpenCred desktop app.
  *
  * Loads issuer private keys from local files and provides a Signer interface
- * for the local signing flow. Supports PEM, JWK, and PKCS#8 DER formats.
+ * for the local signing flow. Supports PEM, JWK, PKCS#8 DER, and PFX/P12 formats.
  *
  * SECURITY INVARIANTS:
  *  - The private key NEVER leaves this process.
  *  - Key material is NEVER logged -- only the key ID or fingerprint.
- *  - Only ECDSA P-256 keys are accepted (required by ecdsa-rdfc-2019).
+ *  - Supported algorithms: P-256, P-384, RSA-2048, RSA-3072, RSA-4096.
  *  - The KeyObject is held in memory; it is never serialised or transmitted.
  */
 
 import {
+  constants,
   createPrivateKey,
   createPublicKey,
   createSign,
-  createHash,
   type KeyObject,
 } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { CryptoError } from "@opencred/shared";
-import { multibaseEncode } from "@opencred/crypto";
+import {
+  deriveDidKeyId,
+  computeKeyFingerprint,
+  encodeDidJwk,
+  didJwkVerificationMethodId,
+} from "@opencred/did";
+import type { SigningAlgorithm } from "@opencred/crypto";
 import type { Signer, SignerMetadata, KeyFormat } from "./types.js";
-
-/** P-256 multicodec varint prefix (0x1200 in unsigned varint = [0x80, 0x24]). */
-const P256_MULTICODEC_PREFIX = new Uint8Array([0x80, 0x24]);
+import { parsePfx } from "./pfx-parser.js";
 
 /**
  * Detect the format of a key file's contents.
  *
  * - PEM: starts with "-----BEGIN"
  * - JWK: valid JSON with a "kty" property
+ * - PFX: detected via filenameHint (.pfx or .p12 extension)
  * - PKCS#8 DER: binary data (fallback)
  */
-export function detectKeyFormat(content: Buffer): KeyFormat {
+export function detectKeyFormat(content: Buffer, filenameHint?: string): KeyFormat {
   // Check for PEM header
   const textContent = content.toString("utf-8").trim();
   if (textContent.startsWith("-----BEGIN")) {
@@ -47,75 +52,58 @@ export function detectKeyFormat(content: Buffer): KeyFormat {
       return "jwk";
     }
   } catch {
-    // Not JSON -- fall through to DER
+    // Not JSON -- fall through
+  }
+
+  // Check for PFX by extension hint
+  if (filenameHint) {
+    const ext = filenameHint.toLowerCase();
+    if (ext.endsWith(".pfx") || ext.endsWith(".p12")) {
+      return "pfx";
+    }
   }
 
   return "pkcs8-der";
 }
 
 /**
- * Compute the SEC1 compressed public key bytes from a P-256 KeyObject.
+ * Detect the signing algorithm from a public key's JWK export.
  */
-function getCompressedPublicKey(publicKey: KeyObject): Uint8Array {
+export function detectKeyAlgorithm(publicKey: KeyObject): SigningAlgorithm {
   const jwk = publicKey.export({ format: "jwk" });
-  if (!jwk.x || !jwk.y) {
-    throw new CryptoError("Failed to export public key coordinates");
+
+  if (jwk.kty === "EC") {
+    if (jwk.crv === "P-256") return "P-256";
+    if (jwk.crv === "P-384") return "P-384";
+    throw new CryptoError(`Unsupported EC curve: ${String(jwk.crv)}`);
   }
 
-  const x = Buffer.from(jwk.x, "base64url");
-  const y = Buffer.from(jwk.y, "base64url");
+  if (jwk.kty === "RSA") {
+    const modulusBits = Buffer.from(jwk.n!, "base64url").length * 8;
+    if (modulusBits >= 4096) return "RSA-4096";
+    if (modulusBits >= 3072) return "RSA-3072";
+    if (modulusBits >= 2048) return "RSA-2048";
+    throw new CryptoError(`RSA modulus too small: ${modulusBits} bits`);
+  }
 
-  // SEC1 compressed form: 0x02 if y is even, 0x03 if y is odd
-  const prefix = y[y.length - 1] % 2 === 0 ? 0x02 : 0x03;
-  const compressed = new Uint8Array(1 + x.length);
-  compressed[0] = prefix;
-  compressed.set(x, 1);
-  return compressed;
+  throw new CryptoError(`Unsupported algorithm type: ${String(jwk.kty)}`);
 }
 
 /**
- * Derive a did:key verification method identifier from a P-256 public key.
- *
- * Format: did:key:z<multibase>#z<multibase> where the multibase value is
- * the base58btc encoding of the P-256 multicodec prefix + compressed public key.
+ * Derive the DID-based verification method ID for a given algorithm.
+ * EC uses did:key; RSA uses did:jwk.
  */
-function deriveDidKeyId(publicKey: KeyObject): string {
-  const compressed = getCompressedPublicKey(publicKey);
-
-  const multicodecKey = new Uint8Array(P256_MULTICODEC_PREFIX.length + compressed.length);
-  multicodecKey.set(P256_MULTICODEC_PREFIX, 0);
-  multicodecKey.set(compressed, P256_MULTICODEC_PREFIX.length);
-
-  const multibaseKey = multibaseEncode(multicodecKey);
-  const did = `did:key:${multibaseKey}`;
-  return `${did}#${multibaseKey}`;
-}
-
-/**
- * Compute a SHA-256 fingerprint of the public key (hex-encoded).
- * This is safe to log, display, and transmit over IPC.
- */
-function computeFingerprint(publicKey: KeyObject): string {
-  const spki = publicKey.export({ format: "der", type: "spki" });
-  return createHash("sha256").update(spki).digest("hex");
-}
-
-/**
- * Validate that a key is an ECDSA P-256 key.
- * Throws CryptoError if the key is not P-256.
- */
-function validateP256Key(publicKey: KeyObject): void {
+function deriveVerificationMethodId(publicKey: KeyObject, algorithm: SigningAlgorithm): string {
+  if (algorithm === "P-256" || algorithm === "P-384") {
+    return deriveDidKeyId(publicKey);
+  }
   const jwk = publicKey.export({ format: "jwk" });
-  if (jwk.crv !== "P-256") {
-    throw new CryptoError(`Unsupported key curve: ${String(jwk.crv)}. Only P-256 is supported.`);
-  }
-  if (jwk.kty !== "EC") {
-    throw new CryptoError(`Unsupported key type: ${String(jwk.kty)}. Only EC keys are supported.`);
-  }
+  const did = encodeDidJwk(jwk as import("@opencred/did").JWK);
+  return didJwkVerificationMethodId(did);
 }
 
 /**
- * Load a private key from a PEM string.
+ * Load from a PEM string.
  */
 function loadFromPem(pem: string): { privateKey: KeyObject; publicKey: KeyObject } {
   const privateKey = createPrivateKey(pem);
@@ -124,7 +112,7 @@ function loadFromPem(pem: string): { privateKey: KeyObject; publicKey: KeyObject
 }
 
 /**
- * Load a private key from a JWK object.
+ * Load from a JWK object.
  */
 function loadFromJwk(jwkString: string): { privateKey: KeyObject; publicKey: KeyObject } {
   const jwk = JSON.parse(jwkString) as Record<string, unknown>;
@@ -134,7 +122,7 @@ function loadFromJwk(jwkString: string): { privateKey: KeyObject; publicKey: Key
 }
 
 /**
- * Load a private key from PKCS#8 DER binary.
+ * Load from PKCS#8 DER binary.
  */
 function loadFromPkcs8Der(buffer: Buffer): { privateKey: KeyObject; publicKey: KeyObject } {
   const privateKey = createPrivateKey({ key: buffer, format: "der", type: "pkcs8" });
@@ -143,53 +131,98 @@ function loadFromPkcs8Der(buffer: Buffer): { privateKey: KeyObject; publicKey: K
 }
 
 /**
- * Build a Signer from loaded key material.
+ * Create an algorithm-dispatched sign function.
+ */
+function createSignFn(
+  privateKey: KeyObject,
+  algorithm: SigningAlgorithm,
+): (data: Uint8Array) => Promise<Uint8Array> {
+  return async (data: Uint8Array): Promise<Uint8Array> => {
+    try {
+      switch (algorithm) {
+        case "P-256": {
+          const s = createSign("SHA256");
+          s.update(data);
+          // ieee-p1363: raw r||s (64 bytes for P-256)
+          return new Uint8Array(s.sign({ key: privateKey, dsaEncoding: "ieee-p1363" }));
+        }
+        case "P-384": {
+          const s = createSign("SHA384");
+          s.update(data);
+          // ieee-p1363: raw r||s (96 bytes for P-384)
+          return new Uint8Array(s.sign({ key: privateKey, dsaEncoding: "ieee-p1363" }));
+        }
+        case "RSA-2048":
+        case "RSA-3072":
+        case "RSA-4096": {
+          const s = createSign("SHA256");
+          s.update(data);
+          return new Uint8Array(
+            s.sign({
+              key: privateKey,
+              padding: constants.RSA_PKCS1_PSS_PADDING,
+              saltLength: constants.RSA_PSS_SALTLEN_DIGEST,
+            }),
+          );
+        }
+      }
+    } catch {
+      throw new CryptoError("Signing operation failed");
+    }
+  };
+}
+
+/**
+ * Build a Signer from loaded material.
  *
- * Validates that the key is P-256, derives the did:key identifier,
+ * Detects the algorithm, derives the appropriate DID identifier,
  * computes the fingerprint, and returns a ready-to-use Signer.
  */
-export function buildSigner(privateKey: KeyObject, publicKey: KeyObject, label?: string): Signer {
-  validateP256Key(publicKey);
-
-  const id = deriveDidKeyId(publicKey);
-  const fingerprint = computeFingerprint(publicKey);
+export function buildSigner(
+  privateKey: KeyObject,
+  publicKey: KeyObject,
+  label?: string,
+  certificateChain?: string[],
+): Signer {
+  const algorithm = detectKeyAlgorithm(publicKey);
+  const id = deriveVerificationMethodId(publicKey, algorithm);
+  const fingerprint = computeKeyFingerprint(publicKey);
 
   const metadata: SignerMetadata = {
     id,
-    algorithm: "P-256",
+    algorithm,
     type: "software",
     fingerprint,
     label,
   };
+  if (certificateChain && certificateChain.length > 0) {
+    metadata.certificateChain = certificateChain;
+  }
 
   const signer: Signer = {
     id,
-    algorithm: "P-256",
+    algorithm,
     type: "software",
     metadata,
-
-    async sign(data: Uint8Array): Promise<Uint8Array> {
-      try {
-        const sig = createSign("SHA256");
-        sig.update(data);
-        const signature = sig.sign({
-          key: privateKey,
-          dsaEncoding: "ieee-p1363",
-        });
-
-        // ieee-p1363 gives us raw r||s directly (64 bytes for P-256)
-        return new Uint8Array(signature);
-      } catch {
-        throw new CryptoError("Signing operation failed");
-      }
-    },
+    sign: createSignFn(privateKey, algorithm),
   };
 
   return signer;
 }
 
 /**
- * Load key material from a buffer and detect the format.
+ * Build a Signer from a PFX/P12 buffer.
+ *
+ * Parses the PFX, extracts material and certificate chain,
+ * and returns a signer with the chain included in metadata.
+ */
+export function buildSignerFromPfx(buffer: Buffer, password: string, label?: string): Signer {
+  const pfx = parsePfx(buffer, password);
+  return buildSigner(pfx.privateKey, pfx.publicKey, label, pfx.certificateChain);
+}
+
+/**
+ * Load material from a buffer and detect the format.
  */
 function loadKeyFromBuffer(
   content: Buffer,
@@ -205,26 +238,31 @@ function loadKeyFromBuffer(
     case "pkcs8-der": {
       return loadFromPkcs8Der(content);
     }
+    case "pfx": {
+      throw new CryptoError("PFX import requires a password — use buildSignerFromPfx() directly");
+    }
   }
 }
 
 /**
  * Create a SoftwareSigner from a file path.
  *
- * Reads the key file, detects the format (PEM, JWK, or PKCS#8 DER),
- * validates it is an ECDSA P-256 key, and returns a Signer instance.
+ * Reads the file, detects the format, validates the data, and
+ * returns a Signer instance. For PFX files, a password is required.
  *
- * The private key stays in memory within this process. It is never
+ * Material stays in memory within this process. It is never
  * logged, serialised, or transmitted.
  *
- * @param filePath - Absolute path to the key file on disk.
- * @param label - Optional user-friendly label for the key.
- * @returns An object containing the Signer and the detected key format.
- * @throws {CryptoError} if the key is invalid, unsupported, or unreadable.
+ * @param filePath - Absolute path to the file on disk.
+ * @param label - Optional user-friendly label.
+ * @param password - Password for PFX files (required if format is PFX).
+ * @returns An object containing the Signer and the detected format.
+ * @throws {CryptoError} if the data is invalid, unsupported, or unreadable.
  */
 export function createSoftwareSigner(
   filePath: string,
   label?: string,
+  password?: string,
 ): { signer: Signer; format: KeyFormat } {
   let content: Buffer;
   try {
@@ -233,7 +271,15 @@ export function createSoftwareSigner(
     throw new CryptoError("Failed to read key file");
   }
 
-  const format = detectKeyFormat(content);
+  const format = detectKeyFormat(content, filePath);
+
+  if (format === "pfx") {
+    if (!password) {
+      throw new CryptoError("PFX import requires a password");
+    }
+    const signer = buildSignerFromPfx(content, password, label);
+    return { signer, format };
+  }
 
   try {
     const { privateKey, publicKey } = loadKeyFromBuffer(content, format);
@@ -248,21 +294,33 @@ export function createSoftwareSigner(
 }
 
 /**
- * Create a SoftwareSigner directly from key material in memory.
+ * Create a SoftwareSigner directly from material in memory.
  *
- * This is used internally when the key content is already available
- * (e.g., from the key import IPC handler). The private key is never
+ * This is used internally when the content is already available
+ * (e.g., from the import IPC handler). The data is never
  * stored -- only the resulting Signer is kept.
  *
- * @param content - The raw key file content as a Buffer.
+ * @param content - The raw file content as a Buffer.
  * @param label - Optional user-friendly label.
- * @returns An object containing the Signer and the detected key format.
+ * @param password - Password for PFX files (required if format is PFX).
+ * @param filenameHint - Optional filename to help detect PFX format.
+ * @returns An object containing the Signer and the detected format.
  */
 export function createSoftwareSignerFromBuffer(
   content: Buffer,
   label?: string,
+  password?: string,
+  filenameHint?: string,
 ): { signer: Signer; format: KeyFormat } {
-  const format = detectKeyFormat(content);
+  const format = detectKeyFormat(content, filenameHint);
+
+  if (format === "pfx") {
+    if (!password) {
+      throw new CryptoError("PFX import requires a password");
+    }
+    const signer = buildSignerFromPfx(content, password, label);
+    return { signer, format };
+  }
 
   try {
     const { privateKey, publicKey } = loadKeyFromBuffer(content, format);

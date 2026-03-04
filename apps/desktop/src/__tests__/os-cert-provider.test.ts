@@ -240,29 +240,54 @@ describe("macOS Certificate Provider", () => {
   });
 
   describe("signature validation", () => {
-    it("should reject signatures with wrong length", async () => {
-      const wrongSizeSig = Buffer.alloc(48); // Not 64 bytes
+    it("should pass through signatures of any non-zero length", async () => {
+      const sig96 = Buffer.alloc(96); // P-384 length
+      sig96[0] = 1; // non-zero
       const addon: MacOsNativeAddon = {
         ...createMockMacOsAddon(),
-        signWithCertificate: () => wrongSizeSig,
+        signWithCertificate: () => sig96,
+      };
+      const provider = createMacOsCertProvider(addon);
+
+      const testData = new Uint8Array(32);
+      const result = await provider.sign("cert-001", testData);
+      expect(result.length).toBe(96);
+    });
+
+    it("should reject empty signatures", async () => {
+      const emptySig = Buffer.alloc(0);
+      const addon: MacOsNativeAddon = {
+        ...createMockMacOsAddon(),
+        signWithCertificate: () => emptySig,
       };
       const provider = createMacOsCertProvider(addon);
 
       const testData = new Uint8Array(32);
       await expect(provider.sign("cert-001", testData)).rejects.toThrow(CryptoError);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(/expected 64 bytes/);
     });
 
-    it("should reject public keys with wrong length", async () => {
-      const wrongSizeKey = Buffer.alloc(65); // Not 33 bytes
+    it("should pass through public keys of any non-zero length", async () => {
+      const key65 = Buffer.alloc(65); // uncompressed P-256 point
+      key65[0] = 0x04; // uncompressed point prefix
       const addon: MacOsNativeAddon = {
         ...createMockMacOsAddon(),
-        getPublicKey: () => wrongSizeKey,
+        getPublicKey: () => key65,
+      };
+      const provider = createMacOsCertProvider(addon);
+
+      const result = await provider.getPublicKey("cert-001");
+      expect(result.length).toBe(65);
+    });
+
+    it("should reject empty public keys", async () => {
+      const emptyKey = Buffer.alloc(0);
+      const addon: MacOsNativeAddon = {
+        ...createMockMacOsAddon(),
+        getPublicKey: () => emptyKey,
       };
       const provider = createMacOsCertProvider(addon);
 
       await expect(provider.getPublicKey("cert-001")).rejects.toThrow(CryptoError);
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(/expected 33 bytes/);
     });
   });
 });
@@ -372,29 +397,54 @@ describe("Windows Certificate Provider", () => {
   });
 
   describe("signature validation", () => {
-    it("should reject signatures with wrong length", async () => {
-      const wrongSizeSig = Buffer.alloc(96); // Not 64 bytes
+    it("should pass through signatures of any non-zero length", async () => {
+      const sig96 = Buffer.alloc(96); // P-384 length
+      sig96[0] = 1;
       const addon: WindowsNativeAddon = {
         ...createMockWindowsAddon(),
-        signWithCertificate: () => wrongSizeSig,
+        signWithCertificate: () => sig96,
+      };
+      const provider = createWindowsCertProvider(addon);
+
+      const testData = new Uint8Array(32);
+      const result = await provider.sign("cert-001", testData);
+      expect(result.length).toBe(96);
+    });
+
+    it("should reject empty signatures", async () => {
+      const emptySig = Buffer.alloc(0);
+      const addon: WindowsNativeAddon = {
+        ...createMockWindowsAddon(),
+        signWithCertificate: () => emptySig,
       };
       const provider = createWindowsCertProvider(addon);
 
       const testData = new Uint8Array(32);
       await expect(provider.sign("cert-001", testData)).rejects.toThrow(CryptoError);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(/expected 64 bytes/);
     });
 
-    it("should reject public keys with wrong length", async () => {
-      const wrongSizeKey = Buffer.alloc(65);
+    it("should pass through public keys of any non-zero length", async () => {
+      const key65 = Buffer.alloc(65);
+      key65[0] = 0x04;
       const addon: WindowsNativeAddon = {
         ...createMockWindowsAddon(),
-        getPublicKey: () => wrongSizeKey,
+        getPublicKey: () => key65,
+      };
+      const provider = createWindowsCertProvider(addon);
+
+      const result = await provider.getPublicKey("cert-001");
+      expect(result.length).toBe(65);
+    });
+
+    it("should reject empty public keys", async () => {
+      const emptyKey = Buffer.alloc(0);
+      const addon: WindowsNativeAddon = {
+        ...createMockWindowsAddon(),
+        getPublicKey: () => emptyKey,
       };
       const provider = createWindowsCertProvider(addon);
 
       await expect(provider.getPublicKey("cert-001")).rejects.toThrow(CryptoError);
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(/expected 33 bytes/);
     });
   });
 });

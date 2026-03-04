@@ -1,6 +1,7 @@
 import { VerificationError } from "@opencred/shared";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import { verifyDataIntegrity } from "./data-integrity.js";
+import { verifyJwsProof } from "./jws-proof.js";
 import { verifyVcJwt, extractVcJwtCredentialFields } from "./vc-jwt.js";
 import { verifySdJwtVc, extractSdJwtVcCredentialFields } from "./sd-jwt-vc.js";
 import { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
@@ -36,6 +37,15 @@ export function detectFormat(input: VerificationInput): CredentialFormat {
     }
     const dotParts = input.split(".");
     if (dotParts.length === 3) {
+      // Distinguish VC-JOSE-COSE JWS from VC-JWT by checking header alg
+      try {
+        const header = JSON.parse(Buffer.from(dotParts[0], "base64url").toString());
+        if (typeof header.alg === "string" && header.alg.startsWith("PS") && header.kid) {
+          return "jws";
+        }
+      } catch {
+        // Fall through to vc-jwt
+      }
       return "vc-jwt";
     }
     throw new VerificationError("String input is not a valid VC-JWT or SD-JWT VC");
@@ -77,6 +87,25 @@ export async function verifyCredential(
     validUntil = credential.validUntil;
     credentialStatus = credential.credentialStatus as Record<string, unknown> | undefined;
     credentialForRevocationHash = credential;
+  } else if (format === "jws") {
+    const signatureCheck = await verifyJwsProof(input as string, config.didResolver);
+    checks.push(signatureCheck);
+
+    if (!signatureCheck.passed) {
+      return buildResult(checks, signatureCheck);
+    }
+
+    // Extract VC fields from the JWS payload
+    try {
+      const payloadB64 = (input as string).split(".")[1];
+      const vcPayload = JSON.parse(Buffer.from(payloadB64, "base64url").toString()) as Record<string, unknown>;
+      validFrom = vcPayload.validFrom as string | undefined;
+      validUntil = vcPayload.validUntil as string | undefined;
+      credentialStatus = vcPayload.credentialStatus as Record<string, unknown> | undefined;
+      credentialForRevocationHash = vcPayload;
+    } catch {
+      // Payload extraction is best-effort for date/revocation checks
+    }
   } else if (format === "vc-jwt") {
     const { check, payload } = await verifyVcJwt(input as string, config.didResolver);
     checks.push(check);

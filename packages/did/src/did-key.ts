@@ -1,11 +1,106 @@
-import { DIDResolutionError } from "@opencred/shared";
+import { createHash, type KeyObject } from "node:crypto";
+import { DIDResolutionError, CryptoError } from "@opencred/shared";
 import type { DIDDocument, DIDResolutionResult, VerificationMethod } from "./types.js";
 import type { DIDResolver } from "./resolver.js";
-import { decodeBase58btc } from "./multibase.js";
+import { decodeBase58btc, encodeBase58btc } from "./multibase.js";
 
-const P256_MULTICODEC_VARINT_0 = 0x80;
-const P256_MULTICODEC_VARINT_1 = 0x24;
+/** P-256 multicodec varint prefix: 0x1200 encoded as unsigned varint [0x80, 0x24]. */
+const P256_MULTICODEC_PREFIX = new Uint8Array([0x80, 0x24]);
+/** P-384 multicodec varint prefix: 0x1201 encoded as unsigned varint [0x81, 0x24]. */
+const P384_MULTICODEC_PREFIX = new Uint8Array([0x81, 0x24]);
+
 const P256_COMPRESSED_KEY_LENGTH = 33;
+const P384_COMPRESSED_KEY_LENGTH = 49;
+
+/**
+ * Compute the SEC1 compressed public key bytes from an EC KeyObject.
+ * Works for both P-256 (33 bytes) and P-384 (49 bytes).
+ */
+export function getCompressedPublicKey(publicKey: KeyObject): Uint8Array {
+  const jwk = publicKey.export({ format: "jwk" });
+  if (!jwk.x || !jwk.y) {
+    throw new CryptoError("Failed to export public key coordinates");
+  }
+
+  const x = Buffer.from(jwk.x, "base64url");
+  const y = Buffer.from(jwk.y, "base64url");
+
+  // SEC1 compressed form: 0x02 if y is even, 0x03 if y is odd
+  const prefix = y[y.length - 1] % 2 === 0 ? 0x02 : 0x03;
+  const compressed = new Uint8Array(1 + x.length);
+  compressed[0] = prefix;
+  compressed.set(x, 1);
+  return compressed;
+}
+
+/**
+ * Compute a SHA-256 fingerprint of a public key (hex-encoded).
+ * Safe to log, display, and transmit over IPC.
+ */
+export function computeKeyFingerprint(publicKey: KeyObject): string {
+  const spki = publicKey.export({ format: "der", type: "spki" });
+  return createHash("sha256").update(spki).digest("hex");
+}
+
+/**
+ * Derive a did:key verification method identifier from an EC public key.
+ *
+ * Supports P-256 and P-384 curves. Format: `did:key:z<multibase>#z<multibase>`
+ * where the multibase value is the base58btc encoding of the multicodec prefix + compressed key.
+ *
+ * @param publicKey - A Node.js KeyObject for the EC public key.
+ * @returns The did:key verification method ID string.
+ * @throws {CryptoError} if the key is not a supported EC curve.
+ */
+export function deriveDidKeyId(publicKey: KeyObject): string {
+  const jwk = publicKey.export({ format: "jwk" });
+  const compressed = getCompressedPublicKey(publicKey);
+
+  let prefix: Uint8Array;
+  if (jwk.crv === "P-256") {
+    prefix = P256_MULTICODEC_PREFIX;
+  } else if (jwk.crv === "P-384") {
+    prefix = P384_MULTICODEC_PREFIX;
+  } else {
+    throw new CryptoError(`Unsupported EC curve for did:key: ${String(jwk.crv)}`);
+  }
+
+  const multicodecKey = new Uint8Array(prefix.length + compressed.length);
+  multicodecKey.set(prefix, 0);
+  multicodecKey.set(compressed, prefix.length);
+
+  const multibaseKey = "z" + encodeBase58btc(multicodecKey);
+  const did = `did:key:${multibaseKey}`;
+  return `${did}#${multibaseKey}`;
+}
+
+/**
+ * Derive a did:key verification method identifier from a SEC1 compressed EC public key.
+ *
+ * @param compressedPublicKey - SEC1 compressed key (33 bytes for P-256, 49 bytes for P-384).
+ * @param curve - The EC curve ("P-256" or "P-384").
+ * @returns The did:key verification method ID string.
+ */
+export function deriveDidKeyIdFromCompressedKey(
+  compressedPublicKey: Uint8Array,
+  curve: "P-256" | "P-384" = "P-256",
+): string {
+  const expectedLength = curve === "P-256" ? P256_COMPRESSED_KEY_LENGTH : P384_COMPRESSED_KEY_LENGTH;
+  if (compressedPublicKey.length !== expectedLength) {
+    throw new CryptoError(
+      `Invalid compressed public key length: expected ${expectedLength} bytes, got ${compressedPublicKey.length}`,
+    );
+  }
+
+  const prefix = curve === "P-256" ? P256_MULTICODEC_PREFIX : P384_MULTICODEC_PREFIX;
+  const multicodecKey = new Uint8Array(prefix.length + compressedPublicKey.length);
+  multicodecKey.set(prefix, 0);
+  multicodecKey.set(compressedPublicKey, prefix.length);
+
+  const multibaseKey = "z" + encodeBase58btc(multicodecKey);
+  const did = `did:key:${multibaseKey}`;
+  return `${did}#${multibaseKey}`;
+}
 
 export class DIDKeyResolver implements DIDResolver {
   async resolve(did: string): Promise<DIDResolutionResult> {
@@ -34,23 +129,29 @@ export class DIDKeyResolver implements DIDResolver {
       throw new DIDResolutionError("Failed to decode multibase key");
     }
 
-    if (
-      decoded.length < 2 ||
-      decoded[0] !== P256_MULTICODEC_VARINT_0 ||
-      decoded[1] !== P256_MULTICODEC_VARINT_1
-    ) {
-      throw new DIDResolutionError("Unsupported key type: only P-256 keys are supported");
+    if (decoded.length < 2) {
+      throw new DIDResolutionError("Decoded key too short");
+    }
+
+    // Detect curve from multicodec prefix
+    let expectedKeyLength: number;
+    if (decoded[0] === P256_MULTICODEC_PREFIX[0] && decoded[1] === P256_MULTICODEC_PREFIX[1]) {
+      expectedKeyLength = P256_COMPRESSED_KEY_LENGTH;
+    } else if (decoded[0] === P384_MULTICODEC_PREFIX[0] && decoded[1] === P384_MULTICODEC_PREFIX[1]) {
+      expectedKeyLength = P384_COMPRESSED_KEY_LENGTH;
+    } else {
+      throw new DIDResolutionError("Unsupported key type: only P-256 and P-384 keys are supported");
     }
 
     const publicKeyBytes = decoded.slice(2);
-    if (publicKeyBytes.length !== P256_COMPRESSED_KEY_LENGTH) {
+    if (publicKeyBytes.length !== expectedKeyLength) {
       throw new DIDResolutionError(
-        `Invalid P-256 key length: expected ${P256_COMPRESSED_KEY_LENGTH} bytes, got ${publicKeyBytes.length}`,
+        `Invalid key length: expected ${expectedKeyLength} bytes, got ${publicKeyBytes.length}`,
       );
     }
 
     if (publicKeyBytes[0] !== 0x02 && publicKeyBytes[0] !== 0x03) {
-      throw new DIDResolutionError("Invalid P-256 compressed key: must start with 0x02 or 0x03");
+      throw new DIDResolutionError("Invalid compressed key: must start with 0x02 or 0x03");
     }
 
     const verificationMethodId = `${did}#${multibaseKey}`;

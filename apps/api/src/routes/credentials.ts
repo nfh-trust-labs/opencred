@@ -7,10 +7,12 @@ import type { UnsignedCredential } from "@opencred/vc-core";
 import {
   prepareProof,
   completeProof,
-  signCredential,
+  signCredentialAuto,
+  prepareJwsProof,
+  completeJwsProof,
   computeRevocationHash,
 } from "@opencred/crypto";
-import type { ProofConfig, SigningKeyProvider } from "@opencred/crypto";
+import type { ProofConfig, SigningKeyProvider, SigningAlgorithm } from "@opencred/crypto";
 import { createRegistry, Validator } from "@opencred/schema-engine";
 import { TTLStore } from "@opencred/state";
 import { ValidationError, SessionExpiredError, AuthorizationError } from "@opencred/shared";
@@ -38,6 +40,8 @@ const buildRequestSchema = z.object({
   validFrom: z.string().min(1, "validFrom is required"),
   validUntil: z.string().optional(),
   revocationRegistryUrl: z.string().min(1, "revocationRegistryUrl is required"),
+  keyAlgorithm: z.enum(["P-256", "P-384", "RSA-2048", "RSA-3072", "RSA-4096"]).optional(),
+  dscCertificateChain: z.array(z.string().min(1)).optional(),
 });
 
 const packageRequestSchema = z.object({
@@ -61,9 +65,12 @@ const issueDelegatedRequestSchema = z.object({
 
 interface SigningSession {
   unsignedCredential: UnsignedCredential;
-  proofConfig: ProofConfig;
+  proofConfig?: ProofConfig;
   publicKey: string;
   dataToSign: Uint8Array;
+  proofMechanism: "data-integrity" | "jws";
+  jwsSigningInput?: string;
+  dscCertificateChain?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -139,23 +146,56 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
 
       const unsignedCredential = builder.build();
 
-      // 4. Prepare the proof — compute dataToSign
+      // 4. Determine proof mechanism from key algorithm
+      const keyAlgorithm = body.keyAlgorithm as SigningAlgorithm | undefined;
+      const isRsa = keyAlgorithm?.startsWith("RSA");
       const verificationMethod = `${body.issuer}#${body.publicKey}`;
+
+      const sessionId = randomUUID();
+
+      if (isRsa) {
+        // RSA keys use VC-JOSE-COSE JWS enveloping proofs
+        const jwsPrepared = prepareJwsProof(unsignedCredential, keyAlgorithm!, {
+          verificationMethod,
+        });
+
+        const signingInputBytes = new TextEncoder().encode(jwsPrepared.signingInput);
+        sessionStore.set(sessionId, {
+          unsignedCredential,
+          publicKey: body.publicKey,
+          dataToSign: signingInputBytes,
+          proofMechanism: "jws",
+          jwsSigningInput: jwsPrepared.signingInput,
+          dscCertificateChain: body.dscCertificateChain,
+        });
+
+        return c.json(
+          {
+            sessionId,
+            unsignedCredential,
+            dataToSign: base64urlEncode(signingInputBytes),
+            proofMechanism: "jws" as const,
+            protectedHeader: jwsPrepared.protectedHeader,
+          },
+          201,
+        );
+      }
+
+      // EC keys use Data Integrity embedded proofs
       const prepared = await prepareProof(unsignedCredential, {
         verificationMethod,
         proofPurpose: "assertionMethod",
-      });
+      }, keyAlgorithm ?? "P-256");
 
-      // 5. Store session
-      const sessionId = randomUUID();
       sessionStore.set(sessionId, {
         unsignedCredential,
         proofConfig: prepared.proofConfig,
         publicKey: body.publicKey,
         dataToSign: prepared.dataToSign,
+        proofMechanism: "data-integrity",
+        dscCertificateChain: body.dscCertificateChain,
       });
 
-      // 6. Encode dataToSign as base64url
       const dataToSignBase64url = base64urlEncode(prepared.dataToSign);
 
       return c.json(
@@ -164,6 +204,7 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
           unsignedCredential,
           dataToSign: dataToSignBase64url,
           proofConfig: prepared.proofConfig,
+          proofMechanism: "data-integrity" as const,
         },
         201,
       );
@@ -211,31 +252,43 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
         throw new ValidationError("Invalid base64url signature");
       }
 
-      // 3. Validate signature length (P-256 ECDSA = 64 bytes r||s)
-      if (signatureBytes.length !== 64) {
-        throw new ValidationError("Invalid signature: expected 64 bytes (P-256 ECDSA r||s format)");
-      }
+      // 3. Assemble the final output based on proof mechanism
+      let credential: unknown;
 
-      // 4. Assemble the final credential with proof
-      const credential = completeProof(
-        session.unsignedCredential,
-        session.proofConfig,
-        signatureBytes,
-      );
+      if (session.proofMechanism === "jws") {
+        if (!session.jwsSigningInput) {
+          throw new ValidationError("JWS signing session is corrupted");
+        }
+        credential = completeJwsProof(session.jwsSigningInput, signatureBytes);
+      } else {
+        if (signatureBytes.length !== 64 && signatureBytes.length !== 96) {
+          throw new ValidationError(
+            "Invalid signature: expected 64 bytes (P-256) or 96 bytes (P-384) ECDSA r||s format",
+          );
+        }
+        if (!session.proofConfig) {
+          throw new ValidationError("Data Integrity signing session is corrupted");
+        }
+        credential = completeProof(
+          session.unsignedCredential,
+          session.proofConfig,
+          signatureBytes,
+        );
+      }
 
       // 5. Consume the session (one-time use)
       sessionStore.delete(body.sessionId);
 
       // 6. Generate QR + PDF output formats
-      const formats = await packageFormats(credential as unknown as Record<string, unknown>);
+      const formats = await packageFormats(credential as Record<string, unknown>);
 
-      return c.json(
-        {
-          credential,
-          formats,
-        },
-        200,
-      );
+      // 7. Include certificate chain if available
+      const response: Record<string, unknown> = { credential, formats };
+      if (session.dscCertificateChain && session.dscCertificateChain.length > 0) {
+        response.dscCertificateChain = session.dscCertificateChain;
+      }
+
+      return c.json(response, 200);
     },
   );
 
@@ -336,14 +389,16 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
 
         const unsignedCredential = builder.build();
 
-        // 7. Sign with OpenCred's active key
-        const signedCredential = await signCredential(unsignedCredential, activeKey, {
+        // 7. Sign with OpenCred's active key (auto-dispatches EC → DI, RSA → JWS)
+        const signedCredential = await signCredentialAuto(unsignedCredential, activeKey, {
           verificationMethod: activeKey.id,
           proofPurpose: "assertionMethod",
         });
 
-        // 8. Embed delegation reference in the credential
-        const credentialWithDelegation = embedDelegation(signedCredential, delegation);
+        // 8. Embed delegation reference in the credential (DI only)
+        const credentialWithDelegation = typeof signedCredential === "string"
+          ? signedCredential // JWS: delegation metadata not embedded in compact string
+          : embedDelegation(signedCredential, delegation);
 
         // 9. Generate QR + PDF output formats
         const formats = await packageFormats(

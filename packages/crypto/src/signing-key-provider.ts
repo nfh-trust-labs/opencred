@@ -3,15 +3,11 @@ import {
   createPrivateKey,
   createPublicKey,
   createSign,
-  type KeyObject,
 } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { CryptoError } from "@opencred/shared";
-import type { SigningKey } from "./types.js";
-import { multibaseEncode } from "./data-integrity.js";
-
-/** P-256 multicodec varint prefix (0x1200 in unsigned varint = [0x80, 0x24]). */
-const P256_MULTICODEC_PREFIX = new Uint8Array([0x80, 0x24]);
+import { deriveDidKeyId } from "@opencred/did";
+import type { SigningAlgorithm, SigningKey } from "./types.js";
 
 /**
  * Metadata about a managed signing key.
@@ -19,8 +15,8 @@ const P256_MULTICODEC_PREFIX = new Uint8Array([0x80, 0x24]);
 export interface SigningKeyInfo {
   /** The key identifier (did:key verification method format). */
   id: string;
-  /** The ECDSA curve. */
-  algorithm: "P-256";
+  /** The signing algorithm. */
+  algorithm: SigningAlgorithm;
   /** ISO 8601 timestamp when the key was added to the provider. */
   createdAt: string;
   /** Whether this is the currently active signing key. */
@@ -77,44 +73,6 @@ export interface LocalSigningKeyProviderOptions {
 interface ManagedKey {
   signingKey: SigningKey;
   createdAt: string;
-}
-
-/**
- * Compute the SEC1 compressed public key bytes from a P-256 KeyObject.
- */
-function getCompressedPublicKey(publicKey: KeyObject): Uint8Array {
-  const jwk = publicKey.export({ format: "jwk" });
-  if (!jwk.x || !jwk.y) {
-    throw new CryptoError("Failed to export public key coordinates");
-  }
-
-  const x = Buffer.from(jwk.x, "base64url");
-  const y = Buffer.from(jwk.y, "base64url");
-
-  // SEC1 compressed form: 0x02 if y is even, 0x03 if y is odd
-  const prefix = y[y.length - 1] % 2 === 0 ? 0x02 : 0x03;
-  const compressed = new Uint8Array(1 + x.length);
-  compressed[0] = prefix;
-  compressed.set(x, 1);
-  return compressed;
-}
-
-/**
- * Derive a did:key verification method identifier from a P-256 public key.
- *
- * Format: `did:key:z<multibase>#z<multibase>` where the multibase value is
- * the base58btc encoding of the P-256 multicodec prefix + compressed public key.
- */
-function deriveDidKeyId(publicKey: KeyObject): string {
-  const compressed = getCompressedPublicKey(publicKey);
-
-  const multicodecKey = new Uint8Array(P256_MULTICODEC_PREFIX.length + compressed.length);
-  multicodecKey.set(P256_MULTICODEC_PREFIX, 0);
-  multicodecKey.set(compressed, P256_MULTICODEC_PREFIX.length);
-
-  const multibaseKey = multibaseEncode(multicodecKey);
-  const did = `did:key:${multibaseKey}`;
-  return `${did}#${multibaseKey}`;
 }
 
 /**

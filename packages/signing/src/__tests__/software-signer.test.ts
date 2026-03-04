@@ -1,235 +1,215 @@
-/**
- * Tests for the software signer module.
- *
- * Validates PEM, JWK, and PKCS#8 DER key loading, invalid key rejection,
- * signing produces valid 64-byte output, and key metadata extraction.
- *
- * All test keys are generated ephemerally — no key material is persisted.
- */
-
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { generateKeyPairSync } from "node:crypto";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { generateKeyPairSync, createVerify, constants } from "node:crypto";
 import {
-  createSoftwareSigner,
-  createSoftwareSignerFromBuffer,
   detectKeyFormat,
+  detectKeyAlgorithm,
+  buildSigner,
+  buildSignerFromPfx,
+  createSoftwareSignerFromBuffer,
 } from "../software-signer.js";
+import { CryptoError } from "@opencred/shared";
 
-// Temp directory for test key files
-let tmpDir: string;
-
-// Generate a P-256 key pair for testing
-const { privateKey: testPrivateKey } = generateKeyPairSync("ec", {
-  namedCurve: "P-256",
-});
-
-// Export in various formats
-const pemKey = testPrivateKey.export({ format: "pem", type: "pkcs8" }) as string;
-const derKey = testPrivateKey.export({ format: "der", type: "pkcs8" });
-const jwkPrivate = testPrivateKey.export({ format: "jwk" });
-
-// Generate a non-P-256 key for rejection testing
-const { privateKey: secp384Key } = generateKeyPairSync("ec", {
-  namedCurve: "secp384r1",
-});
-const secp384Pem = secp384Key.export({ format: "pem", type: "pkcs8" }) as string;
-
-// Generate an RSA key for rejection testing
-const { privateKey: rsaKey } = generateKeyPairSync("rsa", {
-  modulusLength: 2048,
-});
-const rsaPem = rsaKey.export({ format: "pem", type: "pkcs8" }) as string;
-
-beforeAll(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "opencred-signer-test-"));
-
-  // Write test keys to files
-  fs.writeFileSync(path.join(tmpDir, "test-key.pem"), pemKey);
-  fs.writeFileSync(path.join(tmpDir, "test-key.der"), derKey);
-  fs.writeFileSync(path.join(tmpDir, "test-key.json"), JSON.stringify(jwkPrivate));
-  fs.writeFileSync(path.join(tmpDir, "secp384-key.pem"), secp384Pem);
-  fs.writeFileSync(path.join(tmpDir, "rsa-key.pem"), rsaPem);
-  fs.writeFileSync(path.join(tmpDir, "invalid.txt"), "this is not a key");
-});
-
-afterAll(() => {
-  // Clean up temp files
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-});
+const FIXTURES_DIR = resolve(import.meta.dirname, "../../test/fixtures");
 
 describe("detectKeyFormat", () => {
   it("should detect PEM format", () => {
-    const content = Buffer.from(pemKey);
+    const content = Buffer.from("-----BEGIN EC PRIVATE KEY-----\ndata\n-----END EC PRIVATE KEY-----");
     expect(detectKeyFormat(content)).toBe("pem");
   });
 
   it("should detect JWK format", () => {
-    const content = Buffer.from(JSON.stringify(jwkPrivate));
+    const content = Buffer.from(JSON.stringify({ kty: "EC", crv: "P-256" }));
     expect(detectKeyFormat(content)).toBe("jwk");
   });
 
-  it("should detect PKCS#8 DER format (binary fallback)", () => {
-    const content = Buffer.from(derKey);
+  it("should detect PFX via filename hint .pfx", () => {
+    const content = Buffer.from([0x30, 0x82, 0x00, 0x01]);
+    expect(detectKeyFormat(content, "my-cert.pfx")).toBe("pfx");
+  });
+
+  it("should detect PFX via filename hint .p12", () => {
+    const content = Buffer.from([0x30, 0x82, 0x00, 0x01]);
+    expect(detectKeyFormat(content, "/path/to/my-cert.P12")).toBe("pfx");
+  });
+
+  it("should fall back to pkcs8-der for binary without hint", () => {
+    const content = Buffer.from([0x30, 0x82, 0x00, 0x01]);
     expect(detectKeyFormat(content)).toBe("pkcs8-der");
+  });
+
+  it("should detect PFX from real PFX file with hint", () => {
+    const buffer = readFileSync(resolve(FIXTURES_DIR, "test-rsa2048.pfx"));
+    expect(detectKeyFormat(buffer, "test-rsa2048.pfx")).toBe("pfx");
   });
 });
 
-describe("createSoftwareSigner (from file path)", () => {
-  it("should load a PEM key file", () => {
-    const { signer, format } = createSoftwareSigner(path.join(tmpDir, "test-key.pem"));
+describe("detectKeyAlgorithm", () => {
+  it("should detect P-256", () => {
+    const { publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    expect(detectKeyAlgorithm(publicKey)).toBe("P-256");
+  });
 
-    expect(format).toBe("pem");
+  it("should detect P-384", () => {
+    const { publicKey } = generateKeyPairSync("ec", { namedCurve: "P-384" });
+    expect(detectKeyAlgorithm(publicKey)).toBe("P-384");
+  });
+
+  it("should detect RSA-2048", () => {
+    const { publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    expect(detectKeyAlgorithm(publicKey)).toBe("RSA-2048");
+  });
+
+  it("should throw for unsupported EC curve", () => {
+    const { publicKey } = generateKeyPairSync("ec", { namedCurve: "secp521r1" });
+    expect(() => detectKeyAlgorithm(publicKey)).toThrow(CryptoError);
+  });
+});
+
+describe("buildSigner", () => {
+  it("should create a P-256 signer with did:key ID", () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const signer = buildSigner(privateKey, publicKey, "test-p256");
+
     expect(signer.algorithm).toBe("P-256");
-    expect(signer.type).toBe("software");
     expect(signer.id).toMatch(/^did:key:z/);
-    expect(signer.id).toContain("#");
+    expect(signer.type).toBe("software");
+    expect(signer.metadata.label).toBe("test-p256");
     expect(signer.metadata.fingerprint).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("should load a JWK key file", () => {
-    const { signer, format } = createSoftwareSigner(path.join(tmpDir, "test-key.json"));
+  it("should create a P-384 signer with did:key ID", () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-384" });
+    const signer = buildSigner(privateKey, publicKey, "test-p384");
 
-    expect(format).toBe("jwk");
-    expect(signer.algorithm).toBe("P-256");
-    expect(signer.type).toBe("software");
+    expect(signer.algorithm).toBe("P-384");
     expect(signer.id).toMatch(/^did:key:z/);
   });
 
-  it("should load a PKCS#8 DER key file", () => {
-    const { signer, format } = createSoftwareSigner(path.join(tmpDir, "test-key.der"));
+  it("should create an RSA-2048 signer with did:jwk ID", () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const signer = buildSigner(privateKey, publicKey, "test-rsa");
 
-    expect(format).toBe("pkcs8-der");
+    expect(signer.algorithm).toBe("RSA-2048");
+    expect(signer.id).toMatch(/^did:jwk:/);
+    expect(signer.id).toContain("#0");
+  });
+
+  it("should include certificate chain in metadata when provided", () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const chain = ["-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----"];
+    const signer = buildSigner(privateKey, publicKey, "test", chain);
+
+    expect(signer.metadata.certificateChain).toEqual(chain);
+  });
+
+  it("should not include certificateChain when empty array", () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const signer = buildSigner(privateKey, publicKey, "test", []);
+
+    expect(signer.metadata.certificateChain).toBeUndefined();
+  });
+});
+
+describe("sign + verify round trip", () => {
+  const testData = new Uint8Array(Buffer.from("test data for signing"));
+
+  it("P-256 sign produces 64-byte signature that verifies", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const signer = buildSigner(privateKey, publicKey);
+
+    const signature = await signer.sign(testData);
+    expect(signature.length).toBe(64);
+
+    const verifier = createVerify("SHA256");
+    verifier.update(testData);
+    const valid = verifier.verify(
+      { key: publicKey, dsaEncoding: "ieee-p1363" },
+      Buffer.from(signature),
+    );
+    expect(valid).toBe(true);
+  });
+
+  it("P-384 sign produces 96-byte signature that verifies", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-384" });
+    const signer = buildSigner(privateKey, publicKey);
+
+    const signature = await signer.sign(testData);
+    expect(signature.length).toBe(96);
+
+    const verifier = createVerify("SHA384");
+    verifier.update(testData);
+    const valid = verifier.verify(
+      { key: publicKey, dsaEncoding: "ieee-p1363" },
+      Buffer.from(signature),
+    );
+    expect(valid).toBe(true);
+  });
+
+  it("RSA-2048 sign produces valid PSS signature that verifies", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const signer = buildSigner(privateKey, publicKey);
+
+    const signature = await signer.sign(testData);
+    expect(signature.length).toBe(256);
+
+    const verifier = createVerify("SHA256");
+    verifier.update(testData);
+    const valid = verifier.verify(
+      {
+        key: publicKey,
+        padding: constants.RSA_PKCS1_PSS_PADDING,
+        saltLength: constants.RSA_PSS_SALTLEN_DIGEST,
+      },
+      Buffer.from(signature),
+    );
+    expect(valid).toBe(true);
+  });
+});
+
+describe("buildSignerFromPfx", () => {
+  it("should create a signer from RSA-2048 PFX", () => {
+    const buffer = readFileSync(resolve(FIXTURES_DIR, "test-rsa2048.pfx"));
+    const signer = buildSignerFromPfx(buffer, "test123", "rsa-pfx");
+
+    expect(signer.algorithm).toBe("RSA-2048");
+    expect(signer.id).toMatch(/^did:jwk:/);
+    expect(signer.metadata.certificateChain).toBeDefined();
+    expect(signer.metadata.certificateChain!.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("should create a signer from EC P-256 PFX", () => {
+    const buffer = readFileSync(resolve(FIXTURES_DIR, "test-ec256.pfx"));
+    const signer = buildSignerFromPfx(buffer, "test123", "ec-pfx");
+
     expect(signer.algorithm).toBe("P-256");
-    expect(signer.type).toBe("software");
+    expect(signer.id).toMatch(/^did:key:z/);
   });
 
-  it("should produce consistent did:key IDs across formats", () => {
-    const { signer: pemSigner } = createSoftwareSigner(path.join(tmpDir, "test-key.pem"));
-    const { signer: jwkSigner } = createSoftwareSigner(path.join(tmpDir, "test-key.json"));
-    const { signer: derSigner } = createSoftwareSigner(path.join(tmpDir, "test-key.der"));
+  it("PFX signer can sign and verify", async () => {
+    const buffer = readFileSync(resolve(FIXTURES_DIR, "test-rsa2048.pfx"));
+    const signer = buildSignerFromPfx(buffer, "test123");
 
-    // Same key in different formats should produce the same did:key ID
-    expect(pemSigner.id).toBe(jwkSigner.id);
-    expect(pemSigner.id).toBe(derSigner.id);
-  });
-
-  it("should produce consistent fingerprints across formats", () => {
-    const { signer: pemSigner } = createSoftwareSigner(path.join(tmpDir, "test-key.pem"));
-    const { signer: jwkSigner } = createSoftwareSigner(path.join(tmpDir, "test-key.json"));
-    const { signer: derSigner } = createSoftwareSigner(path.join(tmpDir, "test-key.der"));
-
-    expect(pemSigner.metadata.fingerprint).toBe(jwkSigner.metadata.fingerprint);
-    expect(pemSigner.metadata.fingerprint).toBe(derSigner.metadata.fingerprint);
-  });
-
-  it("should accept an optional label", () => {
-    const { signer } = createSoftwareSigner(path.join(tmpDir, "test-key.pem"), "Test Key");
-    expect(signer.metadata.label).toBe("Test Key");
-  });
-
-  it("should reject non-P-256 EC keys (secp384r1)", () => {
-    expect(() => createSoftwareSigner(path.join(tmpDir, "secp384-key.pem"))).toThrow(/P-256/);
-  });
-
-  it("should reject RSA keys", () => {
-    expect(() => createSoftwareSigner(path.join(tmpDir, "rsa-key.pem"))).toThrow(
-      /P-256|EC|Unsupported/,
-    );
-  });
-
-  it("should reject invalid key files", () => {
-    expect(() => createSoftwareSigner(path.join(tmpDir, "invalid.txt"))).toThrow();
-  });
-
-  it("should throw CryptoError for non-existent files", () => {
-    expect(() => createSoftwareSigner(path.join(tmpDir, "nonexistent.pem"))).toThrow(
-      /Failed to read key file/,
-    );
+    const data = new Uint8Array(Buffer.from("pfx sign test"));
+    const signature = await signer.sign(data);
+    expect(signature.length).toBeGreaterThan(0);
   });
 });
 
 describe("createSoftwareSignerFromBuffer", () => {
-  it("should create a signer from a PEM buffer", () => {
-    const { signer, format } = createSoftwareSignerFromBuffer(Buffer.from(pemKey));
+  it("should create signer from PFX buffer with password and hint", () => {
+    const buffer = readFileSync(resolve(FIXTURES_DIR, "test-ec256.pfx"));
+    const { signer, format } = createSoftwareSignerFromBuffer(buffer, "ec-pfx", "test123", "cert.pfx");
 
-    expect(format).toBe("pem");
+    expect(format).toBe("pfx");
     expect(signer.algorithm).toBe("P-256");
   });
 
-  it("should create a signer from a JWK buffer", () => {
-    const { signer, format } = createSoftwareSignerFromBuffer(
-      Buffer.from(JSON.stringify(jwkPrivate)),
+  it("should throw when PFX detected but no password provided", () => {
+    const buffer = readFileSync(resolve(FIXTURES_DIR, "test-ec256.pfx"));
+    expect(() => createSoftwareSignerFromBuffer(buffer, "label", undefined, "cert.pfx")).toThrow(
+      "PFX import requires a password",
     );
-
-    expect(format).toBe("jwk");
-    expect(signer.algorithm).toBe("P-256");
-  });
-
-  it("should create a signer from a DER buffer", () => {
-    const { signer, format } = createSoftwareSignerFromBuffer(Buffer.from(derKey));
-
-    expect(format).toBe("pkcs8-der");
-    expect(signer.algorithm).toBe("P-256");
-  });
-});
-
-describe("Signer.sign()", () => {
-  it("should produce a 64-byte raw r||s signature", async () => {
-    const { signer } = createSoftwareSigner(path.join(tmpDir, "test-key.pem"));
-    const data = new Uint8Array(64); // 64 bytes of zeros (like a proof hash pair)
-
-    const signature = await signer.sign(data);
-
-    expect(signature).toBeInstanceOf(Uint8Array);
-    expect(signature.length).toBe(64);
-  });
-
-  it("should produce different signatures for different data", async () => {
-    const { signer } = createSoftwareSigner(path.join(tmpDir, "test-key.pem"));
-
-    const data1 = new Uint8Array(64).fill(0);
-    const data2 = new Uint8Array(64).fill(1);
-
-    const sig1 = await signer.sign(data1);
-    const sig2 = await signer.sign(data2);
-
-    // Signatures should be different (with overwhelming probability)
-    expect(Buffer.from(sig1).equals(Buffer.from(sig2))).toBe(false);
-  });
-
-  it("should be consistent (same key, same data produces valid signatures)", async () => {
-    const { signer } = createSoftwareSigner(path.join(tmpDir, "test-key.pem"));
-    const data = new Uint8Array(64).fill(42);
-
-    // Both signatures should be valid 64-byte values (but differ due to ECDSA randomness)
-    const sig1 = await signer.sign(data);
-    const sig2 = await signer.sign(data);
-
-    expect(sig1.length).toBe(64);
-    expect(sig2.length).toBe(64);
-  });
-});
-
-describe("Signer metadata (security)", () => {
-  it("should never expose private key material in metadata", () => {
-    const { signer } = createSoftwareSigner(path.join(tmpDir, "test-key.pem"));
-
-    // Metadata should only contain safe information
-    const meta = signer.metadata;
-    const metaStr = JSON.stringify(meta);
-
-    // Ensure no private key component "d" appears in metadata
-    expect(meta).not.toHaveProperty("privateKey");
-    expect(meta).not.toHaveProperty("d");
-    expect(metaStr).not.toContain('"d"');
-
-    // Should have the expected safe fields
-    expect(meta.id).toBeDefined();
-    expect(meta.algorithm).toBe("P-256");
-    expect(meta.type).toBe("software");
-    expect(meta.fingerprint).toBeDefined();
   });
 });

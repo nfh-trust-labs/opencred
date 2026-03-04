@@ -7,108 +7,40 @@
  *  - Linux: Falls back to PKCS#11 or software signer (no native cert store)
  *
  * The private key NEVER leaves the OS. Signing is delegated to the platform's
- * cryptography subsystem. Only the public key is extracted (for did:key
- * derivation and fingerprint computation).
+ * cryptography subsystem. Only the public key is extracted (for DID derivation
+ * and fingerprint computation).
  *
  * SECURITY INVARIANTS:
  *  - The private key stays in the OS certificate store at all times.
  *  - No key material is logged — only certificate ID and fingerprint.
  *  - Sign() delegates to the OS cryptography API.
- *  - Signature format: raw r||s (64 bytes for P-256).
+ *  - EC signatures: raw r||s (64 bytes for P-256, 96 bytes for P-384).
+ *  - RSA signatures: RSASSA-PSS (variable length depending on modulus).
  */
 
-import { createHash } from "node:crypto";
+import { createPublicKey } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
-import { multibaseEncode } from "@opencred/crypto";
+import type { SigningAlgorithm } from "@opencred/crypto";
+import {
+  deriveDidKeyIdFromCompressedKey,
+  computeKeyFingerprint,
+  encodeDidJwk,
+  didJwkVerificationMethodId,
+  type JWK,
+} from "@opencred/did";
 import type { Signer, SignerMetadata } from "./types.js";
 import type { OsCertProvider, OsCertSignerOptions, OsCertListResult } from "./os-cert-types.js";
 import { createMacOsCertProvider } from "./macos-cert-provider.js";
 import { createWindowsCertProvider } from "./windows-cert-provider.js";
 
-/** P-256 multicodec varint prefix (0x1200 in unsigned varint = [0x80, 0x24]). */
-const P256_MULTICODEC_PREFIX = new Uint8Array([0x80, 0x24]);
-
 /**
- * Derive a did:key verification method identifier from a SEC1 compressed P-256 public key.
- *
- * @param compressedPublicKey - SEC1 compressed public key (33 bytes).
- * @returns The did:key verification method ID string.
+ * Expected raw signature lengths for EC algorithms.
+ * RSA signature length varies — we only check > 0.
  */
-function deriveDidKeyIdFromCompressedKey(compressedPublicKey: Uint8Array): string {
-  if (compressedPublicKey.length !== 33) {
-    throw new CryptoError(
-      `Invalid compressed public key length: expected 33 bytes, got ${compressedPublicKey.length}`,
-    );
-  }
-
-  const multicodecKey = new Uint8Array(P256_MULTICODEC_PREFIX.length + compressedPublicKey.length);
-  multicodecKey.set(P256_MULTICODEC_PREFIX, 0);
-  multicodecKey.set(compressedPublicKey, P256_MULTICODEC_PREFIX.length);
-
-  const multibaseKey = multibaseEncode(multicodecKey);
-  const did = `did:key:${multibaseKey}`;
-  return `${did}#${multibaseKey}`;
-}
-
-/**
- * Compute a SHA-256 fingerprint from a SEC1 compressed P-256 public key.
- *
- * To match the software-signer and PKCS#11 signer fingerprint format, we
- * reconstruct the SPKI DER encoding and hash that.
- *
- * @param compressedPublicKey - SEC1 compressed public key (33 bytes).
- * @returns Hex-encoded SHA-256 fingerprint.
- */
-function computeFingerprintFromCompressedKey(compressedPublicKey: Uint8Array): string {
-  // Build a JWK from the compressed key to create a KeyObject for SPKI export.
-  // The compressed key is 0x02/0x03 prefix + 32-byte x coordinate.
-  const prefix = compressedPublicKey[0];
-  if (prefix !== 0x02 && prefix !== 0x03) {
-    throw new CryptoError("Invalid SEC1 compressed key prefix");
-  }
-
-  // Build SPKI DER wrapping the compressed EC point.
-  // We use a deterministic SPKI structure with the compressed point rather than
-  // the uncompressed form. This produces a fingerprint that is unique per key
-  // and deterministic, though it won't exactly match the SPKI hash from a
-  // full KeyObject. This is acceptable since fingerprints are only used for
-  // display and comparison within the application.
-  // SEQUENCE { SEQUENCE { OID ecPublicKey, OID prime256v1 }, BIT STRING { compressed point } }
-  const ecPublicKeyOid = new Uint8Array([0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01]);
-  const prime256v1Oid = new Uint8Array([
-    0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
-  ]);
-
-  const innerSeqContent = new Uint8Array(ecPublicKeyOid.length + prime256v1Oid.length);
-  innerSeqContent.set(ecPublicKeyOid, 0);
-  innerSeqContent.set(prime256v1Oid, ecPublicKeyOid.length);
-
-  const innerSeq = new Uint8Array(2 + innerSeqContent.length);
-  innerSeq[0] = 0x30; // SEQUENCE
-  innerSeq[1] = innerSeqContent.length;
-  innerSeq.set(innerSeqContent, 2);
-
-  // BIT STRING wrapping the compressed point
-  const bitStringContent = new Uint8Array(1 + compressedPublicKey.length);
-  bitStringContent[0] = 0x00; // no unused bits
-  bitStringContent.set(compressedPublicKey, 1);
-
-  const bitString = new Uint8Array(2 + bitStringContent.length);
-  bitString[0] = 0x03; // BIT STRING
-  bitString[1] = bitStringContent.length;
-  bitString.set(bitStringContent, 2);
-
-  const outerContent = new Uint8Array(innerSeq.length + bitString.length);
-  outerContent.set(innerSeq, 0);
-  outerContent.set(bitString, innerSeq.length);
-
-  const spki = new Uint8Array(2 + outerContent.length);
-  spki[0] = 0x30; // SEQUENCE
-  spki[1] = outerContent.length;
-  spki.set(outerContent, 2);
-
-  return createHash("sha256").update(spki).digest("hex");
-}
+const EC_SIGNATURE_LENGTHS: Record<string, number> = {
+  "P-256": 64,
+  "P-384": 96,
+};
 
 /**
  * Get the OS cert provider for the specified platform.
@@ -171,11 +103,109 @@ export async function listOsCertificates(
 }
 
 /**
+ * Derive the DID identifier and fingerprint for an EC key from its compressed form.
+ */
+function deriveEcIdentity(
+  compressedPublicKey: Uint8Array,
+  curve: "P-256" | "P-384",
+): { id: string; fingerprint: string } {
+  const id = deriveDidKeyIdFromCompressedKey(compressedPublicKey, curve);
+
+  // Build a KeyObject from the compressed key so we can compute a standard fingerprint
+  const expectedLen = curve === "P-256" ? 33 : 49;
+  if (compressedPublicKey.length !== expectedLen) {
+    throw new CryptoError(
+      `Invalid compressed key length for ${curve}: expected ${expectedLen}, got ${compressedPublicKey.length}`,
+    );
+  }
+
+  const curveName = curve === "P-256" ? "prime256v1" : "secp384r1";
+  const ecPublicKey = createPublicKey({
+    key: buildEcSpkiDer(compressedPublicKey, curveName),
+    format: "der",
+    type: "spki",
+  });
+  const fingerprint = computeKeyFingerprint(ecPublicKey);
+
+  return { id, fingerprint };
+}
+
+/**
+ * Build a minimal SPKI DER structure from a SEC1 compressed EC public key.
+ * Used to construct a KeyObject for fingerprint computation.
+ */
+function buildEcSpkiDer(compressedKey: Uint8Array, curveName: string): Buffer {
+  const ecPublicKeyOid = Buffer.from([0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01]);
+
+  let curveOid: Buffer;
+  if (curveName === "prime256v1") {
+    curveOid = Buffer.from([0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]);
+  } else {
+    // secp384r1
+    curveOid = Buffer.from([0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x22]);
+  }
+
+  const innerSeqContent = Buffer.concat([ecPublicKeyOid, curveOid]);
+  const innerSeq = Buffer.concat([Buffer.from([0x30, innerSeqContent.length]), innerSeqContent]);
+
+  const bitStringContent = Buffer.concat([Buffer.from([0x00]), compressedKey]);
+  const bitString = Buffer.concat([
+    Buffer.from([0x03, bitStringContent.length]),
+    bitStringContent,
+  ]);
+
+  const outerContent = Buffer.concat([innerSeq, bitString]);
+  return Buffer.concat([Buffer.from([0x30, outerContent.length]), outerContent]);
+}
+
+/**
+ * Derive the DID identifier and fingerprint for an RSA key from SPKI DER bytes.
+ */
+function deriveRsaIdentity(
+  spkiDer: Uint8Array,
+): { id: string; fingerprint: string } {
+  const publicKey = createPublicKey({
+    key: Buffer.from(spkiDer),
+    format: "der",
+    type: "spki",
+  });
+
+  const jwk = publicKey.export({ format: "jwk" }) as JWK;
+  const did = encodeDidJwk(jwk);
+  const id = didJwkVerificationMethodId(did);
+  const fingerprint = computeKeyFingerprint(publicKey);
+
+  return { id, fingerprint };
+}
+
+/**
+ * Validate a signature based on the signing algorithm.
+ *
+ * EC signatures must match exact expected lengths.
+ * RSA signatures must be non-empty.
+ */
+function validateSignatureLength(signature: Uint8Array, algorithm: SigningAlgorithm): void {
+  if (signature.length === 0) {
+    throw new CryptoError("OS certificate signing returned an empty signature");
+  }
+
+  const expectedEcLength = EC_SIGNATURE_LENGTHS[algorithm];
+  if (expectedEcLength !== undefined && signature.length !== expectedEcLength) {
+    throw new CryptoError(
+      `Unexpected signature length: expected ${expectedEcLength} bytes, got ${signature.length}`,
+    );
+  }
+}
+
+/**
  * Create an OS certificate store signer.
  *
  * Dispatches to the correct platform provider (macOS Keychain or Windows CNG),
- * extracts the public key from the certificate, derives the did:key ID, and
- * returns a Signer that delegates all signing to the OS.
+ * extracts the public key from the certificate, derives the DID identifier,
+ * and returns a Signer that delegates all signing to the OS.
+ *
+ * For EC keys (P-256, P-384): uses did:key with multicodec encoding.
+ * For RSA keys: uses did:jwk with JWK base64url encoding.
  *
  * @param options - Signer creation options.
  * @param providerOverride - Optional provider override (for tests).
@@ -188,47 +218,62 @@ export async function createOsCertSigner(
   providerOverride?: OsCertProvider,
 ): Promise<{ signer: Signer }> {
   const provider = getProviderForPlatform(options.platform, providerOverride);
+  const algorithm: SigningAlgorithm = options.keyAlgorithm ?? "P-256";
 
-  // Extract the compressed public key from the certificate
-  let compressedPublicKey: Uint8Array;
+  // Extract the public key from the certificate
+  let publicKeyBytes: Uint8Array;
   try {
-    compressedPublicKey = await provider.getPublicKey(options.certificateId);
+    publicKeyBytes = await provider.getPublicKey(options.certificateId);
   } catch (error) {
     if (error instanceof CryptoError) throw error;
     throw new CryptoError("Failed to extract public key from OS certificate");
   }
 
-  // Derive did:key ID and fingerprint
-  const id = deriveDidKeyIdFromCompressedKey(compressedPublicKey);
-  const fingerprint = computeFingerprintFromCompressedKey(compressedPublicKey);
+  // Derive DID and fingerprint based on algorithm
+  let id: string;
+  let fingerprint: string;
+
+  if (algorithm.startsWith("RSA")) {
+    // RSA: public key is SPKI DER → did:jwk
+    ({ id, fingerprint } = deriveRsaIdentity(publicKeyBytes));
+  } else {
+    // EC: public key is SEC1 compressed → did:key
+    const curve = algorithm as "P-256" | "P-384";
+    ({ id, fingerprint } = deriveEcIdentity(publicKeyBytes, curve));
+  }
+
+  // Get certificate chain if the provider supports it
+  let certificateChain: string[] | undefined;
+  if (provider.getCertificateChain) {
+    try {
+      const chain = await provider.getCertificateChain(options.certificateId);
+      if (chain.length > 0) {
+        certificateChain = chain;
+      }
+    } catch {
+      // Certificate chain is optional — failure is non-fatal
+    }
+  }
 
   const metadata: SignerMetadata = {
     id,
-    algorithm: "P-256",
+    algorithm,
     type: "os-cert",
     fingerprint,
     label: options.label,
+    certificateChain,
   };
 
   const signer: Signer = {
     id,
-    algorithm: "P-256",
+    algorithm,
     type: "os-cert",
     metadata,
 
     async sign(data: Uint8Array): Promise<Uint8Array> {
       try {
-        // The provider.sign() handles SHA-256 hashing + ECDSA signing
-        // via the OS cryptography subsystem. The private key never
-        // leaves the OS.
         const signature = await provider.sign(options.certificateId, data);
-
-        if (signature.length !== 64) {
-          throw new CryptoError(
-            `Unexpected signature length: expected 64 bytes, got ${signature.length}`,
-          );
-        }
-
+        validateSignatureLength(signature, algorithm);
         return signature;
       } catch (error) {
         if (error instanceof CryptoError) throw error;

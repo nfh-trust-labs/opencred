@@ -12,6 +12,8 @@
  *    accessed only by the OS cryptography subsystem.
  */
 
+import type { SigningAlgorithm } from "@opencred/crypto";
+
 /**
  * Metadata about a certificate in the OS certificate store.
  *
@@ -31,8 +33,8 @@ export interface OsCertInfo {
   validFrom: string;
   /** Certificate validity end (ISO 8601). */
   validUntil: string;
-  /** Key algorithm description (e.g., "ECDSA P-256"). */
-  keyAlgorithm: string;
+  /** Key algorithm (e.g., "P-256", "RSA-2048"). */
+  keyAlgorithm: SigningAlgorithm;
   /** Whether the private key is marked as exportable. */
   isExportable: boolean;
   /** SHA-256 thumbprint of the DER-encoded certificate (hex-encoded). */
@@ -50,8 +52,8 @@ export interface OsCertProvider {
   /**
    * Enumerate signing certificates from the OS certificate store.
    *
-   * Filters for certificates with EC P-256 private keys that are suitable
-   * for digital signing. Returns metadata only — no key material.
+   * Returns certificates with EC or RSA private keys suitable for digital
+   * signing. Returns metadata only — no key material.
    *
    * @returns Array of certificate metadata.
    */
@@ -61,25 +63,34 @@ export interface OsCertProvider {
    * Sign data using a certificate's private key via the OS cryptography API.
    *
    * The OS handles the actual signing — the private key never leaves the OS.
-   * The data is hashed with SHA-256 before ECDSA signing (matching the
-   * software signer flow). Returns raw r||s (64 bytes for P-256).
+   * For EC keys: returns raw r||s (64 bytes for P-256, 96 bytes for P-384).
+   * For RSA keys: returns RSASSA-PSS signature (length depends on modulus).
    *
    * @param certificateId - Platform-specific certificate identifier.
-   * @param data - The data to sign (will be SHA-256 hashed then signed).
-   * @returns Raw r||s ECDSA signature (64 bytes for P-256).
+   * @param data - The data to sign (will be hashed then signed).
+   * @returns Raw signature bytes.
    */
   sign(certificateId: string, data: Uint8Array): Promise<Uint8Array>;
 
   /**
-   * Extract the SEC1 compressed public key from a certificate.
+   * Extract the public key from a certificate.
    *
-   * Returns the 33-byte compressed public key (0x02/0x03 prefix + 32-byte x).
-   * This is used for did:key derivation and fingerprint computation.
+   * For EC keys: returns SEC1 compressed public key (33 bytes for P-256, 49 for P-384).
+   * For RSA keys: returns SPKI DER-encoded public key.
    *
    * @param certificateId - Platform-specific certificate identifier.
-   * @returns SEC1 compressed public key bytes (33 bytes for P-256).
+   * @returns Public key bytes.
    */
   getPublicKey(certificateId: string): Promise<Uint8Array>;
+
+  /**
+   * Get the certificate chain (PEM-encoded) for a certificate.
+   * Optional — not all providers support this.
+   *
+   * @param certificateId - Platform-specific certificate identifier.
+   * @returns PEM-encoded certificate chain (DSC, intermediates), or empty array.
+   */
+  getCertificateChain?(certificateId: string): Promise<string[]>;
 }
 
 /**
@@ -92,6 +103,8 @@ export interface OsCertSignerOptions {
   certificateId: string;
   /** Optional user-friendly label. */
   label?: string;
+  /** Key algorithm. When omitted, defaults to "P-256" for backward compatibility. */
+  keyAlgorithm?: SigningAlgorithm;
 }
 
 /**

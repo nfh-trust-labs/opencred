@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { verifyCredential, type VerificationResultCode } from "@opencred/verification";
-import { DIDKeyResolver } from "@opencred/did";
+import { DIDKeyResolver, DIDJwkResolver } from "@opencred/did";
+import type { DIDResolver, DIDResolutionResult } from "@opencred/did";
 import type { DeDiClient } from "@opencred/dedi-client";
 import { ValidationError } from "@opencred/shared";
 import { validateDscChain, type TrustStore, type DscChainCheck } from "../dsc-chain.js";
@@ -39,9 +40,25 @@ export interface VerifyRoutesDeps {
   dediClient?: DeDiClient;
 }
 
+/**
+ * Composite DID resolver that delegates to did:key or did:jwk resolvers
+ * based on the DID method prefix.
+ */
+class CompositeDidResolver implements DIDResolver {
+  private keyResolver = new DIDKeyResolver();
+  private jwkResolver = new DIDJwkResolver();
+
+  async resolve(did: string): Promise<DIDResolutionResult> {
+    if (did.startsWith("did:jwk:")) {
+      return this.jwkResolver.resolve(did);
+    }
+    return this.keyResolver.resolve(did);
+  }
+}
+
 export function createVerifyRoutes(deps: VerifyRoutesDeps = {}) {
   const { trustStore, dediClient } = deps;
-  const didResolver = new DIDKeyResolver();
+  const didResolver = new CompositeDidResolver();
   const verify = new Hono();
 
   verify.post("/", async (c) => {

@@ -7,7 +7,9 @@
  *
  *  - Platform dispatch (darwin -> macOS, win32 -> Windows, linux -> error)
  *  - Signer creation with correct metadata (did:key derivation, fingerprint)
- *  - Signature format validation (64-byte raw r||s for P-256)
+ *  - Multi-algorithm support: P-256, P-384 (did:key), RSA-2048 (did:jwk)
+ *  - Signature format validation (algorithm-dependent)
+ *  - Certificate chain attachment to signer metadata
  *  - Error handling (unsupported platform, missing certificate, etc.)
  *  - Security invariants (no key material in errors)
  */
@@ -23,54 +25,74 @@ import {
 } from "../os-cert-signer.js";
 
 // ---------------------------------------------------------------------------
-// Generate a real EC key pair for testing
+// Generate real key pairs for testing
 // ---------------------------------------------------------------------------
 
-const testKeyPair = generateKeyPairSync("ec", { namedCurve: "P-256" });
-const testPublicKeyJwk = testKeyPair.publicKey.export({ format: "jwk" });
-const xBytes = Buffer.from(testPublicKeyJwk.x!, "base64url");
-const yBytes = Buffer.from(testPublicKeyJwk.y!, "base64url");
+// P-256
+const p256KeyPair = generateKeyPairSync("ec", { namedCurve: "P-256" });
+const p256Jwk = p256KeyPair.publicKey.export({ format: "jwk" });
+const p256XBytes = Buffer.from(p256Jwk.x!, "base64url");
+const p256YBytes = Buffer.from(p256Jwk.y!, "base64url");
 
-/**
- * SEC1 compressed public key (33 bytes: prefix + x coordinate).
- * The prefix is 0x02 if y is even, 0x03 if y is odd.
- */
-const compressedPublicKey = new Uint8Array(33);
-compressedPublicKey[0] = yBytes[yBytes.length - 1] % 2 === 0 ? 0x02 : 0x03;
-compressedPublicKey.set(xBytes, 1);
+const compressedP256Key = new Uint8Array(33);
+compressedP256Key[0] = p256YBytes[p256YBytes.length - 1] % 2 === 0 ? 0x02 : 0x03;
+compressedP256Key.set(p256XBytes, 1);
 
-/**
- * Mock test certificate info.
- */
-const testCertInfo: OsCertInfo = {
-  id: "test-cert-id-001",
-  subject: "CN=Test User",
+// P-384
+const p384KeyPair = generateKeyPairSync("ec", { namedCurve: "P-384" });
+const p384Jwk = p384KeyPair.publicKey.export({ format: "jwk" });
+const p384XBytes = Buffer.from(p384Jwk.x!, "base64url");
+const p384YBytes = Buffer.from(p384Jwk.y!, "base64url");
+
+const compressedP384Key = new Uint8Array(49);
+compressedP384Key[0] = p384YBytes[p384YBytes.length - 1] % 2 === 0 ? 0x02 : 0x03;
+compressedP384Key.set(p384XBytes, 1);
+
+// RSA-2048
+const rsaKeyPair = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const rsaSpkiDer = rsaKeyPair.publicKey.export({ format: "der", type: "spki" });
+
+// ---------------------------------------------------------------------------
+// Mock certificate infos
+// ---------------------------------------------------------------------------
+
+const testCertInfoP256: OsCertInfo = {
+  id: "test-cert-p256",
+  subject: "CN=Test User P256",
   issuer: "CN=Test CA",
   serialNumber: "0102030405",
   validFrom: "2024-01-01T00:00:00Z",
   validUntil: "2030-12-31T23:59:59Z",
-  keyAlgorithm: "ECDSA P-256",
+  keyAlgorithm: "P-256",
   isExportable: false,
   thumbprint: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
 };
 
-/**
- * Create a mock OsCertProvider that uses the real test key pair for signing.
- */
+const mockCertChain = [
+  "-----BEGIN CERTIFICATE-----\nMIIB...mock-dsc...\n-----END CERTIFICATE-----",
+  "-----BEGIN CERTIFICATE-----\nMIIB...mock-intermediate...\n-----END CERTIFICATE-----",
+];
+
+// ---------------------------------------------------------------------------
+// Mock provider factory
+// ---------------------------------------------------------------------------
+
 function createMockProvider(options?: {
   certificates?: OsCertInfo[];
   signatureOverride?: Uint8Array;
   publicKeyOverride?: Uint8Array;
+  certificateChain?: string[];
+  supportsCertChain?: boolean;
   throwOnSign?: boolean;
   throwOnList?: boolean;
   throwOnGetPublicKey?: boolean;
 }): OsCertProvider {
-  return {
+  const provider: OsCertProvider = {
     async listCertificates(): Promise<OsCertInfo[]> {
       if (options?.throwOnList) {
         throw new CryptoError("Mock list error");
       }
-      return options?.certificates ?? [testCertInfo];
+      return options?.certificates ?? [testCertInfoP256];
     },
 
     async sign(_certificateId: string, data: Uint8Array): Promise<Uint8Array> {
@@ -81,12 +103,12 @@ function createMockProvider(options?: {
         return options.signatureOverride;
       }
 
-      // Hash the data with SHA-256, then sign with ECDSA
+      // Default: sign with P-256 key
       const hash = createHash("sha256").update(data).digest();
       const signer = createSign("SHA256");
       signer.update(hash);
       const derSig = signer.sign({
-        key: testKeyPair.privateKey,
+        key: p256KeyPair.privateKey,
         dsaEncoding: "ieee-p1363",
       });
       return new Uint8Array(derSig);
@@ -96,9 +118,18 @@ function createMockProvider(options?: {
       if (options?.throwOnGetPublicKey) {
         throw new CryptoError("Mock getPublicKey error");
       }
-      return options?.publicKeyOverride ?? compressedPublicKey;
+      return options?.publicKeyOverride ?? compressedP256Key;
     },
   };
+
+  // Add getCertificateChain if supported
+  if (options?.supportsCertChain !== false) {
+    provider.getCertificateChain = async (_certificateId: string): Promise<string[]> => {
+      return options?.certificateChain ?? [];
+    };
+  }
+
+  return provider;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +153,6 @@ describe("OS Certificate Store Signer", () => {
 
     it("should accept a provider override for linux", () => {
       const mockProvider = createMockProvider();
-      // With an override, even linux should work
       const provider = getProviderForPlatform("linux", mockProvider);
       expect(provider).toBe(mockProvider);
     });
@@ -134,8 +164,8 @@ describe("OS Certificate Store Signer", () => {
       const result = await listOsCertificates("darwin", mockProvider);
 
       expect(result.certificates).toHaveLength(1);
-      expect(result.certificates[0].id).toBe("test-cert-id-001");
-      expect(result.certificates[0].subject).toBe("CN=Test User");
+      expect(result.certificates[0].id).toBe("test-cert-p256");
+      expect(result.certificates[0].subject).toBe("CN=Test User P256");
       expect(result.platform).toBe("darwin");
       expect(result.storeName).toBe("macOS Keychain");
     });
@@ -161,14 +191,14 @@ describe("OS Certificate Store Signer", () => {
     });
   });
 
-  describe("createOsCertSigner", () => {
+  describe("createOsCertSigner — P-256 (default)", () => {
     it("should create a signer with correct metadata", async () => {
       const mockProvider = createMockProvider();
 
       const { signer } = await createOsCertSigner(
         {
           platform: "darwin",
-          certificateId: "test-cert-id-001",
+          certificateId: "test-cert-p256",
           label: "My macOS Cert",
         },
         mockProvider,
@@ -188,11 +218,10 @@ describe("OS Certificate Store Signer", () => {
       const mockProvider = createMockProvider();
 
       const { signer } = await createOsCertSigner(
-        { platform: "darwin", certificateId: "test-cert-id-001" },
+        { platform: "darwin", certificateId: "test-cert-p256" },
         mockProvider,
       );
 
-      // did:key format: did:key:z<multibase>#z<multibase>
       const [did, fragment] = signer.id.split("#");
       expect(did).toMatch(/^did:key:z[a-zA-Z0-9]+$/);
       expect(fragment).toBe(did.replace("did:key:", ""));
@@ -202,12 +231,12 @@ describe("OS Certificate Store Signer", () => {
       const mockProvider = createMockProvider();
 
       const { signer: signer1 } = await createOsCertSigner(
-        { platform: "darwin", certificateId: "test-cert-id-001" },
+        { platform: "darwin", certificateId: "test-cert-p256" },
         mockProvider,
       );
 
       const { signer: signer2 } = await createOsCertSigner(
-        { platform: "darwin", certificateId: "test-cert-id-001" },
+        { platform: "darwin", certificateId: "test-cert-p256" },
         mockProvider,
       );
 
@@ -219,7 +248,7 @@ describe("OS Certificate Store Signer", () => {
       const mockProvider = createMockProvider();
 
       const { signer } = await createOsCertSigner(
-        { platform: "darwin", certificateId: "test-cert-id-001" },
+        { platform: "darwin", certificateId: "test-cert-p256" },
         mockProvider,
       );
 
@@ -235,7 +264,7 @@ describe("OS Certificate Store Signer", () => {
       const mockProvider = createMockProvider();
 
       const { signer } = await createOsCertSigner(
-        { platform: "darwin", certificateId: "test-cert-id-001" },
+        { platform: "darwin", certificateId: "test-cert-p256" },
         mockProvider,
       );
 
@@ -254,7 +283,7 @@ describe("OS Certificate Store Signer", () => {
       const mockProvider = createMockProvider({ throwOnSign: true });
 
       const { signer } = await createOsCertSigner(
-        { platform: "darwin", certificateId: "test-cert-id-001" },
+        { platform: "darwin", certificateId: "test-cert-p256" },
         mockProvider,
       );
 
@@ -266,7 +295,7 @@ describe("OS Certificate Store Signer", () => {
       const mockProvider = createMockProvider({ throwOnGetPublicKey: true });
 
       await expect(
-        createOsCertSigner({ platform: "darwin", certificateId: "test-cert-id-001" }, mockProvider),
+        createOsCertSigner({ platform: "darwin", certificateId: "test-cert-p256" }, mockProvider),
       ).rejects.toThrow(CryptoError);
     });
 
@@ -276,7 +305,7 @@ describe("OS Certificate Store Signer", () => {
       });
 
       await expect(
-        createOsCertSigner({ platform: "darwin", certificateId: "test-cert-id-001" }, mockProvider),
+        createOsCertSigner({ platform: "darwin", certificateId: "test-cert-p256" }, mockProvider),
       ).rejects.toThrow(CryptoError);
     });
 
@@ -284,7 +313,7 @@ describe("OS Certificate Store Signer", () => {
       await expect(
         createOsCertSigner({
           platform: "linux",
-          certificateId: "test-cert-id-001",
+          certificateId: "test-cert-p256",
         }),
       ).rejects.toThrow(CryptoError);
     });
@@ -293,7 +322,7 @@ describe("OS Certificate Store Signer", () => {
       const mockProvider = createMockProvider();
 
       const { signer } = await createOsCertSigner(
-        { platform: "win32", certificateId: "test-cert-id-001" },
+        { platform: "win32", certificateId: "test-cert-p256" },
         mockProvider,
       );
 
@@ -306,34 +335,286 @@ describe("OS Certificate Store Signer", () => {
       const mockProvider = createMockProvider();
 
       const { signer } = await createOsCertSigner(
-        { platform: "darwin", certificateId: "test-cert-id-001" },
+        { platform: "darwin", certificateId: "test-cert-p256" },
         mockProvider,
       );
 
-      // Metadata should only contain safe-to-display information
       const meta = signer.metadata;
       expect(meta.id).toMatch(/^did:key:/);
       expect(meta.fingerprint).toMatch(/^[a-f0-9]{64}$/);
       expect(meta.algorithm).toBe("P-256");
       expect(meta.type).toBe("os-cert");
-      // No private key material anywhere
       expect(JSON.stringify(meta)).not.toContain("privateKey");
       expect(JSON.stringify(meta)).not.toContain("secret");
     });
 
     it("should reject signatures with wrong length", async () => {
       const mockProvider = createMockProvider({
-        signatureOverride: new Uint8Array(48), // Wrong length
+        signatureOverride: new Uint8Array(48), // Wrong length for P-256
       });
 
       const { signer } = await createOsCertSigner(
-        { platform: "darwin", certificateId: "test-cert-id-001" },
+        { platform: "darwin", certificateId: "test-cert-p256" },
         mockProvider,
       );
 
       const testData = new Uint8Array(64);
       await expect(signer.sign(testData)).rejects.toThrow(CryptoError);
       await expect(signer.sign(testData)).rejects.toThrow(/expected 64 bytes/);
+    });
+  });
+
+  describe("createOsCertSigner — P-384", () => {
+    it("should create a P-384 signer with did:key ID", async () => {
+      const mockProvider = createMockProvider({
+        publicKeyOverride: compressedP384Key,
+        // P-384 signature: 96 bytes
+        signatureOverride: new Uint8Array(96).fill(0xcc),
+      });
+
+      const { signer } = await createOsCertSigner(
+        {
+          platform: "darwin",
+          certificateId: "test-cert-p384",
+          keyAlgorithm: "P-384",
+        },
+        mockProvider,
+      );
+
+      expect(signer.algorithm).toBe("P-384");
+      expect(signer.id).toMatch(/^did:key:z/);
+      expect(signer.id).toContain("#");
+      expect(signer.metadata.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    });
+
+    it("should produce a 96-byte signature for P-384", async () => {
+      const mockProvider = createMockProvider({
+        publicKeyOverride: compressedP384Key,
+        signatureOverride: new Uint8Array(96).fill(0xdd),
+      });
+
+      const { signer } = await createOsCertSigner(
+        {
+          platform: "darwin",
+          certificateId: "test-cert-p384",
+          keyAlgorithm: "P-384",
+        },
+        mockProvider,
+      );
+
+      const testData = new Uint8Array(64);
+      const signature = await signer.sign(testData);
+      expect(signature.length).toBe(96);
+    });
+
+    it("should reject wrong-length signatures for P-384", async () => {
+      const mockProvider = createMockProvider({
+        publicKeyOverride: compressedP384Key,
+        signatureOverride: new Uint8Array(64), // Wrong for P-384
+      });
+
+      const { signer } = await createOsCertSigner(
+        {
+          platform: "darwin",
+          certificateId: "test-cert-p384",
+          keyAlgorithm: "P-384",
+        },
+        mockProvider,
+      );
+
+      const testData = new Uint8Array(64);
+      await expect(signer.sign(testData)).rejects.toThrow(/expected 96 bytes/);
+    });
+  });
+
+  describe("createOsCertSigner — RSA", () => {
+    it("should create an RSA signer with did:jwk ID", async () => {
+      const mockProvider = createMockProvider({
+        publicKeyOverride: new Uint8Array(rsaSpkiDer),
+        signatureOverride: new Uint8Array(256).fill(0xee), // RSA-2048 = 256 byte sig
+      });
+
+      const { signer } = await createOsCertSigner(
+        {
+          platform: "darwin",
+          certificateId: "test-cert-rsa",
+          keyAlgorithm: "RSA-2048",
+        },
+        mockProvider,
+      );
+
+      expect(signer.algorithm).toBe("RSA-2048");
+      expect(signer.id).toMatch(/^did:jwk:/);
+      expect(signer.id).toContain("#0");
+      expect(signer.metadata.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    });
+
+    it("should produce a valid signature for RSA", async () => {
+      const rsaSig = new Uint8Array(256).fill(0xff);
+      const mockProvider = createMockProvider({
+        publicKeyOverride: new Uint8Array(rsaSpkiDer),
+        signatureOverride: rsaSig,
+      });
+
+      const { signer } = await createOsCertSigner(
+        {
+          platform: "darwin",
+          certificateId: "test-cert-rsa",
+          keyAlgorithm: "RSA-2048",
+        },
+        mockProvider,
+      );
+
+      const testData = new Uint8Array(64);
+      const signature = await signer.sign(testData);
+      expect(signature.length).toBe(256);
+    });
+
+    it("should reject empty RSA signatures", async () => {
+      const mockProvider = createMockProvider({
+        publicKeyOverride: new Uint8Array(rsaSpkiDer),
+        signatureOverride: new Uint8Array(0),
+      });
+
+      const { signer } = await createOsCertSigner(
+        {
+          platform: "darwin",
+          certificateId: "test-cert-rsa",
+          keyAlgorithm: "RSA-2048",
+        },
+        mockProvider,
+      );
+
+      const testData = new Uint8Array(64);
+      await expect(signer.sign(testData)).rejects.toThrow(/empty signature/);
+    });
+
+    it("should not include key material in RSA signer metadata", async () => {
+      const mockProvider = createMockProvider({
+        publicKeyOverride: new Uint8Array(rsaSpkiDer),
+        signatureOverride: new Uint8Array(256).fill(0xaa),
+      });
+
+      const { signer } = await createOsCertSigner(
+        {
+          platform: "darwin",
+          certificateId: "test-cert-rsa",
+          keyAlgorithm: "RSA-2048",
+        },
+        mockProvider,
+      );
+
+      const meta = signer.metadata;
+      expect(meta.id).toMatch(/^did:jwk:/);
+      expect(JSON.stringify(meta)).not.toContain("privateKey");
+      expect(JSON.stringify(meta)).not.toContain("secret");
+    });
+  });
+
+  describe("DID derivation dispatch", () => {
+    it("should use did:key for EC keys (P-256)", async () => {
+      const mockProvider = createMockProvider({
+        publicKeyOverride: compressedP256Key,
+      });
+
+      const { signer } = await createOsCertSigner(
+        { platform: "darwin", certificateId: "test-cert-p256", keyAlgorithm: "P-256" },
+        mockProvider,
+      );
+
+      expect(signer.id).toMatch(/^did:key:z/);
+    });
+
+    it("should use did:key for EC keys (P-384)", async () => {
+      const mockProvider = createMockProvider({
+        publicKeyOverride: compressedP384Key,
+        signatureOverride: new Uint8Array(96).fill(0xaa),
+      });
+
+      const { signer } = await createOsCertSigner(
+        { platform: "darwin", certificateId: "test-cert-p384", keyAlgorithm: "P-384" },
+        mockProvider,
+      );
+
+      expect(signer.id).toMatch(/^did:key:z/);
+    });
+
+    it("should use did:jwk for RSA keys", async () => {
+      const mockProvider = createMockProvider({
+        publicKeyOverride: new Uint8Array(rsaSpkiDer),
+        signatureOverride: new Uint8Array(256).fill(0xbb),
+      });
+
+      const { signer } = await createOsCertSigner(
+        { platform: "darwin", certificateId: "test-cert-rsa", keyAlgorithm: "RSA-2048" },
+        mockProvider,
+      );
+
+      expect(signer.id).toMatch(/^did:jwk:/);
+    });
+  });
+
+  describe("certificate chain attachment", () => {
+    it("should attach certificate chain to metadata when available", async () => {
+      const mockProvider = createMockProvider({
+        certificateChain: mockCertChain,
+        supportsCertChain: true,
+      });
+
+      const { signer } = await createOsCertSigner(
+        { platform: "darwin", certificateId: "test-cert-p256" },
+        mockProvider,
+      );
+
+      expect(signer.metadata.certificateChain).toEqual(mockCertChain);
+      expect(signer.metadata.certificateChain).toHaveLength(2);
+    });
+
+    it("should not attach certificate chain when empty", async () => {
+      const mockProvider = createMockProvider({
+        certificateChain: [],
+        supportsCertChain: true,
+      });
+
+      const { signer } = await createOsCertSigner(
+        { platform: "darwin", certificateId: "test-cert-p256" },
+        mockProvider,
+      );
+
+      expect(signer.metadata.certificateChain).toBeUndefined();
+    });
+
+    it("should handle providers without getCertificateChain support", async () => {
+      const mockProvider = createMockProvider({
+        supportsCertChain: false,
+      });
+
+      const { signer } = await createOsCertSigner(
+        { platform: "darwin", certificateId: "test-cert-p256" },
+        mockProvider,
+      );
+
+      expect(signer.metadata.certificateChain).toBeUndefined();
+    });
+
+    it("should attach chain to RSA signer metadata", async () => {
+      const mockProvider = createMockProvider({
+        publicKeyOverride: new Uint8Array(rsaSpkiDer),
+        signatureOverride: new Uint8Array(256).fill(0xcc),
+        certificateChain: mockCertChain,
+        supportsCertChain: true,
+      });
+
+      const { signer } = await createOsCertSigner(
+        {
+          platform: "darwin",
+          certificateId: "test-cert-rsa",
+          keyAlgorithm: "RSA-2048",
+        },
+        mockProvider,
+      );
+
+      expect(signer.metadata.certificateChain).toEqual(mockCertChain);
     });
   });
 });

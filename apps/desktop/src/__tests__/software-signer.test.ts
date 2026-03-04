@@ -130,14 +130,16 @@ describe("createSoftwareSigner (from file path)", () => {
     expect(signer.metadata.label).toBe("Test Key");
   });
 
-  it("should reject non-P-256 EC keys (secp384r1)", () => {
-    expect(() => createSoftwareSigner(path.join(tmpDir, "secp384-key.pem"))).toThrow(/P-256/);
+  it("should accept P-384 EC keys", () => {
+    const { signer, format } = createSoftwareSigner(path.join(tmpDir, "secp384-key.pem"));
+    expect(signer.algorithm).toBe("P-384");
+    expect(format).toBe("pem");
   });
 
-  it("should reject RSA keys", () => {
-    expect(() => createSoftwareSigner(path.join(tmpDir, "rsa-key.pem"))).toThrow(
-      /P-256|EC|Unsupported/,
-    );
+  it("should accept RSA keys", () => {
+    const { signer, format } = createSoftwareSigner(path.join(tmpDir, "rsa-key.pem"));
+    expect(signer.algorithm).toMatch(/^RSA/);
+    expect(format).toBe("pem");
   });
 
   it("should reject invalid key files", () => {

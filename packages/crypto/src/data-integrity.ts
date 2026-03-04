@@ -8,8 +8,9 @@ const jsonld: typeof _jsonldNs =
 import { CryptoError } from "@opencred/shared";
 import { createDocumentLoader } from "@opencred/vc-core";
 import type { UnsignedCredential, VerifiableCredential, Proof } from "@opencred/vc-core";
-import { sha256 } from "./hash.js";
+import { sha256, sha384 } from "./hash.js";
 import type {
+  SigningAlgorithm,
   ProofOptions,
   PreparedProof,
   SigningKey,
@@ -85,23 +86,29 @@ function buildProofConfig(unsignedVC: UnsignedCredential, options: ProofOptions)
 
 /**
  * Compute the data to sign for an ecdsa-rdfc-2019 proof.
- * Returns SHA-256(canonicalized proofConfig) || SHA-256(canonicalized document).
+ *
+ * Per the W3C ecdsa-rdfc-2019 spec:
+ * - P-256: SHA-256(canonicalized proofConfig) || SHA-256(canonicalized document)
+ * - P-384: SHA-384(canonicalized proofConfig) || SHA-384(canonicalized document)
  */
 async function computeSigningInput(
   document: Record<string, unknown>,
   proofConfig: ProofConfig,
+  hashAlgorithm: "sha256" | "sha384" = "sha256",
 ): Promise<Uint8Array> {
+  const hash = hashAlgorithm === "sha384" ? sha384 : sha256;
+
   // Canonicalize the proof config (without @context for the canonical form, spec says include it)
   const canonicalProofConfig = await canonicalize(
     proofConfig as unknown as Record<string, unknown>,
   );
-  const proofConfigHash = sha256(canonicalProofConfig);
+  const proofConfigHash = hash(canonicalProofConfig);
 
   // Canonicalize the document (without proof)
   const canonicalDocument = await canonicalize(document);
-  const documentHash = sha256(canonicalDocument);
+  const documentHash = hash(canonicalDocument);
 
-  // Concatenate: proofConfigHash || documentHash (64 bytes)
+  // Concatenate: hash(proofConfig) || hash(document)
   const result = new Uint8Array(proofConfigHash.length + documentHash.length);
   result.set(proofConfigHash, 0);
   result.set(documentHash, proofConfigHash.length);
@@ -182,9 +189,13 @@ function multibaseDecode(encoded: string): Uint8Array {
 }
 
 /**
- * Convert an ECDSA DER signature to raw r||s format (64 bytes for P-256).
+ * Convert an ECDSA DER signature to raw r||s format.
+ * P-256: 64 bytes (32 + 32), P-384: 96 bytes (48 + 48).
+ *
+ * @param derSig - DER-encoded ECDSA signature.
+ * @param componentSize - Size of each r/s component: 32 for P-256, 48 for P-384. Defaults to 32.
  */
-function derToRaw(derSig: Uint8Array): Uint8Array {
+function derToRaw(derSig: Uint8Array, componentSize: number = 32): Uint8Array {
   // DER: 0x30 <totalLen> 0x02 <rLen> <r> 0x02 <sLen> <s>
   let offset = 2; // skip 0x30 and totalLen
   if (derSig[0] !== 0x30) {
@@ -211,34 +222,37 @@ function derToRaw(derSig: Uint8Array): Uint8Array {
   let s = derSig.slice(offset, offset + sLen);
 
   // Remove leading zero padding (DER uses signed integers)
-  if (r.length === 33 && r[0] === 0) r = r.slice(1);
-  if (s.length === 33 && s[0] === 0) s = s.slice(1);
+  while (r.length > componentSize && r[0] === 0) r = r.slice(1);
+  while (s.length > componentSize && s[0] === 0) s = s.slice(1);
 
-  // Pad to 32 bytes each
-  const raw = new Uint8Array(64);
-  raw.set(r, 32 - r.length);
-  raw.set(s, 64 - s.length);
+  // Pad to componentSize bytes each
+  const totalSize = componentSize * 2;
+  const raw = new Uint8Array(totalSize);
+  raw.set(r, componentSize - r.length);
+  raw.set(s, totalSize - s.length);
   return raw;
 }
 
 /**
- * Convert a raw r||s signature (64 bytes) to DER format.
+ * Convert a raw r||s signature to DER format.
+ * Accepts 64 bytes (P-256) or 96 bytes (P-384).
  */
 function rawToDer(rawSig: Uint8Array): Uint8Array {
-  if (rawSig.length !== 64) {
-    throw new CryptoError("Raw signature must be 64 bytes");
+  if (rawSig.length !== 64 && rawSig.length !== 96) {
+    throw new CryptoError("Raw signature must be 64 bytes (P-256) or 96 bytes (P-384)");
   }
-  let r = rawSig.slice(0, 32);
-  let s = rawSig.slice(32, 64);
+  const componentSize = rawSig.length / 2;
+  let r = rawSig.slice(0, componentSize);
+  let s = rawSig.slice(componentSize);
 
   // Add leading zero if high bit is set (DER signed integer)
   if (r[0] & 0x80) {
-    const padded = new Uint8Array(33);
+    const padded = new Uint8Array(componentSize + 1);
     padded.set(r, 1);
     r = padded;
   }
   if (s[0] & 0x80) {
-    const padded = new Uint8Array(33);
+    const padded = new Uint8Array(componentSize + 1);
     padded.set(s, 1);
     s = padded;
   }
@@ -282,6 +296,7 @@ function rawToDer(rawSig: Uint8Array): Uint8Array {
 export async function prepareProof(
   unsignedVC: UnsignedCredential,
   options: ProofOptions,
+  algorithm: SigningAlgorithm = "P-256",
 ): Promise<PreparedProof> {
   if (!options.verificationMethod) {
     throw new CryptoError("verificationMethod is required");
@@ -290,10 +305,12 @@ export async function prepareProof(
     throw new CryptoError("proofPurpose is required");
   }
 
+  const hashAlg = algorithm === "P-384" ? "sha384" : "sha256";
+
   try {
     const proofConfig = buildProofConfig(unsignedVC, options);
     const document = unsignedVC as unknown as Record<string, unknown>;
-    const dataToSign = await computeSigningInput(document, proofConfig);
+    const dataToSign = await computeSigningInput(document, proofConfig, hashAlg);
 
     return { dataToSign, proofConfig };
   } catch (error) {
@@ -321,8 +338,10 @@ export function completeProof(
   proofConfig: ProofConfig,
   signatureBytes: Uint8Array,
 ): VerifiableCredential {
-  if (signatureBytes.length !== 64) {
-    throw new CryptoError("Signature must be 64 bytes (r || s for P-256 ECDSA)");
+  if (signatureBytes.length !== 64 && signatureBytes.length !== 96) {
+    throw new CryptoError(
+      "Signature must be 64 bytes (P-256) or 96 bytes (P-384) raw r||s ECDSA",
+    );
   }
 
   const proofValue = multibaseEncode(signatureBytes);
@@ -363,30 +382,50 @@ export async function signCredential(
   signingKey: SigningKey,
   options: ProofOptions,
 ): Promise<VerifiableCredential> {
-  if (signingKey.algorithm !== "P-256") {
-    throw new CryptoError("Only P-256 keys are supported for ecdsa-rdfc-2019");
-  }
+  const { signAlg } = ecdsaParams(signingKey.algorithm);
 
-  const { dataToSign, proofConfig } = await prepareProof(unsignedVC, {
-    ...options,
-    verificationMethod: options.verificationMethod || signingKey.id,
-  });
+  const { dataToSign, proofConfig } = await prepareProof(
+    unsignedVC,
+    {
+      ...options,
+      verificationMethod: options.verificationMethod || signingKey.id,
+    },
+    signingKey.algorithm,
+  );
 
   try {
-    const signer = createSign("SHA256");
+    const signer = createSign(signAlg);
     signer.update(dataToSign);
     const rawSignature = signer.sign({
       key: signingKey.privateKey,
       dsaEncoding: "ieee-p1363",
     });
 
-    // ieee-p1363 gives us raw r||s directly (64 bytes for P-256)
     return completeProof(unsignedVC, proofConfig, new Uint8Array(rawSignature));
   } catch (error) {
     if (error instanceof CryptoError) throw error;
     throw new CryptoError(
       `Signing failed: ${error instanceof Error ? error.message : "unknown error"}`,
     );
+  }
+}
+
+/**
+ * Get ECDSA hash and signing algorithm parameters for a given key algorithm.
+ */
+function ecdsaParams(algorithm: SigningAlgorithm): {
+  hashAlg: "sha256" | "sha384";
+  signAlg: string;
+} {
+  switch (algorithm) {
+    case "P-256":
+      return { hashAlg: "sha256", signAlg: "SHA256" };
+    case "P-384":
+      return { hashAlg: "sha384", signAlg: "SHA384" };
+    default:
+      throw new CryptoError(
+        `Algorithm ${algorithm} is not supported for Data Integrity proofs. Use JWS for RSA keys.`,
+      );
   }
 }
 
@@ -424,12 +463,17 @@ export async function verifyProof(
 
     // Decode signature from proofValue
     const signatureBytes = multibaseDecode(proof.proofValue);
-    if (signatureBytes.length !== 64) {
+    if (signatureBytes.length !== 64 && signatureBytes.length !== 96) {
       return {
         verified: false,
-        error: "Invalid signature length",
+        error: "Invalid signature length: expected 64 (P-256) or 96 (P-384) bytes",
       };
     }
+
+    // Detect curve from signature length
+    const isP384 = signatureBytes.length === 96;
+    const hashAlg: "sha256" | "sha384" = isP384 ? "sha384" : "sha256";
+    const signAlg = isP384 ? "SHA384" : "SHA256";
 
     // Resolve public key
     const publicKey = resolvePublicKey(credential, options);
@@ -446,7 +490,7 @@ export async function verifyProof(
     const proofConfig: ProofConfig = {
       "@context": credential["@context"] as (string | Record<string, unknown>)[],
       type: proof.type as "DataIntegrityProof",
-      cryptosuite: proof.cryptosuite as "ecdsa-rdfc-2019",
+      cryptosuite: proof.cryptosuite as string,
       created: proof.created,
       verificationMethod: proof.verificationMethod,
       proofPurpose: proof.proofPurpose,
@@ -458,14 +502,15 @@ export async function verifyProof(
       proofConfig.challenge = proof.challenge as string;
     }
 
-    // Compute the signing input
+    // Compute the signing input with correct hash algorithm
     const dataToVerify = await computeSigningInput(
       unsignedDoc as Record<string, unknown>,
       proofConfig,
+      hashAlg,
     );
 
     // Verify ECDSA signature
-    const verifier = createVerify("SHA256");
+    const verifier = createVerify(signAlg);
     verifier.update(dataToVerify);
     const verified = verifier.verify({ key: publicKey, dsaEncoding: "ieee-p1363" }, signatureBytes);
 
