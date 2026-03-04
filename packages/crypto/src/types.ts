@@ -6,7 +6,7 @@ import type { KeyObject } from "node:crypto";
  * EC keys use Data Integrity proofs (ecdsa-rdfc-2019).
  * RSA keys use VC-JOSE-COSE enveloping proofs (JWS with PS256).
  */
-export type SigningAlgorithm = "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RSA-4096";
+export type SigningAlgorithm = "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RSA-4096" | "Ed25519";
 
 /**
  * Options for creating a Data Integrity proof.
@@ -110,6 +110,34 @@ export interface VcJwtSigningOptions {
   verificationMethod: string;
   /** ISO 8601 timestamp for issuance. Auto-generated if omitted. */
   created?: string;
+}
+
+/**
+ * Options for SD-JWT VC signing.
+ */
+export interface SdJwtVcSigningOptions {
+  /** Claims to make selectively disclosable (by claim name). */
+  selectiveDisclosureClaims: string[];
+  /** The Verifiable Credential Type (vct) — required for SD-JWT VC. */
+  vct: string;
+  /** Holder's public key JWK for key binding (optional). */
+  holderPublicKeyJwk?: Record<string, unknown>;
+  /** The verification method identifier. */
+  verificationMethod: string;
+  /** ISO 8601 timestamp for issuance. */
+  created?: string;
+}
+
+/**
+ * A prepared SD-JWT VC proof for two-phase (Interface) signing.
+ */
+export interface SdJwtVcPreparedProof {
+  /** The base64url(header).base64url(payload) string to be signed. */
+  signingInput: string;
+  /** The generated disclosures (base64url strings). */
+  disclosures: string[];
+  /** The JWS algorithm used. */
+  algorithm: string;
 }
 
 /**

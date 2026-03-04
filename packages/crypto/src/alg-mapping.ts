@@ -2,7 +2,7 @@ import { CryptoError } from "@opencred/shared";
 import type { SigningAlgorithm } from "./types.js";
 
 /**
- * Map a SigningAlgorithm to the corresponding JWS algorithm identifier.
+ * Map OpenCred SigningAlgorithm to JWS algorithm identifier.
  */
 export function signingAlgorithmToJwsAlg(algorithm: SigningAlgorithm): string {
   switch (algorithm) {

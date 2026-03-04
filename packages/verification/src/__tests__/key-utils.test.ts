@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateKeyPairSync, createSign, createVerify } from "node:crypto";
+import { generateKeyPairSync, createSign, createVerify, sign, verify } from "node:crypto";
 import { multibaseEncode } from "@opencred/crypto";
 import { publicKeyFromMultibase } from "../key-utils.js";
 
@@ -54,10 +54,47 @@ describe("publicKeyFromMultibase", () => {
     expect(verifier.verify(reconstructedKey, signature)).toBe(true);
   });
 
-  it("should return null for non-P-256 multicodec prefix", () => {
+  it("should convert a multibase-encoded Ed25519 key to a KeyObject", () => {
+    const { publicKey } = generateKeyPairSync("ed25519");
+    const jwk = publicKey.export({ format: "jwk" });
+    const rawKey = Buffer.from(jwk.x!, "base64url");
+
+    const multicodec = Buffer.alloc(2 + 32);
+    multicodec[0] = 0xed;
+    multicodec[1] = 0x01;
+    rawKey.copy(multicodec, 2);
+
+    const multibaseKey = multibaseEncode(multicodec);
+    const result = publicKeyFromMultibase(multibaseKey);
+
+    expect(result).not.toBeNull();
+    expect(result!.type).toBe("public");
+    expect(result!.asymmetricKeyType).toBe("ed25519");
+  });
+
+  it("should produce an Ed25519 key that can verify signatures", () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const jwk = publicKey.export({ format: "jwk" });
+    const rawKey = Buffer.from(jwk.x!, "base64url");
+
+    const multicodec = Buffer.alloc(2 + 32);
+    multicodec[0] = 0xed;
+    multicodec[1] = 0x01;
+    rawKey.copy(multicodec, 2);
+
+    const multibaseKey = multibaseEncode(multicodec);
+
+    const testData = Buffer.from("test data for ed25519");
+    const signature = sign(null, testData, privateKey);
+
+    const reconstructedKey = publicKeyFromMultibase(multibaseKey)!;
+    expect(verify(null, testData, reconstructedKey, signature)).toBe(true);
+  });
+
+  it("should return null for unknown multicodec prefix", () => {
     const bytes = new Uint8Array(35);
-    bytes[0] = 0xed;
-    bytes[1] = 0x01;
+    bytes[0] = 0xaa;
+    bytes[1] = 0xbb;
     const multibaseKey = multibaseEncode(bytes);
     expect(publicKeyFromMultibase(multibaseKey)).toBeNull();
   });

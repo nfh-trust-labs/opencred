@@ -15,6 +15,7 @@ import {
   generateKeyPairSync,
   createPublicKey,
   createVerify,
+  verify,
   constants,
 } from "node:crypto";
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
@@ -50,6 +51,10 @@ const ec256Der = ec256Pair.privateKey.export({ format: "der", type: "pkcs8" });
 const ec384Pair = generateKeyPairSync("ec", { namedCurve: "P-384" });
 const ec384Pem = ec384Pair.privateKey.export({ format: "pem", type: "pkcs8" }) as string;
 
+// Ed25519
+const ed25519Pair = generateKeyPairSync("ed25519");
+const ed25519Jwk = ed25519Pair.privateKey.export({ format: "jwk" });
+
 // RSA-2048
 const rsa2048Pair = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const rsa2048Pem = rsa2048Pair.privateKey.export({ format: "pem", type: "pkcs8" }) as string;
@@ -64,6 +69,7 @@ beforeAll(() => {
   writeFileSync(path.join(tmpDir, "ec256.json"), JSON.stringify(ec256Jwk));
   writeFileSync(path.join(tmpDir, "ec256.der"), ec256Der);
   writeFileSync(path.join(tmpDir, "ec384.pem"), ec384Pem);
+  writeFileSync(path.join(tmpDir, "ed25519.json"), JSON.stringify(ed25519Jwk));
   writeFileSync(path.join(tmpDir, "rsa2048.pem"), rsa2048Pem);
 });
 
@@ -137,11 +143,10 @@ describe("detectKeyAlgorithm", () => {
     expect(detectKeyAlgorithm(pubKey)).toBe("RSA-4096");
   });
 
-  it("should throw CryptoError for unsupported EC curves", () => {
-    // ed25519 has kty "OKP", not "EC" or "RSA"
+  it('should detect Ed25519 from an OKP public key', () => {
     const ed25519 = generateKeyPairSync("ed25519");
     const pubKey = createPublicKey(ed25519.privateKey);
-    expect(() => detectKeyAlgorithm(pubKey)).toThrow(CryptoError);
+    expect(detectKeyAlgorithm(pubKey)).toBe("Ed25519");
   });
 });
 
@@ -174,6 +179,16 @@ describe("buildSigner", () => {
 
     expect(signer.algorithm).toBe("P-384");
     expect(signer.id).toMatch(/^did:key:z/);
+  });
+
+  it("should build a signer from Ed25519 key with did:key ID", () => {
+    const pubKey = createPublicKey(ed25519Pair.privateKey);
+    const signer = buildSigner(ed25519Pair.privateKey, pubKey);
+
+    expect(signer.algorithm).toBe("Ed25519");
+    expect(signer.id).toMatch(/^did:key:z/);
+    expect(signer.type).toBe("software");
+    expect(signer.metadata.fingerprint).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("should include certificate chain in metadata when provided", () => {
@@ -238,6 +253,15 @@ describe("createSoftwareSigner (multi-algorithm)", () => {
     expect(signer.id).toMatch(/^did:key:z/);
   });
 
+  it("should load Ed25519 JWK key", () => {
+    const { signer, format } = createSoftwareSigner(path.join(tmpDir, "ed25519.json"));
+
+    expect(format).toBe("jwk");
+    expect(signer.algorithm).toBe("Ed25519");
+    expect(signer.type).toBe("software");
+    expect(signer.id).toMatch(/^did:key:z/);
+  });
+
   it("should load RSA-2048 PEM key", () => {
     const { signer, format } = createSoftwareSigner(path.join(tmpDir, "rsa2048.pem"));
 
@@ -278,6 +302,13 @@ describe("createSoftwareSignerFromBuffer (multi-algorithm)", () => {
 
     expect(format).toBe("pem");
     expect(signer.algorithm).toBe("P-384");
+  });
+
+  it("should create Ed25519 signer from JWK buffer", () => {
+    const { signer, format } = createSoftwareSignerFromBuffer(Buffer.from(JSON.stringify(ed25519Jwk)));
+
+    expect(format).toBe("jwk");
+    expect(signer.algorithm).toBe("Ed25519");
   });
 
   it("should create RSA signer from PEM buffer", () => {
@@ -377,6 +408,20 @@ describe("sign + verify roundtrip", () => {
       },
       Buffer.from(signature),
     );
+    expect(valid).toBe(true);
+  });
+
+  it("Ed25519: signature should be 64 bytes and verify", async () => {
+    const pubKey = createPublicKey(ed25519Pair.privateKey);
+    const signer = buildSigner(ed25519Pair.privateKey, pubKey);
+
+    const signature = await signer.sign(testData);
+
+    expect(signature).toBeInstanceOf(Uint8Array);
+    expect(signature.length).toBe(64);
+
+    // Verify using Node.js crypto.verify for Ed25519
+    const valid = verify(null, testData, pubKey, Buffer.from(signature));
     expect(valid).toBe(true);
   });
 
