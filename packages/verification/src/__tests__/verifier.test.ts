@@ -97,8 +97,29 @@ describe("detectFormat", () => {
     expect(detectFormat({ proof: {} })).toBe("data-integrity");
   });
 
-  it("should detect VC-JWT format", () => {
-    expect(detectFormat("header.payload.signature")).toBe("vc-jwt");
+  it("should detect VC-JWT format (with vc claim in payload)", () => {
+    // A proper VC-JWT has a `vc` claim in the payload
+    const header = Buffer.from(JSON.stringify({ alg: "ES256", typ: "JWT" })).toString("base64url");
+    const payload = Buffer.from(JSON.stringify({ iss: "did:example:issuer", vc: { type: ["VerifiableCredential"] } })).toString("base64url");
+    expect(detectFormat(`${header}.${payload}.fakesig`)).toBe("vc-jwt");
+  });
+
+  it("should detect JWS format (full VC in payload)", () => {
+    // A JWS wraps the full unsigned VC — has @context and credentialSubject directly
+    const header = Buffer.from(JSON.stringify({ alg: "PS256", kid: "did:jwk:test#0" })).toString("base64url");
+    const payload = Buffer.from(JSON.stringify({ "@context": ["https://www.w3.org/ns/credentials/v2"], credentialSubject: { name: "Jane" } })).toString("base64url");
+    expect(detectFormat(`${header}.${payload}.fakesig`)).toBe("jws");
+  });
+
+  it("should detect VC-JWT format via typ header fallback", () => {
+    // When payload can't distinguish, falls back to header typ
+    const header = Buffer.from(JSON.stringify({ alg: "ES256", typ: "JWT" })).toString("base64url");
+    const payload = Buffer.from(JSON.stringify({ iss: "did:example:issuer" })).toString("base64url");
+    expect(detectFormat(`${header}.${payload}.fakesig`)).toBe("vc-jwt");
+  });
+
+  it("should fall back to jws for non-decodable payloads", () => {
+    expect(detectFormat("header.payload.signature")).toBe("jws");
   });
 
   it("should detect SD-JWT VC format", () => {

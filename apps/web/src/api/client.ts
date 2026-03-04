@@ -2,6 +2,8 @@
  * API client for OpenCred backend endpoints.
  */
 
+export type ProofFormatOption = "data-integrity" | "eddsa-di" | "jws" | "vc-jwt" | "sd-jwt-vc";
+
 export interface BuildRequest {
   schema: string;
   issuer: string;
@@ -12,6 +14,9 @@ export interface BuildRequest {
   revocationRegistryUrl: string;
   keyAlgorithm?: "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RSA-4096" | "Ed25519";
   dscCertificateChain?: string[];
+  proofFormat?: ProofFormatOption;
+  selectiveDisclosureClaims?: string[];
+  vct?: string;
 }
 
 export interface BuildResponse {
@@ -19,8 +24,9 @@ export interface BuildResponse {
   unsignedCredential: Record<string, unknown>;
   dataToSign: string; // base64url
   proofConfig?: Record<string, unknown>;
-  proofMechanism: "data-integrity" | "jws";
+  proofMechanism: ProofFormatOption;
   protectedHeader?: Record<string, unknown>;
+  disclosures?: string[];
 }
 
 export interface PackageRequest {

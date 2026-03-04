@@ -5,6 +5,7 @@ import { SigningMethodSelector } from "./SigningMethodSelector";
 import { getSchema } from "../schemas";
 import { OpenCredClient } from "../api/client";
 import type { WebSigner } from "../crypto/types";
+import type { ProofFormatOption } from "../api/client";
 
 interface Props {
   apiUrl: string;
@@ -28,7 +29,10 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
   const [step, setStep] = useState<Step>("form");
   const [error, setError] = useState<string | null>(null);
   const [credential, setCredential] = useState<Record<string, unknown> | string | null>(null);
-  const [proofMechanism, setProofMechanism] = useState<"data-integrity" | "jws" | null>(null);
+  const [proofMechanism, setProofMechanism] = useState<ProofFormatOption | null>(null);
+  const [proofFormat, setProofFormat] = useState<ProofFormatOption | "">("");
+  const [sdClaims, setSdClaims] = useState("");
+  const [vct, setVct] = useState("");
 
   const schema = schemaId ? getSchema(schemaId) : null;
 
@@ -103,6 +107,17 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
         buildReq.dscCertificateChain = webSigner.certificateChain;
       }
 
+      // Include explicit proof format if selected
+      if (proofFormat) {
+        buildReq.proofFormat = proofFormat;
+      }
+
+      // SD-JWT VC specific fields
+      if (proofFormat === "sd-jwt-vc" && sdClaims.trim()) {
+        buildReq.selectiveDisclosureClaims = sdClaims.split(",").map((s) => s.trim()).filter(Boolean);
+        buildReq.vct = vct || schemaId;
+      }
+
       const buildRes = await client.buildCredential(buildReq);
 
       // 2. Sign via the unified signer (JWK, PKCS#11, or OS cert)
@@ -125,10 +140,14 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
 
   function handleDownload() {
     if (!credential) return;
-    const isJws = typeof credential === "string";
-    const content = isJws ? credential : JSON.stringify(credential, null, 2);
-    const mimeType = isJws ? "text/plain" : "application/json";
-    const ext = isJws ? "jws" : "json";
+    const isString = typeof credential === "string";
+    const content = isString ? credential : JSON.stringify(credential, null, 2);
+    const mimeType = isString ? "text/plain" : "application/json";
+    const ext = isString
+      ? proofMechanism === "vc-jwt" ? "jwt"
+        : proofMechanism === "sd-jwt-vc" ? "sd-jwt"
+        : "jws"
+      : "json";
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -143,6 +162,9 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
     setCredential(null);
     setProofMechanism(null);
     setError(null);
+    setProofFormat("");
+    setSdClaims("");
+    setVct("");
   }
 
   return (
@@ -153,11 +175,15 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
             <p className="text-sm font-medium text-green-800">Credential issued successfully</p>
             {proofMechanism && (
               <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                proofMechanism === "jws"
-                  ? "bg-purple-100 text-purple-800"
-                  : "bg-blue-100 text-blue-800"
+                proofMechanism === "data-integrity" || proofMechanism === "eddsa-di"
+                  ? "bg-blue-100 text-blue-800"
+                  : "bg-purple-100 text-purple-800"
               }`}>
-                {proofMechanism === "jws" ? "JWS (VC-JOSE-COSE)" : "Data Integrity"}
+                {proofMechanism === "data-integrity" ? "Data Integrity (ECDSA)"
+                  : proofMechanism === "eddsa-di" ? "Data Integrity (EdDSA)"
+                  : proofMechanism === "jws" ? "JWS (VC-JOSE-COSE)"
+                  : proofMechanism === "vc-jwt" ? "VC-JWT"
+                  : "SD-JWT VC"}
               </span>
             )}
           </div>
@@ -272,6 +298,56 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
                 onSignerReady={setWebSigner}
               />
             </>
+          )}
+
+          <div>
+            <label htmlFor="proof-format" className="block text-sm font-medium text-gray-700 mb-1">
+              Proof Format (optional)
+            </label>
+            <select
+              id="proof-format"
+              value={proofFormat}
+              onChange={(e) => setProofFormat(e.target.value as ProofFormatOption | "")}
+              className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">Auto (default)</option>
+              <option value="data-integrity">Data Integrity (ECDSA)</option>
+              <option value="eddsa-di">EdDSA Data Integrity</option>
+              <option value="jws">JWS (VC-JOSE-COSE)</option>
+              <option value="vc-jwt">VC-JWT</option>
+              <option value="sd-jwt-vc">SD-JWT VC</option>
+            </select>
+          </div>
+
+          {proofFormat === "sd-jwt-vc" && (
+            <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div>
+                <label htmlFor="sd-claims" className="block text-sm font-medium text-gray-700">
+                  Selective Disclosure Claims (comma-separated)
+                </label>
+                <input
+                  id="sd-claims"
+                  type="text"
+                  value={sdClaims}
+                  onChange={(e) => setSdClaims(e.target.value)}
+                  placeholder="name, degree, dateConferred"
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="vct" className="block text-sm font-medium text-gray-700">
+                  Verifiable Credential Type (vct)
+                </label>
+                <input
+                  id="vct"
+                  type="text"
+                  value={vct}
+                  onChange={(e) => setVct(e.target.value)}
+                  placeholder="EducationCredential"
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
           )}
 
           <div className="grid grid-cols-2 gap-4">

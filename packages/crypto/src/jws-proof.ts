@@ -1,23 +1,8 @@
 import { CompactSign } from "jose";
 import { CryptoError } from "@opencred/shared";
-import type { JwsProofOptions, JwsPreparedProof, SigningKey } from "./types.js";
+import type { JwsProofOptions, JwsPreparedProof, SigningKey, SigningAlgorithm, ProofFormat, SdJwtVcSigningOptions } from "./types.js";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
-
-/**
- * Map RSA key sizes to JWS algorithms.
- * All RSA keys use RSASSA-PSS (PS256/PS384/PS512).
- */
-function rsaAlgorithm(algorithm: string): string {
-  switch (algorithm) {
-    case "RSA-2048":
-    case "RSA-3072":
-      return "PS256";
-    case "RSA-4096":
-      return "PS256";
-    default:
-      throw new CryptoError(`Unsupported RSA algorithm: ${algorithm}`);
-  }
-}
+import { signingAlgorithmToJwsAlg } from "./alg-mapping.js";
 
 /**
  * Sign an unsigned VC as a JWS compact string (for RSA keys).
@@ -35,7 +20,7 @@ export async function signCredentialJws(
     throw new CryptoError("signCredentialJws only supports RSA keys");
   }
 
-  const alg = rsaAlgorithm(signingKey.algorithm);
+  const alg = signingAlgorithmToJwsAlg(signingKey.algorithm);
   const payload = new TextEncoder().encode(JSON.stringify(unsignedVC));
   const jws = await new CompactSign(payload)
     .setProtectedHeader({ alg, kid: options.verificationMethod })
@@ -55,7 +40,7 @@ export function prepareJwsProof(
   algorithm: string,
   options: JwsProofOptions,
 ): JwsPreparedProof {
-  const alg = algorithm.startsWith("RSA") ? rsaAlgorithm(algorithm) : algorithm;
+  const alg = signingAlgorithmToJwsAlg(algorithm as SigningAlgorithm);
   const header = { alg, kid: options.verificationMethod };
   const headerB64 = Buffer.from(JSON.stringify(header)).toString("base64url");
   const payloadB64 = Buffer.from(JSON.stringify(unsignedVC)).toString("base64url");
@@ -80,25 +65,71 @@ export function completeJwsProof(signingInput: string, signatureBytes: Uint8Arra
 }
 
 /**
- * Auto-dispatch: EC keys use Data Integrity proofs, RSA keys use JWS.
+ * Return the default proof format for a given signing algorithm.
+ */
+export function defaultProofFormat(algorithm: SigningAlgorithm): ProofFormat {
+  switch (algorithm) {
+    case "P-256":
+    case "P-384":
+      return "data-integrity";
+    case "Ed25519":
+      return "eddsa-di";
+    case "RSA-2048":
+    case "RSA-3072":
+    case "RSA-4096":
+      return "jws";
+  }
+}
+
+/**
+ * Auto-dispatch credential signing to the appropriate proof format.
  *
- * Returns a JWS compact string for RSA keys, or a VerifiableCredential
- * object with embedded Data Integrity proof for EC keys.
+ * When `proofFormat` is omitted, falls back to the algorithm's default:
+ *   EC → Data Integrity, Ed25519 → EdDSA DI, RSA → JWS.
  */
 export async function signCredentialAuto(
   unsignedVC: UnsignedCredential,
   signingKey: SigningKey,
-  options: { verificationMethod: string; proofPurpose?: string },
+  options: {
+    verificationMethod: string;
+    proofPurpose?: string;
+    proofFormat?: ProofFormat;
+    sdJwtOptions?: SdJwtVcSigningOptions;
+  },
 ): Promise<string | VerifiableCredential> {
-  if (signingKey.algorithm.startsWith("RSA")) {
-    return signCredentialJws(unsignedVC, signingKey, {
-      verificationMethod: options.verificationMethod,
-    });
+  const format = options.proofFormat ?? defaultProofFormat(signingKey.algorithm);
+
+  switch (format) {
+    case "data-integrity": {
+      const { signCredential } = await import("./data-integrity.js");
+      return signCredential(unsignedVC, signingKey, {
+        verificationMethod: options.verificationMethod,
+        proofPurpose: options.proofPurpose ?? "assertionMethod",
+      });
+    }
+    case "eddsa-di": {
+      const { signCredentialEdDsa } = await import("./eddsa-data-integrity.js");
+      return signCredentialEdDsa(unsignedVC, signingKey, {
+        verificationMethod: options.verificationMethod,
+        proofPurpose: options.proofPurpose ?? "assertionMethod",
+      });
+    }
+    case "jws":
+      return signCredentialJws(unsignedVC, signingKey, {
+        verificationMethod: options.verificationMethod,
+      });
+    case "vc-jwt": {
+      const { signCredentialVcJwt } = await import("./vc-jwt-signing.js");
+      return signCredentialVcJwt(unsignedVC as unknown as Record<string, unknown>, signingKey, {
+        verificationMethod: options.verificationMethod,
+      });
+    }
+    case "sd-jwt-vc": {
+      if (!options.sdJwtOptions) {
+        throw new CryptoError("sdJwtOptions is required for sd-jwt-vc proof format");
+      }
+      const { signCredentialSdJwtVc } = await import("./sd-jwt-vc-signing.js");
+      return signCredentialSdJwtVc(unsignedVC, signingKey, options.sdJwtOptions);
+    }
   }
-  // EC: use Data Integrity
-  const { signCredential } = await import("./data-integrity.js");
-  return signCredential(unsignedVC, signingKey, {
-    verificationMethod: options.verificationMethod,
-    proofPurpose: options.proofPurpose ?? "assertionMethod",
-  });
 }
