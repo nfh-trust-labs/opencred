@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { generateKeyPairSync, type KeyObject } from "node:crypto";
-import { signCredential, multibaseEncode } from "@opencred/crypto";
+import { signCredential, signCredentialEdDsa, multibaseEncode } from "@opencred/crypto";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
 import type {
   DIDResolver,
@@ -213,5 +213,102 @@ describe("verifyDataIntegrity", () => {
     const result = await verifyDataIntegrity(vc);
     expect(result.passed).toBe(false);
     expect(result.detail).toContain("No proof found");
+  });
+
+  it("should verify a valid EdDSA (eddsa-rdfc-2022) credential with a JWK resolver", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const unsignedVC = createTestCredential();
+    const jwk = publicKey.export({ format: "jwk" });
+
+    const verificationMethodId = "did:web:university.example#key-ed25519";
+    const signedVC = await signCredentialEdDsa(
+      unsignedVC,
+      { id: verificationMethodId, privateKey, publicKey, algorithm: "Ed25519" },
+      {
+        verificationMethod: verificationMethodId,
+        proofPurpose: "assertionMethod",
+        created: "2026-01-01T00:00:00Z",
+      },
+    );
+
+    expect(signedVC.proof.cryptosuite).toBe("eddsa-rdfc-2022");
+
+    const resolver = createMockResolver("did:web:university.example", {
+      id: verificationMethodId,
+      type: "JsonWebKey",
+      controller: "did:web:university.example",
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const result = await verifyDataIntegrity(signedVC, resolver);
+    expect(result.passed).toBe(true);
+    expect(result.name).toBe("signature");
+  });
+
+  it("should verify an EdDSA credential with a multibase key resolver", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const unsignedVC = createTestCredential();
+    const jwk = publicKey.export({ format: "jwk" });
+
+    // Build multibase-encoded Ed25519 public key
+    const rawKey = Buffer.from(jwk.x!, "base64url");
+    const multicodec = Buffer.alloc(2 + 32);
+    multicodec[0] = 0xed;
+    multicodec[1] = 0x01;
+    rawKey.copy(multicodec, 2);
+    const multibaseKey = multibaseEncode(multicodec);
+
+    const verificationMethodId = "did:web:university.example#key-ed25519";
+    const signedVC = await signCredentialEdDsa(
+      unsignedVC,
+      { id: verificationMethodId, privateKey, publicKey, algorithm: "Ed25519" },
+      {
+        verificationMethod: verificationMethodId,
+        proofPurpose: "assertionMethod",
+        created: "2026-01-01T00:00:00Z",
+      },
+    );
+
+    const resolver = createMockResolver("did:web:university.example", {
+      id: verificationMethodId,
+      type: "Multikey",
+      controller: "did:web:university.example",
+      publicKeyMultibase: multibaseKey,
+    });
+
+    const result = await verifyDataIntegrity(signedVC, resolver);
+    expect(result.passed).toBe(true);
+  });
+
+  it("should fail for a tampered EdDSA credential", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const unsignedVC = createTestCredential();
+    const jwk = publicKey.export({ format: "jwk" });
+
+    const verificationMethodId = "did:web:university.example#key-ed25519";
+    const signedVC = await signCredentialEdDsa(
+      unsignedVC,
+      { id: verificationMethodId, privateKey, publicKey, algorithm: "Ed25519" },
+      {
+        verificationMethod: verificationMethodId,
+        proofPurpose: "assertionMethod",
+        created: "2026-01-01T00:00:00Z",
+      },
+    );
+
+    const tampered: VerifiableCredential = {
+      ...signedVC,
+      credentialSubject: { ...signedVC.credentialSubject, name: "Evil Eve" },
+    };
+
+    const resolver = createMockResolver("did:web:university.example", {
+      id: verificationMethodId,
+      type: "JsonWebKey",
+      controller: "did:web:university.example",
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const result = await verifyDataIntegrity(tampered, resolver);
+    expect(result.passed).toBe(false);
   });
 });

@@ -23,7 +23,16 @@ export {
   multibaseDecode,
   derToRaw,
   rawToDer,
+  canonicalize,
+  computeSigningInput,
 } from "./data-integrity.js";
+
+export {
+  prepareEdDsaProof,
+  completeEdDsaProof,
+  signCredentialEdDsa,
+  verifyEdDsaProof,
+} from "./eddsa-data-integrity.js";
 
 export { sha256, sha256Hex, sha384 } from "./hash.js";
 
