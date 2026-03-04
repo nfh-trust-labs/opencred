@@ -101,3 +101,18 @@ export interface VerifyOptions {
   /** A pre-resolved public key to use for verification (skips key resolution). */
   publicKey?: KeyObject;
 }
+
+/**
+ * Options for VC-JWT signing.
+ */
+export interface VcJwtSigningOptions {
+  /** The verification method identifier (e.g., "did:key:z...#z..."). */
+  verificationMethod: string;
+  /** ISO 8601 timestamp for issuance. Auto-generated if omitted. */
+  created?: string;
+}
+
+/**
+ * Union of all supported proof formats.
+ */
+export type ProofFormat = "data-integrity" | "eddsa-di" | "jws" | "vc-jwt" | "sd-jwt-vc";

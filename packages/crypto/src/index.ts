@@ -8,6 +8,8 @@ export type {
   SigningKey,
   VerificationResult,
   VerifyOptions,
+  VcJwtSigningOptions,
+  ProofFormat,
 } from "./types.js";
 
 export {
@@ -30,6 +32,13 @@ export {
   signCredentialAuto,
 } from "./jws-proof.js";
 export { jcsCanonicalize, computeRevocationHash } from "./jcs.js";
+
+export {
+  signCredentialVcJwt,
+  prepareVcJwtProof,
+  completeVcJwtProof,
+} from "./vc-jwt-signing.js";
+export type { VcJwtPreparedProof } from "./vc-jwt-signing.js";
 
 export type {
   SigningKeyProvider,
