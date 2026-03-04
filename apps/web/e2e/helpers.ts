@@ -109,27 +109,27 @@ export async function mockApiResponses(page: Page) {
     });
   });
 
-  // Mock /credentials/revoke (single) — must come before batch route
-  await page.route("**/credentials/revoke", async (route) => {
+  // Mock /credentials/revocation-hash (single) — must come before batch route
+  await page.route("**/credentials/revocation-hash", async (route) => {
     if (route.request().url().includes("/batch")) {
       return route.fallback();
     }
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ revoked: true, hash: "mock-revoke-hash" }),
+      body: JSON.stringify({ hash: "mock-revocation-hash" }),
     });
   });
 
-  // Mock /credentials/revoke/batch
-  await page.route("**/credentials/revoke/batch", async (route) => {
+  // Mock /credentials/revocation-hash/batch
+  await page.route("**/credentials/revocation-hash/batch", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        results: [
-          { hash: "h1", revoked: true },
-          { hash: "h2", revoked: true },
+        hashes: [
+          { hash: "hash-1", index: 0 },
+          { hash: "hash-2", index: 1 },
         ],
       }),
     });

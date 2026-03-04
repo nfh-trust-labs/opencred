@@ -30,6 +30,7 @@ const {
   getQueueItem,
   updateQueueItemStatus,
   purgePublished,
+  publishPendingRevocations,
 } = await import("../main/revocation-queue");
 
 describe("Revocation Queue", () => {
@@ -200,6 +201,63 @@ describe("Revocation Queue", () => {
 
       const purged = purgePublished();
       expect(purged).toBe(0);
+    });
+  });
+
+  describe("publishPendingRevocations", () => {
+    it("should accept DeDi credentials and base URL parameters", async () => {
+      // Queue an item
+      queueRevocation("urn:uuid:test-pub-1", "https://dedi.example/revocations/test", {
+        revocationHash: "hash123",
+      });
+
+      const results = await publishPendingRevocations(
+        { type: "api-key", apiKey: "test-key-123" },
+        "https://dedi.example",
+      );
+
+      // Should attempt to publish the queued item
+      expect(results.length).toBe(1);
+      expect(results[0].queueId).toBeDefined();
+    });
+
+    it("should accept bearer credentials", async () => {
+      queueRevocation("urn:uuid:test-pub-2", "https://dedi.example/revocations/test");
+
+      const results = await publishPendingRevocations(
+        { type: "bearer", email: "issuer@example.com", password: "secret" },
+        "https://dedi.example",
+      );
+
+      expect(results.length).toBe(1);
+    });
+
+    it("should return empty array when no items to publish", async () => {
+      const results = await publishPendingRevocations(
+        { type: "api-key", apiKey: "test-key" },
+        "https://dedi.example",
+      );
+
+      expect(results).toEqual([]);
+    });
+
+    it("should publish both pending and failed items", async () => {
+      const item1 = queueRevocation("urn:uuid:test-pub-3", "https://dedi.example/revocations/test");
+      const item2 = queueRevocation("urn:uuid:test-pub-4", "https://dedi.example/revocations/test");
+
+      // Mark one as failed (simulating a previous failed attempt)
+      updateQueueItemStatus(item2.queueId, "failed", "Previous error");
+
+      const results = await publishPendingRevocations(
+        { type: "api-key", apiKey: "test-key" },
+        "https://dedi.example",
+      );
+
+      // Should attempt both the pending and the failed item
+      expect(results.length).toBe(2);
+      const queueIds = results.map((r) => r.queueId);
+      expect(queueIds).toContain(item1.queueId);
+      expect(queueIds).toContain(item2.queueId);
     });
   });
 

@@ -8,51 +8,53 @@ interface Props {
 
 type Mode = "single" | "batch";
 
-interface BatchResult {
+interface BatchHashResult {
   hash: string;
-  revoked: boolean;
-  error?: string;
+  index: number;
 }
 
 export function RevocationPage({ apiUrl, token }: Props) {
   const [mode, setMode] = useState<Mode>("single");
 
-  // Single revocation state
+  // Single hash state
   const [revokeInput, setRevokeInput] = useState("");
   const [inputType, setInputType] = useState<"hash" | "credential">("hash");
   const [singleLoading, setSingleLoading] = useState(false);
-  const [singleResult, setSingleResult] = useState<{ revoked: boolean; hash: string } | null>(null);
+  const [singleResult, setSingleResult] = useState<string | null>(null);
   const [singleError, setSingleError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  // Batch revocation state
-  const [batchHashes, setBatchHashes] = useState("");
+  // Batch hash state
+  const [batchInput, setBatchInput] = useState("");
   const [batchLoading, setBatchLoading] = useState(false);
-  const [batchResults, setBatchResults] = useState<BatchResult[] | null>(null);
+  const [batchResults, setBatchResults] = useState<BatchHashResult[] | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
+  const [batchCopied, setBatchCopied] = useState(false);
 
-  async function handleSingleRevoke() {
+  async function handleSingleHash() {
     setSingleResult(null);
     setSingleError(null);
+    setCopied(false);
     setSingleLoading(true);
 
     try {
-      const client = new OpenCredClient(apiUrl, token || undefined);
-
-      let hashOrCredential: string | Record<string, unknown>;
       if (inputType === "hash") {
-        hashOrCredential = revokeInput.trim();
+        // Already a hash — just display it
+        setSingleResult(revokeInput.trim());
       } else {
+        let credential: Record<string, unknown>;
         try {
-          hashOrCredential = JSON.parse(revokeInput) as Record<string, unknown>;
+          credential = JSON.parse(revokeInput) as Record<string, unknown>;
         } catch {
           throw new Error("Invalid JSON — please paste a valid credential");
         }
-      }
 
-      const res = await client.revoke(hashOrCredential);
-      setSingleResult(res);
+        const client = new OpenCredClient(apiUrl, token || undefined);
+        const res = await client.computeRevocationHash(credential);
+        setSingleResult(res.hash);
+      }
     } catch (err) {
-      setSingleError(err instanceof Error ? err.message : "Revocation failed");
+      setSingleError(err instanceof Error ? err.message : "Hash computation failed");
     } finally {
       setSingleLoading(false);
     }
@@ -61,36 +63,86 @@ export function RevocationPage({ apiUrl, token }: Props) {
   function handleBatchFile(file: File) {
     const reader = new FileReader();
     reader.onload = () => {
-      setBatchHashes(reader.result as string);
+      setBatchInput(reader.result as string);
       setBatchResults(null);
       setBatchError(null);
     };
     reader.readAsText(file);
   }
 
-  async function handleBatchRevoke() {
+  async function handleBatchHash() {
     setBatchResults(null);
     setBatchError(null);
+    setBatchCopied(false);
     setBatchLoading(true);
 
     try {
-      const lines = batchHashes
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0);
+      const text = batchInput.trim();
+      if (!text) {
+        throw new Error("No credentials provided");
+      }
 
-      if (lines.length === 0) {
-        throw new Error("No hashes provided");
+      let credentials: Record<string, unknown>[];
+
+      // Try parsing as JSON array first
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+          credentials = parsed as Record<string, unknown>[];
+        } else {
+          // Single credential object
+          credentials = [parsed as Record<string, unknown>];
+        }
+      } catch {
+        // Try parsing as one credential JSON per line
+        const lines = text.split("\n").filter((line) => line.trim().length > 0);
+        credentials = lines.map((line, idx) => {
+          try {
+            return JSON.parse(line) as Record<string, unknown>;
+          } catch {
+            throw new Error(`Invalid JSON on line ${idx + 1}`);
+          }
+        });
+      }
+
+      if (credentials.length === 0) {
+        throw new Error("No credentials provided");
       }
 
       const client = new OpenCredClient(apiUrl, token || undefined);
-      const res = await client.batchRevoke(lines);
-      setBatchResults(res.results);
+      const res = await client.computeRevocationHashBatch(credentials);
+      setBatchResults(res.hashes);
     } catch (err) {
-      setBatchError(err instanceof Error ? err.message : "Batch revocation failed");
+      setBatchError(err instanceof Error ? err.message : "Batch hash computation failed");
     } finally {
       setBatchLoading(false);
     }
+  }
+
+  async function copyToClipboard(text: string) {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function copyAllHashes() {
+    if (!batchResults) return;
+    const text = batchResults.map((r) => r.hash).join("\n");
+    await navigator.clipboard.writeText(text);
+    setBatchCopied(true);
+    setTimeout(() => setBatchCopied(false), 2000);
+  }
+
+  function exportHashesToFile() {
+    if (!batchResults) return;
+    const text = batchResults.map((r) => r.hash).join("\n");
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "revocation-hashes.txt";
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -105,7 +157,7 @@ export function RevocationPage({ apiUrl, token }: Props) {
               : "text-gray-500 hover:text-gray-700"
           }`}
         >
-          Single Revocation
+          Single Hash
         </button>
         <button
           type="button"
@@ -116,7 +168,7 @@ export function RevocationPage({ apiUrl, token }: Props) {
               : "text-gray-500 hover:text-gray-700"
           }`}
         >
-          Batch Revocation
+          Batch Hashes
         </button>
       </div>
 
@@ -183,11 +235,11 @@ export function RevocationPage({ apiUrl, token }: Props) {
 
           <button
             type="button"
-            onClick={handleSingleRevoke}
+            onClick={handleSingleHash}
             disabled={!revokeInput.trim() || singleLoading}
-            className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-40"
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
           >
-            {singleLoading ? "Revoking..." : "Revoke Credential"}
+            {singleLoading ? "Computing..." : "Compute Hash"}
           </button>
 
           {singleError && (
@@ -197,19 +249,20 @@ export function RevocationPage({ apiUrl, token }: Props) {
           )}
 
           {singleResult && (
-            <div
-              className={`rounded-lg border p-4 ${
-                singleResult.revoked ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
-              }`}
-            >
-              <p
-                className={`text-sm font-medium ${
-                  singleResult.revoked ? "text-green-800" : "text-red-800"
-                }`}
-              >
-                {singleResult.revoked ? "Credential revoked successfully" : "Revocation failed"}
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-mono text-sm text-gray-800 break-all">{singleResult}</p>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(singleResult)}
+                  className="shrink-0 rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  {copied ? "Copied!" : "Copy to Clipboard"}
+                </button>
+              </div>
+              <p className="text-xs text-gray-600">
+                Publish this hash to your DeDi revocation registry to revoke the credential.
               </p>
-              <p className="mt-1 text-xs text-gray-600">Hash: {singleResult.hash}</p>
             </div>
           )}
         </div>
@@ -218,18 +271,18 @@ export function RevocationPage({ apiUrl, token }: Props) {
       {mode === "batch" && (
         <div className="space-y-4">
           <div>
-            <label htmlFor="batch-hashes" className="block text-sm font-medium text-gray-700">
-              Credential Hashes (one per line)
+            <label htmlFor="batch-credentials" className="block text-sm font-medium text-gray-700">
+              Credential JSONs (one per line or JSON array)
             </label>
             <textarea
-              id="batch-hashes"
+              id="batch-credentials"
               rows={8}
-              value={batchHashes}
+              value={batchInput}
               onChange={(e) => {
-                setBatchHashes(e.target.value);
+                setBatchInput(e.target.value);
                 setBatchResults(null);
               }}
-              placeholder="Enter one hash per line..."
+              placeholder="Paste credential JSONs (one per line or as a JSON array)..."
               className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             />
           </div>
@@ -237,17 +290,17 @@ export function RevocationPage({ apiUrl, token }: Props) {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={handleBatchRevoke}
-              disabled={!batchHashes.trim() || batchLoading}
-              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-40"
+              onClick={handleBatchHash}
+              disabled={!batchInput.trim() || batchLoading}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
             >
-              {batchLoading ? "Revoking..." : "Revoke All"}
+              {batchLoading ? "Computing..." : "Compute Hashes"}
             </button>
             <label className="cursor-pointer rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
               Upload File
               <input
                 type="file"
-                accept=".txt,.csv"
+                accept=".txt,.json"
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -264,32 +317,44 @@ export function RevocationPage({ apiUrl, token }: Props) {
           )}
 
           {batchResults && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium text-gray-900">
-                Results ({batchResults.filter((r) => r.revoked).length}/{batchResults.length}{" "}
-                revoked)
-              </h3>
-              <div className="max-h-64 overflow-auto rounded-lg border border-gray-200 bg-white">
-                {batchResults.map((result, idx) => (
-                  <div
-                    key={idx}
-                    className={`flex items-center justify-between px-4 py-2 border-b border-gray-100 last:border-0 ${
-                      result.revoked ? "bg-green-50" : "bg-red-50"
-                    }`}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-gray-900">
+                  Computed Hashes ({batchResults.length})
+                </h3>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={copyAllHashes}
+                    className="rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
                   >
-                    <span className="font-mono text-xs text-gray-700 truncate max-w-[70%]">
+                    {batchCopied ? "Copied!" : "Copy All"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportHashesToFile}
+                    className="rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Export to File
+                  </button>
+                </div>
+              </div>
+              <div className="max-h-64 overflow-auto rounded-lg border border-gray-200 bg-white">
+                {batchResults.map((result) => (
+                  <div
+                    key={result.index}
+                    className="flex items-center justify-between px-4 py-2 border-b border-gray-100 last:border-0"
+                  >
+                    <span className="font-mono text-xs text-gray-700 truncate max-w-[80%]">
                       {result.hash}
                     </span>
-                    <span
-                      className={`text-xs font-medium ${
-                        result.revoked ? "text-green-700" : "text-red-700"
-                      }`}
-                    >
-                      {result.revoked ? "Revoked" : (result.error ?? "Failed")}
-                    </span>
+                    <span className="text-xs text-gray-500">#{result.index + 1}</span>
                   </div>
                 ))}
               </div>
+              <p className="text-xs text-gray-600">
+                Publish these hashes to your DeDi revocation registry to revoke the credentials.
+              </p>
             </div>
           )}
         </div>

@@ -182,6 +182,23 @@ export interface PackageCredentialResponse {
 // Revocation
 // ---------------------------------------------------------------------------
 
+/**
+ * Credentials the issuer provides to authenticate with a DeDi revocation registry.
+ *
+ * SECURITY NOTE: These are the issuer's own credentials — they are passed
+ * ephemerally per publish request and NEVER persisted or logged.
+ */
+export type DeDiCredentials =
+  | { type: "api-key"; apiKey: string }
+  | { type: "bearer"; email: string; password: string };
+
+export interface RevocationPublishRequest {
+  /** Issuer's DeDi registry credentials. */
+  dediCredentials: DeDiCredentials;
+  /** Base URL of the DeDi revocation registry. */
+  dediBaseUrl: string;
+}
+
 export interface RevocationQueueRequest {
   /** The credential ID to revoke. */
   credentialId: string;
@@ -568,7 +585,7 @@ export interface OpenCredDesktopAPI {
   // Revocation
   queueRevocation: (request: RevocationQueueRequest) => Promise<RevocationQueueResponse>;
   getRevocationStatus: () => Promise<RevocationStatusResponse>;
-  publishRevocations: () => Promise<RevocationPublishResponse>;
+  publishRevocations: (request: RevocationPublishRequest) => Promise<RevocationPublishResponse>;
 
   // Batch issuance
   batchStart: (request: BatchStartRequest) => Promise<BatchStartResponse>;

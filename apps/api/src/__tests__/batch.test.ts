@@ -5,7 +5,7 @@ import { createCapabilityToken } from "@opencred/auth";
 import { LocalSigningKeyProvider } from "@opencred/crypto";
 import type { DeDiClient } from "@opencred/dedi-client";
 import type { DelegationCertificate } from "@opencred/delegation";
-import { createBatchRoute, createBatchRevokeRoute } from "../routes/batch.js";
+import { createBatchRoute } from "../routes/batch.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { makeTestConfig, makeTestLogger } from "./helpers.js";
 
@@ -134,15 +134,6 @@ function createBatchApp(options?: {
   app.route("/credentials/batch", batch);
   app.onError(errorHandler(logger));
   return { app, jobStore, dediClient };
-}
-
-function createBatchRevokeApp(options?: { publishFails?: boolean }) {
-  const dediClient = createMockDediClient(null, { publishFails: options?.publishFails });
-  const revokeRoute = createBatchRevokeRoute(dediClient);
-  const app = new Hono();
-  app.route("/", revokeRoute);
-  app.onError(errorHandler(logger));
-  return { app, dediClient };
 }
 
 // -------------------------------------------------------------------------
@@ -832,118 +823,5 @@ describe("Batch session expiry", () => {
     expect(pollRes.status).toBe(410);
 
     jobStore.destroy();
-  });
-});
-
-// =========================================================================
-// Tests: POST /credentials/revoke/batch — Batch revocation
-// =========================================================================
-
-describe("POST /credentials/revoke/batch", () => {
-  it("revokes multiple credentials by hash", async () => {
-    const { app, dediClient } = createBatchRevokeApp();
-
-    const res = await app.request("/credentials/revoke/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        hashes: [
-          "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
-          "f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5",
-        ],
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      total: number;
-      succeeded: number;
-      failed: number;
-      results: Array<{ hash: string; status: string }>;
-    };
-
-    expect(body.total).toBe(2);
-    expect(body.succeeded).toBe(2);
-    expect(body.failed).toBe(0);
-    expect(dediClient.publishRevocationHash as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(2);
-  });
-
-  it("revokes multiple credentials by computing hashes from credential bodies", async () => {
-    const { app } = createBatchRevokeApp();
-
-    const res = await app.request("/credentials/revoke/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        credentials: [
-          {
-            "@context": ["https://www.w3.org/ns/credentials/v2"],
-            type: ["VerifiableCredential"],
-            id: "cred-1",
-          },
-          {
-            "@context": ["https://www.w3.org/ns/credentials/v2"],
-            type: ["VerifiableCredential"],
-            id: "cred-2",
-          },
-        ],
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { total: number; succeeded: number; failed: number };
-    expect(body.total).toBe(2);
-    expect(body.succeeded).toBe(2);
-  });
-
-  it("handles partial DeDi failure", async () => {
-    const { app } = createBatchRevokeApp({ publishFails: true });
-
-    const res = await app.request("/credentials/revoke/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        hashes: ["a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"],
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      total: number;
-      succeeded: number;
-      failed: number;
-      results: Array<{ hash: string; status: string; error?: string }>;
-    };
-
-    expect(body.total).toBe(1);
-    expect(body.failed).toBe(1);
-    expect(body.results[0].status).toBe("failed");
-    expect(body.results[0].error).toBeDefined();
-  });
-
-  it("returns 400 when neither hashes nor credentials provided", async () => {
-    const { app } = createBatchRevokeApp();
-
-    const res = await app.request("/credentials/revoke/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-
-    expect(res.status).toBe(400);
-  });
-
-  it("returns 400 for invalid hash format", async () => {
-    const { app } = createBatchRevokeApp();
-
-    const res = await app.request("/credentials/revoke/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        hashes: ["not-a-valid-hex-hash"],
-      }),
-    });
-
-    expect(res.status).toBe(400);
   });
 });

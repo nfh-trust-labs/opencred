@@ -132,28 +132,14 @@ export interface IssueDelegatedResponse {
   credentialHash: string;
 }
 
-// --- Revocation Types ---
+// --- Revocation Hash Types ---
 
-export interface RevokeRequest {
-  hash?: string;
-  credential?: Record<string, unknown>;
-}
-
-export interface RevokeResponse {
-  revoked: boolean;
+export interface RevocationHashResponse {
   hash: string;
 }
 
-export interface BatchRevokeRequest {
-  hashes: string[];
-}
-
-export interface BatchRevokeResponse {
-  results: Array<{
-    hash: string;
-    revoked: boolean;
-    error?: string;
-  }>;
+export interface RevocationHashBatchResponse {
+  hashes: Array<{ hash: string; index: number }>;
 }
 
 // --- Batch Issuance Types ---
@@ -348,18 +334,20 @@ export class OpenCredClient {
     });
   }
 
-  // --- Revocation ---
+  // --- Revocation Hash Computation ---
 
-  async revoke(hashOrCredential: string | Record<string, unknown>): Promise<RevokeResponse> {
-    const body =
-      typeof hashOrCredential === "string"
-        ? { hash: hashOrCredential }
-        : { credential: hashOrCredential };
-    return this.request<RevokeResponse>("/credentials/revoke", body);
+  async computeRevocationHash(
+    credential: Record<string, unknown>,
+  ): Promise<RevocationHashResponse> {
+    return this.request<RevocationHashResponse>("/credentials/revocation-hash", { credential });
   }
 
-  async batchRevoke(hashes: string[]): Promise<BatchRevokeResponse> {
-    return this.request<BatchRevokeResponse>("/credentials/revoke/batch", { hashes });
+  async computeRevocationHashBatch(
+    credentials: Record<string, unknown>[],
+  ): Promise<RevocationHashBatchResponse> {
+    return this.request<RevocationHashBatchResponse>("/credentials/revocation-hash/batch", {
+      credentials,
+    });
   }
 
   // --- Batch Issuance ---

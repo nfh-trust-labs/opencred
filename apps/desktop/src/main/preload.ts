@@ -37,6 +37,7 @@ import type {
   RevocationQueueRequest,
   RevocationQueueResponse,
   RevocationStatusResponse,
+  RevocationPublishRequest,
   RevocationPublishResponse,
   BatchStartRequest,
   BatchStartResponse,
@@ -102,8 +103,8 @@ const api: OpenCredDesktopAPI = {
   getRevocationStatus: (): Promise<RevocationStatusResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.REVOCATION_STATUS),
 
-  publishRevocations: (): Promise<RevocationPublishResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.REVOCATION_PUBLISH),
+  publishRevocations: (request: RevocationPublishRequest): Promise<RevocationPublishResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REVOCATION_PUBLISH, request),
 
   // Batch issuance
   batchStart: (request: BatchStartRequest): Promise<BatchStartResponse> =>

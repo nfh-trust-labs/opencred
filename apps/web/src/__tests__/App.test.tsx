@@ -44,7 +44,7 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("tab", { name: /revocation/i }));
-    expect(screen.getByText(/single revocation/i)).toBeInTheDocument();
+    expect(screen.getByText(/single hash/i)).toBeInTheDocument();
   });
 
   it("switches to the batch issuance tab", async () => {
