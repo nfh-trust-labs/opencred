@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createSign, generateKeyPairSync } from "node:crypto";
+import { createSign, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { Hono } from "hono";
 import { createCapabilityToken } from "@opencred/auth";
 import { createCredentialsRoute } from "../routes/credentials.js";
@@ -487,5 +487,296 @@ describe("Session expiry", () => {
     expect(packageRes.status).toBe(410);
 
     sessionStore.destroy();
+  });
+});
+
+// -------------------------------------------------------------------------
+// Tests: Proof format selection
+// -------------------------------------------------------------------------
+
+// Generate RSA key pair for JWS/VC-JWT tests
+const { publicKey: rsaPublicKey, privateKey: rsaPrivateKey } = generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+});
+const rsaPubJwk = rsaPublicKey.export({ format: "jwk" });
+const rsaPublicKeyId = `zRSA${(rsaPubJwk.n as string).slice(0, 6)}`;
+
+// Generate Ed25519 key pair for EdDSA DI tests
+const { publicKey: edPublicKey, privateKey: edPrivateKey } = generateKeyPairSync("ed25519");
+const edPubJwk = edPublicKey.export({ format: "jwk" });
+const edPublicKeyId = `zEd${(edPubJwk.x as string).slice(0, 8)}`;
+
+function signDataRsa(dataToSignBase64url: string): string {
+  const padded = dataToSignBase64url.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  const signer = createSign("SHA256");
+  signer.update(bytes);
+  const sig = signer.sign({ key: rsaPrivateKey, padding: 6 /* RSA_PKCS1_PSS_PADDING */ });
+
+  const sigBinary = String.fromCharCode(...new Uint8Array(sig));
+  return btoa(sigBinary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function signDataEd25519(dataToSignBase64url: string): string {
+  const padded = dataToSignBase64url.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  const sig = cryptoSign(null, bytes, edPrivateKey);
+  const sigBinary = String.fromCharCode(...new Uint8Array(sig));
+  return btoa(sigBinary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+describe("Proof format selection: backward compatibility", () => {
+  it("defaults to data-integrity when no proofFormat is specified (EC key)", async () => {
+    const { app } = createTestApp();
+    const token = await makeToken();
+    const res = await app.request("/credentials/build", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(VALID_BUILD_BODY),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.proofMechanism).toBe("data-integrity");
+    expect(body.proofConfig).toBeDefined();
+  });
+
+  it("defaults to jws when no proofFormat is specified (RSA key)", async () => {
+    const { app } = createTestApp();
+    const token = await makeToken();
+    const res = await app.request("/credentials/build", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ...VALID_BUILD_BODY,
+        publicKey: rsaPublicKeyId,
+        keyAlgorithm: "RSA-2048",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.proofMechanism).toBe("jws");
+    expect(body.protectedHeader).toBeDefined();
+  });
+
+  it("defaults to eddsa-di when no proofFormat is specified (Ed25519 key)", async () => {
+    const { app } = createTestApp();
+    const token = await makeToken();
+    const res = await app.request("/credentials/build", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ...VALID_BUILD_BODY,
+        publicKey: edPublicKeyId,
+        keyAlgorithm: "Ed25519",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.proofMechanism).toBe("eddsa-di");
+    expect(body.proofConfig).toBeDefined();
+  });
+});
+
+describe("Proof format selection: explicit format", () => {
+  it("builds with vc-jwt format", async () => {
+    const { app } = createTestApp();
+    const token = await makeToken();
+    const res = await app.request("/credentials/build", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ...VALID_BUILD_BODY,
+        proofFormat: "vc-jwt",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.proofMechanism).toBe("vc-jwt");
+    expect(body.protectedHeader).toBeDefined();
+  });
+
+  it("builds with sd-jwt-vc format", async () => {
+    const { app } = createTestApp();
+    const token = await makeToken();
+    const res = await app.request("/credentials/build", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ...VALID_BUILD_BODY,
+        proofFormat: "sd-jwt-vc",
+        selectiveDisclosureClaims: ["name", "degree"],
+        vct: "EducationCredential",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.proofMechanism).toBe("sd-jwt-vc");
+    expect(body.disclosures).toBeDefined();
+    expect(Array.isArray(body.disclosures)).toBe(true);
+  });
+
+  it("rejects sd-jwt-vc without required fields", async () => {
+    const { app } = createTestApp();
+    const token = await makeToken();
+    const res = await app.request("/credentials/build", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ...VALID_BUILD_BODY,
+        proofFormat: "sd-jwt-vc",
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("full round-trip with vc-jwt format", async () => {
+    const { app } = createTestApp();
+    const token = await makeToken();
+
+    // Build
+    const buildRes = await app.request("/credentials/build", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ...VALID_BUILD_BODY,
+        proofFormat: "vc-jwt",
+      }),
+    });
+    const buildBody = (await buildRes.json()) as Record<string, unknown>;
+    expect(buildRes.status, `Build failed: ${JSON.stringify(buildBody)}`).toBe(201);
+
+    // Sign with EC key (the vc-jwt format encodes the signing input as JWT)
+    const signature = signData(buildBody.dataToSign as string);
+
+    // Package
+    const packageRes = await app.request("/credentials/package", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        sessionId: buildBody.sessionId,
+        signature,
+      }),
+    });
+    expect(packageRes.status).toBe(200);
+    const pkgBody = (await packageRes.json()) as Record<string, unknown>;
+    // VC-JWT produces a string credential (JWT)
+    expect(typeof pkgBody.credential).toBe("string");
+    // Should be a 3-part JWT
+    expect((pkgBody.credential as string).split(".")).toHaveLength(3);
+  });
+
+  it("full round-trip with jws format using RSA key", async () => {
+    const { app } = createTestApp();
+    const token = await makeToken();
+
+    const buildRes = await app.request("/credentials/build", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ...VALID_BUILD_BODY,
+        publicKey: rsaPublicKeyId,
+        keyAlgorithm: "RSA-2048",
+        proofFormat: "jws",
+      }),
+    });
+    const buildBody = (await buildRes.json()) as Record<string, unknown>;
+    expect(buildRes.status, `Build failed: ${JSON.stringify(buildBody)}`).toBe(201);
+    expect(buildBody.proofMechanism).toBe("jws");
+
+    const signature = signDataRsa(buildBody.dataToSign as string);
+
+    const packageRes = await app.request("/credentials/package", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        sessionId: buildBody.sessionId,
+        signature,
+      }),
+    });
+    expect(packageRes.status).toBe(200);
+    const pkgBody = (await packageRes.json()) as Record<string, unknown>;
+    expect(typeof pkgBody.credential).toBe("string");
+    expect((pkgBody.credential as string).split(".")).toHaveLength(3);
+  });
+
+  it("full round-trip with eddsa-di format using Ed25519 key", async () => {
+    const { app } = createTestApp();
+    const token = await makeToken();
+
+    const buildRes = await app.request("/credentials/build", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ...VALID_BUILD_BODY,
+        publicKey: edPublicKeyId,
+        keyAlgorithm: "Ed25519",
+        proofFormat: "eddsa-di",
+      }),
+    });
+    const buildBody = (await buildRes.json()) as Record<string, unknown>;
+    expect(buildRes.status, `Build failed: ${JSON.stringify(buildBody)}`).toBe(201);
+    expect(buildBody.proofMechanism).toBe("eddsa-di");
+
+    const signature = signDataEd25519(buildBody.dataToSign as string);
+
+    const packageRes = await app.request("/credentials/package", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        sessionId: buildBody.sessionId,
+        signature,
+      }),
+    });
+    expect(packageRes.status).toBe(200);
+    const pkgBody = (await packageRes.json()) as Record<string, unknown>;
+    const cred = pkgBody.credential as Record<string, unknown>;
+    expect(cred.proof).toBeDefined();
+    expect((cred.proof as Record<string, unknown>).cryptosuite).toBe("eddsa-rdfc-2022");
   });
 });

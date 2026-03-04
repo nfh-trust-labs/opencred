@@ -37,16 +37,29 @@ export function detectFormat(input: VerificationInput): CredentialFormat {
     }
     const dotParts = input.split(".");
     if (dotParts.length === 3) {
-      // Distinguish VC-JOSE-COSE JWS from VC-JWT by checking header alg
+      // Distinguish JWS (full VC in payload) from VC-JWT (vc claim in payload)
+      // by examining the decoded payload structure.
       try {
-        const header = JSON.parse(Buffer.from(dotParts[0], "base64url").toString());
-        if (typeof header.alg === "string" && header.alg.startsWith("PS") && header.kid) {
+        const payload = JSON.parse(Buffer.from(dotParts[1], "base64url").toString());
+        if (payload.vc && typeof payload.vc === "object") {
+          return "vc-jwt";
+        }
+        if (payload["@context"] || payload.credentialSubject) {
           return "jws";
         }
       } catch {
-        // Fall through to vc-jwt
+        // If payload can't be decoded, fall back to header-based heuristic
       }
-      return "vc-jwt";
+      // Fallback: check header for JWT typ
+      try {
+        const header = JSON.parse(Buffer.from(dotParts[0], "base64url").toString());
+        if (header.typ === "JWT") {
+          return "vc-jwt";
+        }
+      } catch {
+        // Fall through
+      }
+      return "jws";
     }
     throw new VerificationError("String input is not a valid VC-JWT or SD-JWT VC");
   }

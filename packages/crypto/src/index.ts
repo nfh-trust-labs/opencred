@@ -41,6 +41,7 @@ export {
   prepareJwsProof,
   completeJwsProof,
   signCredentialAuto,
+  defaultProofFormat,
 } from "./jws-proof.js";
 export { jcsCanonicalize, computeRevocationHash } from "./jcs.js";
 

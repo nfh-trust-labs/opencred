@@ -10,9 +10,16 @@ import {
   signCredentialAuto,
   prepareJwsProof,
   completeJwsProof,
+  prepareEdDsaProof,
+  completeEdDsaProof,
+  prepareVcJwtProof,
+  completeVcJwtProof,
+  prepareSdJwtVcProof,
+  completeSdJwtVcProof,
+  defaultProofFormat,
   computeRevocationHash,
 } from "@opencred/crypto";
-import type { ProofConfig, SigningKeyProvider, SigningAlgorithm } from "@opencred/crypto";
+import type { ProofConfig, SigningKeyProvider, SigningAlgorithm, ProofFormat } from "@opencred/crypto";
 import { createRegistry, Validator } from "@opencred/schema-engine";
 import { TTLStore } from "@opencred/state";
 import { ValidationError, SessionExpiredError, AuthorizationError } from "@opencred/shared";
@@ -40,8 +47,11 @@ const buildRequestSchema = z.object({
   validFrom: z.string().min(1, "validFrom is required"),
   validUntil: z.string().optional(),
   revocationRegistryUrl: z.string().min(1, "revocationRegistryUrl is required"),
-  keyAlgorithm: z.enum(["P-256", "P-384", "RSA-2048", "RSA-3072", "RSA-4096"]).optional(),
+  keyAlgorithm: z.enum(["P-256", "P-384", "RSA-2048", "RSA-3072", "RSA-4096", "Ed25519"]).optional(),
   dscCertificateChain: z.array(z.string().min(1)).optional(),
+  proofFormat: z.enum(["data-integrity", "eddsa-di", "jws", "vc-jwt", "sd-jwt-vc"]).optional(),
+  selectiveDisclosureClaims: z.array(z.string()).optional(),
+  vct: z.string().optional(),
 });
 
 const packageRequestSchema = z.object({
@@ -68,9 +78,10 @@ interface SigningSession {
   proofConfig?: ProofConfig;
   publicKey: string;
   dataToSign: Uint8Array;
-  proofMechanism: "data-integrity" | "jws";
+  proofMechanism: ProofFormat;
   jwsSigningInput?: string;
   dscCertificateChain?: string[];
+  sdJwtVcDisclosures?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -146,16 +157,77 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
 
       const unsignedCredential = builder.build();
 
-      // 4. Determine proof mechanism from key algorithm
+      // 4. Determine proof mechanism from key algorithm and optional proofFormat
       const keyAlgorithm = body.keyAlgorithm as SigningAlgorithm | undefined;
-      const isRsa = keyAlgorithm?.startsWith("RSA");
+      const proofFormat: ProofFormat = (body.proofFormat as ProofFormat | undefined)
+        ?? defaultProofFormat(keyAlgorithm ?? "P-256");
       const verificationMethod = `${body.issuer}#${body.publicKey}`;
 
       const sessionId = randomUUID();
 
-      if (isRsa) {
-        // RSA keys use VC-JOSE-COSE JWS enveloping proofs
-        const jwsPrepared = prepareJwsProof(unsignedCredential, keyAlgorithm!, {
+      if (proofFormat === "sd-jwt-vc") {
+        if (!body.selectiveDisclosureClaims || !body.vct) {
+          throw new ValidationError("selectiveDisclosureClaims and vct are required for sd-jwt-vc format");
+        }
+        const sdPrepared = prepareSdJwtVcProof(unsignedCredential, keyAlgorithm ?? "P-256", {
+          selectiveDisclosureClaims: body.selectiveDisclosureClaims,
+          vct: body.vct,
+          verificationMethod,
+        });
+
+        const signingInputBytes = new TextEncoder().encode(sdPrepared.signingInput);
+        sessionStore.set(sessionId, {
+          unsignedCredential,
+          publicKey: body.publicKey,
+          dataToSign: signingInputBytes,
+          proofMechanism: "sd-jwt-vc",
+          jwsSigningInput: sdPrepared.signingInput,
+          sdJwtVcDisclosures: sdPrepared.disclosures,
+          dscCertificateChain: body.dscCertificateChain,
+        });
+
+        return c.json(
+          {
+            sessionId,
+            unsignedCredential,
+            dataToSign: base64urlEncode(signingInputBytes),
+            proofMechanism: "sd-jwt-vc" as const,
+            disclosures: sdPrepared.disclosures,
+          },
+          201,
+        );
+      }
+
+      if (proofFormat === "vc-jwt") {
+        const vcJwtPrepared = prepareVcJwtProof(unsignedCredential as unknown as Record<string, unknown>, keyAlgorithm ?? "P-256", {
+          verificationMethod,
+        });
+
+        const signingInputBytes = new TextEncoder().encode(vcJwtPrepared.signingInput);
+        sessionStore.set(sessionId, {
+          unsignedCredential,
+          publicKey: body.publicKey,
+          dataToSign: signingInputBytes,
+          proofMechanism: "vc-jwt",
+          jwsSigningInput: vcJwtPrepared.signingInput,
+          dscCertificateChain: body.dscCertificateChain,
+        });
+
+        return c.json(
+          {
+            sessionId,
+            unsignedCredential,
+            dataToSign: base64urlEncode(signingInputBytes),
+            proofMechanism: "vc-jwt" as const,
+            protectedHeader: vcJwtPrepared.protectedHeader,
+          },
+          201,
+        );
+      }
+
+      if (proofFormat === "jws") {
+        // JWS enveloping proofs
+        const jwsPrepared = prepareJwsProof(unsignedCredential, keyAlgorithm ?? "RSA-2048", {
           verificationMethod,
         });
 
@@ -181,7 +253,35 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
         );
       }
 
-      // EC keys use Data Integrity embedded proofs
+      if (proofFormat === "eddsa-di") {
+        // EdDSA Data Integrity (eddsa-rdfc-2022)
+        const prepared = await prepareEdDsaProof(unsignedCredential, {
+          verificationMethod,
+          proofPurpose: "assertionMethod",
+        });
+
+        sessionStore.set(sessionId, {
+          unsignedCredential,
+          proofConfig: prepared.proofConfig,
+          publicKey: body.publicKey,
+          dataToSign: prepared.dataToSign,
+          proofMechanism: "eddsa-di",
+          dscCertificateChain: body.dscCertificateChain,
+        });
+
+        return c.json(
+          {
+            sessionId,
+            unsignedCredential,
+            dataToSign: base64urlEncode(prepared.dataToSign),
+            proofConfig: prepared.proofConfig,
+            proofMechanism: "eddsa-di" as const,
+          },
+          201,
+        );
+      }
+
+      // Default: Data Integrity (ecdsa-rdfc-2019) for EC keys
       const prepared = await prepareProof(unsignedCredential, {
         verificationMethod,
         proofPurpose: "assertionMethod",
@@ -260,7 +360,32 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
           throw new ValidationError("JWS signing session is corrupted");
         }
         credential = completeJwsProof(session.jwsSigningInput, signatureBytes);
+      } else if (session.proofMechanism === "vc-jwt") {
+        if (!session.jwsSigningInput) {
+          throw new ValidationError("VC-JWT signing session is corrupted");
+        }
+        credential = completeVcJwtProof(session.jwsSigningInput, signatureBytes);
+      } else if (session.proofMechanism === "sd-jwt-vc") {
+        if (!session.jwsSigningInput || !session.sdJwtVcDisclosures) {
+          throw new ValidationError("SD-JWT VC signing session is corrupted");
+        }
+        credential = completeSdJwtVcProof(session.jwsSigningInput, signatureBytes, session.sdJwtVcDisclosures);
+      } else if (session.proofMechanism === "eddsa-di") {
+        if (signatureBytes.length !== 64) {
+          throw new ValidationError(
+            "Invalid signature: expected 64 bytes for Ed25519",
+          );
+        }
+        if (!session.proofConfig) {
+          throw new ValidationError("EdDSA Data Integrity signing session is corrupted");
+        }
+        credential = completeEdDsaProof(
+          session.unsignedCredential,
+          session.proofConfig,
+          signatureBytes,
+        );
       } else {
+        // data-integrity (EC)
         if (signatureBytes.length !== 64 && signatureBytes.length !== 96) {
           throw new ValidationError(
             "Invalid signature: expected 64 bytes (P-256) or 96 bytes (P-384) ECDSA r||s format",
@@ -389,11 +514,11 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
 
         const unsignedCredential = builder.build();
 
-        // 7. Sign with OpenCred's active key (auto-dispatches EC → DI, RSA → JWS)
+        // 7. Sign with OpenCred's active key (auto-dispatches based on algorithm default)
         const signedCredential = await signCredentialAuto(unsignedCredential, activeKey, {
           verificationMethod: activeKey.id,
           proofPurpose: "assertionMethod",
-        });
+        } as { verificationMethod: string; proofPurpose: string });
 
         // 8. Embed delegation reference in the credential (DI only)
         const credentialWithDelegation = typeof signedCredential === "string"
