@@ -10,7 +10,7 @@ export interface BuildRequest {
   validFrom: string;
   validUntil?: string;
   revocationRegistryUrl: string;
-  keyAlgorithm?: "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RSA-4096";
+  keyAlgorithm?: "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RSA-4096" | "Ed25519";
   dscCertificateChain?: string[];
 }
 

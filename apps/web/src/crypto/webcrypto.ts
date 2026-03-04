@@ -29,6 +29,27 @@ export interface CertificateInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Ed25519 feature detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if the browser supports Ed25519 in WebCrypto.
+ * Chrome 113+, Firefox 129+; Safari support is limited.
+ */
+export async function isEd25519Supported(): Promise<boolean> {
+  try {
+    await crypto.subtle.generateKey(
+      { name: "Ed25519" },
+      false,
+      ["sign", "verify"],
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // JWK import (existing, widened to P-256/P-384/RSA)
 // ---------------------------------------------------------------------------
 
@@ -63,7 +84,10 @@ export async function importJwkFile(fileContents: string): Promise<ImportedKeyRe
   if (parsed.kty === "RSA") {
     return importRsaJwk(parsed);
   }
-  throw new Error('JWK kty must be "EC" or "RSA"');
+  if (parsed.kty === "OKP") {
+    return importEdJwk(parsed);
+  }
+  throw new Error('JWK kty must be "EC", "RSA", or "OKP"');
 }
 
 async function importEcJwk(jwk: Record<string, unknown>): Promise<ImportedKeyResult> {
@@ -119,6 +143,37 @@ async function importRsaJwk(jwk: Record<string, unknown>): Promise<ImportedKeyRe
   }
 
   return { signingKey, publicKeyId, algorithm };
+}
+
+async function importEdJwk(jwk: Record<string, unknown>): Promise<ImportedKeyResult> {
+  const supported = await isEd25519Supported();
+  if (!supported) {
+    throw new Error(
+      "Ed25519 is not supported by your browser. Please use Chrome 113+ or Firefox 129+.",
+    );
+  }
+
+  if (jwk.crv !== "Ed25519") {
+    throw new Error('OKP JWK crv must be "Ed25519"');
+  }
+  if (typeof jwk.x !== "string" || typeof jwk.d !== "string") {
+    throw new Error("Ed25519 JWK must contain x and d fields");
+  }
+
+  const signingKey = await crypto.subtle.importKey(
+    "jwk",
+    { kty: "OKP", crv: "Ed25519", x: jwk.x, d: jwk.d },
+    { name: "Ed25519" },
+    false,
+    ["sign"],
+  );
+
+  const publicKeyId = jwkToPublicId({ kty: "OKP", crv: "Ed25519", x: jwk.x as string });
+
+  // Defense in depth: zero private key component.
+  (jwk as Record<string, string>).d = "";
+
+  return { signingKey, publicKeyId, algorithm: "Ed25519" };
 }
 
 // ---------------------------------------------------------------------------
@@ -326,6 +381,11 @@ export async function signData(
   data: Uint8Array,
   algorithm?: WebSigningAlgorithm,
 ): Promise<Uint8Array> {
+  if (algorithm === "Ed25519") {
+    const sig = await crypto.subtle.sign("Ed25519", key, data as Uint8Array<ArrayBuffer>);
+    return new Uint8Array(sig);
+  }
+
   if (algorithm?.startsWith("RSA")) {
     const sig = await crypto.subtle.sign(
       { name: "RSA-PSS", saltLength: 32 },

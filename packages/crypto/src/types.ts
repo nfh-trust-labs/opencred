@@ -6,7 +6,7 @@ import type { KeyObject } from "node:crypto";
  * EC keys use Data Integrity proofs (ecdsa-rdfc-2019).
  * RSA keys use VC-JOSE-COSE enveloping proofs (JWS with PS256).
  */
-export type SigningAlgorithm = "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RSA-4096";
+export type SigningAlgorithm = "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RSA-4096" | "Ed25519";
 
 /**
  * Options for creating a Data Integrity proof.

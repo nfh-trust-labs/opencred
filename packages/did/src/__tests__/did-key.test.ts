@@ -109,11 +109,48 @@ describe("DIDKeyResolver", () => {
     await expect(resolver.resolve("did:key:f01020304")).rejects.toThrow("Only base58btc");
   });
 
-  it("should reject unsupported key types (non-P-256/P-384 multicodec)", async () => {
-    // Ed25519 multicodec prefix is 0xed01 (varint: [0xed, 0x01])
+  it("should resolve a valid Ed25519 did:key", async () => {
+    const { publicKey } = generateKeyPairSync("ed25519");
+    const jwk = publicKey.export({ format: "jwk" });
+    const rawKey = Buffer.from(jwk.x!, "base64url");
+
+    const prefix = new Uint8Array([0xed, 0x01]);
+    const multicodecKey = new Uint8Array(prefix.length + rawKey.length);
+    multicodecKey.set(prefix, 0);
+    multicodecKey.set(rawKey, prefix.length);
+
+    const multibase = "z" + encodeBase58btc(multicodecKey);
+    const did = `did:key:${multibase}`;
+
+    const result = await resolver.resolve(did);
+
+    expect(result.didDocument).not.toBeNull();
+    expect(result.didDocument!.id).toBe(did);
+    expect(result.didDocument!.verificationMethod).toHaveLength(1);
+
+    const vm = result.didDocument!.verificationMethod![0];
+    expect(vm.type).toBe("Multikey");
+    expect(vm.controller).toBe(did);
+    expect(vm.publicKeyMultibase).toBeDefined();
+  });
+
+  it("should reject Ed25519 key with invalid length", async () => {
+    const prefix = new Uint8Array([0xed, 0x01]);
+    const badKey = new Uint8Array(20); // should be 32
+    const multicodecKey = new Uint8Array(prefix.length + badKey.length);
+    multicodecKey.set(prefix, 0);
+    multicodecKey.set(badKey, prefix.length);
+
+    const multibase = "z" + encodeBase58btc(multicodecKey);
+    const did = `did:key:${multibase}`;
+
+    await expect(resolver.resolve(did)).rejects.toThrow("Invalid key length");
+  });
+
+  it("should reject unsupported key types (unknown multicodec)", async () => {
     const fakeKey = new Uint8Array(34);
-    fakeKey[0] = 0xed;
-    fakeKey[1] = 0x01;
+    fakeKey[0] = 0xaa;
+    fakeKey[1] = 0xbb;
     const multibase = "z" + encodeBase58btc(fakeKey);
     const did = `did:key:${multibase}`;
 
@@ -250,6 +287,37 @@ describe("deriveDidKeyId", () => {
     const result = await resolver.resolve(did);
     expect(result.didDocument).not.toBeNull();
     expect(result.didDocument!.id).toBe(did);
+  });
+
+  it("should derive a did:key ID from an Ed25519 KeyObject", () => {
+    const { publicKey } = generateKeyPairSync("ed25519");
+    const id = deriveDidKeyId(publicKey);
+
+    expect(id).toMatch(/^did:key:z[a-zA-Z0-9]+#z[a-zA-Z0-9]+$/);
+  });
+
+  it("Ed25519 derived ID should be deterministic", () => {
+    const { publicKey } = generateKeyPairSync("ed25519");
+    const id1 = deriveDidKeyId(publicKey);
+    const id2 = deriveDidKeyId(publicKey);
+    expect(id1).toBe(id2);
+  });
+
+  it("Ed25519 derived ID should be resolvable by DIDKeyResolver", async () => {
+    const { publicKey } = generateKeyPairSync("ed25519");
+    const id = deriveDidKeyId(publicKey);
+    const did = id.split("#")[0];
+
+    const resolver = new DIDKeyResolver();
+    const result = await resolver.resolve(did);
+    expect(result.didDocument).not.toBeNull();
+    expect(result.didDocument!.id).toBe(did);
+  });
+
+  it("Ed25519 and P-256 IDs should differ", () => {
+    const { publicKey: ed25519Key } = generateKeyPairSync("ed25519");
+    const { publicKey: p256Key } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    expect(deriveDidKeyId(ed25519Key)).not.toBe(deriveDidKeyId(p256Key));
   });
 });
 
