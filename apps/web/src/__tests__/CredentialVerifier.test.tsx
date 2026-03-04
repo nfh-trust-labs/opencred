@@ -29,7 +29,7 @@ describe("CredentialVerifier", () => {
     render(<CredentialVerifier apiUrl="/api" token="" />);
     await user.type(screen.getByLabelText(/verifiable credential/i), "not json");
     await user.click(screen.getByRole("button", { name: /verify/i }));
-    expect(screen.getByText(/invalid json/i)).toBeInTheDocument();
+    expect(screen.getByText(/unrecognized format/i)).toBeInTheDocument();
   });
 
   it("displays verification result on success", async () => {

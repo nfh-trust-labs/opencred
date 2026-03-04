@@ -47,14 +47,14 @@ describe("importKeyFile", () => {
     await expect(importKeyFile("{bad}")).rejects.toThrow("Invalid JSON");
   });
 
-  it("rejects non-EC kty", async () => {
-    const json = JSON.stringify({ kty: "RSA", crv: "P-256", x: "a", y: "b", d: "c" });
-    await expect(importKeyFile(json)).rejects.toThrow('kty must be "EC"');
+  it("rejects unsupported kty", async () => {
+    const json = JSON.stringify({ kty: "oct", k: "c2VjcmV0" });
+    await expect(importKeyFile(json)).rejects.toThrow('kty must be "EC", "RSA", or "OKP"');
   });
 
-  it("rejects non-P-256 curve", async () => {
-    const json = JSON.stringify({ kty: "EC", crv: "P-384", x: "a", y: "b", d: "c" });
-    await expect(importKeyFile(json)).rejects.toThrow('crv must be "P-256"');
+  it("rejects unsupported EC curve", async () => {
+    const json = JSON.stringify({ kty: "EC", crv: "P-521", x: "a", y: "b", d: "c" });
+    await expect(importKeyFile(json)).rejects.toThrow('crv must be "P-256" or "P-384"');
   });
 
   it("rejects missing private key component", async () => {
