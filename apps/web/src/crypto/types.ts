@@ -7,7 +7,7 @@
  */
 
 /** Supported signing algorithms. EC keys use Data Integrity proofs, RSA keys use JWS proofs. */
-export type WebSigningAlgorithm = "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RSA-4096";
+export type WebSigningAlgorithm = "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RSA-4096" | "Ed25519";
 
 /** Metadata about a signer — safe to display in the UI. */
 export interface SignerMetadata {

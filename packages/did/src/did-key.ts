@@ -8,9 +8,12 @@ import { decodeBase58btc, encodeBase58btc } from "./multibase.js";
 const P256_MULTICODEC_PREFIX = new Uint8Array([0x80, 0x24]);
 /** P-384 multicodec varint prefix: 0x1201 encoded as unsigned varint [0x81, 0x24]. */
 const P384_MULTICODEC_PREFIX = new Uint8Array([0x81, 0x24]);
+/** Ed25519 multicodec prefix: 0xed01 encoded as unsigned varint [0xed, 0x01]. */
+const ED25519_MULTICODEC_PREFIX = new Uint8Array([0xed, 0x01]);
 
 const P256_COMPRESSED_KEY_LENGTH = 33;
 const P384_COMPRESSED_KEY_LENGTH = 49;
+const ED25519_PUBLIC_KEY_LENGTH = 32;
 
 /**
  * Compute the SEC1 compressed public key bytes from an EC KeyObject.
@@ -54,20 +57,27 @@ export function computeKeyFingerprint(publicKey: KeyObject): string {
  */
 export function deriveDidKeyId(publicKey: KeyObject): string {
   const jwk = publicKey.export({ format: "jwk" });
-  const compressed = getCompressedPublicKey(publicKey);
 
   let prefix: Uint8Array;
-  if (jwk.crv === "P-256") {
-    prefix = P256_MULTICODEC_PREFIX;
-  } else if (jwk.crv === "P-384") {
-    prefix = P384_MULTICODEC_PREFIX;
+  let keyBytes: Uint8Array;
+
+  if (jwk.crv === "Ed25519") {
+    // Ed25519: raw 32-byte public key (no SEC1 compression)
+    if (!jwk.x) {
+      throw new CryptoError("Failed to export Ed25519 public key");
+    }
+    prefix = ED25519_MULTICODEC_PREFIX;
+    keyBytes = new Uint8Array(Buffer.from(jwk.x, "base64url"));
+  } else if (jwk.crv === "P-256" || jwk.crv === "P-384") {
+    prefix = jwk.crv === "P-256" ? P256_MULTICODEC_PREFIX : P384_MULTICODEC_PREFIX;
+    keyBytes = getCompressedPublicKey(publicKey);
   } else {
-    throw new CryptoError(`Unsupported EC curve for did:key: ${String(jwk.crv)}`);
+    throw new CryptoError(`Unsupported curve for did:key: ${String(jwk.crv)}`);
   }
 
-  const multicodecKey = new Uint8Array(prefix.length + compressed.length);
+  const multicodecKey = new Uint8Array(prefix.length + keyBytes.length);
   multicodecKey.set(prefix, 0);
-  multicodecKey.set(compressed, prefix.length);
+  multicodecKey.set(keyBytes, prefix.length);
 
   const multibaseKey = "z" + encodeBase58btc(multicodecKey);
   const did = `did:key:${multibaseKey}`;
@@ -135,12 +145,16 @@ export class DIDKeyResolver implements DIDResolver {
 
     // Detect curve from multicodec prefix
     let expectedKeyLength: number;
+    let isEd25519 = false;
     if (decoded[0] === P256_MULTICODEC_PREFIX[0] && decoded[1] === P256_MULTICODEC_PREFIX[1]) {
       expectedKeyLength = P256_COMPRESSED_KEY_LENGTH;
     } else if (decoded[0] === P384_MULTICODEC_PREFIX[0] && decoded[1] === P384_MULTICODEC_PREFIX[1]) {
       expectedKeyLength = P384_COMPRESSED_KEY_LENGTH;
+    } else if (decoded[0] === ED25519_MULTICODEC_PREFIX[0] && decoded[1] === ED25519_MULTICODEC_PREFIX[1]) {
+      expectedKeyLength = ED25519_PUBLIC_KEY_LENGTH;
+      isEd25519 = true;
     } else {
-      throw new DIDResolutionError("Unsupported key type: only P-256 and P-384 keys are supported");
+      throw new DIDResolutionError("Unsupported key type: only P-256, P-384, and Ed25519 keys are supported");
     }
 
     const publicKeyBytes = decoded.slice(2);
@@ -150,7 +164,8 @@ export class DIDKeyResolver implements DIDResolver {
       );
     }
 
-    if (publicKeyBytes[0] !== 0x02 && publicKeyBytes[0] !== 0x03) {
+    // EC keys (P-256, P-384) must have SEC1 compressed point prefix
+    if (!isEd25519 && publicKeyBytes[0] !== 0x02 && publicKeyBytes[0] !== 0x03) {
       throw new DIDResolutionError("Invalid compressed key: must start with 0x02 or 0x03");
     }
 

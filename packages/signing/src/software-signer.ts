@@ -16,6 +16,7 @@ import {
   createPrivateKey,
   createPublicKey,
   createSign,
+  sign,
   type KeyObject,
 } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -78,6 +79,11 @@ export function detectKeyAlgorithm(publicKey: KeyObject): SigningAlgorithm {
     throw new CryptoError(`Unsupported EC curve: ${String(jwk.crv)}`);
   }
 
+  if (jwk.kty === "OKP") {
+    if (jwk.crv === "Ed25519") return "Ed25519";
+    throw new CryptoError(`Unsupported OKP curve: ${String(jwk.crv)}`);
+  }
+
   if (jwk.kty === "RSA") {
     const modulusBits = Buffer.from(jwk.n!, "base64url").length * 8;
     if (modulusBits >= 4096) return "RSA-4096";
@@ -94,7 +100,7 @@ export function detectKeyAlgorithm(publicKey: KeyObject): SigningAlgorithm {
  * EC uses did:key; RSA uses did:jwk.
  */
 function deriveVerificationMethodId(publicKey: KeyObject, algorithm: SigningAlgorithm): string {
-  if (algorithm === "P-256" || algorithm === "P-384") {
+  if (algorithm === "P-256" || algorithm === "P-384" || algorithm === "Ed25519") {
     return deriveDidKeyId(publicKey);
   }
   const jwk = publicKey.export({ format: "jwk" });
@@ -151,6 +157,9 @@ function createSignFn(
           s.update(data);
           // ieee-p1363: raw r||s (96 bytes for P-384)
           return new Uint8Array(s.sign({ key: privateKey, dsaEncoding: "ieee-p1363" }));
+        }
+        case "Ed25519": {
+          return new Uint8Array(sign(null, data, privateKey));
         }
         case "RSA-2048":
         case "RSA-3072":
