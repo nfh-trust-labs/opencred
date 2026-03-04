@@ -13,6 +13,8 @@ export function signingAlgorithmToJwsAlg(algorithm: SigningAlgorithm): string {
     case "RSA-3072":
     case "RSA-4096":
       return "PS256";
+    case "Ed25519":
+      return "EdDSA";
     default:
       throw new Error(`Unsupported algorithm: ${algorithm}`);
   }

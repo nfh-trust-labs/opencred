@@ -105,6 +105,10 @@ describe("signingAlgorithmToJwsAlg", () => {
     expect(signingAlgorithmToJwsAlg("RSA-4096")).toBe("PS256");
   });
 
+  it("should map Ed25519 to EdDSA", () => {
+    expect(signingAlgorithmToJwsAlg("Ed25519")).toBe("EdDSA");
+  });
+
   it("should throw for unsupported algorithms", () => {
     expect(() => signingAlgorithmToJwsAlg("INVALID" as never)).toThrow("Unsupported algorithm");
   });
@@ -227,6 +231,21 @@ describe("signCredentialSdJwtVc", () => {
       const digest = computeDigest(d);
       expect(sdDigests).toContain(digest);
     }
+  });
+
+  it("should sort _sd digests lexicographically", async () => {
+    const signingKey = createP256SigningKey(verificationMethod);
+    const result = await signCredentialSdJwtVc(unsignedVC, signingKey, baseOptions);
+
+    const { issuerJwt } = parseSdJwtVc(result);
+    const payload = jose.decodeJwt(issuerJwt) as Record<string, unknown>;
+
+    const sdDigests = payload._sd as string[];
+    expect(sdDigests.length).toBeGreaterThan(1);
+
+    // Verify the digests are in sorted order
+    const sorted = [...sdDigests].sort();
+    expect(sdDigests).toEqual(sorted);
   });
 
   it("should set _sd_alg to sha-256", async () => {
