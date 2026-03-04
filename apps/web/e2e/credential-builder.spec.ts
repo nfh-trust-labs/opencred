@@ -29,7 +29,7 @@ test.describe("Credential Builder (Issue Credential)", () => {
     // Interface signing should be selected by default
     await expect(page.getByLabel("Issuer DID")).toBeVisible();
     await expect(page.getByLabel("Revocation Registry URL")).toBeVisible();
-    await expect(page.getByLabel("Signing Key (ECDSA P-256 JWK", { exact: false })).toBeVisible();
+    await expect(page.getByLabel("Signing Key (EC P-256/P-384", { exact: false })).toBeVisible();
   });
 
   test("switching to delegated mode shows delegation ID field and hides interface fields", async ({
@@ -44,7 +44,7 @@ test.describe("Credential Builder (Issue Credential)", () => {
     // Interface fields should be hidden
     await expect(page.getByLabel("Issuer DID")).not.toBeVisible();
     await expect(
-      page.getByLabel("Signing Key (ECDSA P-256 JWK", { exact: false }),
+      page.getByLabel("Signing Key (EC P-256/P-384", { exact: false }),
     ).not.toBeVisible();
   });
 
@@ -109,7 +109,7 @@ test.describe("Credential Builder (Issue Credential)", () => {
       .fill("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK");
 
     // Import key
-    await page.getByLabel("Signing Key (ECDSA P-256 JWK", { exact: false }).fill(SAMPLE_JWK);
+    await page.getByLabel("Signing Key (EC P-256/P-384", { exact: false }).fill(SAMPLE_JWK);
     await page.getByRole("button", { name: "Import Key" }).click();
     await expect(page.getByText("Key imported")).toBeVisible();
 

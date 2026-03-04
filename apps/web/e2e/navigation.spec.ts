@@ -30,7 +30,7 @@ test.describe("Navigation", () => {
   test("switching between tabs shows correct content", async ({ page }) => {
     // Verify tab shows the VC JSON textarea
     await page.getByRole("tab", { name: "Verify" }).click();
-    await expect(page.getByLabel("Verifiable Credential (JSON)")).toBeVisible();
+    await expect(page.getByLabel("Verifiable Credential (JSON-LD or JWS)")).toBeVisible();
 
     // Delegated Issuance shows delegation ID input
     await page.getByRole("tab", { name: "Delegated Issuance" }).click();

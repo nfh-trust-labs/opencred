@@ -9,9 +9,9 @@ test.describe("Credential Verification", () => {
   });
 
   test("shows credential input textarea and verify button", async ({ page }) => {
-    await expect(page.getByLabel("Verifiable Credential (JSON)")).toBeVisible();
+    await expect(page.getByLabel("Verifiable Credential (JSON-LD or JWS)")).toBeVisible();
     await expect(page.getByRole("button", { name: "Verify" })).toBeVisible();
-    await expect(page.getByText("Upload JSON file")).toBeVisible();
+    await expect(page.getByText("Upload file")).toBeVisible();
   });
 
   test("verify button is disabled when textarea is empty", async ({ page }) => {
@@ -20,7 +20,7 @@ test.describe("Credential Verification", () => {
 
   test("paste credential JSON and verify — shows VALID result", async ({ page }) => {
     // Paste credential JSON
-    await page.getByLabel("Verifiable Credential (JSON)").fill(SAMPLE_VC_JSON);
+    await page.getByLabel("Verifiable Credential (JSON-LD or JWS)").fill(SAMPLE_VC_JSON);
 
     // Click verify
     await page.getByRole("button", { name: "Verify" }).click();
@@ -43,7 +43,7 @@ test.describe("Credential Verification", () => {
   });
 
   test("invalid JSON shows error message", async ({ page }) => {
-    await page.getByLabel("Verifiable Credential (JSON)").fill("not valid json {{{");
+    await page.getByLabel("Verifiable Credential (JSON-LD or JWS)").fill("not valid json {{{");
     await page.getByRole("button", { name: "Verify" }).click();
 
     await expect(page.getByText("Invalid JSON", { exact: false })).toBeVisible();
@@ -66,7 +66,7 @@ test.describe("Credential Verification", () => {
       });
     });
 
-    await page.getByLabel("Verifiable Credential (JSON)").fill(SAMPLE_VC_JSON);
+    await page.getByLabel("Verifiable Credential (JSON-LD or JWS)").fill(SAMPLE_VC_JSON);
     await page.getByRole("button", { name: "Verify" }).click();
 
     await expect(page.getByTestId("verification-status")).toHaveText("REVOKED");
@@ -88,7 +88,7 @@ test.describe("Credential Verification", () => {
       });
     });
 
-    await page.getByLabel("Verifiable Credential (JSON)").fill(SAMPLE_VC_JSON);
+    await page.getByLabel("Verifiable Credential (JSON-LD or JWS)").fill(SAMPLE_VC_JSON);
     await page.getByRole("button", { name: "Verify" }).click();
 
     await expect(page.getByTestId("verification-status")).toHaveText("EXPIRED");
@@ -111,7 +111,7 @@ test.describe("Credential Verification", () => {
       });
     });
 
-    await page.getByLabel("Verifiable Credential (JSON)").fill(SAMPLE_VC_JSON);
+    await page.getByLabel("Verifiable Credential (JSON-LD or JWS)").fill(SAMPLE_VC_JSON);
     await page.getByRole("button", { name: "Verify" }).click();
 
     await expect(page.getByTestId("verification-status")).toHaveText("DELEGATION INVALID");
@@ -119,12 +119,12 @@ test.describe("Credential Verification", () => {
 
   test("clearing the textarea clears the result", async ({ page }) => {
     // Verify first
-    await page.getByLabel("Verifiable Credential (JSON)").fill(SAMPLE_VC_JSON);
+    await page.getByLabel("Verifiable Credential (JSON-LD or JWS)").fill(SAMPLE_VC_JSON);
     await page.getByRole("button", { name: "Verify" }).click();
     await expect(page.getByTestId("verification-status")).toHaveText("VALID");
 
     // Clear textarea — result should disappear
-    await page.getByLabel("Verifiable Credential (JSON)").fill("");
+    await page.getByLabel("Verifiable Credential (JSON-LD or JWS)").fill("");
     await expect(page.getByTestId("verification-status")).not.toBeVisible();
   });
 });

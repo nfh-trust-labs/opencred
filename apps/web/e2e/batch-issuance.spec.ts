@@ -52,7 +52,7 @@ test.describe("Batch Issuance", () => {
   test("switching to interface signing shows key import", async ({ page }) => {
     await page.getByText("Interface Signing").click();
 
-    await expect(page.getByLabel("Signing Key (ECDSA P-256 JWK", { exact: false })).toBeVisible();
+    await expect(page.getByLabel("Signing Key (EC P-256/P-384", { exact: false })).toBeVisible();
 
     // Delegation ID should not be visible
     await expect(page.getByLabel("Delegation ID")).not.toBeVisible();
