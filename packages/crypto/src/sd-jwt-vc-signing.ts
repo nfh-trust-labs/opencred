@@ -92,7 +92,7 @@ function buildSdJwtVcPayload(
   }
 
   if (sdDigests.length > 0) {
-    payload._sd = sdDigests;
+    payload._sd = sdDigests.sort();
     payload._sd_alg = "sha-256";
   }
 
