@@ -28,7 +28,12 @@ export function createCaRequestRoutes(deps: CaRequestRoutesDeps) {
 
   const handleCaRequest = async (c: Context) => {
     if (!caAdapter) throw new NotImplementedError("Certificate Authority adapter is not configured. Type C onboarding requires a CA adapter to be registered at startup.");
-    const rawBody = await c.req.json();
+    let rawBody: unknown;
+    try {
+      rawBody = await c.req.json();
+    } catch {
+      throw new ValidationError("Invalid JSON in request body");
+    }
     const parsed = caRequestSchema.safeParse(rawBody);
     if (!parsed.success) { const firstError = parsed.error.issues[0]; throw new ValidationError(`${firstError.path.join(".")}: ${firstError.message}`); }
     const result = await caAdapter.requestDSC(parsed.data);
@@ -37,7 +42,12 @@ export function createCaRequestRoutes(deps: CaRequestRoutesDeps) {
 
   const handleCaStatus = async (c: Context) => {
     if (!caAdapter) throw new NotImplementedError("Certificate Authority adapter is not configured. Type C onboarding requires a CA adapter to be registered at startup.");
-    const rawBody = await c.req.json();
+    let rawBody: unknown;
+    try {
+      rawBody = await c.req.json();
+    } catch {
+      throw new ValidationError("Invalid JSON in request body");
+    }
     const parsed = caStatusSchema.safeParse(rawBody);
     if (!parsed.success) { const firstError = parsed.error.issues[0]; throw new ValidationError(`${firstError.path.join(".")}: ${firstError.message}`); }
     const status = await caAdapter.checkStatus(parsed.data.requestId);
