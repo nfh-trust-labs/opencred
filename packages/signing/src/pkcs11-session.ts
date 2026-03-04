@@ -569,3 +569,6 @@ export function closeSession(session: Pkcs11Session): void {
     // Session may already be closed — ignore
   }
 }
+
+// NOTE: p11-kit auto-discovery is in p11-kit-discovery.ts (separate module
+// to avoid pulling in the pkcs11js native dependency for non-PKCS#11 callers).

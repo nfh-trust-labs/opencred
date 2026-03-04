@@ -107,7 +107,7 @@ function loadNativeAddon(): WindowsNativeAddon | null {
   try {
     // The native addon will be at this path when built with node-gyp.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const addon = require("../../native/windows-cng.node") as WindowsNativeAddon;
+    const addon = require("../../native/build/Release/windows-cng.node") as WindowsNativeAddon;
     if (
       typeof addon.listSigningCertificates === "function" &&
       typeof addon.signWithCertificate === "function" &&
