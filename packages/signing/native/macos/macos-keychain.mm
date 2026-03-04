@@ -21,6 +21,21 @@
 #include <string>
 
 // ---------------------------------------------------------------------------
+// RAII guard for CoreFoundation objects — prevents leaks on error paths
+// ---------------------------------------------------------------------------
+template<typename T>
+struct CFGuard {
+    T ref;
+    CFGuard(T r) : ref(r) {}
+    ~CFGuard() { if (ref) CFRelease(ref); }
+    CFGuard(const CFGuard &) = delete;
+    CFGuard &operator=(const CFGuard &) = delete;
+    operator T() const { return ref; }
+    T get() const { return ref; }
+    T release() { T r = ref; ref = nullptr; return r; }
+};
+
+// ---------------------------------------------------------------------------
 // Helper: CFStringRef → std::string
 // ---------------------------------------------------------------------------
 static std::string CFStringToStdString(CFStringRef cfStr) {
@@ -73,25 +88,50 @@ static std::string ComputeThumbprint(CFDataRef derData) {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: Parse CN from a DER-encoded issuer/subject DN (best-effort)
+//
+// Walks the DER RDNSequence looking for OID 2.5.4.3 (commonName).
+// Returns the UTF-8 value of the first CN found, or "".
+// ---------------------------------------------------------------------------
+static std::string ParseCNFromDERName(const uint8_t *data, size_t len) {
+    // CN OID: 2.5.4.3 → DER 55 04 03
+    static const uint8_t cnOid[] = { 0x55, 0x04, 0x03 };
+
+    // Scan for the CN OID in the DER data
+    for (size_t i = 0; i + sizeof(cnOid) + 2 < len; i++) {
+        if (data[i] == 0x06 && data[i + 1] == 0x03 &&
+            memcmp(data + i + 2, cnOid, sizeof(cnOid)) == 0) {
+            // Found OID. The value follows: tag + length + value
+            size_t valPos = i + 2 + sizeof(cnOid);
+            if (valPos + 2 > len) break;
+
+            uint8_t valTag = data[valPos];
+            // Accept UTF8String (0x0C), PrintableString (0x13), IA5String (0x16)
+            if (valTag != 0x0C && valTag != 0x13 && valTag != 0x16) continue;
+
+            uint8_t valLen = data[valPos + 1];
+            if (valLen > 127) continue; // Skip multi-byte lengths for simplicity
+            if (valPos + 2 + valLen > len) continue;
+
+            return std::string(reinterpret_cast<const char *>(data + valPos + 2), valLen);
+        }
+    }
+    return "";
+}
+
+// ---------------------------------------------------------------------------
 // Helper: Extract issuer CN from certificate (best-effort)
 // ---------------------------------------------------------------------------
 static std::string GetIssuerCN(SecCertificateRef cert) {
-    CFErrorRef error = nullptr;
-    CFDictionaryRef values = SecCertificateCopyValues(cert, nullptr, &error);
-    if (error) {
-        if (values) CFRelease(values);
-        CFRelease(error);
-        return "Unknown Issuer";
-    }
-    if (!values) return "Unknown Issuer";
+    CFDataRef issuerData = SecCertificateCopyNormalizedIssuerSequence(cert);
+    if (!issuerData) return "Unknown Issuer";
+    CFGuard<CFDataRef> issuerGuard(issuerData);
 
-    // Try to extract the issuer name from the certificate's OID
-    CFStringRef issuerOid = CFSTR("2.5.4.3"); // OID for CN
-    // Simplified: just return a placeholder since extracting issuer CN from
-    // the raw certificate is complex. The subject summary is the primary identifier.
-    CFRelease(values);
-    (void)issuerOid;
-    return "Unknown Issuer";
+    const uint8_t *bytes = CFDataGetBytePtr(issuerData);
+    size_t len = (size_t)CFDataGetLength(issuerData);
+
+    std::string cn = ParseCNFromDERName(bytes, len);
+    return cn.empty() ? "Unknown Issuer" : cn;
 }
 
 // ---------------------------------------------------------------------------
@@ -454,26 +494,26 @@ static Napi::Value SignWithCertificate(const Napi::CallbackInfo &info) {
     }
 
     // Find identity by thumbprint
-    SecIdentityRef identity = FindIdentityByThumbprint(thumbprint);
-    if (!identity) {
+    CFGuard<SecIdentityRef> identity(FindIdentityByThumbprint(thumbprint));
+    if (!identity.get()) {
         Napi::Error::New(env, "Certificate not found in Keychain").ThrowAsJavaScriptException();
         return env.Undefined();
     }
 
     // Get the private key
-    SecKeyRef privateKey = nullptr;
-    OSStatus status = SecIdentityCopyPrivateKey(identity, &privateKey);
-    CFRelease(identity);
+    SecKeyRef rawPrivateKey = nullptr;
+    OSStatus status = SecIdentityCopyPrivateKey(identity, &rawPrivateKey);
+    CFGuard<SecKeyRef> privateKey(rawPrivateKey);
 
-    if (status != errSecSuccess || !privateKey) {
+    if (status != errSecSuccess || !privateKey.get()) {
         Napi::Error::New(env, "Failed to access private key from Keychain").ThrowAsJavaScriptException();
         return env.Undefined();
     }
 
     // Determine the algorithm from key attributes
-    CFDictionaryRef attrs = SecKeyCopyAttributes(privateKey);
-    CFStringRef keyType = attrs ? (CFStringRef)CFDictionaryGetValue(attrs, kSecAttrKeyType) : nullptr;
-    CFNumberRef keySizeNum = attrs ? (CFNumberRef)CFDictionaryGetValue(attrs, kSecAttrKeySizeInBits) : nullptr;
+    CFGuard<CFDictionaryRef> attrs(SecKeyCopyAttributes(privateKey));
+    CFStringRef keyType = attrs.get() ? (CFStringRef)CFDictionaryGetValue(attrs, kSecAttrKeyType) : nullptr;
+    CFNumberRef keySizeNum = attrs.get() ? (CFNumberRef)CFDictionaryGetValue(attrs, kSecAttrKeySizeInBits) : nullptr;
     int keySize = 256;
     if (keySizeNum) CFNumberGetValue(keySizeNum, kCFNumberIntType, &keySize);
 
@@ -494,21 +534,15 @@ static Napi::Value SignWithCertificate(const Napi::CallbackInfo &info) {
         algorithm = kSecKeyAlgorithmRSASignatureDigestPSSSHA256;
     }
 
-    if (attrs) CFRelease(attrs);
-
     // Create CFData from input buffer
-    CFDataRef inputData = CFDataCreate(nullptr, dataBuffer.Data(), dataBuffer.Length());
+    CFGuard<CFDataRef> inputData(CFDataCreate(nullptr, dataBuffer.Data(), dataBuffer.Length()));
 
     // Sign
-    CFErrorRef error = nullptr;
-    CFDataRef signature = SecKeyCreateSignature(privateKey, algorithm, inputData, &error);
+    CFErrorRef signError = nullptr;
+    CFGuard<CFDataRef> signature(SecKeyCreateSignature(privateKey, algorithm, inputData, &signError));
 
-    CFRelease(inputData);
-    CFRelease(privateKey);
-
-    if (error || !signature) {
-        if (signature) CFRelease(signature);
-        if (error) CFRelease(error);
+    if (signError || !signature.get()) {
+        if (signError) CFRelease(signError);
         // SECURITY: Do not include error details that might leak key info
         Napi::Error::New(env, "Signing operation failed").ThrowAsJavaScriptException();
         return env.Undefined();
@@ -523,7 +557,6 @@ static Napi::Value SignWithCertificate(const Napi::CallbackInfo &info) {
         // Convert DER ECDSA signature to raw r||s
         std::vector<uint8_t> rawSig(componentLen * 2);
         if (!ConvertDerEcdsaToRawRS(sigBytes, sigLen, rawSig.data(), componentLen)) {
-            CFRelease(signature);
             Napi::Error::New(env, "Failed to convert EC signature format").ThrowAsJavaScriptException();
             return env.Undefined();
         }
@@ -533,7 +566,6 @@ static Napi::Value SignWithCertificate(const Napi::CallbackInfo &info) {
         resultBuffer = Napi::Buffer<uint8_t>::Copy(env, sigBytes, sigLen);
     }
 
-    CFRelease(signature);
     return resultBuffer;
 }
 
@@ -556,45 +588,41 @@ static Napi::Value GetPublicKey(const Napi::CallbackInfo &info) {
     }
 
     // Find identity by thumbprint
-    SecIdentityRef identity = FindIdentityByThumbprint(thumbprint);
-    if (!identity) {
+    CFGuard<SecIdentityRef> identity(FindIdentityByThumbprint(thumbprint));
+    if (!identity.get()) {
         Napi::Error::New(env, "Certificate not found in Keychain").ThrowAsJavaScriptException();
         return env.Undefined();
     }
 
     // Extract certificate
-    SecCertificateRef cert = nullptr;
-    OSStatus status = SecIdentityCopyCertificate(identity, &cert);
-    CFRelease(identity);
+    SecCertificateRef rawCert = nullptr;
+    OSStatus status = SecIdentityCopyCertificate(identity, &rawCert);
+    CFGuard<SecCertificateRef> cert(rawCert);
 
-    if (status != errSecSuccess || !cert) {
+    if (status != errSecSuccess || !cert.get()) {
         Napi::Error::New(env, "Failed to extract certificate").ThrowAsJavaScriptException();
         return env.Undefined();
     }
 
     // Get public key from certificate
-    SecKeyRef publicKey = SecCertificateCopyKey(cert);
-    CFRelease(cert);
+    CFGuard<SecKeyRef> publicKey(SecCertificateCopyKey(cert));
 
-    if (!publicKey) {
+    if (!publicKey.get()) {
         Napi::Error::New(env, "Failed to extract public key from certificate").ThrowAsJavaScriptException();
         return env.Undefined();
     }
 
     // Determine key type
-    CFDictionaryRef attrs = SecKeyCopyAttributes(publicKey);
-    CFStringRef keyType = attrs ? (CFStringRef)CFDictionaryGetValue(attrs, kSecAttrKeyType) : nullptr;
+    CFGuard<CFDictionaryRef> attrs(SecKeyCopyAttributes(publicKey));
+    CFStringRef keyType = attrs.get() ? (CFStringRef)CFDictionaryGetValue(attrs, kSecAttrKeyType) : nullptr;
     bool isEC = keyType && CFEqual(keyType, kSecAttrKeyTypeECSECPrimeRandom);
-    if (attrs) CFRelease(attrs);
 
     // Get external representation
-    CFErrorRef error = nullptr;
-    CFDataRef keyData = SecKeyCopyExternalRepresentation(publicKey, &error);
-    CFRelease(publicKey);
+    CFErrorRef exportError = nullptr;
+    CFGuard<CFDataRef> keyData(SecKeyCopyExternalRepresentation(publicKey, &exportError));
 
-    if (error || !keyData) {
-        if (keyData) CFRelease(keyData);
-        if (error) CFRelease(error);
+    if (exportError || !keyData.get()) {
+        if (exportError) CFRelease(exportError);
         Napi::Error::New(env, "Failed to export public key").ThrowAsJavaScriptException();
         return env.Undefined();
     }
@@ -666,7 +694,6 @@ static Napi::Value GetPublicKey(const Napi::CallbackInfo &info) {
         resultBuffer = Napi::Buffer<uint8_t>::Copy(env, spki.data(), spki.size());
     }
 
-    CFRelease(keyData);
     return resultBuffer;
 }
 
@@ -684,34 +711,33 @@ static Napi::Value GetCertificateChain(const Napi::CallbackInfo &info) {
     std::string thumbprint = info[0].As<Napi::String>().Utf8Value();
 
     // Find identity by thumbprint
-    SecIdentityRef identity = FindIdentityByThumbprint(thumbprint);
-    if (!identity) {
+    CFGuard<SecIdentityRef> identity(FindIdentityByThumbprint(thumbprint));
+    if (!identity.get()) {
         return Napi::Array::New(env); // Empty array if not found
     }
 
     // Extract certificate
-    SecCertificateRef cert = nullptr;
-    OSStatus status = SecIdentityCopyCertificate(identity, &cert);
-    CFRelease(identity);
+    SecCertificateRef rawCert = nullptr;
+    OSStatus status = SecIdentityCopyCertificate(identity, &rawCert);
+    CFGuard<SecCertificateRef> cert(rawCert);
 
-    if (status != errSecSuccess || !cert) {
+    if (status != errSecSuccess || !cert.get()) {
         return Napi::Array::New(env);
     }
 
     // Build a trust object and evaluate the chain
-    SecPolicyRef policy = SecPolicyCreateBasicX509();
-    SecTrustRef trust = nullptr;
-    status = SecTrustCreateWithCertificates(cert, policy, &trust);
-    CFRelease(cert);
-    CFRelease(policy);
+    CFGuard<SecPolicyRef> policy(SecPolicyCreateBasicX509());
+    SecTrustRef rawTrust = nullptr;
+    status = SecTrustCreateWithCertificates(cert, policy, &rawTrust);
+    CFGuard<SecTrustRef> trust(rawTrust);
 
-    if (status != errSecSuccess || !trust) {
+    if (status != errSecSuccess || !trust.get()) {
         return Napi::Array::New(env);
     }
 
-    CFErrorRef error = nullptr;
-    bool trusted = SecTrustEvaluateWithError(trust, &error);
-    if (error) CFRelease(error);
+    CFErrorRef evalError = nullptr;
+    bool trusted = SecTrustEvaluateWithError(trust, &evalError);
+    if (evalError) CFRelease(evalError);
     (void)trusted; // We want the chain even if not fully trusted
 
     CFIndex chainLen = SecTrustGetCertificateCount(trust);
@@ -721,8 +747,8 @@ static Napi::Value GetCertificateChain(const Napi::CallbackInfo &info) {
         SecCertificateRef chainCert = SecTrustGetCertificateAtIndex(trust, i);
         if (!chainCert) continue;
 
-        CFDataRef derData = SecCertificateCopyData(chainCert);
-        if (!derData) continue;
+        CFGuard<CFDataRef> derData(SecCertificateCopyData(chainCert));
+        if (!derData.get()) continue;
 
         const uint8_t *bytes = CFDataGetBytePtr(derData);
         size_t len = CFDataGetLength(derData);
@@ -737,11 +763,8 @@ static Napi::Value GetCertificateChain(const Napi::CallbackInfo &info) {
         pem += "\n-----END CERTIFICATE-----";
 
         result.Set((uint32_t)i, pem);
-
-        CFRelease(derData);
     }
 
-    CFRelease(trust);
     return result;
 }
 
