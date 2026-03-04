@@ -29,6 +29,27 @@ export interface CertificateInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Ed25519 feature detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if the browser supports Ed25519 in WebCrypto.
+ * Chrome 113+, Firefox 129+; Safari support is limited.
+ */
+export async function isEd25519Supported(): Promise<boolean> {
+  try {
+    await crypto.subtle.generateKey(
+      { name: "Ed25519" },
+      false,
+      ["sign", "verify"],
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // JWK import (existing, widened to P-256/P-384/RSA)
 // ---------------------------------------------------------------------------
 
@@ -125,6 +146,13 @@ async function importRsaJwk(jwk: Record<string, unknown>): Promise<ImportedKeyRe
 }
 
 async function importEdJwk(jwk: Record<string, unknown>): Promise<ImportedKeyResult> {
+  const supported = await isEd25519Supported();
+  if (!supported) {
+    throw new Error(
+      "Ed25519 is not supported by your browser. Please use Chrome 113+ or Firefox 129+.",
+    );
+  }
+
   if (jwk.crv !== "Ed25519") {
     throw new Error('OKP JWK crv must be "Ed25519"');
   }
