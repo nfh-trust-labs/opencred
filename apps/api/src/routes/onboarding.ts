@@ -155,7 +155,12 @@ export function createOnboardingRoutes(deps: OnboardingRoutesDeps) {
   const onboarding = new Hono();
 
   onboarding.post("/type-a", async (c) => {
-    const rawBody = await c.req.json();
+    let rawBody: unknown;
+    try {
+      rawBody = await c.req.json();
+    } catch {
+      throw new ValidationError("Invalid JSON in request body");
+    }
     const parsed = typeAOnboardingSchema.safeParse(rawBody);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0];
@@ -187,7 +192,12 @@ export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps)
   const businessVc = new Hono();
 
   businessVc.post("/business-vc", async (c) => {
-    const rawBody = await c.req.json();
+    let rawBody: unknown;
+    try {
+      rawBody = await c.req.json();
+    } catch {
+      throw new ValidationError("Invalid JSON in request body");
+    }
     const parsed = businessVcOnboardingSchema.safeParse(rawBody);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0];

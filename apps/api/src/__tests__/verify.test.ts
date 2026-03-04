@@ -218,14 +218,17 @@ describe("POST /verify", () => {
       expect(res.status).toBe(400);
     });
 
-    it("returns error for invalid JSON body", async () => {
+    it("returns 400 VALIDATION_ERROR for malformed JSON body", async () => {
       const app = createTestApp();
       const res = await app.request("/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "not json",
+        body: "not json {{{",
       });
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as ErrorBody;
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+      expect(body.error.message).toContain("Invalid JSON");
     });
 
     it("accepts object credential", async () => {

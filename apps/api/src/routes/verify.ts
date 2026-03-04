@@ -62,7 +62,12 @@ export function createVerifyRoutes(deps: VerifyRoutesDeps = {}) {
   const verify = new Hono();
 
   verify.post("/", async (c) => {
-    const rawBody = await c.req.json();
+    let rawBody: unknown;
+    try {
+      rawBody = await c.req.json();
+    } catch {
+      throw new ValidationError("Invalid JSON in request body");
+    }
     const parsed = verifyRequestSchema.safeParse(rawBody);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0];
