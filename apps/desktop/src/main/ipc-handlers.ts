@@ -36,6 +36,7 @@ import type {
   RevocationQueueRequest,
   RevocationQueueResponse,
   RevocationStatusResponse,
+  RevocationPublishRequest,
   RevocationPublishResponse,
   BatchStartRequest,
   BatchStartResponse,
@@ -499,8 +500,11 @@ async function handleRevocationStatus(): Promise<RevocationStatusResponse> {
 }
 
 /** REVOCATION_PUBLISH — trigger publication of pending revocations. */
-async function handleRevocationPublish(): Promise<RevocationPublishResponse> {
-  const results = await publishPendingRevocations();
+async function handleRevocationPublish(
+  _event: IpcMainInvokeEvent,
+  request: RevocationPublishRequest,
+): Promise<RevocationPublishResponse> {
+  const results = await publishPendingRevocations(request.dediCredentials, request.dediBaseUrl);
   return { results };
 }
 

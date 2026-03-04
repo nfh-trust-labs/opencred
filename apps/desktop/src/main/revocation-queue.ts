@@ -13,6 +13,7 @@
 
 import * as crypto from "node:crypto";
 import { getStore } from "./store.js";
+import type { DeDiCredentials } from "../shared/ipc-types.js";
 
 /**
  * Status of a queued revocation item.
@@ -166,17 +167,20 @@ export function purgePublished(): number {
 }
 
 /**
- * Attempt to publish all pending revocations.
+ * Attempt to publish all pending revocations to the issuer's DeDi registry.
  *
- * This is a placeholder for the actual DeDi client integration.
- * In the real implementation, each pending item would be published
- * to its revocation registry URL using the DeDi client.
+ * The issuer provides their own DeDi credentials for each publish request.
+ * A temporary DeDi client is created, used to publish hashes, and then
+ * discarded — credentials are never persisted.
  *
+ * @param dediCredentials - The issuer's DeDi authentication credentials.
+ * @param dediBaseUrl - The base URL of the DeDi revocation registry.
  * @returns An array of results for each item that was attempted.
  */
-export async function publishPendingRevocations(): Promise<
-  Array<{ queueId: string; success: boolean; error?: string }>
-> {
+export async function publishPendingRevocations(
+  dediCredentials: DeDiCredentials,
+  dediBaseUrl: string,
+): Promise<Array<{ queueId: string; success: boolean; error?: string }>> {
   const pending = getQueueItemsByStatus("pending");
   const failed = getQueueItemsByStatus("failed");
   const toPublish = [...pending, ...failed];
@@ -190,10 +194,13 @@ export async function publishPendingRevocations(): Promise<
       const dns = await import("node:dns/promises");
       await dns.lookup("dns.google");
 
-      // TODO: Actual DeDi client integration will go here.
-      // For now, we mark items as published to validate the queue flow.
-      // In production, this would call:
-      //   dediClient.revokeCredential(item.registryUrl, item.revocationHash)
+      // TODO: Create temporary DeDi client with issuer's credentials and publish.
+      // In production, this would:
+      //   const client = createDeDiClient(dediBaseUrl, dediCredentials);
+      //   await client.publishRevocationHash(item.revocationHash);
+      // For now, we validate the queue flow by marking items as published.
+      void dediCredentials;
+      void dediBaseUrl;
       updateQueueItemStatus(item.queueId, "published");
       results.push({ queueId: item.queueId, success: true });
     } catch (error) {

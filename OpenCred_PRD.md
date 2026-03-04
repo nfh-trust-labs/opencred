@@ -23,7 +23,7 @@
 
 ## 1. Executive Summary
 
-OpenCred is a minimalist, stateless verifiable credential (VC) issuance and verification service. It is designed for any issuer -- from governments to individuals -- to produce W3C-conformant verifiable credentials without OpenCred ever persisting private keys, credential data, or personal information. The issuer retains full control over their cryptographic material; OpenCred acts only as a transient processing engine that validates schemas, builds canonical credential structures, manages revocation indices, and packages output for download (JSON-LD, PDF). All session data -- credential payloads, built VCs, packaged output, and bulk issuance job results -- is purged within a configurable window (default: 4 hours). Delegation certificates are the sole exception: they persist as long as the delegation is active. Revocation hashes are published to DeDi and are not stored by OpenCred. OpenCred does not handle credential delivery to holders; the issuer downloads the issued credential (as JSON-LD or PDF) and manages distribution through their own workflows.
+OpenCred is a minimalist, stateless verifiable credential (VC) issuance and verification service. It is designed for any issuer -- from governments to individuals -- to produce W3C-conformant verifiable credentials without OpenCred ever persisting private keys, credential data, or personal information. The issuer retains full control over their cryptographic material; OpenCred acts only as a transient processing engine that validates schemas, builds canonical credential structures, manages revocation indices, and packages output for download (JSON-LD, PDF). All session data -- credential payloads, built VCs, packaged output, and bulk issuance job results -- is purged within a configurable window (default: 4 hours). Delegation certificates are the sole exception: they persist as long as the delegation is active. OpenCred computes revocation hashes on request but does not publish them to DeDi — the issuer publishes hashes to their own DeDi registry. OpenCred does not handle credential delivery to holders; the issuer downloads the issued credential (as JSON-LD or PDF) and manages distribution through their own workflows.
 
 OpenCred is available through three interfaces: a **Desktop Client** (fully local, offline-capable), a **Web UI**, and a **REST API**. The Desktop Client supports **Local Signing** only -- all operations (schema validation, VC construction, signing, packaging) happen locally with no network dependency. The Web UI and API support two signing flows: **Interface Signing** (the issuer's private key never leaves the issuer's control; signing happens client-side through standard interfaces like WebCrypto or HSM) and **Delegated Signing** with OpenCred's own keys (a delegation certificate authorises OpenCred's signing key).
 
@@ -619,7 +619,7 @@ The `id` is the issuer's public DeDi revocation registry URL (base path). For `D
 
 **Issuance flow**: OpenCred embeds `credentialStatus` with the issuer's DeDi revocation registry URL. No revocation hash is published at issuance time.
 
-**Revocation flow**: The issuer revokes a credential by either (a) computing the hash locally and calling the revocation API with the hash, or (b) sending the credential body to the Web UI/API so OpenCred can compute the hash. OpenCred (or the issuer directly) publishes the hash to the issuer's namespace in DeDi.
+**Revocation flow**: The issuer revokes a credential by either (a) computing the hash locally or (b) sending the credential body to the Web UI/API so OpenCred can compute the hash and return it. The issuer then publishes the hash to their own namespace in DeDi. OpenCred never publishes to DeDi on behalf of the issuer.
 
 **Verification flow**: The verifier computes the same hash from the credential fields and queries DeDi. Hash found = REVOKED, not found = VALID.
 
@@ -633,35 +633,46 @@ flowchart LR
         A[OpenCred] -->|"Embed credentialStatus (registry URL)"| B[Credential]
     end
     subgraph revocation [Revocation Time]
-        C[Issuer] -->|"POST /credentials/revoke"| D[OpenCred API]
-        D -->|"Publish hash"| E[DeDi Registry]
-        C -->|"Direct publish"| E
+        C[Issuer] -->|"POST /credentials/revocation-hash"| D[OpenCred API]
+        D -->|"Return hash"| C
+        C -->|"Publish hash"| E[DeDi Registry]
     end
     subgraph verification [Verification]
         F[Verifier] -->|"Compute hash, query DeDi"| E
     end
 ```
 
-### 7.3 Revocation API Endpoints
+### 7.3 Revocation Hash API Endpoints
 
-| Endpoint | Method | Request Body | Description |
-|---|---|---|---|
-| `/credentials/revoke` | POST | `{ "credentialHash": "<sha256-hex>" }` **or** `{ "credential": { ... } }` | Revoke a single credential. OpenCred computes the hash if a credential body is provided, then publishes the hash to DeDi. |
-| `/credentials/revoke/batch` | POST | `{ "hashes": ["<hash1>", "<hash2>", ...] }` **or** `{ "credentials": [{...}, {...}] }` | Revoke multiple credentials in a single call. OpenCred can compute hashes from provided credential bodies. |
+OpenCred provides hash-computation endpoints only. It does **not** publish hashes to DeDi — the issuer is responsible for publishing to their own DeDi registry.
+
+| Endpoint | Method | Request Body | Response | Description |
+|---|---|---|---|---|
+| `/credentials/revocation-hash` | POST | `{ "credential": { ... } }` | `{ "revocationHash": "<sha256-hex>" }` | Compute the revocation hash for a single credential. Returns the hash; does **not** publish to DeDi. |
+| `/credentials/revocation-hash/batch` | POST | `{ "credentials": [{...}, {...}, ...] }` | `{ "revocationHashes": [{ "credentialId": "...", "revocationHash": "<sha256-hex>" }, ...] }` | Compute revocation hashes for multiple credentials. Returns hashes; does **not** publish to DeDi. |
 
 ### 7.4 Revocation Lifecycle
 
 | Step | Actor | Action | Details |
 |---|---|---|---|
 | At issuance | OpenCred | Embeds `credentialStatus` | Includes the issuer's DeDi revocation registry URL (`credentialStatus.id`) and status type `DeDiRevocationListStatusV1`. |
-| To revoke | Issuer | Computes hash | Compute locally, or send the credential body to OpenCred Web UI/API to compute the hash. |
-| To revoke | Issuer | Calls revocation API | `POST /credentials/revoke { credentialHash }` or `POST /credentials/revoke { credential }`, or publishes directly to DeDi. |
-| To revoke | OpenCred / Issuer | Publishes to DeDi | Adds hash to issuer's revocation registry. |
-| Bulk revoke | Issuer | Sends batch of hashes or credentials | `POST /credentials/revoke/batch { hashes[] }` or `{ credentials[] }`. |
+| To revoke | Issuer | Computes hash | Compute locally, or send the credential body to OpenCred (`POST /credentials/revocation-hash`) to compute the hash. |
+| To revoke | Issuer | Publishes hash to DeDi | The issuer publishes the revocation hash to their own DeDi revocation registry. OpenCred does not publish on the issuer's behalf. |
+| Bulk revoke | Issuer | Computes hashes in batch | `POST /credentials/revocation-hash/batch { credentials[] }`. OpenCred returns all hashes; the issuer publishes them to DeDi. |
 
 ### 7.5 Note on W3C BitstringStatusList
 
 OpenCred does not implement [W3C Bitstring Status List v1.0](https://www.w3.org/TR/vc-bitstring-status-list/). Issuers with the technical capacity to manage compressed bitstrings are free to implement BitstringStatusList independently and embed the appropriate `credentialStatus` in their credentials. OpenCred's verifier will branch on `credentialStatus.type`: it applies the DeDi hash lookup only for `DeDiRevocationListStatusV1`, and applies Bitstring Status List processing when `BitstringStatusListEntry` is present. OpenCred will not generate or host bitstring status lists.
+
+### 7.6 Future Revocation Models
+
+The current model requires the issuer to publish revocation hashes to DeDi independently. Future iterations may introduce alternative revocation models:
+
+- **DeDi Delegate**: The issuer grants OpenCred a scoped delegation certificate authorising it to publish revocation hashes to the issuer's DeDi namespace on the issuer's behalf. This restores the convenience of a single API call to revoke while preserving the issuer's control over the trust boundary.
+- **Signed Revocation Receipts**: OpenCred returns a signed receipt confirming the hash computation. The issuer can present this receipt to DeDi (or any registry) as proof that the hash was computed correctly, without requiring DeDi-specific integration in OpenCred.
+- **Per-Request Credential Pass-Through**: Instead of persisting any revocation state, the issuer sends the full credential to a verification endpoint at revocation-check time and receives an immediate revoked/valid response. This eliminates the need for a persistent registry but requires the issuer to retain credential copies.
+
+These models are not currently implemented. If adopted, they will be specified in dedicated subsections of this chapter and reflected in the API contract.
 
 ---
 

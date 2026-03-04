@@ -24,6 +24,9 @@ OpenCred v1 does not generate or host Bitstring Status Lists. Issuer-managed Bit
 **revocationRegistryUrl Policy:**
 OpenCred accepts `revocationRegistryUrl` as issuer-provided input. The service validates only basic URL requirements (parseable HTTPS URL, optional DeDi host restrictions) and reuses the exact value across build/package flow. OpenCred does NOT verify namespace ownership. Issuer is responsible for revocation registry misconfiguration.
 
+**Revocation Publishing Policy:**
+OpenCred does NOT publish revocation hashes to DeDi. OpenCred only computes revocation hashes (JCS → SHA-256). The issuer is responsible for publishing hashes to their own DeDi revocation registry using their own credentials. The Desktop Client supports this by accepting issuer DeDi credentials per publish request.
+
 ---
 
 ## Architecture
@@ -187,10 +190,10 @@ Prove critical technical assumptions before committing to the full build. Each s
 - Processing: retrieve session, validate signature against public key, assemble proof, package
 - Output: `{ credential (complete VC with proof), formats: { jsonld } }`
 
-`POST /credentials/revoke` — Single revocation
-- Input: `{ credentialHash }` or `{ credential }`
-- Processing: compute hash if needed (JCS → SHA-256), publish to DeDi
-- Output: `{ hash, status: "revoked" }`
+`POST /credentials/revocation-hash` — Hash computation
+- Input: `{ credential }`
+- Processing: compute hash (JCS → SHA-256)
+- Output: `{ hash }`
 
 `POST /verify` — Credential verification
 - Input: `{ credential }`
@@ -326,7 +329,7 @@ Prove critical technical assumptions before committing to the full build. Each s
 
 `POST /credentials/batch/{jobId}/signatures` — Submit signatures (Interface Signing)
 
-`POST /credentials/revoke/batch` — Batch revocation
+`POST /credentials/revocation-hash/batch` — Batch hash computation
 
 **CSV Support:**
 - Multipart form upload, `csv-parse` for parsing
@@ -345,7 +348,7 @@ Prove critical technical assumptions before committing to the full build. Each s
 - Issue (Interface Signing): full flow with SubtleCrypto
 - Issue (Delegated): onboarding + delegation setup + issuance
 - Verify: JSON paste, file upload, QR scan
-- Revoke: single + batch
+- Revocation Hash: single + batch hash computation (issuer publishes to DeDi)
 - Batch Issue: CSV upload, progress tracking
 
 **Output Formats:**
@@ -374,22 +377,22 @@ Prove critical technical assumptions before committing to the full build. Each s
 4. Embed `credentialStatus` (issuer-provided `revocationRegistryUrl`) — offline
 5. Sign VC with software key (PEM / JWK / PKCS#8) — Node.js `crypto` module
 6. Package output (QR, JSON-LD, PDF) — offline
-7. Publish queued revocation requests/hashes only when a credential is revoked
+7. Publish queued revocation hashes when credential is revoked — using issuer's own DeDi credentials
 
 **Offline Capabilities:**
 - All VC construction, signing, packaging works without network
 - Schema library + JSON-LD contexts bundled with app
 - QR/PDF generation runs locally (`qrcode`, `pdfkit`)
-- Network needed only for: publishing revocation hashes to DeDi, DID resolution for verification
-- Offline queue: revocation operations queued and published when credential is revoked and connectivity is available
+- Network needed only for: publishing revocation hashes to DeDi (using issuer's credentials), DID resolution for verification
+- Offline queue: revocation operations queued and published using issuer's DeDi credentials when connectivity is available
 
 **Bulk Issuance (Desktop):**
 - Read CSV locally, build each VC, sign with issuer's software key, package — all offline
-- Batch revocation hashes queued for publish on revocation
+- Batch revocation hashes queued for publish on revocation using issuer's own DeDi credentials
 
 **Desktop UI:**
 - Key management panel: import PEM/JWK/PKCS#8 key files
-- Offline indicator + DeDi revocation queue
+- Offline indicator + DeDi revocation queue (uses issuer's DeDi credentials per publish)
 - Local CSV batch import with progress
 - Credential verifier (offline signature check, online revocation check)
 

@@ -64,21 +64,6 @@ const batchSignaturesSchema = z.object({
     .min(1, "At least one signature is required"),
 });
 
-const batchRevokeSchema = z
-  .object({
-    hashes: z
-      .array(z.string().regex(/^[a-f0-9]{64}$/, "Must be a lowercase hex SHA-256 hash"))
-      .optional(),
-    credentials: z.array(z.record(z.unknown())).optional(),
-  })
-  .refine(
-    (data) =>
-      (data.hashes && data.hashes.length > 0) || (data.credentials && data.credentials.length > 0),
-    {
-      message: "Either hashes or credentials must be provided (non-empty)",
-    },
-  );
-
 // ---------------------------------------------------------------------------
 // Batch job types
 // ---------------------------------------------------------------------------
@@ -664,80 +649,6 @@ export function createBatchRoute(deps: BatchRouteDeps) {
   );
 
   return { batch, jobStore };
-}
-
-// ---------------------------------------------------------------------------
-// Batch revocation route (mounted separately at /credentials/revoke/batch)
-// ---------------------------------------------------------------------------
-
-export function createBatchRevokeRoute(dediClient: DeDiClient) {
-  const route = new Hono();
-
-  route.post(
-    "/credentials/revoke/batch",
-    zValidator("json", batchRevokeSchema, (result, c) => {
-      if (!result.success) {
-        return c.json(
-          {
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "Request validation failed",
-              validationErrors: formatZodErrors(result.error),
-            },
-          },
-          400,
-        );
-      }
-    }),
-    async (c) => {
-      const body = c.req.valid("json");
-
-      // Collect all hashes to revoke
-      const hashEntries: Array<{ hash: string; source: "provided" | "computed"; index: number }> =
-        [];
-
-      if (body.hashes) {
-        for (let i = 0; i < body.hashes.length; i++) {
-          hashEntries.push({ hash: body.hashes[i], source: "provided", index: i });
-        }
-      }
-
-      if (body.credentials) {
-        for (let i = 0; i < body.credentials.length; i++) {
-          const hash = computeRevocationHash(body.credentials[i]);
-          hashEntries.push({ hash, source: "computed", index: i });
-        }
-      }
-
-      // Publish all hashes to DeDi
-      const results: Array<{ hash: string; status: "revoked" | "failed"; error?: string }> = [];
-
-      for (const entry of hashEntries) {
-        try {
-          await dediClient.publishRevocationHash(entry.hash);
-          results.push({ hash: entry.hash, status: "revoked" });
-        } catch (err) {
-          results.push({
-            hash: entry.hash,
-            status: "failed",
-            error: err instanceof Error ? err.message : "Revocation failed",
-          });
-        }
-      }
-
-      const succeeded = results.filter((r) => r.status === "revoked").length;
-      const failed = results.filter((r) => r.status === "failed").length;
-
-      return c.json({
-        total: results.length,
-        succeeded,
-        failed,
-        results,
-      });
-    },
-  );
-
-  return route;
 }
 
 // ---------------------------------------------------------------------------

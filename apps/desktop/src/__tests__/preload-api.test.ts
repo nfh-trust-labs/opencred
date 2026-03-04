@@ -87,7 +87,7 @@ describe("Preload API completeness", () => {
       packageCredential: async () => ({ success: true }),
       queueRevocation: async () => ({ success: true }),
       getRevocationStatus: async () => ({ items: [] }),
-      publishRevocations: async () => ({ results: [] }),
+      publishRevocations: async (_req) => ({ results: [] }),
       batchStart: async () => ({ success: true }),
       batchStatus: async () => ({
         total: 0,
@@ -153,7 +153,7 @@ describe("Preload API completeness", () => {
       packageCredential: async () => ({ success: true }),
       queueRevocation: async () => ({ success: true }),
       getRevocationStatus: async () => ({ items: [] }),
-      publishRevocations: async () => ({ results: [] }),
+      publishRevocations: async (_req) => ({ results: [] }),
       batchStart: async () => ({ success: true }),
       batchStatus: async () => ({
         total: 0,
@@ -244,7 +244,10 @@ describe("Preload API completeness", () => {
     const revStatusResult = api.getRevocationStatus();
     expect(revStatusResult).toBeInstanceOf(Promise);
 
-    const revPublishResult = api.publishRevocations();
+    const revPublishResult = api.publishRevocations({
+      dediCredentials: { type: "api-key", apiKey: "test" },
+      dediBaseUrl: "https://dedi.example",
+    });
     expect(revPublishResult).toBeInstanceOf(Promise);
 
     const batchStartResult = api.batchStart({

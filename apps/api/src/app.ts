@@ -6,7 +6,6 @@ import type { VerifierConfig } from "@opencred/verification";
 import type { EnvConfig } from "@opencred/shared";
 import { createLogger, type Logger } from "./logger.js";
 import {
-  authMiddleware,
   bodyLimitMiddleware,
   errorHandler,
   requestLogger,
@@ -15,10 +14,10 @@ import {
 import type { AuthMiddlewareOptions, RateLimitStore } from "./middleware/index.js";
 import { namespaceRateLimitKey } from "./middleware/rate-limit-keys.js";
 import { createHealthRoutes } from "./routes/health.js";
-import { createRevokeRoute } from "./routes/revoke.js";
 import { createVerifyRoutes } from "./routes/verify.js";
 import { createCredentialsRoute } from "./routes/credentials.js";
-import { createBatchRoute, createBatchRevokeRoute } from "./routes/batch.js";
+import { createBatchRoute } from "./routes/batch.js";
+import { createRevocationHashRoute } from "./routes/revocation-hash.js";
 import { createOnboardingRoutes, createBusinessVcOnboardingRoutes } from "./routes/onboarding.js";
 import { createCaRequestRoutes, type CertificateAuthorityAdapter } from "./routes/ca-request.js";
 import {
@@ -202,30 +201,8 @@ export function createApp(deps: AppDependencies) {
     app.route("/credentials/batch", batch);
   }
 
-  // Authenticated routes — require capability token
-  if (config.JWT_SECRET) {
-    const authKey = new TextEncoder().encode(config.JWT_SECRET);
-
-    // Credential revocation (requires credentials:revoke scope)
-    if (deps.dediClient) {
-      app.use(
-        "/credentials/revoke",
-        authMiddleware(
-          { verificationKey: authKey, issuer: config.JWT_ISSUER },
-          "credentials:revoke",
-        ),
-      );
-      app.use(
-        "/credentials/revoke/batch",
-        authMiddleware(
-          { verificationKey: authKey, issuer: config.JWT_ISSUER },
-          "credentials:revoke",
-        ),
-      );
-      app.route("/", createRevokeRoute(deps.dediClient));
-      app.route("/", createBatchRevokeRoute(deps.dediClient));
-    }
-  }
+  // Revocation hash computation (unauthenticated — pure computation, no side effects)
+  app.route("/credentials/revocation-hash", createRevocationHashRoute());
 
   // PRD-specified stub endpoints (#132) — 501 Not Implemented placeholders
   app.route("/schemas", createSchemaStubRoutes());

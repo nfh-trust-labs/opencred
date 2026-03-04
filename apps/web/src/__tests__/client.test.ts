@@ -197,47 +197,38 @@ describe("OpenCredClient", () => {
     expect(res.credentialHash).toBe("h-1");
   });
 
-  it("sends revoke request with hash", async () => {
+  it("sends computeRevocationHash request with credential", async () => {
     const client = new OpenCredClient("http://localhost:3000");
-    mockFetch.mockReturnValue(jsonResponse({ revoked: true, hash: "h-abc" }));
-
-    const res = await client.revoke("h-abc");
-
-    const [url, opts] = mockFetch.mock.calls[0];
-    expect(url).toBe("http://localhost:3000/credentials/revoke");
-    expect(JSON.parse(opts.body)).toEqual({ hash: "h-abc" });
-    expect(res.revoked).toBe(true);
-  });
-
-  it("sends revoke request with credential object", async () => {
-    const client = new OpenCredClient("http://localhost:3000");
-    mockFetch.mockReturnValue(jsonResponse({ revoked: true, hash: "h-xyz" }));
+    mockFetch.mockReturnValue(jsonResponse({ hash: "computed-hash-abc" }));
 
     const cred = { "@context": [], type: "VC" };
-    const res = await client.revoke(cred);
+    const res = await client.computeRevocationHash(cred);
 
-    const [, opts] = mockFetch.mock.calls[0];
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/credentials/revocation-hash");
     expect(JSON.parse(opts.body)).toEqual({ credential: cred });
-    expect(res.revoked).toBe(true);
+    expect(res.hash).toBe("computed-hash-abc");
   });
 
-  it("sends batchRevoke request", async () => {
+  it("sends computeRevocationHashBatch request", async () => {
     const client = new OpenCredClient("http://localhost:3000");
+    const creds = [{ "@context": [], type: "VC1" }, { "@context": [], type: "VC2" }];
     mockFetch.mockReturnValue(
       jsonResponse({
-        results: [
-          { hash: "h1", revoked: true },
-          { hash: "h2", revoked: false, error: "Not found" },
+        hashes: [
+          { hash: "h1", index: 0 },
+          { hash: "h2", index: 1 },
         ],
       }),
     );
 
-    const res = await client.batchRevoke(["h1", "h2"]);
+    const res = await client.computeRevocationHashBatch(creds);
 
     const [url, opts] = mockFetch.mock.calls[0];
-    expect(url).toBe("http://localhost:3000/credentials/revoke/batch");
-    expect(JSON.parse(opts.body)).toEqual({ hashes: ["h1", "h2"] });
-    expect(res.results).toHaveLength(2);
+    expect(url).toBe("http://localhost:3000/credentials/revocation-hash/batch");
+    expect(JSON.parse(opts.body)).toEqual({ credentials: creds });
+    expect(res.hashes).toHaveLength(2);
+    expect(res.hashes[0].hash).toBe("h1");
   });
 
   it("sends batchSubmit request", async () => {
