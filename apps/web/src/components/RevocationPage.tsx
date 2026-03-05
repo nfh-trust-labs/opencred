@@ -18,7 +18,6 @@ export function RevocationPage({ apiUrl, token }: Props) {
 
   // Single hash state
   const [revokeInput, setRevokeInput] = useState("");
-  const [inputType, setInputType] = useState<"hash" | "credential">("hash");
   const [singleLoading, setSingleLoading] = useState(false);
   const [singleResult, setSingleResult] = useState<string | null>(null);
   const [singleError, setSingleError] = useState<string | null>(null);
@@ -38,21 +37,16 @@ export function RevocationPage({ apiUrl, token }: Props) {
     setSingleLoading(true);
 
     try {
-      if (inputType === "hash") {
-        // Already a hash — just display it
-        setSingleResult(revokeInput.trim());
-      } else {
-        let credential: Record<string, unknown>;
-        try {
-          credential = JSON.parse(revokeInput) as Record<string, unknown>;
-        } catch {
-          throw new Error("Invalid JSON — please paste a valid credential");
-        }
-
-        const client = new OpenCredClient(apiUrl, token || undefined);
-        const res = await client.computeRevocationHash(credential);
-        setSingleResult(res.hash);
+      let credential: Record<string, unknown>;
+      try {
+        credential = JSON.parse(revokeInput) as Record<string, unknown>;
+      } catch {
+        throw new Error("Invalid JSON — please paste a valid credential");
       }
+
+      const client = new OpenCredClient(apiUrl, token || undefined);
+      const res = await client.computeRevocationHash(credential);
+      setSingleResult(res.hash);
     } catch (err) {
       setSingleError(err instanceof Error ? err.message : "Hash computation failed");
     } finally {
@@ -174,64 +168,22 @@ export function RevocationPage({ apiUrl, token }: Props) {
 
       {mode === "single" && (
         <div className="space-y-4">
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="radio"
-                name="input-type"
-                checked={inputType === "hash"}
-                onChange={() => setInputType("hash")}
-                className="text-blue-600"
-              />
-              Credential Hash
-            </label>
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="radio"
-                name="input-type"
-                checked={inputType === "credential"}
-                onChange={() => setInputType("credential")}
-                className="text-blue-600"
-              />
+          <div>
+            <label htmlFor="revoke-json" className="block text-sm font-medium text-gray-700">
               Credential JSON
             </label>
+            <textarea
+              id="revoke-json"
+              rows={8}
+              value={revokeInput}
+              onChange={(e) => {
+                setRevokeInput(e.target.value);
+                setSingleResult(null);
+              }}
+              placeholder="Paste credential JSON..."
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            />
           </div>
-
-          {inputType === "hash" ? (
-            <div>
-              <label htmlFor="revoke-hash" className="block text-sm font-medium text-gray-700">
-                Credential Hash
-              </label>
-              <input
-                id="revoke-hash"
-                type="text"
-                value={revokeInput}
-                onChange={(e) => {
-                  setRevokeInput(e.target.value);
-                  setSingleResult(null);
-                }}
-                placeholder="Enter credential hash..."
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-          ) : (
-            <div>
-              <label htmlFor="revoke-json" className="block text-sm font-medium text-gray-700">
-                Credential JSON
-              </label>
-              <textarea
-                id="revoke-json"
-                rows={8}
-                value={revokeInput}
-                onChange={(e) => {
-                  setRevokeInput(e.target.value);
-                  setSingleResult(null);
-                }}
-                placeholder="Paste credential JSON..."
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-          )}
 
           <button
             type="button"

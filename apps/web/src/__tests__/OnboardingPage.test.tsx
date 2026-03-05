@@ -22,38 +22,15 @@ function jsonResponse(data: unknown, status = 200) {
 }
 
 describe("OnboardingPage", () => {
-  it("renders three onboarding type tabs", () => {
+  it("renders two onboarding type tabs and Type A info banner", () => {
     render(<OnboardingPage apiUrl="/api" token="" />);
-    expect(screen.getByRole("button", { name: /type a/i })).toBeInTheDocument();
+    expect(screen.getByText(/issuers with an existing dsc/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /type b/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /type d/i })).toBeInTheDocument();
   });
 
-  it("defaults to Type A DSC onboarding", () => {
+  it("defaults to Type B domain verification", () => {
     render(<OnboardingPage apiUrl="/api" token="" />);
-    expect(screen.getByLabelText(/dsc certificate chain/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /submit dsc chain/i })).toBeInTheDocument();
-  });
-
-  it("submits Type A DSC chain", async () => {
-    const user = userEvent.setup();
-    mockFetch.mockReturnValue(jsonResponse({ issuerId: "issuer-123", status: "active" }));
-
-    render(<OnboardingPage apiUrl="http://localhost:3000" token="" />);
-    const textarea = screen.getByLabelText(/dsc certificate chain/i);
-    fireEvent.change(textarea, {
-      target: { value: "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----" },
-    });
-    await user.click(screen.getByRole("button", { name: /submit dsc chain/i }));
-
-    expect(await screen.findByText(/onboarding successful/i)).toBeInTheDocument();
-    expect(screen.getByText(/issuer-123/)).toBeInTheDocument();
-  });
-
-  it("switches to Type B domain verification", async () => {
-    const user = userEvent.setup();
-    render(<OnboardingPage apiUrl="/api" token="" />);
-    await user.click(screen.getByRole("button", { name: /type b/i }));
     expect(screen.getByLabelText(/^domain$/i)).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /dns txt record/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /request challenge/i })).toBeInTheDocument();
@@ -71,7 +48,6 @@ describe("OnboardingPage", () => {
     );
 
     render(<OnboardingPage apiUrl="http://localhost:3000" token="" />);
-    await user.click(screen.getByRole("button", { name: /type b/i }));
     await user.type(screen.getByLabelText(/^domain$/i), "example.com");
     await user.click(screen.getByRole("button", { name: /request challenge/i }));
 
@@ -130,17 +106,16 @@ describe("OnboardingPage", () => {
     expect(await screen.findByText(/invalid json/i)).toBeInTheDocument();
   });
 
-  it("shows API error for Type A", async () => {
+  it("shows API error for Type B domain challenge", async () => {
     const user = userEvent.setup();
     mockFetch.mockReturnValue(
-      jsonResponse({ error: { code: "VALIDATION_ERROR", message: "Invalid certificate" } }, 400),
+      jsonResponse({ error: { code: "VALIDATION_ERROR", message: "Invalid domain" } }, 400),
     );
 
     render(<OnboardingPage apiUrl="http://localhost:3000" token="" />);
-    const textarea = screen.getByLabelText(/dsc certificate chain/i);
-    fireEvent.change(textarea, { target: { value: "bad-cert" } });
-    await user.click(screen.getByRole("button", { name: /submit dsc chain/i }));
+    await user.type(screen.getByLabelText(/^domain$/i), "bad-domain");
+    await user.click(screen.getByRole("button", { name: /request challenge/i }));
 
-    expect(await screen.findByText("Invalid certificate")).toBeInTheDocument();
+    expect(await screen.findByText("Invalid domain")).toBeInTheDocument();
   });
 });

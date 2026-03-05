@@ -8,43 +8,13 @@ test.describe("Onboarding", () => {
     await navigateToTab(page, "Onboarding");
   });
 
-  test("shows three onboarding type subtabs", async ({ page }) => {
-    await expect(page.getByText("Type A (DSC)")).toBeVisible();
+  test("shows two onboarding type tabs and Type A info banner", async ({ page }) => {
+    await expect(page.getByText("Issuers with an existing DSC", { exact: false })).toBeVisible();
     await expect(page.getByText("Type B (Domain)")).toBeVisible();
     await expect(page.getByText("Type D (Business VC)")).toBeVisible();
   });
 
-  test.describe("Type A — DSC Onboarding", () => {
-    test("shows DSC textarea and submit button", async ({ page }) => {
-      await expect(
-        page.getByText("Type A onboarding: Upload your Document Signer Certificate"),
-      ).toBeVisible();
-      await expect(page.getByLabel("DSC Certificate Chain (PEM)")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Submit DSC Chain" })).toBeVisible();
-      await expect(page.getByText("Upload PEM File")).toBeVisible();
-    });
-
-    test("submit button disabled when textarea is empty", async ({ page }) => {
-      await expect(page.getByRole("button", { name: "Submit DSC Chain" })).toBeDisabled();
-    });
-
-    test("paste DSC and submit — see success result", async ({ page }) => {
-      const pemData =
-        "-----BEGIN CERTIFICATE-----\nMIIBkTCB+wIJALRiMLAh4kGQMA0G\n-----END CERTIFICATE-----";
-      await page.getByLabel("DSC Certificate Chain (PEM)").fill(pemData);
-
-      await page.getByRole("button", { name: "Submit DSC Chain" }).click();
-
-      await expect(page.getByText("Onboarding successful")).toBeVisible();
-      await expect(page.getByText("issuer-e2e")).toBeVisible();
-      await expect(page.getByText("active")).toBeVisible();
-    });
-  });
-
   test.describe("Type B — Domain Verification", () => {
-    test.beforeEach(async ({ page }) => {
-      await page.getByText("Type B (Domain)").click();
-    });
 
     test("shows domain input and verification method options", async ({ page }) => {
       await expect(page.getByText("Type B onboarding: Verify domain ownership")).toBeVisible();
