@@ -209,6 +209,14 @@ export function createApp(deps: AppDependencies) {
   app.route("/delegations", createDelegationStubRoutes());
   app.route("/revocation-status", createRevocationStatusStubRoutes());
 
+  // 404 — return JSON instead of Hono's default plain-text "404 Not Found"
+  app.notFound((c) =>
+    c.json(
+      { error: { code: "NOT_FOUND", message: `${c.req.method} ${c.req.path} not found` } },
+      404,
+    ),
+  );
+
   // Error handler
   app.onError(errorHandler(logger));
 

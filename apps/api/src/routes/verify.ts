@@ -130,5 +130,10 @@ export function createVerifyRoutes(deps: VerifyRoutesDeps = {}) {
     return c.json({ status, checks } satisfies VerifyResponse);
   });
 
+  // 405 for non-POST methods (Hono defaults to 404)
+  verify.all("/", (c) =>
+    c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405),
+  );
+
   return verify;
 }

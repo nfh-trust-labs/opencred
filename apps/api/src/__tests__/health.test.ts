@@ -4,6 +4,24 @@ import { createApp } from "../app.js";
 import { createHealthRoutes } from "../routes/health.js";
 import { makeTestConfig, makeTestLogger } from "./helpers.js";
 
+describe("JSON 404 for unknown routes", () => {
+  it("returns JSON error for unknown paths", async () => {
+    const { app } = createApp({ config: makeTestConfig(), logger: makeTestLogger() });
+    const res = await app.request("/nonexistent-route");
+    expect(res.status).toBe(404);
+    const body = await res.json() as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("NOT_FOUND");
+    expect(body.error.message).toContain("not found");
+  });
+
+  it("returns JSON content-type for 404", async () => {
+    const { app } = createApp({ config: makeTestConfig(), logger: makeTestLogger() });
+    const res = await app.request("/no-such-path");
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-type")).toContain("application/json");
+  });
+});
+
 describe("GET /health", () => {
   it("returns 200 with status ok", async () => {
     const { app } = createApp({ config: makeTestConfig(), logger: makeTestLogger() });

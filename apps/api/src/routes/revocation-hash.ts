@@ -56,5 +56,13 @@ export function createRevocationHashRoute() {
     },
   );
 
+  // 405 for non-POST methods (Hono defaults to 404)
+  route.all("/", (c) =>
+    c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405),
+  );
+  route.all("/batch", (c) =>
+    c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405),
+  );
+
   return route;
 }

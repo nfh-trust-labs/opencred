@@ -602,6 +602,14 @@ export function createDomainVerificationRoutes(deps: DomainVerificationDeps = {}
     });
   });
 
+  // 405 for non-POST methods
+  domainVerify.all("/domain-verify", (c) =>
+    c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405),
+  );
+  domainVerify.all("/domain-verify/confirm", (c) =>
+    c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405),
+  );
+
   return domainVerify;
 }
 
@@ -743,6 +751,11 @@ export function createTypeBOnboardingRoutes(deps: TypeBOnboardingDeps) {
 
     return c.json(response, 201);
   });
+
+  // 405 for non-POST methods
+  typeB.all("/type-b", (c) =>
+    c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405),
+  );
 
   return typeB;
 }

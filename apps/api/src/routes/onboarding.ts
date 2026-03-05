@@ -184,6 +184,11 @@ export function createOnboardingRoutes(deps: OnboardingRoutesDeps) {
     return c.json({ capabilityToken, namespace, expiresAt }, 201);
   });
 
+  // 405 for non-POST methods
+  onboarding.all("/type-a", (c) =>
+    c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405),
+  );
+
   return onboarding;
 }
 
@@ -273,6 +278,14 @@ export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps)
     const cloned = new Request(url.toString(), c.req.raw);
     return businessVc.fetch(cloned, c.env);
   });
+
+  // 405 for non-POST methods
+  businessVc.all("/business-vc", (c) =>
+    c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405),
+  );
+  businessVc.all("/type-d", (c) =>
+    c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405),
+  );
 
   return businessVc;
 }
