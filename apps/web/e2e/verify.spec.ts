@@ -46,7 +46,7 @@ test.describe("Credential Verification", () => {
     await page.getByLabel("Verifiable Credential (JSON-LD or JWS)").fill("not valid json {{{");
     await page.getByRole("button", { name: "Verify" }).click();
 
-    await expect(page.getByText("Invalid JSON", { exact: false })).toBeVisible();
+    await expect(page.getByText("Unrecognized format", { exact: false })).toBeVisible();
   });
 
   test("verify with REVOKED response shows correct status", async ({ page }) => {
