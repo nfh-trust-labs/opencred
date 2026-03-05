@@ -21,6 +21,7 @@ import {
   handleRuntimeMessage,
   isOriginAllowed,
   clearPendingRequests,
+  OPERATION_MAP,
 } from "../background.js";
 
 // ---------------------------------------------------------------------------
@@ -33,7 +34,7 @@ type DisconnectCallback = () => void;
 let nativePortMessageCb: MessageCallback | undefined;
 let nativePortDisconnectCb: DisconnectCallback | undefined;
 
-function makeRequest(id: string, operation = "pkcs11_detect"): RuntimeRequest {
+function makeRequest(id: string, operation = "pkcs11.sign"): RuntimeRequest {
   return {
     action: "signing-request",
     id,
@@ -50,6 +51,46 @@ function makeRequest(id: string, operation = "pkcs11_detect"): RuntimeRequest {
 describe("background types", () => {
   it("should use the correct native host name", () => {
     expect(NATIVE_HOST_NAME).toBe("com.opencred.signing");
+  });
+});
+
+describe("operation name mapping", () => {
+  it("should map all 9 web UI operations to native host format", () => {
+    expect(Object.keys(OPERATION_MAP)).toHaveLength(9);
+  });
+
+  it("should convert dot notation to underscore notation", () => {
+    expect(OPERATION_MAP["pkcs11.listSlots"]).toBe("pkcs11_list_slots");
+    expect(OPERATION_MAP["pkcs11.listKeys"]).toBe("pkcs11_list_keys");
+    expect(OPERATION_MAP["pkcs11.connect"]).toBe("pkcs11_connect");
+    expect(OPERATION_MAP["pkcs11.sign"]).toBe("pkcs11_sign");
+    expect(OPERATION_MAP["pkcs11.disconnect"]).toBe("pkcs11_disconnect");
+    expect(OPERATION_MAP["oscert.list"]).toBe("oscert_list");
+    expect(OPERATION_MAP["oscert.connect"]).toBe("oscert_connect");
+    expect(OPERATION_MAP["oscert.sign"]).toBe("oscert_sign");
+    expect(OPERATION_MAP["oscert.disconnect"]).toBe("oscert_disconnect");
+  });
+
+  it("should not map unknown operations", () => {
+    expect(OPERATION_MAP["unknown.op"]).toBeUndefined();
+    expect(OPERATION_MAP["ping"]).toBeUndefined();
+  });
+});
+
+describe("unknown operation rejection", () => {
+  it("should reject unmapped operations with UNKNOWN_OPERATION error", () => {
+    const sendResponse = vi.fn();
+    const request = makeRequest("req-unknown-1", "unknown.operation");
+
+    const result = handleRuntimeMessage(request, {} as chrome.runtime.MessageSender, sendResponse);
+
+    expect(result).toBe(false);
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        error: expect.objectContaining({ code: "UNKNOWN_OPERATION" }),
+      }),
+    );
   });
 });
 
@@ -148,7 +189,7 @@ describe("native host relay", () => {
     expect(mockPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "req-relay-1",
-        type: "pkcs11_detect",
+        type: "pkcs11_sign",
         origin: TEST_ORIGIN,
       }),
     );
@@ -188,13 +229,19 @@ describe("native host relay", () => {
     expect(sendResponse1).toHaveBeenCalledWith(
       expect.objectContaining({
         success: false,
-        error: expect.objectContaining({ code: "NATIVE_HOST_DISCONNECTED" }),
+        error: expect.objectContaining({
+          code: "NATIVE_HOST_DISCONNECTED",
+          message: expect.stringContaining("Native host disconnected"),
+        }),
       }),
     );
     expect(sendResponse2).toHaveBeenCalledWith(
       expect.objectContaining({
         success: false,
-        error: expect.objectContaining({ code: "NATIVE_HOST_DISCONNECTED" }),
+        error: expect.objectContaining({
+          code: "NATIVE_HOST_DISCONNECTED",
+          message: expect.stringContaining("Native host disconnected"),
+        }),
       }),
     );
   });

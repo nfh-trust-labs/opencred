@@ -156,7 +156,7 @@ describe("extension-client", () => {
       expect(capturedRequests[0].operation).toBe("pkcs11.sign");
       expect(capturedRequests[0].payload).toEqual({
         signerId: "signer-123",
-        dataBase64: "AQID",
+        data: "AQID",
       });
       expect(result.signature).toBe("AQID");
     });
