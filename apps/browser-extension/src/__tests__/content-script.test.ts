@@ -128,6 +128,28 @@ describe("content-script message handling", () => {
     );
   });
 
+  it("should send error when background returns no response", () => {
+    messageHandler!(makeEvent({
+      type: PAGE_REQUEST_TYPE,
+      id: "req-no-resp",
+      operation: "pkcs11_detect",
+      payload: {},
+    }));
+
+    const callback = mockSendMessage.mock.calls[0][1] as (response: unknown) => void;
+    callback(undefined);
+
+    expect(postMessageSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: PAGE_RESPONSE_TYPE,
+        id: "req-no-resp",
+        success: false,
+        error: expect.objectContaining({ code: "NO_RESPONSE" }),
+      }),
+      "*",
+    );
+  });
+
   it("should send error when background communication fails", () => {
     (mockChrome["runtime"] as Record<string, unknown>)["lastError"] = { message: "Error" };
 

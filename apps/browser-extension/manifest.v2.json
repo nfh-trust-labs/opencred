@@ -15,7 +15,7 @@
     {
       "matches": [
         "https://*.opencred.example.com/*",
-        "https://*.up.railway.app/*",
+        "https://web-production-34243.up.railway.app/*",
         "http://localhost:*/*"
       ],
       "js": ["dist/content-script.js"],

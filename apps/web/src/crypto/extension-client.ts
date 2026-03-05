@@ -173,7 +173,7 @@ export const pkcs11 = {
     signerId: string,
     dataBase64: string,
   ): Promise<{ signature: string }> {
-    return sendRequest("pkcs11.sign", { signerId, dataBase64 });
+    return sendRequest("pkcs11.sign", { signerId, data: dataBase64 });
   },
 
   disconnect(signerId: string): Promise<void> {
@@ -201,7 +201,7 @@ export const oscert = {
     signerId: string,
     dataBase64: string,
   ): Promise<{ signature: string }> {
-    return sendRequest("oscert.sign", { signerId, dataBase64 });
+    return sendRequest("oscert.sign", { signerId, data: dataBase64 });
   },
 
   disconnect(signerId: string): Promise<void> {

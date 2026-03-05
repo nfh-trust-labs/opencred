@@ -97,9 +97,10 @@ function ensureNativeConnection(): chrome.runtime.Port {
   });
 
   nativePort.onDisconnect.addListener(() => {
+    const reason = chrome.runtime.lastError?.message ?? "unknown reason";
     nativePort = null;
 
-    // Reject all pending requests
+    // Reject all pending requests with the disconnect reason
     for (const [id, entry] of pendingRequests) {
       clearTimeout(entry.timer);
       entry.callback({
@@ -107,7 +108,7 @@ function ensureNativeConnection(): chrome.runtime.Port {
         success: false,
         error: {
           code: "NATIVE_HOST_DISCONNECTED",
-          message: "Native host disconnected unexpectedly",
+          message: `Native host disconnected: ${reason}`,
         },
       });
     }
@@ -164,8 +165,20 @@ function handleRuntimeMessage(
     return false; // Synchronous response
   }
 
-  // Map operation name from web UI format to native host format
-  const nativeOperation = OPERATION_MAP[message.operation] ?? message.operation;
+  // Map operation name from web UI format to native host format.
+  // The map acts as a strict allowlist — reject unknown operations.
+  const nativeOperation = OPERATION_MAP[message.operation];
+  if (!nativeOperation) {
+    sendResponse({
+      id: message.id,
+      success: false,
+      error: {
+        code: "UNKNOWN_OPERATION",
+        message: `Unsupported operation: ${message.operation}`,
+      },
+    });
+    return false;
+  }
 
   // Relay to native host
   try {
@@ -188,13 +201,14 @@ function handleRuntimeMessage(
       origin: message.origin,
       payload: message.payload,
     });
-  } catch {
+  } catch (err: unknown) {
+    const detail = err instanceof Error ? err.message : "unknown error";
     sendResponse({
       id: message.id,
       success: false,
       error: {
         code: "NATIVE_HOST_ERROR",
-        message: "Failed to connect to native signing host",
+        message: `Failed to connect to native signing host: ${detail}`,
       },
     });
     return false;

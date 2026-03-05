@@ -70,6 +70,28 @@ describe("operation name mapping", () => {
     expect(OPERATION_MAP["oscert.sign"]).toBe("oscert_sign");
     expect(OPERATION_MAP["oscert.disconnect"]).toBe("oscert_disconnect");
   });
+
+  it("should not map unknown operations", () => {
+    expect(OPERATION_MAP["unknown.op"]).toBeUndefined();
+    expect(OPERATION_MAP["ping"]).toBeUndefined();
+  });
+});
+
+describe("unknown operation rejection", () => {
+  it("should reject unmapped operations with UNKNOWN_OPERATION error", () => {
+    const sendResponse = vi.fn();
+    const request = makeRequest("req-unknown-1", "unknown.operation");
+
+    const result = handleRuntimeMessage(request, {} as chrome.runtime.MessageSender, sendResponse);
+
+    expect(result).toBe(false);
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        error: expect.objectContaining({ code: "UNKNOWN_OPERATION" }),
+      }),
+    );
+  });
 });
 
 describe("message handler registration", () => {
@@ -207,13 +229,19 @@ describe("native host relay", () => {
     expect(sendResponse1).toHaveBeenCalledWith(
       expect.objectContaining({
         success: false,
-        error: expect.objectContaining({ code: "NATIVE_HOST_DISCONNECTED" }),
+        error: expect.objectContaining({
+          code: "NATIVE_HOST_DISCONNECTED",
+          message: expect.stringContaining("Native host disconnected"),
+        }),
       }),
     );
     expect(sendResponse2).toHaveBeenCalledWith(
       expect.objectContaining({
         success: false,
-        error: expect.objectContaining({ code: "NATIVE_HOST_DISCONNECTED" }),
+        error: expect.objectContaining({
+          code: "NATIVE_HOST_DISCONNECTED",
+          message: expect.stringContaining("Native host disconnected"),
+        }),
       }),
     );
   });

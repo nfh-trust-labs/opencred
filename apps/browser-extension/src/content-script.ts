@@ -101,6 +101,17 @@ function handleSigningRequest(request: PageRequest): void {
         error: response.error,
       };
       window.postMessage(pageResponse, "*");
+    } else {
+      const noResponse: PageResponse = {
+        type: PAGE_RESPONSE_TYPE,
+        id: request.id,
+        success: false,
+        error: {
+          code: "NO_RESPONSE",
+          message: "Extension background did not respond",
+        },
+      };
+      window.postMessage(noResponse, "*");
     }
   });
 }
