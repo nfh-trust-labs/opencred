@@ -834,3 +834,30 @@ describe("validateDscChain", () => {
     expect(result.detail).toContain("was not issued by");
   });
 });
+
+describe("HTTP method handling", () => {
+  it("returns 405 for GET /verify", async () => {
+    const app = createTestApp({});
+    const res = await app.request("/verify", { method: "GET" });
+    expect(res.status).toBe(405);
+    const body = await res.json() as { error: { code: string } };
+    expect(body.error.code).toBe("METHOD_NOT_ALLOWED");
+  });
+
+  it("returns 405 for PUT /verify", async () => {
+    const app = createTestApp({});
+    const res = await app.request("/verify", { method: "PUT" });
+    expect(res.status).toBe(405);
+  });
+
+  it("POST /verify is not blocked by the 405 handler", async () => {
+    const app = createTestApp({});
+    const res = await app.request("/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: { type: ["VerifiableCredential"] } }),
+    });
+    // POST should reach the real handler, not the 405 catch-all
+    expect(res.status).not.toBe(405);
+  });
+});

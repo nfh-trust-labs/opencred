@@ -100,6 +100,20 @@ describe("OpenCredClient", () => {
     await expect(client.verifyCredential({})).rejects.toThrow("Schema not found");
   });
 
+  it("throws a readable error when API returns non-JSON response", async () => {
+    const client = new OpenCredClient("http://localhost:3000");
+    mockFetch.mockReturnValue(
+      Promise.resolve({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        json: () => Promise.reject(new SyntaxError("Unexpected token")),
+      }),
+    );
+
+    await expect(client.verifyCredential({})).rejects.toThrow("Request failed: 404 Not Found");
+  });
+
   it("omits Authorization header when no token provided", async () => {
     const client = new OpenCredClient("http://localhost:3000");
     mockFetch.mockReturnValue(jsonResponse({ status: "VALID", checks: {} }));

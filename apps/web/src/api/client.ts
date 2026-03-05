@@ -217,7 +217,12 @@ export class OpenCredClient {
       body: JSON.stringify(body),
     });
 
-    const json = await res.json();
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch {
+      throw new Error(`Request failed: ${res.status} ${res.statusText}`);
+    }
 
     if (!res.ok) {
       const apiErr = json as ApiError;
@@ -233,7 +238,12 @@ export class OpenCredClient {
       headers: this.headers(),
     });
 
-    const json = await res.json();
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch {
+      throw new Error(`Request failed: ${res.status} ${res.statusText}`);
+    }
 
     if (!res.ok) {
       const apiErr = json as ApiError;
@@ -255,7 +265,12 @@ export class OpenCredClient {
       body: formData,
     });
 
-    const json = await res.json();
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch {
+      throw new Error(`Request failed: ${res.status} ${res.statusText}`);
+    }
 
     if (!res.ok) {
       const apiErr = json as ApiError;

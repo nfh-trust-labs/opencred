@@ -59,5 +59,12 @@ export function createCaRequestRoutes(deps: CaRequestRoutesDeps) {
   caRequest.post("/type-c", handleCaRequest);
   caRequest.post("/type-c/status", handleCaStatus);
 
+  // 405 for non-POST methods
+  for (const path of ["/ca-request", "/ca-request/status", "/type-c", "/type-c/status"]) {
+    caRequest.all(path, (c) =>
+      c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405),
+    );
+  }
+
   return caRequest;
 }
