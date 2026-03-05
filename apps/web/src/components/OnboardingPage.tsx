@@ -6,25 +6,19 @@ interface Props {
   token: string;
 }
 
-type OnboardingType = "type-a" | "type-b" | "type-d";
+type OnboardingType = "type-b" | "type-d";
 
 export function OnboardingPage({ apiUrl, token }: Props) {
-  const [activeType, setActiveType] = useState<OnboardingType>("type-a");
+  const [activeType, setActiveType] = useState<OnboardingType>("type-b");
 
   return (
     <div className="space-y-6">
+      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-600">
+        Issuers with an existing DSC (Type A) do not need onboarding — provide your DSC chain
+        when issuing credentials via the Issue Credential page.
+      </div>
+
       <div className="flex space-x-1 bg-gray-100 rounded-lg p-1">
-        <button
-          type="button"
-          onClick={() => setActiveType("type-a")}
-          className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
-            activeType === "type-a"
-              ? "bg-white text-gray-900 shadow-sm"
-              : "text-gray-500 hover:text-gray-700"
-          }`}
-        >
-          Type A (DSC)
-        </button>
         <button
           type="button"
           onClick={() => setActiveType("type-b")}
@@ -49,110 +43,8 @@ export function OnboardingPage({ apiUrl, token }: Props) {
         </button>
       </div>
 
-      {activeType === "type-a" && <TypeAOnboarding apiUrl={apiUrl} token={token} />}
       {activeType === "type-b" && <TypeBOnboarding apiUrl={apiUrl} token={token} />}
       {activeType === "type-d" && <TypeDOnboarding apiUrl={apiUrl} token={token} />}
-    </div>
-  );
-}
-
-// --- Type A: DSC Upload ---
-
-function TypeAOnboarding({ apiUrl, token }: { apiUrl: string; token: string }) {
-  const [dscChain, setDscChain] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ issuerId: string; status: string } | null>(null);
-
-  function handleFile(file: File) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      setDscChain(reader.result as string);
-      setResult(null);
-      setError(null);
-    };
-    reader.readAsText(file);
-  }
-
-  async function handleSubmit() {
-    if (!dscChain.trim()) return;
-    setLoading(true);
-    setError(null);
-    setResult(null);
-
-    try {
-      const client = new OpenCredClient(apiUrl, token || undefined);
-      const res = await client.onboardTypeA(dscChain.trim());
-      setResult(res);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Onboarding failed");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
-        <p className="text-sm text-blue-800">
-          Type A onboarding: Upload your Document Signer Certificate (DSC) chain to register as an
-          issuer.
-        </p>
-      </div>
-
-      <div>
-        <label htmlFor="dsc-chain" className="block text-sm font-medium text-gray-700">
-          DSC Certificate Chain (PEM)
-        </label>
-        <textarea
-          id="dsc-chain"
-          rows={8}
-          value={dscChain}
-          onChange={(e) => {
-            setDscChain(e.target.value);
-            setResult(null);
-          }}
-          placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-        />
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={!dscChain.trim() || loading}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-        >
-          {loading ? "Submitting..." : "Submit DSC Chain"}
-        </button>
-        <label className="cursor-pointer rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
-          Upload PEM File
-          <input
-            type="file"
-            accept=".pem,.crt,.cer"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFile(file);
-            }}
-          />
-        </label>
-      </div>
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-          <p className="text-sm text-red-700">{error}</p>
-        </div>
-      )}
-
-      {result && (
-        <div className="rounded-lg border border-green-200 bg-green-50 p-4">
-          <p className="text-sm font-medium text-green-800">Onboarding successful</p>
-          <p className="mt-1 text-xs text-green-600">Issuer ID: {result.issuerId}</p>
-          <p className="text-xs text-green-600">Status: {result.status}</p>
-        </div>
-      )}
     </div>
   );
 }
