@@ -13,34 +13,11 @@ test.describe("Revocation Hash Computation", () => {
     await expect(page.getByText("Batch Hashes")).toBeVisible();
   });
 
-  test("single hash — enter hash and compute", async ({ page }) => {
-    // Hash mode should be default
-    const hashInput = page.getByRole("textbox", { name: "Credential Hash" });
-    await expect(hashInput).toBeVisible();
-
-    // Enter a hash
-    await hashInput.fill("abc123hash");
-
-    // Click Compute Hash
-    await page.getByRole("button", { name: "Compute Hash" }).click();
-
-    // Should show hash result with instruction text
-    await expect(page.getByText("abc123hash")).toBeVisible();
-    await expect(page.getByText("Publish this hash to your DeDi revocation registry")).toBeVisible();
-  });
-
   test("single hash — compute hash button disabled when input is empty", async ({ page }) => {
     await expect(page.getByRole("button", { name: "Compute Hash" })).toBeDisabled();
   });
 
-  test("switch input type to Credential JSON mode", async ({ page }) => {
-    await page.getByRole("radio", { name: "Credential JSON" }).click();
-    await expect(page.getByRole("textbox", { name: "Credential JSON" })).toBeVisible();
-  });
-
   test("compute hash from credential JSON", async ({ page }) => {
-    await page.getByRole("radio", { name: "Credential JSON" }).click();
-
     const vcJson = JSON.stringify({ type: ["VerifiableCredential"], proof: {} });
     await page.getByRole("textbox", { name: "Credential JSON" }).fill(vcJson);
 
@@ -52,8 +29,8 @@ test.describe("Revocation Hash Computation", () => {
   });
 
   test("copy to clipboard button appears after hash computed", async ({ page }) => {
-    const hashInput = page.getByRole("textbox", { name: "Credential Hash" });
-    await hashInput.fill("test-hash");
+    const vcJson = JSON.stringify({ type: ["VerifiableCredential"], proof: {} });
+    await page.getByRole("textbox", { name: "Credential JSON" }).fill(vcJson);
     await page.getByRole("button", { name: "Compute Hash" }).click();
 
     await expect(page.getByRole("button", { name: "Copy to Clipboard" })).toBeVisible();

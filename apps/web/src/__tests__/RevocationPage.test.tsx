@@ -24,9 +24,9 @@ describe("RevocationPage", () => {
     expect(screen.getByText(/batch hashes/i)).toBeInTheDocument();
   });
 
-  it("defaults to single hash mode with hash input", () => {
+  it("defaults to single hash mode with credential JSON input", () => {
     render(<RevocationPage apiUrl="/api" token="" />);
-    expect(screen.getByRole("textbox", { name: /credential hash/i })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /credential json/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /compute hash/i })).toBeInTheDocument();
   });
 
@@ -35,31 +35,11 @@ describe("RevocationPage", () => {
     expect(screen.getByRole("button", { name: /compute hash/i })).toBeDisabled();
   });
 
-  it("switches to credential JSON input mode", async () => {
-    const user = userEvent.setup();
-    render(<RevocationPage apiUrl="/api" token="" />);
-    await user.click(screen.getByRole("radio", { name: /credential json/i }));
-    expect(screen.getByRole("radio", { name: /credential json/i })).toBeChecked();
-  });
-
-  it("computes hash from pre-entered hash (displays it directly)", async () => {
-    const user = userEvent.setup();
-    render(<RevocationPage apiUrl="http://localhost:3000" token="" />);
-    await user.type(screen.getByRole("textbox", { name: /credential hash/i }), "abc-hash");
-    await user.click(screen.getByRole("button", { name: /compute hash/i }));
-
-    // Hash is displayed directly (no API call for hash input)
-    expect(await screen.findByText("abc-hash")).toBeInTheDocument();
-    expect(screen.getByText(/publish this hash to your dedi revocation registry/i)).toBeInTheDocument();
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
   it("computes hash from credential JSON via API", async () => {
     const user = userEvent.setup();
     mockFetch.mockReturnValue(jsonResponse({ hash: "computed-hash-xyz" }));
 
     render(<RevocationPage apiUrl="http://localhost:3000" token="" />);
-    await user.click(screen.getByRole("radio", { name: /credential json/i }));
 
     const textarea = screen.getByRole("textbox", { name: /credential json/i });
     fireEvent.change(textarea, { target: { value: '{"type":"VC"}' } });
@@ -71,8 +51,12 @@ describe("RevocationPage", () => {
 
   it("shows copy to clipboard button after hash computed", async () => {
     const user = userEvent.setup();
+    mockFetch.mockReturnValue(jsonResponse({ hash: "computed-hash-xyz" }));
+
     render(<RevocationPage apiUrl="http://localhost:3000" token="" />);
-    await user.type(screen.getByRole("textbox", { name: /credential hash/i }), "abc-hash");
+
+    const textarea = screen.getByRole("textbox", { name: /credential json/i });
+    fireEvent.change(textarea, { target: { value: '{"type":"VC"}' } });
     await user.click(screen.getByRole("button", { name: /compute hash/i }));
 
     const copyBtn = await screen.findByRole("button", { name: /copy to clipboard/i });
@@ -86,7 +70,6 @@ describe("RevocationPage", () => {
     );
 
     render(<RevocationPage apiUrl="http://localhost:3000" token="" />);
-    await user.click(screen.getByRole("radio", { name: /credential json/i }));
 
     const textarea = screen.getByRole("textbox", { name: /credential json/i });
     fireEvent.change(textarea, { target: { value: '{"type":"VC"}' } });
@@ -95,10 +78,9 @@ describe("RevocationPage", () => {
     expect(await screen.findByText("Invalid credential")).toBeInTheDocument();
   });
 
-  it("shows error for invalid JSON in credential mode", async () => {
+  it("shows error for invalid JSON", async () => {
     const user = userEvent.setup();
     render(<RevocationPage apiUrl="http://localhost:3000" token="" />);
-    await user.click(screen.getByRole("radio", { name: /credential json/i }));
 
     const textarea = screen.getByRole("textbox", { name: /credential json/i });
     await user.clear(textarea);
