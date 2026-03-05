@@ -80,9 +80,31 @@ async function resolvePublicKeyFromVerificationMethod(
       ? `#${verificationMethod.split("#")[1]}`
       : undefined;
 
-    const vm = resolution.didDocument.verificationMethod.find(
+    let vm = resolution.didDocument.verificationMethod.find(
       (m) => m.id === vmId || (fragmentId && m.id === fragmentId),
     );
+
+    // Fallback: if the fragment is a base64url-encoded JWK (e.g. from the web UI),
+    // it won't match the multibase fragment that did:key resolvers produce.
+    // In that case, try to extract the public key directly from the fragment,
+    // or fall back to the single VM in the document (did:key always has exactly one).
+    if (!vm && fragmentId) {
+      // Try decoding the fragment as a base64url JWK
+      try {
+        const decoded = fragmentId.slice(1); // remove leading '#'
+        const jwkJson = JSON.parse(atob(decoded.replace(/-/g, "+").replace(/_/g, "/")));
+        if (jwkJson.kty) {
+          return createPublicKey({ key: jwkJson, format: "jwk" });
+        }
+      } catch {
+        // Not a valid JWK fragment — fall through
+      }
+
+      // For did:key (single-key DIDs), use the only VM available
+      if (did.startsWith("did:key:") && resolution.didDocument.verificationMethod.length === 1) {
+        vm = resolution.didDocument.verificationMethod[0];
+      }
+    }
 
     if (!vm) {
       return undefined;
