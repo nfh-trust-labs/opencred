@@ -62,7 +62,7 @@ test.describe("Revocation Hash Computation", () => {
   test("switch to batch mode — shows batch interface", async ({ page }) => {
     await page.getByText("Batch Hashes").click();
 
-    await expect(page.getByLabelText(/credential jsons/i)).toBeVisible();
+    await expect(page.getByLabel(/credential jsons/i)).toBeVisible();
     await expect(page.getByRole("button", { name: "Compute Hashes" })).toBeVisible();
     await expect(page.getByText("Upload File")).toBeVisible();
   });
@@ -72,7 +72,7 @@ test.describe("Revocation Hash Computation", () => {
 
     // Enter credential JSONs as array
     const creds = JSON.stringify([{ type: "VC1" }, { type: "VC2" }]);
-    await page.getByLabelText(/credential jsons/i).fill(creds);
+    await page.getByLabel(/credential jsons/i).fill(creds);
 
     // Click Compute Hashes
     await page.getByRole("button", { name: "Compute Hashes" }).click();
@@ -93,7 +93,7 @@ test.describe("Revocation Hash Computation", () => {
     await page.getByText("Batch Hashes").click();
 
     const creds = JSON.stringify([{ type: "VC1" }]);
-    await page.getByLabelText(/credential jsons/i).fill(creds);
+    await page.getByLabel(/credential jsons/i).fill(creds);
     await page.getByRole("button", { name: "Compute Hashes" }).click();
 
     await expect(page.getByRole("button", { name: "Copy All" })).toBeVisible();

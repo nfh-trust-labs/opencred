@@ -24,15 +24,17 @@ export const SAMPLE_VC_JSON = JSON.stringify(
 );
 
 /**
- * Sample JWK for tests (P-256 key — used for form population, not real signing).
+ * Sample JWK for tests (P-256 key — used for form population and WebCrypto import).
+ * Generated via Node.js crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }).
+ * This is a throwaway test key — never use in production.
  */
 export const SAMPLE_JWK = JSON.stringify(
   {
     kty: "EC",
     crv: "P-256",
-    x: "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
-    y: "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
-    d: "jpsQnnGQmL-YBIffS1BSyVKhrlxSRbFgNLT3CEIG1Tg",
+    x: "SRNND8DnxSXkjZFQqobxGjjr1j5ymdCGyxljtixSvqs",
+    y: "iLq9jdUrLeJ2hJPlALYq8TtAoevIK-AdjA6cHs2RoxU",
+    d: "o9g0xgVcxgELnHYpgyPsPDEUzYlxlNxEdRrQKEXVRvo",
   },
   null,
   2,

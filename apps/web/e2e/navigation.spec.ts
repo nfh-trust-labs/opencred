@@ -42,7 +42,7 @@ test.describe("Navigation", () => {
 
     // Revocation shows single/batch toggle
     await page.getByRole("tab", { name: "Revocation" }).click();
-    await expect(page.getByText("Single Revocation")).toBeVisible();
+    await expect(page.getByText("Single Hash")).toBeVisible();
 
     // Onboarding shows Type A/B/D subtabs
     await page.getByRole("tab", { name: "Onboarding" }).click();
