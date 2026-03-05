@@ -35,8 +35,7 @@ import {
  * does its own validation. But we check here too.
  */
 const ALLOWED_ORIGINS = new Set<string>([
-  // Add production origins here when deployed
-  // "https://app.opencred.example.com",
+  "https://web-production-34243.up.railway.app",
 ]);
 
 /**
@@ -119,6 +118,29 @@ function ensureNativeConnection(): chrome.runtime.Port {
 }
 
 // ---------------------------------------------------------------------------
+// Operation name mapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Map web UI operation names (dot notation from extension-client.ts) to
+ * native host operation types (underscore notation from protocol.ts).
+ *
+ * Web UI sends:   "pkcs11.listSlots"
+ * Native expects: "pkcs11_list_slots"
+ */
+const OPERATION_MAP: Record<string, string> = {
+  "pkcs11.listSlots": "pkcs11_list_slots",
+  "pkcs11.listKeys": "pkcs11_list_keys",
+  "pkcs11.connect": "pkcs11_connect",
+  "pkcs11.sign": "pkcs11_sign",
+  "pkcs11.disconnect": "pkcs11_disconnect",
+  "oscert.list": "oscert_list",
+  "oscert.connect": "oscert_connect",
+  "oscert.sign": "oscert_sign",
+  "oscert.disconnect": "oscert_disconnect",
+};
+
+// ---------------------------------------------------------------------------
 // Message handling
 // ---------------------------------------------------------------------------
 
@@ -142,6 +164,9 @@ function handleRuntimeMessage(
     return false; // Synchronous response
   }
 
+  // Map operation name from web UI format to native host format
+  const nativeOperation = OPERATION_MAP[message.operation] ?? message.operation;
+
   // Relay to native host
   try {
     const port = ensureNativeConnection();
@@ -159,7 +184,7 @@ function handleRuntimeMessage(
 
     port.postMessage({
       id: message.id,
-      type: message.operation,
+      type: nativeOperation,
       origin: message.origin,
       payload: message.payload,
     });
@@ -183,4 +208,4 @@ function handleRuntimeMessage(
 chrome.runtime.onMessage.addListener(handleRuntimeMessage);
 
 // Export for testing
-export { handleRuntimeMessage, isOriginAllowed, ALLOWED_ORIGINS, clearPendingRequests };
+export { handleRuntimeMessage, isOriginAllowed, ALLOWED_ORIGINS, clearPendingRequests, OPERATION_MAP };

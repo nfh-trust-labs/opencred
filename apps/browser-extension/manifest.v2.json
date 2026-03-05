@@ -14,7 +14,9 @@
   "content_scripts": [
     {
       "matches": [
-        "https://*.opencred.example.com/*"
+        "https://*.opencred.example.com/*",
+        "https://*.up.railway.app/*",
+        "http://localhost:*/*"
       ],
       "js": ["dist/content-script.js"],
       "run_at": "document_start"
