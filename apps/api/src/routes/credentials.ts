@@ -536,13 +536,22 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
         return c.json({ credential: credentialWithDelegation, credentialHash, formats }, 201);
       },
     );
+  } else {
+    // Delegated signing not configured — return a clear error for POST requests
+    credentials.post("/issue-delegated", (c) =>
+      c.json(
+        { error: { code: "NOT_CONFIGURED", message: "Delegated signing is not configured on this server" } },
+        501,
+      ),
+    );
   }
 
   // 405 for non-POST methods
   for (const path of ["/build", "/package", "/issue-delegated"]) {
-    credentials.all(path, (c) =>
-      c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405),
-    );
+    credentials.all(path, (c) => {
+      if (c.req.method === "POST") return c.notFound();
+      return c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405);
+    });
   }
 
   return { credentials, sessionStore };

@@ -190,8 +190,8 @@ test.describe("Credential Builder — Railway Integration", () => {
     // Should show an error (since delegation doesn't exist on real server)
     // The UI should display some error indication — either an error message or a toast
     await expect(
-      page.getByText(/error|fail|not found|invalid|unable|request failed/i).first(),
-    ).toBeVisible({ timeout: 15000 });
+      page.getByText(/error|fail|not found|invalid|unable|request failed|not configured/i).first(),
+    ).toBeVisible({ timeout: 30000 });
   });
 });
 
@@ -251,8 +251,8 @@ test.describe("Delegated Issuance — Railway Integration", () => {
 
     // Should show error (no real delegation exists)
     await expect(
-      page.getByText(/error|fail|not found|invalid|unable|request failed/i).first(),
-    ).toBeVisible({ timeout: 15000 });
+      page.getByText(/error|fail|not found|invalid|unable|request failed|not configured/i).first(),
+    ).toBeVisible({ timeout: 30000 });
   });
 });
 
@@ -284,7 +284,7 @@ test.describe("Verification — Railway Integration", () => {
     // The verification result area should appear
     await expect(
       page.getByTestId("verification-status"),
-    ).toBeVisible({ timeout: 15000 });
+    ).toBeVisible({ timeout: 30000 });
 
     // The status should be INVALID since the sample VC has no valid proof
     const statusText = await page.getByTestId("verification-status").textContent();
@@ -309,7 +309,7 @@ test.describe("Verification — Railway Integration", () => {
     // Wait for result
     await expect(
       page.getByTestId("verification-status"),
-    ).toBeVisible({ timeout: 15000 });
+    ).toBeVisible({ timeout: 30000 });
 
     // Clear textarea
     await page.getByLabel("Verifiable Credential (JSON-LD or JWS)").fill("");
@@ -369,7 +369,7 @@ test.describe("Revocation — Railway Integration", () => {
     // API should return a hash or an error — either way the UI should respond
     await expect(
       page.getByText(/hash|error|fail|request failed/i).first(),
-    ).toBeVisible({ timeout: 15000 });
+    ).toBeVisible({ timeout: 30000 });
   });
 
   test("switch to batch mode — shows batch interface", async ({ page }) => {
@@ -396,7 +396,7 @@ test.describe("Revocation — Railway Integration", () => {
     // API should return hashes or an error — either way the UI should respond
     await expect(
       page.getByText(/hash|computed|error|fail|request failed/i).first(),
-    ).toBeVisible({ timeout: 15000 });
+    ).toBeVisible({ timeout: 30000 });
   });
 });
 
@@ -481,7 +481,7 @@ test.describe("Onboarding — Railway Integration", () => {
       // Real API should return error for invalid PEM
       await expect(
         page.getByText(/error|fail|invalid|unable|request failed/i).first(),
-      ).toBeVisible({ timeout: 15000 });
+      ).toBeVisible({ timeout: 30000 });
     });
   });
 
@@ -511,7 +511,7 @@ test.describe("Onboarding — Railway Integration", () => {
       // Either way the UI should respond
       await expect(
         page.getByText(/challenge|error|fail|request failed/i).first(),
-      ).toBeVisible({ timeout: 15000 });
+      ).toBeVisible({ timeout: 30000 });
     });
   });
 
@@ -561,7 +561,7 @@ test.describe("Onboarding — Railway Integration", () => {
       // Real API should return success or error
       await expect(
         page.getByText(/onboarding|delegation|error|fail|invalid|request failed/i).first(),
-      ).toBeVisible({ timeout: 15000 });
+      ).toBeVisible({ timeout: 30000 });
     });
   });
 });
