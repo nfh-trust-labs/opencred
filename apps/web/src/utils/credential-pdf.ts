@@ -10,6 +10,7 @@ import QRCode from "qrcode";
 
 interface CredentialPdfOptions {
   credential: Record<string, unknown> | string;
+  /** Schema ID used during issuance — used as fallback title when the credential type is generic. */
   schemaId?: string;
   proofMechanism?: string;
 }
@@ -80,8 +81,14 @@ function formatFieldName(name: string): string {
  * Generate a PDF with credential details and a QR code containing the credential.
  */
 export async function generateCredentialPdf(options: CredentialPdfOptions): Promise<Blob> {
-  const { credential, proofMechanism } = options;
+  const { credential, schemaId, proofMechanism } = options;
   const display = extractDisplayFields(credential);
+
+  // Use schemaId as fallback title when credential type is generic
+  if (display.type === "Verifiable Credential" && schemaId) {
+    // schemaId may be a short key like "business" — title-case it
+    display.type = schemaId.charAt(0).toUpperCase() + schemaId.slice(1) + " Credential";
+  }
 
   // Serialize credential for QR
   const credentialString =
