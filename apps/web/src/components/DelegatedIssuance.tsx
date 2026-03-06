@@ -3,6 +3,7 @@ import { SchemaSelector } from "./SchemaSelector";
 import { CredentialForm } from "./CredentialForm";
 import { getSchema } from "../schemas";
 import { OpenCredClient } from "../api/client";
+import { generateCredentialPdf } from "../utils/credential-pdf";
 
 interface Props {
   apiUrl: string;
@@ -82,6 +83,24 @@ export function DelegatedIssuance({ apiUrl, token }: Props) {
     URL.revokeObjectURL(url);
   }
 
+  async function handleDownloadPdf() {
+    if (!credential) return;
+    try {
+      const blob = await generateCredentialPdf({
+        credential,
+        schemaId,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "credential-delegated.pdf";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("PDF generation failed:", err);
+    }
+  }
+
   function handleReset() {
     setStep("setup");
     setDelegationId("");
@@ -111,6 +130,13 @@ export function DelegatedIssuance({ apiUrl, token }: Props) {
             className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
           >
             Download JSON
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            className="rounded-md bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
+          >
+            Download PDF
           </button>
           <button
             type="button"
