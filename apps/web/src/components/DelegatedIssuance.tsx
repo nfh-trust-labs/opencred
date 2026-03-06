@@ -79,7 +79,9 @@ export function DelegatedIssuance({ apiUrl, token }: Props) {
     const a = document.createElement("a");
     a.href = url;
     a.download = "credential-delegated.json";
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
@@ -94,7 +96,9 @@ export function DelegatedIssuance({ apiUrl, token }: Props) {
       const a = document.createElement("a");
       a.href = url;
       a.download = "credential-delegated.pdf";
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("PDF generation failed:", err);

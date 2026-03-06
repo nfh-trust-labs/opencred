@@ -154,7 +154,9 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
     const a = document.createElement("a");
     a.href = url;
     a.download = `credential.${ext}`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
@@ -170,7 +172,9 @@ export function CredentialBuilder({ apiUrl, token, extensionAvailable }: Props) 
       const a = document.createElement("a");
       a.href = url;
       a.download = "credential.pdf";
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("PDF generation failed:", err);
