@@ -205,7 +205,7 @@ export class OpenCredClient {
   private headers(): Record<string, string> {
     const h: Record<string, string> = { "Content-Type": "application/json" };
     if (this.token) {
-      h["Authorization"] = `Bearer ${this.token}`;
+      h["Authorization"] = `Bearer ${this.token.replace(/\s/g, "")}`;
     }
     return h;
   }
@@ -256,7 +256,7 @@ export class OpenCredClient {
   private async requestFormData<T>(path: string, formData: FormData): Promise<T> {
     const h: Record<string, string> = {};
     if (this.token) {
-      h["Authorization"] = `Bearer ${this.token}`;
+      h["Authorization"] = `Bearer ${this.token.replace(/\s/g, "")}`;
     }
 
     const res = await fetch(`${this.baseUrl}${path}`, {
