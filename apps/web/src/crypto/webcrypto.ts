@@ -323,8 +323,12 @@ export async function importPfxFile(
     .filter((bag) => bag.cert)
     .map((bag) => forge.pki.certificateToPem(bag.cert!));
 
-  // Detect algorithm from key type
-  const keyPem = forge.pki.privateKeyToPem(forgeKey);
+  // Convert to PKCS#8 PEM — forge.pki.privateKeyToPem() produces PKCS#1
+  // ("BEGIN RSA PRIVATE KEY") but SubtleCrypto requires PKCS#8.
+  const pkcs8Asn1 = forge.pki.wrapRsaPrivateKey(
+    forge.pki.privateKeyToAsn1(forgeKey),
+  );
+  const keyPem = forge.pki.privateKeyInfoToPem(pkcs8Asn1);
 
   // Try importing as EC then RSA
   let result: ImportedKeyResult;
