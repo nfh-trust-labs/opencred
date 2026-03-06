@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   importJwkFile,
   importPemFile,
@@ -21,6 +21,7 @@ interface Props {
 }
 
 export function KeyImport({ onKeyImported }: Props) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [raw, setRaw] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [imported, setImported] = useState(false);
@@ -132,18 +133,24 @@ export function KeyImport({ onKeyImported }: Props) {
         >
           Import Key
         </button>
-        <label className="cursor-pointer rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,.jwk,.pem,.key,.pfx,.p12"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleFile(file);
+            e.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+        >
           Upload file
-          <input
-            type="file"
-            accept=".json,.jwk,.pem,.key,.pfx,.p12"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFile(file);
-            }}
-          />
-        </label>
+        </button>
         {detectedFormat && (
           <span className="text-xs text-gray-500">Format: {detectedFormat.toUpperCase()}</span>
         )}
