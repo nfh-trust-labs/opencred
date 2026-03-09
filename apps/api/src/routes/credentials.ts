@@ -161,7 +161,7 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
       const keyAlgorithm = body.keyAlgorithm as SigningAlgorithm | undefined;
       const proofFormat: ProofFormat = (body.proofFormat as ProofFormat | undefined)
         ?? defaultProofFormat(keyAlgorithm ?? "P-256");
-      const verificationMethod = `${body.issuer}#${body.publicKey}`;
+      const verificationMethod = `did:jwk:${body.publicKey}#0`;
 
       const sessionId = randomUUID();
 

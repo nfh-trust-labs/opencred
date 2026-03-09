@@ -791,7 +791,7 @@ async function processInterfaceBatchPhase1(
 
       const unsignedCredential = builder.build();
 
-      const verificationMethod = `${body.issuer}#${body.publicKey}`;
+      const verificationMethod = `did:jwk:${body.publicKey}#0`;
       const prepared = await prepareProof(unsignedCredential, {
         verificationMethod,
         proofPurpose: "assertionMethod",
