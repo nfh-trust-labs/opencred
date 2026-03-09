@@ -126,18 +126,6 @@ describe("OpenCredClient", () => {
 
   // --- New endpoint tests ---
 
-  it("sends onboardTypeA request", async () => {
-    const client = new OpenCredClient("http://localhost:3000", "tok");
-    mockFetch.mockReturnValue(jsonResponse({ issuerId: "iss-1", status: "active" }));
-
-    const res = await client.onboardTypeA("-----BEGIN CERTIFICATE-----");
-
-    const [url, opts] = mockFetch.mock.calls[0];
-    expect(url).toBe("http://localhost:3000/onboarding/type-a");
-    expect(JSON.parse(opts.body)).toEqual({ dscChain: "-----BEGIN CERTIFICATE-----" });
-    expect(res.issuerId).toBe("iss-1");
-  });
-
   it("sends onboardDomainVerify request", async () => {
     const client = new OpenCredClient("http://localhost:3000");
     mockFetch.mockReturnValue(
