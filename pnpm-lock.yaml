@@ -53,6 +53,9 @@ importers:
       '@opencred/did':
         specifier: workspace:*
         version: link:../../packages/did
+      '@opencred/key-attestation':
+        specifier: workspace:*
+        version: link:../../packages/key-attestation
       '@opencred/schema-engine':
         specifier: workspace:*
         version: link:../../packages/schema-engine
@@ -111,6 +114,9 @@ importers:
       '@opencred/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
+      '@opencred/key-attestation':
+        specifier: workspace:*
+        version: link:../../packages/key-attestation
       '@opencred/schema-engine':
         specifier: workspace:*
         version: link:../../packages/schema-engine
@@ -120,6 +126,9 @@ importers:
       '@opencred/signing':
         specifier: workspace:*
         version: link:../../packages/signing
+      '@opencred/templates':
+        specifier: workspace:*
+        version: link:../../packages/templates
       '@opencred/vc-core':
         specifier: workspace:*
         version: link:../../packages/vc-core

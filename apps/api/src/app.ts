@@ -18,6 +18,7 @@ import { createVerifyRoutes } from "./routes/verify.js";
 import { createCredentialsRoute } from "./routes/credentials.js";
 import { createBatchRoute } from "./routes/batch.js";
 import { createRevocationHashRoute } from "./routes/revocation-hash.js";
+import { createAttestationRoutes } from "./routes/attestation.js";
 import { createBusinessVcOnboardingRoutes } from "./routes/onboarding.js";
 import { createCaRequestRoutes, type CertificateAuthorityAdapter } from "./routes/ca-request.js";
 import {
@@ -128,6 +129,15 @@ export function createApp(deps: AppDependencies) {
 
   // Public verification endpoint (no auth required)
   app.route("/verify", createVerifyRoutes({ trustStore, dediClient: deps.dediClient }));
+
+  // Attestation endpoints (unauthenticated — Quick Start / Workflow 3)
+  app.route(
+    "/attestation",
+    createAttestationRoutes({
+      signingKeyProvider: deps.signingKeyProvider,
+      opencredDid: deps.opencredSigningKeyDid,
+    }),
+  );
 
   // Onboarding endpoints (unauthenticated — these ARE auth issuance endpoints)
   // Note: Type A (DSC) issuers do not need onboarding — they provide their
