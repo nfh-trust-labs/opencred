@@ -467,6 +467,38 @@ describe("POST /verify", () => {
     });
   });
 
+  describe("result code: ATTESTATION_INVALID", () => {
+    it("returns ATTESTATION_INVALID when attestation chain verification fails", async () => {
+      const spy = vi.spyOn(await import("@opencred/verification"), "verifyCredential");
+      spy.mockResolvedValueOnce({
+        code: "ATTESTATION_INVALID",
+        verified: false,
+        checks: [
+          { name: "signature", passed: true },
+          { name: "date", passed: true },
+          { name: "attestation", passed: false, detail: "Key attestation expired" },
+        ],
+      });
+
+      const app = createTestApp();
+      const res = await app.request("/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          credential: { proof: { type: "DataIntegrityProof" }, type: ["VerifiableCredential"] },
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as VerifyResponseBody;
+      expect(body.status).toBe("ATTESTATION_INVALID");
+      expect(body.checks.signature.passed).toBe(true);
+      expect(body.checks.expiry.passed).toBe(true);
+
+      spy.mockRestore();
+    });
+  });
+
   describe("DSC/CSCA chain validation via API", () => {
     it("includes dscChain check when dscCertificateChain is provided", async () => {
       const spy = vi.spyOn(await import("@opencred/verification"), "verifyCredential");

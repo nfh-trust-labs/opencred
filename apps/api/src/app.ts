@@ -27,11 +27,8 @@ import {
   type DomainVerificationDeps,
   type TypeBOnboardingDeps,
 } from "./routes/domain-verification.js";
-import {
-  createSchemaStubRoutes,
-  createDelegationStubRoutes,
-  createRevocationStatusStubRoutes,
-} from "./routes/stubs.js";
+import { createRevocationStatusStubRoutes } from "./routes/stubs.js";
+import { createSchemaRoutes } from "./routes/schemas.js";
 import { TrustStore } from "./dsc-chain.js";
 
 export interface AppDependencies {
@@ -195,9 +192,10 @@ export function createApp(deps: AppDependencies) {
   // Revocation hash computation (unauthenticated — pure computation, no side effects)
   app.route("/credentials/revocation-hash", createRevocationHashRoute());
 
+  // Schema registry (read-only listing + retrieval; POST is still 501)
+  app.route("/schemas", createSchemaRoutes());
+
   // PRD-specified stub endpoints (#132) — 501 Not Implemented placeholders
-  app.route("/schemas", createSchemaStubRoutes());
-  app.route("/delegations", createDelegationStubRoutes());
   app.route("/revocation-status", createRevocationStatusStubRoutes());
 
   // 404 — return JSON instead of Hono's default plain-text "404 Not Found"
