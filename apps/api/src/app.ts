@@ -18,7 +18,7 @@ import { createVerifyRoutes } from "./routes/verify.js";
 import { createCredentialsRoute } from "./routes/credentials.js";
 import { createBatchRoute } from "./routes/batch.js";
 import { createRevocationHashRoute } from "./routes/revocation-hash.js";
-import { createOnboardingRoutes, createBusinessVcOnboardingRoutes } from "./routes/onboarding.js";
+import { createBusinessVcOnboardingRoutes } from "./routes/onboarding.js";
 import { createCaRequestRoutes, type CertificateAuthorityAdapter } from "./routes/ca-request.js";
 import {
   createDomainVerificationRoutes,
@@ -130,21 +130,10 @@ export function createApp(deps: AppDependencies) {
   app.route("/verify", createVerifyRoutes({ trustStore, dediClient: deps.dediClient }));
 
   // Onboarding endpoints (unauthenticated — these ARE auth issuance endpoints)
+  // Note: Type A (DSC) issuers do not need onboarding — they provide their
+  // DSC chain at credential issuance time (PRD §4.1).
   if (config.JWT_SECRET) {
     const onboardingKey = new TextEncoder().encode(config.JWT_SECRET);
-
-    // Type A DSC onboarding
-    if (trustStore) {
-      app.route(
-        "/onboarding",
-        createOnboardingRoutes({
-          trustStore,
-          jwtSigningKey: onboardingKey,
-          jwtIssuer: config.JWT_ISSUER,
-          jwtExpirySeconds: config.JWT_EXPIRY_SECONDS,
-        }),
-      );
-    }
 
     // Type D business-VC onboarding
     app.route(

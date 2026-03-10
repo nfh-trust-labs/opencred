@@ -75,15 +75,6 @@ export interface ApiError {
 
 // --- Onboarding Types ---
 
-export interface OnboardTypeARequest {
-  dscChain: string;
-}
-
-export interface OnboardTypeAResponse {
-  issuerId: string;
-  status: string;
-}
-
 export interface OnboardDomainVerifyRequest {
   domain: string;
   method: "dns" | "http";
@@ -298,10 +289,6 @@ export class OpenCredClient {
   }
 
   // --- Onboarding ---
-
-  async onboardTypeA(dscChain: string): Promise<OnboardTypeAResponse> {
-    return this.request<OnboardTypeAResponse>("/onboarding/type-a", { dscChain });
-  }
 
   async onboardDomainVerify(
     domain: string,

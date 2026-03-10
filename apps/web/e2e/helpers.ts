@@ -197,14 +197,6 @@ export async function mockApiResponses(page: Page) {
   });
 
   // Mock onboarding endpoints
-  await page.route("**/onboarding/type-a", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ issuerId: "issuer-e2e", status: "active" }),
-    });
-  });
-
   await page.route("**/onboarding/domain-verify/confirm", async (route) => {
     await route.fulfill({
       status: 200,

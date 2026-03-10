@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { X509Certificate, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 import { createCapabilityToken } from "@opencred/auth";
 import { ValidationError, VerificationError, PayloadTooLargeError } from "@opencred/shared";
 import type { DeDiClient } from "@opencred/dedi-client";
@@ -9,7 +9,6 @@ import type { VerifierConfig } from "@opencred/verification";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import { createDelegationCertificate, registerDelegation } from "@opencred/delegation";
 import type { DelegationCertificate } from "@opencred/delegation";
-import { validateDscChain, type TrustStore } from "../dsc-chain.js";
 
 // --- Constants ---
 
@@ -17,11 +16,6 @@ import { validateDscChain, type TrustStore } from "../dsc-chain.js";
 const MAX_JWT_BYTES = 10 * 1024;
 
 // --- Zod schemas for request validation ---
-
-const typeAOnboardingSchema = z.object({
-  dscChain: z.array(z.string().min(1)).min(1, "dscChain must contain at least one PEM certificate"),
-  publicKey: z.object({ kty: z.string().min(1), crv: z.string().optional(), x: z.string().optional(), y: z.string().optional() }).passthrough(),
-});
 
 const jwkSchema = z.object({ kty: z.string().min(1), crv: z.string().optional(), x: z.string().optional(), y: z.string().optional() }).passthrough();
 
@@ -36,13 +30,6 @@ const businessVcOnboardingSchema = z.object({
   message: "publicKey is required when signingPreference is 'interface'",
   path: ["publicKey"],
 });
-
-export interface OnboardingRoutesDeps {
-  trustStore: TrustStore;
-  jwtSigningKey: Uint8Array;
-  jwtIssuer: string;
-  jwtExpirySeconds: number;
-}
 
 export interface BusinessVcOnboardingDeps {
   jwtSigningKey: Uint8Array;
@@ -65,33 +52,6 @@ function validateJwtSize(jwt: string): void {
       `JWT payload exceeds maximum allowed size (${byteLength} bytes > ${MAX_JWT_BYTES} bytes)`,
     );
   }
-}
-
-/**
- * Parse X.509 subject string into a key-value map.
- * Node.js X509Certificate.subject returns newline-delimited "KEY=VALUE" pairs.
- */
-function parseSubject(subject: string): Record<string, string> {
-  const fields: Record<string, string> = {};
-  for (const line of subject.split("\n")) {
-    const eqIdx = line.indexOf("=");
-    if (eqIdx > 0) {
-      const key = line.slice(0, eqIdx).trim();
-      const value = line.slice(eqIdx + 1).trim();
-      if (key && value) fields[key] = value;
-    }
-  }
-  return fields;
-}
-
-function buildNamespace(subjectFields: Record<string, string>): string {
-  const parts: string[] = [];
-  for (const key of ["C", "O", "CN"]) {
-    const val = subjectFields[key];
-    if (val) parts.push(slugify(val));
-  }
-  if (parts.length === 0) throw new ValidationError("DSC certificate subject has no usable identity fields (CN, O, or C)");
-  return `urn:opencred:issuer:${parts.join(":")}`;
 }
 
 function slugify(value: string): string {
@@ -148,48 +108,6 @@ function buildBusinessSubject(credentialSubject: Record<string, unknown>, orgNam
   const id = credentialSubject.id;
   if (typeof id === "string" && id.trim()) return `business-vc:${slugify(id)}`;
   return `business-vc:${slugify(orgName)}`;
-}
-
-export function createOnboardingRoutes(deps: OnboardingRoutesDeps) {
-  const { trustStore, jwtSigningKey, jwtIssuer, jwtExpirySeconds } = deps;
-  const onboarding = new Hono();
-
-  onboarding.post("/type-a", async (c) => {
-    let rawBody: unknown;
-    try {
-      rawBody = await c.req.json();
-    } catch {
-      throw new ValidationError("Invalid JSON in request body");
-    }
-    const parsed = typeAOnboardingSchema.safeParse(rawBody);
-    if (!parsed.success) {
-      const firstError = parsed.error.issues[0];
-      throw new ValidationError(`${firstError.path.join(".")}: ${firstError.message}`);
-    }
-    const { dscChain } = parsed.data;
-    const chainResult = validateDscChain(dscChain, trustStore);
-    if (!chainResult.passed) throw new ValidationError(`DSC chain validation failed: ${chainResult.detail}`);
-
-    let leafCert: X509Certificate;
-    try { leafCert = new X509Certificate(dscChain[0]); } catch { throw new ValidationError("Failed to parse leaf DSC certificate"); }
-
-    const subjectFields = parseSubject(leafCert.subject);
-    const namespace = buildNamespace(subjectFields);
-    const fingerprint = leafCert.fingerprint256.replace(/:/g, "").toLowerCase();
-    const subject = `dsc:${fingerprint}`;
-
-    const expiresAt = new Date(Date.now() + jwtExpirySeconds * 1000).toISOString();
-    const capabilityToken = await createCapabilityToken({ subject, issuer: jwtIssuer, expiresInSeconds: jwtExpirySeconds, scope: ["credentials:build", "credentials:revoke"], namespace, signingKey: jwtSigningKey });
-
-    return c.json({ capabilityToken, namespace, expiresAt }, 201);
-  });
-
-  // 405 for non-POST methods
-  onboarding.all("/type-a", (c) =>
-    c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405),
-  );
-
-  return onboarding;
 }
 
 export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps) {
