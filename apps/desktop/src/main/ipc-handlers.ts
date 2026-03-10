@@ -73,6 +73,9 @@ import { verifyProof } from "@opencred/crypto";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
+import {
+  packageCredential as packageCredentialWithTemplates,
+} from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
 import type { Signer } from "../signing/types.js";
 import { parseCsv } from "../batch/csv-parser.js";
@@ -425,6 +428,11 @@ async function handleVerifyCredential(
 
 /**
  * PACKAGE_CREDENTIAL — package a signed VC into various output formats.
+ *
+ * Supports both the legacy packager formats (qr-png, qr-svg, pdf, json-ld,
+ * json-compact) and the new template-aware formats (svg, qr, json-ld).
+ * When "svg" format is requested, the template renderer from
+ * credential-export.ts is used, applying schemaId and customization options.
  */
 async function handlePackageCredential(
   _event: IpcMainInvokeEvent,
@@ -432,18 +440,67 @@ async function handlePackageCredential(
 ): Promise<PackageCredentialResponse> {
   try {
     const credential = parseCredentialJson(request.credential);
-    const formats = request.formats as PackageFormat[];
-    const result = await packageCredential(credential, formats);
+
+    // Partition formats: template-aware formats vs legacy packager formats.
+    const templateFormats = ["svg", "qr", "json-ld"];
+    const templateRequested = request.formats.filter((f) => templateFormats.includes(f));
+    const legacyRequested = request.formats.filter((f) => !templateFormats.includes(f));
+
+    const allOutputs: Array<{
+      format: string;
+      data: string;
+      mimeType: string;
+      suggestedFileName: string;
+    }> = [];
+    const allErrors: Array<{ format: string; error: string }> = [];
+
+    // Process template-aware formats
+    if (templateRequested.length > 0) {
+      try {
+        const templateOutputs = await packageCredentialWithTemplates(
+          credential,
+          request.schemaId ?? "default",
+          templateRequested,
+          request.customization,
+        );
+
+        for (const output of templateOutputs) {
+          allOutputs.push({
+            format: output.format,
+            data: output.data,
+            mimeType: output.mimeType,
+            suggestedFileName: output.suggestedFileName,
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Template packaging failed.";
+        for (const fmt of templateRequested) {
+          allErrors.push({ format: fmt, error: message });
+        }
+      }
+    }
+
+    // Process legacy packager formats
+    if (legacyRequested.length > 0) {
+      const legacyFormats = legacyRequested as PackageFormat[];
+      const result = await packageCredential(credential, legacyFormats);
+
+      for (const output of result.outputs) {
+        allOutputs.push({
+          format: output.format,
+          data: Buffer.isBuffer(output.data) ? output.data.toString("base64") : output.data,
+          mimeType: output.mimeType,
+          suggestedFileName: output.suggestedFileName,
+        });
+      }
+
+      allErrors.push(...result.errors);
+    }
 
     return {
       success: true,
-      outputs: result.outputs.map((output) => ({
-        format: output.format,
-        data: Buffer.isBuffer(output.data) ? output.data.toString("base64") : output.data,
-        mimeType: output.mimeType,
-        suggestedFileName: output.suggestedFileName,
-      })),
-      errors: result.errors,
+      outputs: allOutputs,
+      errors: allErrors.length > 0 ? allErrors : undefined,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Packaging failed.";

@@ -164,6 +164,14 @@ export interface PackageCredentialRequest {
   credential: string;
   /** Output formats to produce. */
   formats: string[];
+  /** Schema ID for template lookup (used by "svg" format). */
+  schemaId?: string;
+  /** Template customization options (used by "svg" format). */
+  customization?: {
+    primaryColor?: string;
+    logoDataUri?: string;
+    issuerDisplayName?: string;
+  };
 }
 
 export interface PackageCredentialResponse {
