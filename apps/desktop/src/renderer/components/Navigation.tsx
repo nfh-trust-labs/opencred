@@ -6,11 +6,10 @@ interface Props {
 }
 
 const TABS: Array<{ id: Tab; label: string }> = [
-  { id: "builder", label: "Issue Credential" },
-  { id: "delegated", label: "Delegated" },
-  { id: "batch", label: "Batch Issuance" },
-  { id: "verifier", label: "Verify" },
-  { id: "keys", label: "Key Management" },
+  { id: "issue", label: "Issue" },
+  { id: "verify", label: "Verify" },
+  { id: "batch", label: "Batch" },
+  { id: "settings", label: "Settings" },
 ];
 
 export function Navigation({ activeTab, onChange }: Props) {
