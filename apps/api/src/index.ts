@@ -33,13 +33,25 @@ const authOptions: AuthMiddlewareOptions | undefined = config.JWT_SECRET
   ? { verificationKey: new TextEncoder().encode(config.JWT_SECRET), issuer: config.JWT_ISSUER }
   : undefined;
 
-const signingKeyProvider = config.JWT_SECRET ? new LocalSigningKeyProvider() : undefined;
+// Pass optional persistence config so the server key survives restarts.
+// When both values are undefined the provider auto-generates (dev mode).
+const signingKeyProvider = config.JWT_SECRET
+  ? new LocalSigningKeyProvider({
+      privateKeyPem: config.OPENCRED_SIGNING_KEY_PEM,
+      privateKeyPath: config.OPENCRED_SIGNING_KEY_PATH,
+    })
+  : undefined;
 
 const { app, logger } = createApp({ config, dediClient, authOptions, signingKeyProvider });
 
 if (signingKeyProvider) {
   const activeKey = signingKeyProvider.getActiveKey();
-  logger.info({ did: activeKey.id }, "OpenCred signing key loaded");
+  const source = config.OPENCRED_SIGNING_KEY_PEM
+    ? "env"
+    : config.OPENCRED_SIGNING_KEY_PATH
+      ? "file"
+      : "generated";
+  logger.info({ did: activeKey.id, source }, "OpenCred signing key loaded");
 }
 
 const server = serve(

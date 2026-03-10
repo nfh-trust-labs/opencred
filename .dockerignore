@@ -49,7 +49,11 @@ Thumbs.db
 
 # Misc
 *.log
+*.png
 *.tsbuildinfo
 .turbo/
 .claude/
 opencred-website/
+demos/
+scripts/
+demo-fixtures/

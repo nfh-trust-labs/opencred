@@ -24,9 +24,15 @@ services:
     environment:
       - NODE_ENV=production
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:8080}
+      # OpenCred signing key (for attestation VC signing)
+      # Provide ONE of: OPENCRED_SIGNING_KEY_PEM (inline PEM) or
+      # OPENCRED_SIGNING_KEY_PATH (path to PEM file inside container)
+      # If neither is set, a random key is generated at startup (dev only).
     volumes:
       # Mount CSCA trust store PEM files (read-only)
       - csca-trust-store:/app/csca-trust-store:ro
+      # Mount signing key file (read-only) — uncomment for production
+      # - ./secrets/opencred-signing-key.pem:/app/secrets/signing-key.pem:ro
     networks:
       - opencred-net
     healthcheck:

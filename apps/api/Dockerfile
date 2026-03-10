@@ -24,7 +24,8 @@ COPY packages/vc-core/package.json packages/vc-core/package.json
 COPY packages/verification/package.json packages/verification/package.json
 COPY packages/auth/package.json packages/auth/package.json
 COPY packages/state/package.json packages/state/package.json
-COPY packages/delegation/package.json packages/delegation/package.json
+COPY packages/key-attestation/package.json packages/key-attestation/package.json
+COPY packages/templates/package.json packages/templates/package.json
 COPY packages/dedi-client/package.json packages/dedi-client/package.json
 COPY packages/schema-engine/package.json packages/schema-engine/package.json
 COPY apps/api/package.json apps/api/package.json
@@ -40,7 +41,8 @@ COPY packages/vc-core/ packages/vc-core/
 COPY packages/verification/ packages/verification/
 COPY packages/auth/ packages/auth/
 COPY packages/state/ packages/state/
-COPY packages/delegation/ packages/delegation/
+COPY packages/key-attestation/ packages/key-attestation/
+COPY packages/templates/ packages/templates/
 COPY packages/dedi-client/ packages/dedi-client/
 COPY packages/schema-engine/ packages/schema-engine/
 COPY apps/api/ apps/api/
@@ -66,7 +68,8 @@ COPY packages/vc-core/package.json packages/vc-core/package.json
 COPY packages/verification/package.json packages/verification/package.json
 COPY packages/auth/package.json packages/auth/package.json
 COPY packages/state/package.json packages/state/package.json
-COPY packages/delegation/package.json packages/delegation/package.json
+COPY packages/key-attestation/package.json packages/key-attestation/package.json
+COPY packages/templates/package.json packages/templates/package.json
 COPY packages/dedi-client/package.json packages/dedi-client/package.json
 COPY packages/schema-engine/package.json packages/schema-engine/package.json
 COPY apps/api/package.json apps/api/package.json
@@ -95,7 +98,8 @@ COPY --from=prod-deps /app/packages/vc-core/node_modules ./packages/vc-core/node
 COPY --from=prod-deps /app/packages/verification/node_modules ./packages/verification/node_modules
 COPY --from=prod-deps /app/packages/auth/node_modules ./packages/auth/node_modules
 COPY --from=prod-deps /app/packages/state/node_modules ./packages/state/node_modules
-COPY --from=prod-deps /app/packages/delegation/node_modules ./packages/delegation/node_modules
+COPY --from=prod-deps /app/packages/key-attestation/node_modules ./packages/key-attestation/node_modules
+COPY --from=prod-deps /app/packages/templates/node_modules ./packages/templates/node_modules
 COPY --from=prod-deps /app/packages/dedi-client/node_modules ./packages/dedi-client/node_modules
 COPY --from=prod-deps /app/packages/schema-engine/node_modules ./packages/schema-engine/node_modules
 
@@ -114,8 +118,10 @@ COPY --from=build /app/packages/auth/dist ./packages/auth/dist
 COPY --from=build /app/packages/auth/package.json ./packages/auth/package.json
 COPY --from=build /app/packages/state/dist ./packages/state/dist
 COPY --from=build /app/packages/state/package.json ./packages/state/package.json
-COPY --from=build /app/packages/delegation/dist ./packages/delegation/dist
-COPY --from=build /app/packages/delegation/package.json ./packages/delegation/package.json
+COPY --from=build /app/packages/key-attestation/dist ./packages/key-attestation/dist
+COPY --from=build /app/packages/key-attestation/package.json ./packages/key-attestation/package.json
+COPY --from=build /app/packages/templates/dist ./packages/templates/dist
+COPY --from=build /app/packages/templates/package.json ./packages/templates/package.json
 COPY --from=build /app/packages/dedi-client/dist ./packages/dedi-client/dist
 COPY --from=build /app/packages/dedi-client/package.json ./packages/dedi-client/package.json
 COPY --from=build /app/packages/schema-engine/dist ./packages/schema-engine/dist

@@ -37,6 +37,12 @@ export const envSchema = z.object({
   // CSCA Trust Store
   CSCA_TRUST_STORE_PATH: z.string().optional(),
 
+  // OpenCred-managed delegated-signing key persistence (NOT issuer keys).
+  // These allow the server's own signing key to survive container restarts.
+  // When both are absent the provider auto-generates an ephemeral key (dev mode).
+  OPENCRED_SIGNING_KEY_PEM: z.string().optional(),
+  OPENCRED_SIGNING_KEY_PATH: z.string().optional(),
+
   // CORS
   CORS_ORIGIN: z.string().default("http://localhost:5173"),
 }).superRefine((data, ctx) => {
