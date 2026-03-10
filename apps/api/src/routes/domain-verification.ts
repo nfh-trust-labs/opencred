@@ -5,9 +5,6 @@ import { randomBytes } from "node:crypto";
 import { promises as dns } from "node:dns";
 import { ValidationError, VerificationError, NotFoundError } from "@opencred/shared";
 import { createCapabilityToken } from "@opencred/auth";
-import { createDelegationCertificate, registerDelegation } from "@opencred/delegation";
-import type { DelegationCertificate } from "@opencred/delegation";
-import type { DeDiClient } from "@opencred/dedi-client";
 import { TTLStore } from "@opencred/state";
 
 // --- Constants ---
@@ -216,9 +213,9 @@ export interface DomainVerificationDeps {
 
 /**
  * Dependencies for Type B onboarding (domain-verified SSL-based onboarding).
- * Extends DomainVerificationDeps with auth and delegation requirements.
- * Follows the same dependency injection pattern as OnboardingRoutesDeps
- * and BusinessVcOnboardingDeps in onboarding.ts.
+ * Extends DomainVerificationDeps with auth requirements.
+ * Follows the same dependency injection pattern as BusinessVcOnboardingDeps
+ * in onboarding.ts.
  */
 export interface TypeBOnboardingDeps extends DomainVerificationDeps {
   /** HMAC key for signing capability tokens (OpenCred platform key, not an issuer key) */
@@ -227,10 +224,6 @@ export interface TypeBOnboardingDeps extends DomainVerificationDeps {
   tokenIssuer: string;
   /** Token expiry duration in seconds */
   tokenExpirySeconds: number;
-  /** DeDi client for delegation registration */
-  dediClient?: DeDiClient;
-  /** OpenCred platform signing key DID for delegated signing */
-  opencredSigningKeyDid?: string;
 }
 
 // --- Default implementations ---
@@ -621,11 +614,9 @@ export function createDomainVerificationRoutes(deps: DomainVerificationDeps = {}
  * 2. Extracts SSL certificate subject from the domain
  * 3. Builds a deterministic issuer namespace
  * 4. Issues a capability token
- * 5. Optionally creates and registers a delegation certificate
  */
 export function createTypeBOnboardingRoutes(deps: TypeBOnboardingDeps) {
-  const { capabilityTokenKey, tokenIssuer, tokenExpirySeconds, dediClient, opencredSigningKeyDid } =
-    deps;
+  const { capabilityTokenKey, tokenIssuer, tokenExpirySeconds } = deps;
 
   const challengeStore =
     deps.challengeStore ?? new TTLStore<ChallengeRecord>(CHALLENGE_TTL_MS, 60_000);
@@ -689,67 +680,10 @@ export function createTypeBOnboardingRoutes(deps: TypeBOnboardingDeps) {
       signingKey: capabilityTokenKey,
     });
 
-    // 7. If delegated signing, create and register a delegation certificate
-    let delegationId: string | undefined;
-    if (signingPreference === "delegated") {
-      if (!opencredSigningKeyDid) {
-        throw new ValidationError(
-          "Delegated signing is not available: no OpenCred signing key configured",
-        );
-      }
-
-      const issuerName = buildIssuerName(domain, sslSubject);
-      const delegatorId = `https://${domain}`;
-      const now = new Date();
-      const validUntil = new Date(now.getTime() + tokenExpirySeconds * 1000);
-
-      const unsignedCert = createDelegationCertificate({
-        delegator: {
-          id: delegatorId,
-          name: issuerName,
-        },
-        delegatee: {
-          id: opencredSigningKeyDid,
-        },
-        scope: {
-          credentialTypes: [],
-          namespaces: [namespace],
-        },
-        validFrom: now.toISOString(),
-        validUntil: validUntil.toISOString(),
-        authorisationPath: "dedi-registry",
-      });
-
-      delegationId = unsignedCert.id;
-
-      // Register delegation in DeDi if client is available
-      if (dediClient) {
-        const certWithProof: DelegationCertificate = {
-          ...unsignedCert,
-          proof: {
-            type: "DomainVerificationAuthorisation",
-            verificationMethod: delegatorId,
-            proofPurpose: "capabilityDelegation",
-            created: now.toISOString(),
-            proofValue: "",
-          },
-        };
-        await registerDelegation(dediClient, { certificate: certWithProof });
-      }
-    }
-
-    const response: Record<string, unknown> = {
-      namespace,
-      capabilityToken,
-      issuerIdentifier: subject,
-      expiresAt,
-      sslSubject,
-    };
-    if (delegationId) {
-      response.delegationId = delegationId;
-    }
-
-    return c.json(response, 201);
+    return c.json(
+      { namespace, capabilityToken, issuerIdentifier: subject, expiresAt, sslSubject },
+      201,
+    );
   });
 
   // 405 for non-POST methods

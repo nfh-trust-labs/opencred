@@ -153,8 +153,6 @@ export function createApp(deps: AppDependencies) {
         jwtIssuer: config.JWT_ISSUER,
         jwtExpirySeconds: config.JWT_EXPIRY_SECONDS,
         verifierConfig: deps.verifierConfig,
-        dediClient: deps.dediClient,
-        opencredSigningKeyDid: deps.opencredSigningKeyDid,
       }),
     );
 
@@ -167,8 +165,6 @@ export function createApp(deps: AppDependencies) {
           capabilityTokenKey: onboardingKey,
           tokenIssuer: config.JWT_ISSUER,
           tokenExpirySeconds: config.JWT_EXPIRY_SECONDS,
-          dediClient: deps.dediClient,
-          opencredSigningKeyDid: deps.opencredSigningKeyDid,
         }),
       );
     }
@@ -180,13 +176,11 @@ export function createApp(deps: AppDependencies) {
   // Type C — CA API adapter (extension point; returns 501 when no adapter registered)
   app.route("/onboarding", createCaRequestRoutes({ caAdapter: deps.caAdapter }));
 
-  // Interface Signing + Delegated Signing endpoints (authenticated)
+  // Interface Signing endpoints (authenticated)
   if (deps.authOptions) {
     const { credentials } = createCredentialsRoute({
       config,
       authOptions: deps.authOptions,
-      signingKeyProvider: deps.signingKeyProvider,
-      dediClient: deps.dediClient,
     });
     app.route("/credentials", credentials);
 
@@ -194,8 +188,6 @@ export function createApp(deps: AppDependencies) {
     const { batch } = createBatchRoute({
       config,
       authOptions: deps.authOptions,
-      signingKeyProvider: deps.signingKeyProvider,
-      dediClient: deps.dediClient,
     });
     app.route("/credentials/batch", batch);
   }

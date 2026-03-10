@@ -20,29 +20,9 @@ vi.mock("@opencred/verification", async () => {
   };
 });
 
-// --- Mock registerDelegation ---
-vi.mock("@opencred/delegation", async () => {
-  const actual =
-    await vi.importActual<typeof import("@opencred/delegation")>("@opencred/delegation");
-  return {
-    ...actual,
-    registerDelegation: vi.fn().mockResolvedValue({
-      id: "urn:uuid:mock-delegation-id",
-      issuerDid: "did:example:delegator",
-      delegateDid: "did:key:z6Mk-opencred",
-      scope: [],
-      validFrom: new Date().toISOString(),
-      validUntil: new Date(Date.now() + 3600_000).toISOString(),
-      certificate: {},
-    }),
-  };
-});
-
 import { verifyCredential } from "@opencred/verification";
-import { registerDelegation } from "@opencred/delegation";
 
 const mockedVerify = vi.mocked(verifyCredential);
-const mockedRegister = vi.mocked(registerDelegation);
 
 const logger = makeTestLogger();
 
@@ -52,7 +32,6 @@ const TEST_JWT_SECRET = "test-jwt-secret-must-be-at-least-32-characters-long";
 const TEST_JWT_ISSUER = "opencred-test";
 const TEST_JWT_EXPIRY = 3600;
 const TEST_JWT_KEY = new TextEncoder().encode(TEST_JWT_SECRET);
-const TEST_OPENCRED_DID = "did:key:z6MktestedOpencredKey123456";
 
 // --- Response types ---
 
@@ -61,7 +40,6 @@ interface BusinessVcResponseBody {
   capabilityToken: string;
   issuerIdentifier: string;
   expiresAt: string;
-  delegationId?: string;
 }
 
 interface ErrorBody {
@@ -150,8 +128,6 @@ function createTestApp(overrides: Partial<BusinessVcOnboardingDeps> = {}) {
       jwtIssuer: overrides.jwtIssuer ?? TEST_JWT_ISSUER,
       jwtExpirySeconds: overrides.jwtExpirySeconds ?? TEST_JWT_EXPIRY,
       verifierConfig: overrides.verifierConfig,
-      dediClient: overrides.dediClient,
-      opencredSigningKeyDid: overrides.opencredSigningKeyDid ?? TEST_OPENCRED_DID,
     }),
   );
   app.onError(errorHandler(logger));
@@ -244,17 +220,6 @@ describe("POST /onboarding/business-vc", () => {
       expect(payload.scope).toEqual(["credentials:build", "credentials:revoke"]);
     });
 
-    it("does not return a delegationId", async () => {
-      const app = createTestApp();
-      const res = await postBusinessVc(app, {
-        businessCredential: makeDataIntegrityVC(),
-        signingPreference: "interface",
-        publicKey: { kty: "EC", crv: "P-256", x: "abc", y: "def" },
-      });
-      expect(res.status).toBe(201);
-      const body = (await res.json()) as BusinessVcResponseBody;
-      expect(body.delegationId).toBeUndefined();
-    });
   });
 
   describe("valid VC-JWT business VC", () => {
@@ -325,82 +290,6 @@ describe("POST /onboarding/business-vc", () => {
     });
   });
 
-  describe("delegated signing preference", () => {
-    it("returns 201 with delegationId when delegated", async () => {
-      const app = createTestApp();
-      const res = await postBusinessVc(app, {
-        businessCredential: makeDataIntegrityVC(),
-        signingPreference: "delegated",
-      });
-      expect(res.status).toBe(201);
-      const body = (await res.json()) as BusinessVcResponseBody;
-      expect(body.delegationId).toBeDefined();
-      expect(body.delegationId).toMatch(/^urn:uuid:/);
-    });
-
-    it("issues token with credentials:issue-delegated and credentials:revoke scopes", async () => {
-      const app = createTestApp();
-      const res = await postBusinessVc(app, {
-        businessCredential: makeDataIntegrityVC(),
-        signingPreference: "delegated",
-      });
-      expect(res.status).toBe(201);
-      const body = (await res.json()) as BusinessVcResponseBody;
-      const { payload } = await jwtVerify(body.capabilityToken, TEST_JWT_KEY, {
-        issuer: TEST_JWT_ISSUER,
-      });
-      expect(payload.scope).toEqual(["credentials:issue-delegated", "credentials:revoke"]);
-    });
-
-    it("registers delegation via registerDelegation with the provided dediClient", async () => {
-      const mockDediClient = {
-        registerDelegation: vi.fn().mockResolvedValue({
-          id: "urn:uuid:registered",
-          issuerDid: "did:example:acme-corp",
-          delegateDid: TEST_OPENCRED_DID,
-          scope: [],
-          validFrom: new Date().toISOString(),
-          validUntil: new Date(Date.now() + 3600_000).toISOString(),
-          certificate: {},
-        }),
-      } as any;
-
-      const app = createTestApp({ dediClient: mockDediClient });
-      const res = await postBusinessVc(app, {
-        businessCredential: makeDataIntegrityVC(),
-        signingPreference: "delegated",
-      });
-      expect(res.status).toBe(201);
-
-      // BLOCKER 3 fix: Assert that the mocked registerDelegation (from
-      // @opencred/delegation) was called with the provided dediClient as the
-      // first argument, confirming the client is properly threaded through.
-      expect(mockedRegister).toHaveBeenCalledTimes(1);
-      expect(mockedRegister).toHaveBeenCalledWith(
-        mockDediClient,
-        expect.objectContaining({
-          certificate: expect.objectContaining({
-            type: ["VerifiableCredential", "DelegationCertificate"],
-            proof: expect.objectContaining({
-              type: "BusinessCredentialAuthorisation",
-              proofValue: expect.stringMatching(/^z/),
-            }),
-          }),
-        }),
-      );
-    });
-
-    it("does not call registerDelegation when dediClient is not provided", async () => {
-      const app = createTestApp({ dediClient: undefined });
-      const res = await postBusinessVc(app, {
-        businessCredential: makeDataIntegrityVC(),
-        signingPreference: "delegated",
-      });
-      expect(res.status).toBe(201);
-      expect(mockedRegister).not.toHaveBeenCalled();
-    });
-  });
-
   describe("namespace format", () => {
     it("generates namespace with urn:opencred:issuer:business: prefix", async () => {
       const app = createTestApp();
@@ -442,38 +331,6 @@ describe("POST /onboarding/business-vc", () => {
     });
   });
 
-  describe("DeDi namespace registration gap", () => {
-    it("succeeds even without namespace registration (documents the gap)", async () => {
-      // The DeDi client does not yet have a createNamespace() method.
-      // This test documents that onboarding works without namespace registration
-      // and that the namespace is computed deterministically.
-      const mockDediClient = {
-        registerDelegation: vi.fn().mockResolvedValue({
-          id: "urn:uuid:registered",
-          issuerDid: "did:example:acme-corp",
-          delegateDid: TEST_OPENCRED_DID,
-          scope: [],
-          validFrom: new Date().toISOString(),
-          validUntil: new Date(Date.now() + 3600_000).toISOString(),
-          certificate: {},
-        }),
-      } as any;
-
-      const app = createTestApp({ dediClient: mockDediClient });
-      const res = await postBusinessVc(app, {
-        businessCredential: makeDataIntegrityVC(),
-        signingPreference: "delegated",
-      });
-      expect(res.status).toBe(201);
-      const body = (await res.json()) as BusinessVcResponseBody;
-      // Namespace is computed but not registered in DeDi as a first-class entity
-      expect(body.namespace).toBe("urn:opencred:issuer:business:acme-corporation");
-
-      // Verify that delegation registration still goes through DeDi
-      expect(mockedRegister).toHaveBeenCalledTimes(1);
-    });
-  });
-
   describe("default signing preference", () => {
     it("defaults to interface when signingPreference is omitted (requires publicKey)", async () => {
       const app = createTestApp();
@@ -487,7 +344,6 @@ describe("POST /onboarding/business-vc", () => {
         issuer: TEST_JWT_ISSUER,
       });
       expect(payload.scope).toEqual(["credentials:build", "credentials:revoke"]);
-      expect(body.delegationId).toBeUndefined();
     });
   });
 

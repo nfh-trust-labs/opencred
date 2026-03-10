@@ -8,20 +8,12 @@ import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core
 import {
   prepareProof,
   completeProof,
-  signCredential,
-  computeRevocationHash,
 } from "@opencred/crypto";
-import type { ProofConfig, SigningKeyProvider } from "@opencred/crypto";
+import type { ProofConfig } from "@opencred/crypto";
 import { createRegistry, Validator } from "@opencred/schema-engine";
 import { TTLStore } from "@opencred/state";
-import { ValidationError, SessionExpiredError, AuthorizationError } from "@opencred/shared";
+import { ValidationError, SessionExpiredError } from "@opencred/shared";
 import type { EnvConfig } from "@opencred/shared";
-import type { DeDiClient } from "@opencred/dedi-client";
-import {
-  resolveDelegation,
-  validateDelegationCertificate,
-  embedDelegation,
-} from "@opencred/delegation";
 import { authMiddleware, type AuthMiddlewareOptions } from "../middleware/auth.js";
 import { packageFormats } from "../output/index.js";
 import type { PackagedFormats } from "../output/index.js";
@@ -40,17 +32,11 @@ const credentialEntrySchema = z.object({
 
 const batchSubmitSchema = z.object({
   schema: z.string().min(1, "schema is required"),
-  signingFlow: z.enum(["interface", "delegated"]),
   credentials: z.array(credentialEntrySchema).min(1, "At least one credential is required"),
   // Interface Signing fields
-  issuer: z.string().min(1).optional(),
-  publicKey: z.string().min(1).optional(),
-  revocationRegistryUrl: z.string().min(1).optional(),
-  // Delegated Signing fields
-  delegationId: z.string().min(1).optional(),
-  // TODO (#176): Implement webhook callback for batch completion.
-  // When provided, POST a completion notification to this URL when the batch finishes.
-  // webhookUrl: z.string().url().optional(),
+  issuer: z.string().min(1, "issuer is required"),
+  publicKey: z.string().min(1, "publicKey is required"),
+  revocationRegistryUrl: z.string().min(1, "revocationRegistryUrl is required"),
 });
 
 const batchSignaturesSchema = z.object({
@@ -91,18 +77,15 @@ interface RowResult {
 interface BatchJob {
   jobId: string;
   status: BatchStatus;
-  signingFlow: "interface" | "delegated";
   schema: string;
   total: number;
   succeeded: number;
   failed: number;
   results: RowResult[];
   // Interface Signing context
-  issuer?: string;
-  publicKey?: string;
-  revocationRegistryUrl?: string;
-  // Delegated Signing context
-  delegationId?: string;
+  issuer: string;
+  publicKey: string;
+  revocationRegistryUrl: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,8 +133,6 @@ function formatZodErrors(error: z.ZodError) {
 export interface BatchRouteDeps {
   config: EnvConfig;
   authOptions: AuthMiddlewareOptions;
-  signingKeyProvider?: SigningKeyProvider;
-  dediClient?: DeDiClient;
 }
 
 export function createBatchRoute(deps: BatchRouteDeps) {
@@ -193,27 +174,14 @@ export function createBatchRoute(deps: BatchRouteDeps) {
         );
       }
 
-      // Flow-specific validation
-      if (body.signingFlow === "interface") {
-        if (!body.issuer) throw new ValidationError("issuer is required for interface signing");
-        if (!body.publicKey)
-          throw new ValidationError("publicKey is required for interface signing");
-        if (!body.revocationRegistryUrl) {
-          throw new ValidationError("revocationRegistryUrl is required for interface signing");
-        }
-        validateRevocationUrl(body.revocationRegistryUrl);
-      } else {
-        if (!body.delegationId) {
-          throw new ValidationError("delegationId is required for delegated signing");
-        }
-      }
+      // Validate revocation URL
+      validateRevocationUrl(body.revocationRegistryUrl);
 
       // Create job
       const jobId = randomUUID();
       const job: BatchJob = {
         jobId,
         status: "validating",
-        signingFlow: body.signingFlow,
         schema: body.schema,
         total: body.credentials.length,
         succeeded: 0,
@@ -225,7 +193,6 @@ export function createBatchRoute(deps: BatchRouteDeps) {
         issuer: body.issuer,
         publicKey: body.publicKey,
         revocationRegistryUrl: body.revocationRegistryUrl,
-        delegationId: body.delegationId,
       };
 
       // Phase 1: Validate all rows against schema
@@ -260,12 +227,8 @@ export function createBatchRoute(deps: BatchRouteDeps) {
         );
       }
 
-      // Phase 2: Issue credentials (flow-specific)
-      if (body.signingFlow === "delegated") {
-        await processDelegatedBatch(job, body, deps, validator);
-      } else {
-        await processInterfaceBatchPhase1(job, body, deps, validator);
-      }
+      // Phase 2: Build unsigned credentials and prepare proofs
+      await processInterfaceBatchPhase1(job, body);
 
       jobStore.set(jobId, job);
 
@@ -295,7 +258,6 @@ export function createBatchRoute(deps: BatchRouteDeps) {
 
     // Extract metadata fields from form data
     const schema = formData.get("schema");
-    const signingFlow = formData.get("signingFlow");
     const file = formData.get("file");
     const validFrom = formData.get("validFrom");
     const validUntil = formData.get("validUntil") as string | null;
@@ -305,14 +267,8 @@ export function createBatchRoute(deps: BatchRouteDeps) {
     const publicKey = formData.get("publicKey") as string | null;
     const revocationRegistryUrl = formData.get("revocationRegistryUrl") as string | null;
 
-    // Delegated Signing fields
-    const delegationId = formData.get("delegationId") as string | null;
-
     if (!schema || typeof schema !== "string") {
       throw new ValidationError("schema field is required");
-    }
-    if (!signingFlow || (signingFlow !== "interface" && signingFlow !== "delegated")) {
-      throw new ValidationError("signingFlow must be 'interface' or 'delegated'");
     }
     if (!file || !(file instanceof File)) {
       throw new ValidationError("file field is required and must be a CSV file");
@@ -320,20 +276,12 @@ export function createBatchRoute(deps: BatchRouteDeps) {
     if (!validFrom || typeof validFrom !== "string") {
       throw new ValidationError("validFrom field is required");
     }
-
-    // Flow-specific validation
-    if (signingFlow === "interface") {
-      if (!issuer) throw new ValidationError("issuer is required for interface signing");
-      if (!publicKey) throw new ValidationError("publicKey is required for interface signing");
-      if (!revocationRegistryUrl) {
-        throw new ValidationError("revocationRegistryUrl is required for interface signing");
-      }
-      validateRevocationUrl(revocationRegistryUrl);
-    } else {
-      if (!delegationId) {
-        throw new ValidationError("delegationId is required for delegated signing");
-      }
+    if (!issuer) throw new ValidationError("issuer is required for interface signing");
+    if (!publicKey) throw new ValidationError("publicKey is required for interface signing");
+    if (!revocationRegistryUrl) {
+      throw new ValidationError("revocationRegistryUrl is required for interface signing");
     }
+    validateRevocationUrl(revocationRegistryUrl);
 
     // Parse CSV file
     const csvContent = await file.text();
@@ -399,12 +347,10 @@ export function createBatchRoute(deps: BatchRouteDeps) {
     // Build the batch body and process using the same logic as JSON endpoint
     const body = {
       schema,
-      signingFlow: signingFlow as "interface" | "delegated",
       credentials,
-      issuer: issuer ?? undefined,
-      publicKey: publicKey ?? undefined,
-      revocationRegistryUrl: revocationRegistryUrl ?? undefined,
-      delegationId: delegationId ?? undefined,
+      issuer,
+      publicKey,
+      revocationRegistryUrl,
     };
 
     // Create job
@@ -412,7 +358,6 @@ export function createBatchRoute(deps: BatchRouteDeps) {
     const job: BatchJob = {
       jobId,
       status: "validating",
-      signingFlow: body.signingFlow,
       schema: body.schema,
       total: body.credentials.length,
       succeeded: 0,
@@ -424,7 +369,6 @@ export function createBatchRoute(deps: BatchRouteDeps) {
       issuer: body.issuer,
       publicKey: body.publicKey,
       revocationRegistryUrl: body.revocationRegistryUrl,
-      delegationId: body.delegationId,
     };
 
     // Phase 1: Validate all rows against schema
@@ -459,12 +403,8 @@ export function createBatchRoute(deps: BatchRouteDeps) {
       );
     }
 
-    // Phase 2: Issue credentials (flow-specific)
-    if (body.signingFlow === "delegated") {
-      await processDelegatedBatch(job, body, deps, validator);
-    } else {
-      await processInterfaceBatchPhase1(job, body, deps, validator);
-    }
+    // Phase 2: Build unsigned credentials and prepare proofs
+    await processInterfaceBatchPhase1(job, body);
 
     jobStore.set(jobId, job);
 
@@ -571,9 +511,6 @@ export function createBatchRoute(deps: BatchRouteDeps) {
         throw new SessionExpiredError("Batch job not found or expired");
       }
 
-      if (job.signingFlow !== "interface") {
-        throw new ValidationError("Signatures endpoint is only for interface signing batches");
-      }
       if (job.status !== "awaiting_signatures") {
         throw new ValidationError(
           `Cannot submit signatures: batch is in '${job.status}' state, expected 'awaiting_signatures'`,
@@ -655,132 +592,20 @@ export function createBatchRoute(deps: BatchRouteDeps) {
 // Batch processing helpers
 // ---------------------------------------------------------------------------
 
-async function processDelegatedBatch(
-  job: BatchJob,
-  body: z.infer<typeof batchSubmitSchema>,
-  deps: BatchRouteDeps,
-  _validator: Validator,
-): Promise<void> {
-  if (!deps.signingKeyProvider || !deps.dediClient) {
-    throw new ValidationError("Delegated signing is not configured on this server");
-  }
-
-  const { signingKeyProvider, dediClient, config } = deps;
-  const dediBaseUrl = config.DEDI_API_URL ?? "https://dedi.example";
-
-  // Resolve and validate delegation
-  const delegation = await resolveDelegation(dediClient, {
-    delegationId: body.delegationId!,
-  });
-
-  const validationResult = await validateDelegationCertificate(delegation, {
-    credentialType: body.schema,
-  });
-
-  if (!validationResult.valid) {
-    if (validationResult.status === "expired") {
-      throw new AuthorizationError(
-        `Delegation certificate has expired: ${validationResult.errors.join("; ")}`,
-      );
-    }
-    if (validationResult.status === "revoked") {
-      throw new AuthorizationError(
-        `Delegation certificate has been revoked: ${validationResult.errors.join("; ")}`,
-      );
-    }
-    throw new AuthorizationError(
-      `Delegation validation failed: ${validationResult.errors.join("; ")}`,
-    );
-  }
-
-  // Check revocation status
-  const revocationHash = computeRevocationHash({ delegationId: body.delegationId });
-  const revocationRecord = await dediClient.queryRevocationHash(revocationHash);
-  if (revocationRecord.revoked) {
-    throw new AuthorizationError("Delegation has been revoked");
-  }
-
-  // Validate delegatee matches signing key
-  const activeKey = signingKeyProvider.getActiveKey();
-  if (delegation.delegatee.id !== activeKey.id) {
-    throw new AuthorizationError("Delegation does not authorize the current signing key");
-  }
-
-  job.status = "issuing";
-
-  // Derive issuer from delegation
-  const issuer = delegation.delegator.name
-    ? { id: delegation.delegator.id, name: delegation.delegator.name }
-    : delegation.delegator.id;
-
-  // Issue each credential
-  for (let i = 0; i < body.credentials.length; i++) {
-    const entry = body.credentials[i];
-    try {
-      const builder = new CredentialBuilder()
-        .setIssuer(issuer)
-        .setCredentialSubject(entry.credentialSubject)
-        .setValidFrom(entry.validFrom)
-        .setCredentialStatus({
-          id: `${dediBaseUrl}/revocations/${encodeURIComponent(delegation.delegator.id)}/registry`,
-          type: "DeDiRevocationListStatusV1",
-          statusPurpose: "revocation",
-        });
-
-      if (entry.validUntil) {
-        builder.setValidUntil(entry.validUntil);
-      }
-
-      const unsignedCredential = builder.build();
-
-      const signedCredential = await signCredential(unsignedCredential, activeKey, {
-        verificationMethod: activeKey.id,
-        proofPurpose: "assertionMethod",
-      });
-
-      const credentialWithDelegation = embedDelegation(signedCredential, delegation);
-
-      // Generate QR + PDF output formats
-      const formats = await packageFormats(
-        credentialWithDelegation as unknown as Record<string, unknown>,
-      );
-
-      job.results[i] = {
-        index: i,
-        status: "issued",
-        credential: credentialWithDelegation,
-        formats,
-      };
-      job.succeeded++;
-    } catch (err) {
-      job.results[i] = {
-        index: i,
-        status: "failed",
-        error: err instanceof Error ? err.message : "Issuance failed",
-      };
-      job.failed++;
-    }
-  }
-
-  job.status = "completed";
-}
-
 async function processInterfaceBatchPhase1(
   job: BatchJob,
-  body: z.infer<typeof batchSubmitSchema>,
-  _deps: BatchRouteDeps,
-  _validator: Validator,
+  body: { schema: string; credentials: Array<{ credentialSubject: Record<string, unknown>; validFrom: string; validUntil?: string }>; issuer: string; publicKey: string; revocationRegistryUrl: string },
 ): Promise<void> {
   // Build unsigned credentials and prepare proofs for all rows
   for (let i = 0; i < body.credentials.length; i++) {
     const entry = body.credentials[i];
     try {
       const builder = new CredentialBuilder()
-        .setIssuer(body.issuer!)
+        .setIssuer(body.issuer)
         .setCredentialSubject(entry.credentialSubject)
         .setValidFrom(entry.validFrom)
         .setCredentialStatus({
-          id: body.revocationRegistryUrl!,
+          id: body.revocationRegistryUrl,
           type: "DeDiRevocationListStatusV1",
           statusPurpose: "revocation",
         });

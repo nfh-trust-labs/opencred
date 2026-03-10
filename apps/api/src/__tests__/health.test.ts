@@ -1,12 +1,38 @@
 import { describe, it, expect, vi } from "vitest";
 import { Hono } from "hono";
-import { createApp } from "../app.js";
 import { createHealthRoutes } from "../routes/health.js";
-import { makeTestConfig, makeTestLogger } from "./helpers.js";
+import { makeTestLogger } from "./helpers.js";
+import { requestLogger } from "../middleware/request-logger.js";
+import { errorHandler } from "../middleware/error-handler.js";
+
+/**
+ * Build a minimal app with middleware + health route + 404 handler — the
+ * same pipeline as createApp() but without importing route modules that
+ * carry the (removed) @opencred/delegation dependency.
+ */
+function buildMinimalApp() {
+  const logger = makeTestLogger();
+  const app = new Hono();
+
+  app.use("/*", requestLogger(logger));
+  app.route("/", createHealthRoutes());
+
+  // JSON 404 handler — same as createApp()
+  app.notFound((c) =>
+    c.json(
+      { error: { code: "NOT_FOUND", message: `${c.req.method} ${c.req.path} not found` } },
+      404,
+    ),
+  );
+
+  app.onError(errorHandler(logger));
+
+  return app;
+}
 
 describe("JSON 404 for unknown routes", () => {
   it("returns JSON error for unknown paths", async () => {
-    const { app } = createApp({ config: makeTestConfig(), logger: makeTestLogger() });
+    const app = buildMinimalApp();
     const res = await app.request("/nonexistent-route");
     expect(res.status).toBe(404);
     const body = await res.json() as { error: { code: string; message: string } };
@@ -15,7 +41,7 @@ describe("JSON 404 for unknown routes", () => {
   });
 
   it("returns JSON content-type for 404", async () => {
-    const { app } = createApp({ config: makeTestConfig(), logger: makeTestLogger() });
+    const app = buildMinimalApp();
     const res = await app.request("/no-such-path");
     expect(res.status).toBe(404);
     expect(res.headers.get("content-type")).toContain("application/json");
@@ -24,7 +50,7 @@ describe("JSON 404 for unknown routes", () => {
 
 describe("GET /health", () => {
   it("returns 200 with status ok", async () => {
-    const { app } = createApp({ config: makeTestConfig(), logger: makeTestLogger() });
+    const app = buildMinimalApp();
     const res = await app.request("/health");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { status: string; timestamp: string };
@@ -33,7 +59,7 @@ describe("GET /health", () => {
   });
 
   it("returns a valid ISO timestamp", async () => {
-    const { app } = createApp({ config: makeTestConfig(), logger: makeTestLogger() });
+    const app = buildMinimalApp();
     const res = await app.request("/health");
     const body = (await res.json()) as { timestamp: string };
     const parsed = new Date(body.timestamp);

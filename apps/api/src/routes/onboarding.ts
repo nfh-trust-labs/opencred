@@ -1,14 +1,10 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { createHash } from "node:crypto";
 import { createCapabilityToken } from "@opencred/auth";
 import { ValidationError, VerificationError, PayloadTooLargeError } from "@opencred/shared";
-import type { DeDiClient } from "@opencred/dedi-client";
 import { verifyCredential, detectFormat, parseSdJwtVc, processDisclosures } from "@opencred/verification";
 import type { VerifierConfig } from "@opencred/verification";
 import type { VerifiableCredential } from "@opencred/vc-core";
-import { createDelegationCertificate, registerDelegation } from "@opencred/delegation";
-import type { DelegationCertificate } from "@opencred/delegation";
 
 // --- Constants ---
 
@@ -36,8 +32,6 @@ export interface BusinessVcOnboardingDeps {
   jwtIssuer: string;
   jwtExpirySeconds: number;
   verifierConfig?: VerifierConfig;
-  dediClient?: DeDiClient;
-  opencredSigningKeyDid?: string;
 }
 
 /**
@@ -111,7 +105,7 @@ function buildBusinessSubject(credentialSubject: Record<string, unknown>, orgNam
 }
 
 export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps) {
-  const { jwtSigningKey, jwtIssuer, jwtExpirySeconds, verifierConfig, dediClient, opencredSigningKeyDid } = deps;
+  const { jwtSigningKey, jwtIssuer, jwtExpirySeconds, verifierConfig } = deps;
   const businessVc = new Hono();
 
   businessVc.post("/business-vc", async (c) => {
@@ -148,45 +142,7 @@ export function createBusinessVcOnboardingRoutes(deps: BusinessVcOnboardingDeps)
     const expiresAt = new Date(Date.now() + jwtExpirySeconds * 1000).toISOString();
     const capabilityToken = await createCapabilityToken({ subject, issuer: jwtIssuer, expiresInSeconds: jwtExpirySeconds, scope, namespace, signingKey: jwtSigningKey });
 
-    let delegationId: string | undefined;
-    if (signingPreference === "delegated") {
-      if (!opencredSigningKeyDid) throw new ValidationError("Delegated signing is not available: no OpenCred signing key configured");
-      const delegatorId = (credentialSubject.id as string | undefined) ?? `urn:opencred:business:${slugify(orgName)}`;
-      const now = new Date();
-      const validUntil = new Date(now.getTime() + jwtExpirySeconds * 1000);
-      const unsignedCert = createDelegationCertificate({ delegator: { id: delegatorId, name: orgName }, delegatee: { id: opencredSigningKeyDid }, scope: { credentialTypes: [], namespaces: [namespace] }, validFrom: now.toISOString(), validUntil: validUntil.toISOString(), authorisationPath: "dedi-registry" });
-      delegationId = unsignedCert.id;
-      if (dediClient) {
-        // The delegation certificate is unsigned here — in production the
-        // delegator would sign it. For Type D onboarding, the business VC
-        // itself serves as the authorisation proof, so we register the
-        // unsigned cert as a placeholder and attach the proof field to
-        // satisfy the registry contract.
-        const businessCredentialDigest = createHash("sha256")
-          .update(
-            typeof businessCredential === "string"
-              ? businessCredential
-              : JSON.stringify(businessCredential),
-          )
-          .digest("base64url");
-
-        const certWithProof: DelegationCertificate = {
-          ...unsignedCert,
-          proof: {
-            type: "BusinessCredentialAuthorisation",
-            verificationMethod: delegatorId,
-            proofPurpose: "capabilityDelegation",
-            created: now.toISOString(),
-            proofValue: `z${businessCredentialDigest}`,
-          },
-        };
-        await registerDelegation(dediClient, { certificate: certWithProof });
-      }
-    }
-
-    const response: Record<string, unknown> = { namespace, capabilityToken, issuerIdentifier: subject, expiresAt };
-    if (delegationId) response.delegationId = delegationId;
-    return c.json(response, 201);
+    return c.json({ namespace, capabilityToken, issuerIdentifier: subject, expiresAt }, 201);
   });
 
   // POST /type-d — alias for /business-vc (PRD endpoint path alignment #173)

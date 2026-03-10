@@ -1,10 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { createSign, generateKeyPairSync } from "node:crypto";
 import { Hono } from "hono";
 import { createCapabilityToken } from "@opencred/auth";
-import { LocalSigningKeyProvider } from "@opencred/crypto";
-import type { DeDiClient } from "@opencred/dedi-client";
-import type { DelegationCertificate } from "@opencred/delegation";
 import { createBatchRoute } from "../routes/batch.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { makeTestConfig, makeTestLogger } from "./helpers.js";
@@ -23,9 +20,6 @@ const { publicKey: issuerPublicKey, privateKey: issuerPrivateKey } = generateKey
 
 const issuerPubJwk = issuerPublicKey.export({ format: "jwk" });
 const issuerPublicKeyId = `z${issuerPubJwk.x!.slice(0, 10)}`;
-
-const signingKeyProvider = new LocalSigningKeyProvider();
-const activeKey = signingKeyProvider.getActiveKey();
 
 const AUTH_OPTIONS = {
   verificationKey: TEST_SECRET,
@@ -46,94 +40,23 @@ async function makeToken(scope: string[] = ["credentials:batch"]) {
 }
 
 // -------------------------------------------------------------------------
-// Mock DeDi client
-// -------------------------------------------------------------------------
-
-function makeActiveDelegation(): DelegationCertificate {
-  const now = new Date();
-  const validFrom = new Date(now.getTime() - 86400000).toISOString();
-  const validUntil = new Date(now.getTime() + 86400000).toISOString();
-
-  return {
-    "@context": [
-      "https://www.w3.org/ns/credentials/v2",
-      "https://opencred.example/ns/delegation/v1",
-    ],
-    id: "urn:uuid:delegation-1",
-    type: ["VerifiableCredential", "DelegationCertificate"],
-    delegator: {
-      id: "https://university.example",
-      name: "Example University",
-    },
-    delegatee: {
-      id: activeKey.id,
-    },
-    scope: {
-      credentialTypes: ["education"],
-      namespaces: ["education"],
-    },
-    validFrom,
-    validUntil,
-    authorisationPath: "dedi-registry",
-    proof: {
-      type: "DataIntegrityProof",
-      cryptosuite: "ecdsa-rdfc-2019",
-      created: validFrom,
-      verificationMethod: "https://university.example#key-1",
-      proofPurpose: "assertionMethod",
-      proofValue: "zMockProofValue",
-    },
-  };
-}
-
-function createMockDediClient(
-  delegation: DelegationCertificate | null = makeActiveDelegation(),
-  options: { revoked?: boolean; publishFails?: boolean } = {},
-): DeDiClient {
-  const { revoked = false, publishFails = false } = options;
-  return {
-    resolveDelegation: vi.fn().mockImplementation(async (id: string) => {
-      if (!delegation) {
-        throw new Error(`Delegation ${id} not found`);
-      }
-      return { id, certificate: delegation };
-    }),
-    registerDelegation: vi.fn().mockResolvedValue({}),
-    queryRevocationHash: vi.fn().mockResolvedValue({ revoked, hash: "mock-hash" }),
-    publishRevocationHash: vi.fn().mockImplementation(async (hash: string) => {
-      if (publishFails) {
-        throw new Error("DeDi publish failed");
-      }
-      return { hash, revoked: true, revokedAt: new Date().toISOString() };
-    }),
-    resolveDID: vi.fn().mockResolvedValue({ did: "did:web:example" }),
-  } as unknown as DeDiClient;
-}
-
-// -------------------------------------------------------------------------
 // App factories
 // -------------------------------------------------------------------------
 
 function createBatchApp(options?: {
-  delegation?: DelegationCertificate | null;
-  revoked?: boolean;
   maxBatchSize?: number;
 }) {
   const config = makeTestConfig({
-    DEDI_API_URL: "https://dedi.opencred.test",
     MAX_BATCH_SIZE: options?.maxBatchSize ?? 1000,
   });
-  const dediClient = createMockDediClient(options?.delegation, { revoked: options?.revoked });
   const { batch, jobStore } = createBatchRoute({
     config,
     authOptions: AUTH_OPTIONS,
-    signingKeyProvider,
-    dediClient,
   });
   const app = new Hono();
   app.route("/credentials/batch", batch);
   app.onError(errorHandler(logger));
-  return { app, jobStore, dediClient };
+  return { app, jobStore };
 }
 
 // -------------------------------------------------------------------------
@@ -142,7 +65,6 @@ function createBatchApp(options?: {
 
 const VALID_INTERFACE_BATCH = {
   schema: "education",
-  signingFlow: "interface" as const,
   issuer: "did:web:university.example",
   publicKey: issuerPublicKeyId,
   revocationRegistryUrl: "https://dedi.example/revocations/university.example/reg",
@@ -165,32 +87,6 @@ const VALID_INTERFACE_BATCH = {
       },
       validFrom: "2026-01-01T00:00:00Z",
       validUntil: "2027-01-01T00:00:00Z",
-    },
-  ],
-};
-
-const VALID_DELEGATED_BATCH = {
-  schema: "education",
-  signingFlow: "delegated" as const,
-  delegationId: "urn:uuid:delegation-1",
-  credentials: [
-    {
-      credentialSubject: {
-        name: "Jane Doe",
-        degree: "Bachelor of Science",
-        institution: "Example University",
-        dateConferred: "2025-06-15",
-      },
-      validFrom: "2026-01-01T00:00:00Z",
-    },
-    {
-      credentialSubject: {
-        name: "John Smith",
-        degree: "Master of Arts",
-        institution: "Example University",
-        dateConferred: "2025-06-15",
-      },
-      validFrom: "2026-01-01T00:00:00Z",
     },
   ],
 };
@@ -325,7 +221,7 @@ describe("POST /credentials/batch", () => {
     expect(body.error.message).toContain("exceeds maximum");
   });
 
-  it("returns 400 for interface signing without issuer", async () => {
+  it("returns 400 for missing issuer", async () => {
     const { app } = createBatchApp();
     const token = await makeToken();
     const res = await app.request("/credentials/batch", {
@@ -337,24 +233,6 @@ describe("POST /credentials/batch", () => {
       body: JSON.stringify({
         ...VALID_INTERFACE_BATCH,
         issuer: undefined,
-      }),
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it("returns 400 for delegated signing without delegationId", async () => {
-    const { app } = createBatchApp();
-    const token = await makeToken();
-    const res = await app.request("/credentials/batch", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        schema: "education",
-        signingFlow: "delegated",
-        credentials: VALID_DELEGATED_BATCH.credentials,
       }),
     });
     expect(res.status).toBe(400);
@@ -566,87 +444,6 @@ describe("Interface Signing batch round-trip", () => {
 });
 
 // =========================================================================
-// Tests: Delegated Signing batch round-trip
-// =========================================================================
-
-describe("Delegated Signing batch round-trip", () => {
-  it("completes batch issuance in a single step", async () => {
-    const { app } = createBatchApp();
-    const token = await makeToken();
-
-    const res = await app.request("/credentials/batch", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(VALID_DELEGATED_BATCH),
-    });
-
-    expect(res.status).toBe(202);
-    const body = (await res.json()) as BatchSubmitResponse;
-    expect(body.status).toBe("completed");
-    expect(body.total).toBe(2);
-    expect(body.succeeded).toBe(2);
-    expect(body.failed).toBe(0);
-
-    // Get results
-    const resultsRes = await app.request(`/credentials/batch/${body.jobId}/results`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    const resultsBody = (await resultsRes.json()) as BatchResultsResponse;
-    for (const row of resultsBody.results) {
-      expect(row.status).toBe("issued");
-      expect(row.credential).toBeDefined();
-      const vc = row.credential!;
-      expect(vc["@context"]).toContain("https://www.w3.org/ns/credentials/v2");
-      const issuer = vc.issuer as { id: string; name?: string };
-      expect(issuer.id).toBe("https://university.example");
-      expect(issuer.name).toBe("Example University");
-    }
-  });
-
-  it("returns 403 when delegation is expired", async () => {
-    const now = new Date();
-    const pastFrom = new Date(now.getTime() - 172800000).toISOString();
-    const pastUntil = new Date(now.getTime() - 86400000).toISOString();
-    const expired = makeActiveDelegation();
-    expired.validFrom = pastFrom;
-    expired.validUntil = pastUntil;
-
-    const { app } = createBatchApp({ delegation: expired });
-    const token = await makeToken();
-
-    const res = await app.request("/credentials/batch", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(VALID_DELEGATED_BATCH),
-    });
-    expect(res.status).toBe(403);
-  });
-
-  it("returns 403 when delegation is revoked", async () => {
-    const { app } = createBatchApp({ revoked: true });
-    const token = await makeToken();
-
-    const res = await app.request("/credentials/batch", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(VALID_DELEGATED_BATCH),
-    });
-    expect(res.status).toBe(403);
-  });
-});
-
-// =========================================================================
 // Tests: GET /credentials/batch/:jobId — Poll status
 // =========================================================================
 
@@ -699,34 +496,6 @@ describe("GET /credentials/batch/:jobId", () => {
 // =========================================================================
 
 describe("POST /credentials/batch/:jobId/signatures", () => {
-  it("returns 400 for delegated flow batch", async () => {
-    const { app } = createBatchApp();
-    const token = await makeToken();
-
-    const submitRes = await app.request("/credentials/batch", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(VALID_DELEGATED_BATCH),
-    });
-    const submitBody = (await submitRes.json()) as BatchSubmitResponse;
-
-    const sigRes = await app.request(`/credentials/batch/${submitBody.jobId}/signatures`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        signatures: [{ index: 0, signature: "AAAA" }],
-      }),
-    });
-
-    expect(sigRes.status).toBe(400);
-  });
-
   it("returns 400 for out-of-range index", async () => {
     const { app } = createBatchApp();
     const token = await makeToken();
@@ -787,14 +556,10 @@ describe("Batch session expiry", () => {
       SESSION_TTL_MS: 1,
       SESSION_SWEEP_INTERVAL_MS: 100000,
       MAX_BATCH_SIZE: 1000,
-      DEDI_API_URL: "https://dedi.opencred.test",
     });
-    const dediClient = createMockDediClient();
     const { batch, jobStore } = createBatchRoute({
       config,
       authOptions: AUTH_OPTIONS,
-      signingKeyProvider,
-      dediClient,
     });
     const app = new Hono();
     app.route("/credentials/batch", batch);

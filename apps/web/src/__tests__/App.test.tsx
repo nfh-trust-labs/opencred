@@ -58,7 +58,7 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("tab", { name: /onboarding/i }));
-    expect(screen.getByRole("button", { name: /type a/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /type b/i })).toBeInTheDocument();
   });
 
   it("toggles settings panel", async () => {

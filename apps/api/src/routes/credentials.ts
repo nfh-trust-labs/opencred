@@ -7,7 +7,6 @@ import type { UnsignedCredential } from "@opencred/vc-core";
 import {
   prepareProof,
   completeProof,
-  signCredentialAuto,
   prepareJwsProof,
   completeJwsProof,
   prepareEdDsaProof,
@@ -17,19 +16,12 @@ import {
   prepareSdJwtVcProof,
   completeSdJwtVcProof,
   defaultProofFormat,
-  computeRevocationHash,
 } from "@opencred/crypto";
-import type { ProofConfig, SigningKeyProvider, SigningAlgorithm, ProofFormat } from "@opencred/crypto";
+import type { ProofConfig, SigningAlgorithm, ProofFormat } from "@opencred/crypto";
 import { createRegistry, Validator } from "@opencred/schema-engine";
 import { TTLStore } from "@opencred/state";
-import { ValidationError, SessionExpiredError, AuthorizationError } from "@opencred/shared";
+import { ValidationError, SessionExpiredError } from "@opencred/shared";
 import type { EnvConfig } from "@opencred/shared";
-import type { DeDiClient } from "@opencred/dedi-client";
-import {
-  resolveDelegation,
-  validateDelegationCertificate,
-  embedDelegation,
-} from "@opencred/delegation";
 import { authMiddleware, type AuthMiddlewareOptions } from "../middleware/auth.js";
 import { packageFormats } from "../output/index.js";
 
@@ -59,16 +51,6 @@ const packageRequestSchema = z.object({
   signature: z.string().min(1, "signature is required"),
 });
 
-const issueDelegatedRequestSchema = z.object({
-  delegationId: z.string().min(1, "delegationId is required"),
-  schema: z.string().min(1, "schema is required"),
-  credentialSubject: z.record(z.unknown()).refine((v) => Object.keys(v).length > 0, {
-    message: "credentialSubject must not be empty",
-  }),
-  validFrom: z.string().min(1, "validFrom is required"),
-  validUntil: z.string().optional(),
-});
-
 // ---------------------------------------------------------------------------
 // Session store types
 // ---------------------------------------------------------------------------
@@ -91,8 +73,6 @@ interface SigningSession {
 export interface CredentialsRouteDeps {
   config: EnvConfig;
   authOptions: AuthMiddlewareOptions;
-  signingKeyProvider?: SigningKeyProvider;
-  dediClient?: DeDiClient;
 }
 
 export function createCredentialsRoute(deps: CredentialsRouteDeps) {
@@ -417,137 +397,8 @@ export function createCredentialsRoute(deps: CredentialsRouteDeps) {
     },
   );
 
-  // -----------------------------------------------------------------------
-  // POST /credentials/issue-delegated — Delegated Signing
-  // -----------------------------------------------------------------------
-  if (deps.signingKeyProvider && deps.dediClient) {
-    const { signingKeyProvider, dediClient } = deps;
-
-    // Derive DeDi base URL from config, falling back to a safe default
-    const dediBaseUrl = config.DEDI_API_URL ?? "https://dedi.example";
-
-    credentials.post(
-      "/issue-delegated",
-      authMiddleware(authOptions, "credentials:issue-delegated"),
-      zValidator("json", issueDelegatedRequestSchema, (result, c) => {
-        if (!result.success) {
-          const fieldErrors = result.error.issues.map((issue) => ({
-            field: issue.path.join("."),
-            message: issue.message,
-          }));
-          return c.json(
-            {
-              error: {
-                code: "VALIDATION_ERROR",
-                message: "Request validation failed",
-                validationErrors: fieldErrors,
-              },
-            },
-            400,
-          );
-        }
-      }),
-      async (c) => {
-        const body = c.req.valid("json");
-
-        // 1. Resolve delegation certificate from DeDi
-        const delegation = await resolveDelegation(dediClient, {
-          delegationId: body.delegationId,
-        });
-
-        // 2. Validate delegation: active, scope, not expired
-        const validationResult = await validateDelegationCertificate(delegation, {
-          credentialType: body.schema,
-        });
-
-        if (!validationResult.valid) {
-          if (validationResult.status === "expired") {
-            throw new AuthorizationError(
-              `Delegation certificate has expired: ${validationResult.errors.join("; ")}`,
-            );
-          }
-          if (validationResult.status === "revoked") {
-            throw new AuthorizationError(
-              `Delegation certificate has been revoked: ${validationResult.errors.join("; ")}`,
-            );
-          }
-          // Scope mismatch or other validation failure
-          throw new AuthorizationError(
-            `Delegation validation failed: ${validationResult.errors.join("; ")}`,
-          );
-        }
-
-        // 3. Check revocation status against DeDi registry
-        const revocationHash = computeRevocationHash({ delegationId: body.delegationId });
-        const revocationRecord = await dediClient.queryRevocationHash(revocationHash);
-        if (revocationRecord.revoked) {
-          throw new AuthorizationError("Delegation has been revoked");
-        }
-
-        // 4. Validate delegatee matches the current signing key
-        const activeKey = signingKeyProvider.getActiveKey();
-        if (delegation.delegatee.id !== activeKey.id) {
-          throw new AuthorizationError("Delegation does not authorize the current signing key");
-        }
-
-        // 5. Validate schema exists and credentialSubject matches
-        validator.validateOrThrow(body.schema, body.credentialSubject);
-
-        // 6. Build unsigned VC — issuer is the delegation's delegator
-        const issuer = delegation.delegator.name
-          ? { id: delegation.delegator.id, name: delegation.delegator.name }
-          : delegation.delegator.id;
-
-        const builder = new CredentialBuilder()
-          .setIssuer(issuer)
-          .setCredentialSubject(body.credentialSubject)
-          .setValidFrom(body.validFrom)
-          .setCredentialStatus({
-            id: `${dediBaseUrl}/revocations/${encodeURIComponent(delegation.delegator.id)}/registry`,
-            type: "DeDiRevocationListStatusV1",
-            statusPurpose: "revocation",
-          });
-
-        if (body.validUntil) {
-          builder.setValidUntil(body.validUntil);
-        }
-
-        const unsignedCredential = builder.build();
-
-        // 7. Sign with OpenCred's active key (auto-dispatches based on algorithm default)
-        const signedCredential = await signCredentialAuto(unsignedCredential, activeKey, {
-          verificationMethod: activeKey.id,
-          proofPurpose: "assertionMethod",
-        } as { verificationMethod: string; proofPurpose: string });
-
-        // 8. Embed delegation reference in the credential (DI only)
-        const credentialWithDelegation = typeof signedCredential === "string"
-          ? signedCredential // JWS: delegation metadata not embedded in compact string
-          : embedDelegation(signedCredential, delegation);
-
-        // 9. Generate QR + PDF output formats
-        const formats = await packageFormats(
-          credentialWithDelegation as unknown as Record<string, unknown>,
-        );
-
-        // 10. Compute credential hash for revocation tracking
-        const credentialHash = computeRevocationHash(credentialWithDelegation);
-
-        return c.json({ credential: credentialWithDelegation, credentialHash, formats }, 201);
-      },
-    );
-  } else {
-    // Delegated signing not configured — return a clear error for POST requests
-    credentials.post("/issue-delegated", (c) =>
-      c.json(
-        { error: { code: "NOT_CONFIGURED", message: "Delegated signing is not configured on this server" } },
-        501,
-      ),
-    );
-  }
-
   // 405 for non-POST methods
-  for (const path of ["/build", "/package", "/issue-delegated"]) {
+  for (const path of ["/build", "/package"]) {
     credentials.all(path, (c) => {
       if (c.req.method === "POST") return c.notFound();
       return c.json({ error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405);

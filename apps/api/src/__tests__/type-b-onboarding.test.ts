@@ -19,27 +19,6 @@ import {
 import { errorHandler } from "../middleware/error-handler.js";
 import { makeTestLogger } from "./helpers.js";
 
-// --- Mock registerDelegation ---
-vi.mock("@opencred/delegation", async () => {
-  const actual =
-    await vi.importActual<typeof import("@opencred/delegation")>("@opencred/delegation");
-  return {
-    ...actual,
-    registerDelegation: vi.fn().mockResolvedValue({
-      id: "urn:uuid:mock-delegation-id",
-      issuerDid: "did:example:delegator",
-      delegateDid: "did:key:z6Mk-opencred",
-      scope: [],
-      validFrom: new Date().toISOString(),
-      validUntil: new Date(Date.now() + 3600_000).toISOString(),
-      certificate: {},
-    }),
-  };
-});
-
-import { registerDelegation } from "@opencred/delegation";
-
-const mockedRegister = vi.mocked(registerDelegation);
 const logger = makeTestLogger();
 
 // --- Test constants ---
@@ -48,7 +27,6 @@ const TEST_TOKEN_SECRET = "test-capability-token-key-must-be-at-least-32-chars";
 const TEST_TOKEN_ISSUER = "opencred-test";
 const TEST_TOKEN_EXPIRY = 3600;
 const TEST_TOKEN_KEY = new TextEncoder().encode(TEST_TOKEN_SECRET);
-const TEST_OPENCRED_DID = "did:key:z6MktestedOpencredKey123456";
 
 // --- Response types ---
 
@@ -58,7 +36,6 @@ interface TypeBResponseBody {
   issuerIdentifier: string;
   expiresAt: string;
   sslSubject: SslSubject;
-  delegationId?: string;
 }
 
 interface InitiateResponse {
@@ -136,8 +113,6 @@ function createMockResolve6(
 interface TestAppOptions {
   sslSubject?: SslSubject;
   extractSslSubject?: SslSubjectExtractor;
-  opencredSigningKeyDid?: string;
-  dediClient?: TypeBOnboardingDeps["dediClient"];
   domainVerificationOverrides?: Partial<DomainVerificationDeps>;
 }
 
@@ -170,8 +145,6 @@ function createTestApp(options: TestAppOptions = {}) {
     capabilityTokenKey: TEST_TOKEN_KEY,
     tokenIssuer: TEST_TOKEN_ISSUER,
     tokenExpirySeconds: TEST_TOKEN_EXPIRY,
-    opencredSigningKeyDid: options.opencredSigningKeyDid,
-    dediClient: options.dediClient,
   };
 
   const app = new Hono();
@@ -450,8 +423,6 @@ describe("POST /onboarding/type-b", () => {
       // SSL subject should be present in the response
       expect(body.sslSubject).toEqual(sslSubject);
 
-      // No delegationId for interface signing
-      expect(body.delegationId).toBeUndefined();
     });
 
     it("issues a valid capability token with interface scopes", async () => {
@@ -480,17 +451,14 @@ describe("POST /onboarding/type-b", () => {
     });
   });
 
-  describe("successful Type B onboarding (delegated signing)", () => {
-    it("returns 201 with delegationId when using delegated signing", async () => {
+  describe("successful Type B onboarding (delegated signing preference)", () => {
+    it("returns 201 with delegated scopes when using delegated signing preference", async () => {
       const sslSubject: SslSubject = {
         CN: "secure.example.com",
         O: "Secure Corp",
         C: "DE",
       };
-      const { app, store } = createTestApp({
-        sslSubject,
-        opencredSigningKeyDid: TEST_OPENCRED_DID,
-      });
+      const { app, store } = createTestApp({ sslSubject });
 
       const challengeId = await initiateAndVerifyChallenge(app, store);
 
@@ -506,15 +474,11 @@ describe("POST /onboarding/type-b", () => {
       expect(body.namespace).toBe("urn:opencred:issuer:domain:de:secure-corp:secure-example-com");
       expect(body.capabilityToken).toBeDefined();
       expect(body.issuerIdentifier).toBe("domain:example-com");
-      expect(body.delegationId).toBeDefined();
-      expect(body.delegationId).toMatch(/^urn:uuid:/);
       expect(body.sslSubject).toEqual(sslSubject);
     });
 
     it("issues a valid capability token with delegated scopes", async () => {
-      const { app, store } = createTestApp({
-        opencredSigningKeyDid: TEST_OPENCRED_DID,
-      });
+      const { app, store } = createTestApp();
 
       const challengeId = await initiateAndVerifyChallenge(app, store);
 
@@ -533,66 +497,11 @@ describe("POST /onboarding/type-b", () => {
 
       expect(payload.scope).toEqual(["credentials:issue-delegated", "credentials:revoke"]);
     });
-
-    it("returns error when delegated signing requested but no OpenCred key configured", async () => {
-      const { app, store } = createTestApp({
-        opencredSigningKeyDid: undefined,
-      });
-
-      const challengeId = await initiateAndVerifyChallenge(app, store);
-
-      const res = await app.request("/onboarding/type-b", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ challengeId, signingPreference: "delegated" }),
-      });
-
-      expect(res.status).toBe(400);
-      const body = (await res.json()) as ErrorBody;
-      expect(body.error.code).toBe("VALIDATION_ERROR");
-      expect(body.error.message).toContain("no OpenCred signing key configured");
-    });
-
-    it("registers delegation in DeDi when client is provided", async () => {
-      const mockDediClient = {
-        post: vi.fn().mockResolvedValue({ id: "mock-id" }),
-        get: vi.fn(),
-        patch: vi.fn(),
-        delete: vi.fn(),
-        healthCheck: vi.fn(),
-      };
-
-      const { app, store } = createTestApp({
-        opencredSigningKeyDid: TEST_OPENCRED_DID,
-        dediClient: mockDediClient as unknown as TypeBOnboardingDeps["dediClient"],
-      });
-
-      const challengeId = await initiateAndVerifyChallenge(app, store);
-
-      const res = await app.request("/onboarding/type-b", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ challengeId, signingPreference: "delegated" }),
-      });
-
-      expect(res.status).toBe(201);
-
-      // registerDelegation should have been called
-      expect(mockedRegister).toHaveBeenCalledTimes(1);
-      const callArgs = mockedRegister.mock.calls[0];
-      expect(callArgs[1].certificate).toBeDefined();
-      expect(callArgs[1].certificate.delegator.id).toBe("https://example.com");
-      expect(callArgs[1].certificate.delegator.name).toBe("Example Inc");
-      expect(callArgs[1].certificate.delegatee.id).toBe(TEST_OPENCRED_DID);
-      expect(callArgs[1].certificate.proof?.type).toBe("DomainVerificationAuthorisation");
-    });
   });
 
   describe("signing preference defaults", () => {
-    it("defaults to delegated signing when signingPreference is not provided", async () => {
-      const { app, store } = createTestApp({
-        opencredSigningKeyDid: TEST_OPENCRED_DID,
-      });
+    it("defaults to delegated signing scopes when signingPreference is not provided", async () => {
+      const { app, store } = createTestApp();
 
       const challengeId = await initiateAndVerifyChallenge(app, store);
 
@@ -604,9 +513,6 @@ describe("POST /onboarding/type-b", () => {
 
       expect(res.status).toBe(201);
       const body = (await res.json()) as TypeBResponseBody;
-
-      // Delegated signing is default — should have delegationId
-      expect(body.delegationId).toBeDefined();
 
       // Verify scopes match delegated
       const { payload } = await jwtVerify(body.capabilityToken, TEST_TOKEN_KEY, {
@@ -708,7 +614,6 @@ describe("POST /onboarding/type-b", () => {
         capabilityTokenKey: TEST_TOKEN_KEY,
         tokenIssuer: TEST_TOKEN_ISSUER,
         tokenExpirySeconds: TEST_TOKEN_EXPIRY,
-        opencredSigningKeyDid: TEST_OPENCRED_DID,
       };
 
       const app = new Hono();
@@ -757,8 +662,6 @@ describe("POST /onboarding/type-b", () => {
       expect(typeBBody.issuerIdentifier).toBe("domain:example-com");
       expect(typeBBody.expiresAt).toBeDefined();
       expect(typeBBody.sslSubject).toEqual(sslSubject);
-      expect(typeBBody.delegationId).toBeDefined();
-      expect(typeBBody.delegationId).toMatch(/^urn:uuid:/);
 
       // Verify the JWT token
       const { payload } = await jwtVerify(typeBBody.capabilityToken, TEST_TOKEN_KEY, {

@@ -9,11 +9,6 @@ vi.mock("@opencred/verification", async () => {
   return { ...actual, verifyCredential: vi.fn() };
 });
 
-vi.mock("@opencred/delegation", async () => {
-  const actual = await vi.importActual<typeof import("@opencred/delegation")>("@opencred/delegation");
-  return { ...actual, registerDelegation: vi.fn().mockResolvedValue({}) };
-});
-
 import { verifyCredential } from "@opencred/verification";
 
 const mockedVerify = vi.mocked(verifyCredential);
@@ -22,8 +17,6 @@ const TEST_JWT_SECRET = "test-jwt-secret-must-be-at-least-32-characters-long";
 const TEST_JWT_ISSUER = "opencred-test";
 const TEST_JWT_EXPIRY = 3600;
 const TEST_JWT_KEY = new TextEncoder().encode(TEST_JWT_SECRET);
-const TEST_OPENCRED_DID = "did:key:z6MktestedOpencredKey123456";
-
 function makeOversizedVcJwt() {
   const header = { alg: "ES256", typ: "JWT" };
   const payload = {
@@ -54,8 +47,6 @@ function createTestApp(overrides: Partial<BusinessVcOnboardingDeps> = {}) {
     jwtIssuer: overrides.jwtIssuer ?? TEST_JWT_ISSUER,
     jwtExpirySeconds: overrides.jwtExpirySeconds ?? TEST_JWT_EXPIRY,
     verifierConfig: overrides.verifierConfig,
-    dediClient: overrides.dediClient,
-    opencredSigningKeyDid: overrides.opencredSigningKeyDid ?? TEST_OPENCRED_DID,
   }));
   app.onError(errorHandler(logger));
   return app;
