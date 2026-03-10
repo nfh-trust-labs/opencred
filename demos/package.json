@@ -19,7 +19,6 @@
     "@opencred/crypto": "workspace:*",
     "@opencred/vc-core": "workspace:*",
     "@opencred/verification": "workspace:*",
-    "@opencred/delegation": "workspace:*",
     "@opencred/schema-engine": "workspace:*",
     "@opencred/auth": "workspace:*",
     "@opencred/signing": "workspace:*"

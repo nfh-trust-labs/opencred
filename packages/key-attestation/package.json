@@ -1,5 +1,5 @@
 {
-  "name": "@opencred/verification",
+  "name": "@opencred/key-attestation",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,17 +12,16 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp -r src/contexts dist/contexts",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "@opencred/crypto": "workspace:*",
-    "@opencred/dedi-client": "workspace:*",
     "@opencred/did": "workspace:*",
     "@opencred/shared": "workspace:*",
-    "@opencred/vc-core": "workspace:*",
-    "jose": "^5.9.0"
+    "@opencred/vc-core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

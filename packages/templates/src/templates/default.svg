@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 560" width="800" height="560">
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .header { fill: {{primaryColor}}; }
+      .title { font: bold 24px sans-serif; fill: #ffffff; }
+      .label { font: 12px sans-serif; fill: #666666; }
+      .value { font: 16px sans-serif; fill: #333333; }
+      .footer { font: 10px sans-serif; fill: #999999; }
+      .border { fill: none; stroke: {{primaryColor}}; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect class="bg" width="800" height="560" rx="12" />
+  <rect class="border" x="1" y="1" width="798" height="558" rx="12" />
+
+  <!-- Header bar -->
+  <rect class="header" width="800" height="80" rx="12" />
+  <rect class="header" y="12" width="800" height="68" />
+
+  <!-- Logo placeholder -->
+  {{#logoDataUri}}
+  <image x="20" y="15" width="50" height="50" href="{{logoDataUri}}" />
+  {{/logoDataUri}}
+
+  <!-- Credential title -->
+  <text class="title" x="80" y="50">{{credentialTitle}}</text>
+
+  <!-- Issuer -->
+  <text class="label" x="40" y="110">Issued by</text>
+  <text class="value" x="40" y="130">{{issuerName}}</text>
+
+  <!-- Subject name -->
+  <text class="label" x="40" y="170">Issued to</text>
+  <text class="value" x="40" y="190">{{subject.name}}</text>
+
+  <!-- Subject ID -->
+  <text class="label" x="40" y="230">Subject ID</text>
+  <text class="value" x="40" y="250">{{subject.id}}</text>
+
+  <!-- Dates -->
+  <text class="label" x="40" y="290">Valid from</text>
+  <text class="value" x="40" y="310">{{validFrom}}</text>
+
+  <text class="label" x="300" y="290">Valid until</text>
+  <text class="value" x="300" y="310">{{validUntil}}</text>
+
+  <!-- QR code area -->
+  {{#qrCode}}
+  <image x="600" y="100" width="160" height="160" href="{{qrCode}}" />
+  {{/qrCode}}
+
+  <!-- Footer -->
+  <text class="footer" x="40" y="540">Verifiable Credential — powered by OpenCred</text>
+</svg>

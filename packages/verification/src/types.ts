@@ -10,7 +10,8 @@ export type VerificationResultCode =
   | "EXPIRED"
   | "INVALID"
   | "UNRESOLVABLE"
-  | "DELEGATION_INVALID";
+  | "DELEGATION_INVALID"
+  | "ATTESTATION_INVALID";
 
 /**
  * A single check performed during verification.

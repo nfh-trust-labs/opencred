@@ -5,7 +5,7 @@ import { verifyJwsProof } from "./jws-proof.js";
 import { verifyVcJwt, extractVcJwtCredentialFields } from "./vc-jwt.js";
 import { verifySdJwtVc, extractSdJwtVcCredentialFields } from "./sd-jwt-vc.js";
 import { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
-import { checkDelegationChain } from "./delegation-check.js";
+import { checkAttestationChain } from "./attestation-check.js";
 import type {
   CredentialFormat,
   CredentialVerificationResult,
@@ -189,15 +189,15 @@ export async function verifyCredential(
     }
   }
 
-  // Delegation chain check (only runs if credential has a delegation reference)
+  // Attestation chain check (only runs if credential has an attestation reference)
   if (format === "data-integrity") {
-    const delegationCheck = await checkDelegationChain(input as Record<string, unknown>, {
+    const attestationCheck = await checkAttestationChain(input as Record<string, unknown>, {
       dediClient: config.dediClient,
       didResolver: config.didResolver,
     });
-    checks.push(delegationCheck);
-    if (!delegationCheck.passed) {
-      return { code: "DELEGATION_INVALID", verified: false, checks };
+    checks.push(attestationCheck);
+    if (!attestationCheck.passed) {
+      return { code: "ATTESTATION_INVALID", verified: false, checks };
     }
   }
 
