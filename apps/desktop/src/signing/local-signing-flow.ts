@@ -24,6 +24,7 @@ import { CredentialBuilder } from "@opencred/vc-core";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
 import { createRegistry, Validator } from "@opencred/schema-engine";
 import type { SchemaRegistry, ValidationResult } from "@opencred/schema-engine";
+import { getAttestation } from "../main/attestation-store.js";
 import type { Signer } from "./types.js";
 
 /**
@@ -191,6 +192,13 @@ export async function buildAndSign(
 
   // Step 5: Complete proof
   const signedCredential = completeProof(unsignedCredential, proofConfig, signatureBytes);
+
+  // Step 6: Embed attestation VC in proof if the signing key has one
+  const attestation = getAttestation(signer.id);
+  if (attestation) {
+    const proof = signedCredential.proof as Record<string, unknown>;
+    proof.keyAttestationCredential = attestation.credential;
+  }
 
   return {
     credential: signedCredential,

@@ -40,13 +40,18 @@ describe("IPC_CHANNELS", () => {
     expect(IPC_CHANNELS.OSCERT_LIST).toBe("oscert:list");
     expect(IPC_CHANNELS.OSCERT_SIGN).toBe("oscert:sign");
     expect(IPC_CHANNELS.OSCERT_CONNECT).toBe("oscert:connect");
+    expect(IPC_CHANNELS.ATTESTATION_IMPORT).toBe("attestation:import");
+    expect(IPC_CHANNELS.ATTESTATION_GET).toBe("attestation:get");
+    expect(IPC_CHANNELS.ATTESTATION_LIST).toBe("attestation:list");
+    expect(IPC_CHANNELS.ATTESTATION_REMOVE).toBe("attestation:remove");
+    expect(IPC_CHANNELS.ATTESTATION_CHECK).toBe("attestation:check");
     expect(IPC_CHANNELS.GET_CONFIG).toBe("config:get");
     expect(IPC_CHANNELS.SET_CONFIG).toBe("config:set");
   });
 
-  it("should have exactly 32 channels defined", () => {
+  it("should have exactly 37 channels defined", () => {
     const channelCount = Object.keys(IPC_CHANNELS).length;
-    expect(channelCount).toBe(32);
+    expect(channelCount).toBe(37);
   });
 
   it("should have unique channel values (no duplicate channel names)", () => {
@@ -103,6 +108,11 @@ describe("IPC_CHANNELS", () => {
       OSCERT_LIST: "oscert:list",
       OSCERT_SIGN: "oscert:sign",
       OSCERT_CONNECT: "oscert:connect",
+      ATTESTATION_IMPORT: "attestation:import",
+      ATTESTATION_GET: "attestation:get",
+      ATTESTATION_LIST: "attestation:list",
+      ATTESTATION_REMOVE: "attestation:remove",
+      ATTESTATION_CHECK: "attestation:check",
       GET_CONFIG: "config:get",
       SET_CONFIG: "config:set",
     };

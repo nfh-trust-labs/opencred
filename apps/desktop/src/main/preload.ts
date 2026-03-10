@@ -63,6 +63,15 @@ import type {
   OsCertSignResponse,
   OsCertConnectRequest,
   OsCertConnectResponse,
+  AttestationImportRequest,
+  AttestationImportResponse,
+  AttestationGetRequest,
+  AttestationGetResponse,
+  AttestationListResponse,
+  AttestationRemoveRequest,
+  AttestationRemoveResponse,
+  AttestationCheckRequest,
+  AttestationCheckResponse,
   OpenCredDesktopAPI,
 } from "../shared/ipc-types.js";
 
@@ -169,6 +178,24 @@ const api: OpenCredDesktopAPI = {
 
   osCertConnect: (request: OsCertConnectRequest): Promise<OsCertConnectResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.OSCERT_CONNECT, request),
+
+  // Attestation (Quick Start / Workflow 3)
+  attestation: {
+    import: (request: AttestationImportRequest): Promise<AttestationImportResponse> =>
+      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_IMPORT, request),
+
+    get: (request: AttestationGetRequest): Promise<AttestationGetResponse> =>
+      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_GET, request),
+
+    list: (): Promise<AttestationListResponse> =>
+      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_LIST),
+
+    remove: (request: AttestationRemoveRequest): Promise<AttestationRemoveResponse> =>
+      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_REMOVE, request),
+
+    check: (request: AttestationCheckRequest): Promise<AttestationCheckResponse> =>
+      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_CHECK, request),
+  },
 
   // Config
   getConfig: (key: string): Promise<unknown> =>

@@ -64,7 +64,23 @@ import type {
   OsCertSignResponse,
   OsCertConnectRequest,
   OsCertConnectResponse,
+  AttestationImportRequest,
+  AttestationImportResponse,
+  AttestationGetRequest,
+  AttestationGetResponse,
+  AttestationListResponse,
+  AttestationRemoveRequest,
+  AttestationRemoveResponse,
+  AttestationCheckRequest,
+  AttestationCheckResponse,
 } from "../shared/ipc-types.js";
+import {
+  storeAttestation,
+  getAttestation,
+  listAttestations,
+  removeAttestation,
+  hasAttestation,
+} from "./attestation-store.js";
 import { getStore, restrictStoreFilePermissions } from "./store.js";
 import { createSoftwareSigner, buildSigner } from "../signing/software-signer.js";
 import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local-signing-flow.js";
@@ -1072,6 +1088,85 @@ async function handleOsCertConnect(
 }
 
 // ---------------------------------------------------------------------------
+// Attestation handlers (Quick Start / Workflow 3)
+// ---------------------------------------------------------------------------
+
+/** ATTESTATION_IMPORT — store a Key Attestation VC. */
+async function handleAttestationImport(
+  _event: IpcMainInvokeEvent,
+  request: AttestationImportRequest,
+): Promise<AttestationImportResponse> {
+  try {
+    const stored = storeAttestation(request.keyId, request.credential);
+    return {
+      success: true,
+      attestation: {
+        keyId: stored.keyId,
+        organizationName: stored.organizationName,
+        verifiedDomain: stored.verifiedDomain,
+        validFrom: stored.validFrom,
+        validUntil: stored.validUntil,
+        storedAt: stored.storedAt,
+      },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to store attestation.";
+    return { success: false, error: message };
+  }
+}
+
+/** ATTESTATION_GET — retrieve attestation for a key. */
+async function handleAttestationGet(
+  _event: IpcMainInvokeEvent,
+  request: AttestationGetRequest,
+): Promise<AttestationGetResponse> {
+  const stored = getAttestation(request.keyId);
+  if (!stored) return { attestation: null };
+  return {
+    attestation: {
+      keyId: stored.keyId,
+      credential: stored.credential,
+      organizationName: stored.organizationName,
+      verifiedDomain: stored.verifiedDomain,
+      validFrom: stored.validFrom,
+      validUntil: stored.validUntil,
+      storedAt: stored.storedAt,
+    },
+  };
+}
+
+/** ATTESTATION_LIST — list all attestation metadata. */
+async function handleAttestationList(): Promise<AttestationListResponse> {
+  const all = listAttestations();
+  return {
+    attestations: all.map((a) => ({
+      keyId: a.keyId,
+      organizationName: a.organizationName,
+      verifiedDomain: a.verifiedDomain,
+      validFrom: a.validFrom,
+      validUntil: a.validUntil,
+      storedAt: a.storedAt,
+    })),
+  };
+}
+
+/** ATTESTATION_REMOVE — remove an attestation. */
+async function handleAttestationRemove(
+  _event: IpcMainInvokeEvent,
+  request: AttestationRemoveRequest,
+): Promise<AttestationRemoveResponse> {
+  return { removed: removeAttestation(request.keyId) };
+}
+
+/** ATTESTATION_CHECK — check if a key has an attestation. */
+async function handleAttestationCheck(
+  _event: IpcMainInvokeEvent,
+  request: AttestationCheckRequest,
+): Promise<AttestationCheckResponse> {
+  return { hasAttestation: hasAttestation(request.keyId) };
+}
+
+// ---------------------------------------------------------------------------
 // Registration / cleanup
 // ---------------------------------------------------------------------------
 
@@ -1132,6 +1227,13 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.OSCERT_LIST, handleOsCertList);
   ipcMain.handle(IPC_CHANNELS.OSCERT_SIGN, handleOsCertSign);
   ipcMain.handle(IPC_CHANNELS.OSCERT_CONNECT, handleOsCertConnect);
+
+  // Attestation (Quick Start / Workflow 3)
+  ipcMain.handle(IPC_CHANNELS.ATTESTATION_IMPORT, handleAttestationImport);
+  ipcMain.handle(IPC_CHANNELS.ATTESTATION_GET, handleAttestationGet);
+  ipcMain.handle(IPC_CHANNELS.ATTESTATION_LIST, handleAttestationList);
+  ipcMain.handle(IPC_CHANNELS.ATTESTATION_REMOVE, handleAttestationRemove);
+  ipcMain.handle(IPC_CHANNELS.ATTESTATION_CHECK, handleAttestationCheck);
 
   // Config
   ipcMain.handle(IPC_CHANNELS.GET_CONFIG, handleGetConfig);

@@ -569,6 +569,71 @@ export interface ConfigSetRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Attestation (Quick Start / Workflow 3)
+// ---------------------------------------------------------------------------
+
+export interface AttestationImportRequest {
+  keyId: string;
+  credential: Record<string, unknown>;
+}
+
+export interface AttestationImportResponse {
+  success: boolean;
+  attestation?: {
+    keyId: string;
+    organizationName: string;
+    verifiedDomain: string;
+    validFrom: string;
+    validUntil: string;
+    storedAt: string;
+  };
+  error?: string;
+}
+
+export interface AttestationGetRequest {
+  keyId: string;
+}
+
+export interface AttestationGetResponse {
+  attestation: {
+    keyId: string;
+    credential: Record<string, unknown>;
+    organizationName: string;
+    verifiedDomain: string;
+    validFrom: string;
+    validUntil: string;
+    storedAt: string;
+  } | null;
+}
+
+export interface AttestationListResponse {
+  attestations: Array<{
+    keyId: string;
+    organizationName: string;
+    verifiedDomain: string;
+    validFrom: string;
+    validUntil: string;
+    storedAt: string;
+  }>;
+}
+
+export interface AttestationRemoveRequest {
+  keyId: string;
+}
+
+export interface AttestationRemoveResponse {
+  removed: boolean;
+}
+
+export interface AttestationCheckRequest {
+  keyId: string;
+}
+
+export interface AttestationCheckResponse {
+  hasAttestation: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Preload API shape (exposed on window.opencred)
 // ---------------------------------------------------------------------------
 
@@ -629,4 +694,13 @@ export interface OpenCredDesktopAPI {
   // Config
   getConfig: (key: string) => Promise<unknown>;
   setConfig: (key: string, value: unknown) => Promise<void>;
+
+  // Attestation (Quick Start / Workflow 3)
+  attestation: {
+    import: (request: AttestationImportRequest) => Promise<AttestationImportResponse>;
+    get: (request: AttestationGetRequest) => Promise<AttestationGetResponse>;
+    list: () => Promise<AttestationListResponse>;
+    remove: (request: AttestationRemoveRequest) => Promise<AttestationRemoveResponse>;
+    check: (request: AttestationCheckRequest) => Promise<AttestationCheckResponse>;
+  };
 }

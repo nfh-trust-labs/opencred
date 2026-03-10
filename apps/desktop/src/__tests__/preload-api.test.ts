@@ -11,11 +11,11 @@ import { IPC_CHANNELS } from "../shared/ipc-channels";
 import type { OpenCredDesktopAPI } from "../shared/ipc-types";
 
 /**
- * Mapping from IPC channel constants to the expected method names on
- * OpenCredDesktopAPI. This is the source of truth for ensuring complete
- * coverage between channels and API methods.
+ * Mapping from IPC channel constants to the expected method paths on
+ * OpenCredDesktopAPI. Top-level methods use simple names; namespaced
+ * methods (e.g. attestation) use dot-notation paths.
  */
-const CHANNEL_TO_METHOD: Record<string, keyof OpenCredDesktopAPI> = {
+const CHANNEL_TO_METHOD: Record<string, string> = {
   [IPC_CHANNELS.KEY_IMPORT]: "importKey",
   [IPC_CHANNELS.KEY_LIST]: "listKeys",
   [IPC_CHANNELS.KEY_GENERATE]: "generateKey",
@@ -46,9 +46,28 @@ const CHANNEL_TO_METHOD: Record<string, keyof OpenCredDesktopAPI> = {
   [IPC_CHANNELS.OSCERT_LIST]: "osCertList",
   [IPC_CHANNELS.OSCERT_SIGN]: "osCertSign",
   [IPC_CHANNELS.OSCERT_CONNECT]: "osCertConnect",
+  [IPC_CHANNELS.ATTESTATION_IMPORT]: "attestation.import",
+  [IPC_CHANNELS.ATTESTATION_GET]: "attestation.get",
+  [IPC_CHANNELS.ATTESTATION_LIST]: "attestation.list",
+  [IPC_CHANNELS.ATTESTATION_REMOVE]: "attestation.remove",
+  [IPC_CHANNELS.ATTESTATION_CHECK]: "attestation.check",
   [IPC_CHANNELS.GET_CONFIG]: "getConfig",
   [IPC_CHANNELS.SET_CONFIG]: "setConfig",
 };
+
+/**
+ * Resolve a dot-notation path on an object.
+ * "attestation.import" → obj.attestation.import
+ */
+function resolvePath(obj: Record<string, unknown>, path: string): unknown {
+  const parts = path.split(".");
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current == null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
 
 describe("Preload API completeness", () => {
   it("should have a method for every IPC channel", () => {
@@ -67,7 +86,7 @@ describe("Preload API completeness", () => {
     expect(mappingCount).toBe(channelCount);
   });
 
-  it("should have unique method names (no two channels map to the same method)", () => {
+  it("should have unique method paths (no two channels map to the same method)", () => {
     const methods = Object.values(CHANNEL_TO_METHOD);
     const uniqueMethods = new Set(methods);
     expect(uniqueMethods.size).toBe(methods.length);
@@ -130,13 +149,21 @@ describe("Preload API completeness", () => {
         downloading: false,
         downloaded: false,
       }),
+      attestation: {
+        import: async () => ({ success: true }),
+        get: async () => ({ found: false }),
+        list: async () => ({ attestations: [] }),
+        remove: async () => ({ success: true }),
+        check: async () => ({ hasAttestation: false }),
+      },
       onUpdateStatus: () => () => {},
       getConfig: async () => undefined,
       setConfig: async () => {},
     };
 
-    for (const methodName of Object.values(CHANNEL_TO_METHOD)) {
-      expect(typeof api[methodName]).toBe("function");
+    for (const methodPath of Object.values(CHANNEL_TO_METHOD)) {
+      const resolved = resolvePath(api as unknown as Record<string, unknown>, methodPath);
+      expect(typeof resolved).toBe("function");
     }
   });
 
@@ -196,6 +223,13 @@ describe("Preload API completeness", () => {
         downloading: false,
         downloaded: false,
       }),
+      attestation: {
+        import: async () => ({ success: true }),
+        get: async () => ({ found: false }),
+        list: async () => ({ attestations: [] }),
+        remove: async () => ({ success: true }),
+        check: async () => ({ hasAttestation: false }),
+      },
       onUpdateStatus: () => () => {},
       getConfig: async () => undefined,
       setConfig: async () => {},

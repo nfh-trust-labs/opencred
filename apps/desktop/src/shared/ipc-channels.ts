@@ -92,6 +92,18 @@ export const IPC_CHANNELS = {
   /** Select and connect an OS certificate for signing. Payload: { certificateId, label? }. Response: key metadata. */
   OSCERT_CONNECT: "oscert:connect",
 
+  // --- Attestation (Quick Start / Workflow 3) ---
+  /** Store a received Key Attestation VC. Payload: { keyId, credential }. Response: AttestationImportResponse. */
+  ATTESTATION_IMPORT: "attestation:import",
+  /** Get attestation for a specific key. Payload: { keyId }. Response: AttestationGetResponse. */
+  ATTESTATION_GET: "attestation:get",
+  /** List all stored attestations. Response: AttestationListResponse. */
+  ATTESTATION_LIST: "attestation:list",
+  /** Remove an attestation. Payload: { keyId }. Response: { removed: boolean }. */
+  ATTESTATION_REMOVE: "attestation:remove",
+  /** Check if a key has an attestation. Payload: { keyId }. Response: { hasAttestation: boolean }. */
+  ATTESTATION_CHECK: "attestation:check",
+
   // --- Config (electron-store) ---
   /** Read a config value. Payload: key string. Response: value or undefined. */
   GET_CONFIG: "config:get",
