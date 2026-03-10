@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 560" width="800" height="560">
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .header { fill: {{primaryColor}}; }
+      .title { font: bold 24px sans-serif; fill: #ffffff; }
+      .label { font: 12px sans-serif; fill: #666666; }
+      .value { font: 16px sans-serif; fill: #333333; }
+      .footer { font: 10px sans-serif; fill: #999999; }
+      .border { fill: none; stroke: {{primaryColor}}; stroke-width: 2; }
+      .icon { fill: #ffffff; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect class="bg" width="800" height="560" rx="12" />
+  <rect class="border" x="1" y="1" width="798" height="558" rx="12" />
+
+  <!-- Header bar -->
+  <rect class="header" width="800" height="80" rx="12" />
+  <rect class="header" y="12" width="800" height="68" />
+
+  <!-- Building icon -->
+  <g class="icon" transform="translate(20, 16)">
+    <rect x="8" y="10" width="28" height="30" rx="2" />
+    <rect x="2" y="24" width="10" height="16" rx="1" />
+    <rect x="32" y="24" width="10" height="16" rx="1" />
+    <rect x="14" y="16" width="5" height="5" fill="{{primaryColor}}" />
+    <rect x="25" y="16" width="5" height="5" fill="{{primaryColor}}" />
+    <rect x="14" y="26" width="5" height="5" fill="{{primaryColor}}" />
+    <rect x="25" y="26" width="5" height="5" fill="{{primaryColor}}" />
+    <polygon points="22,2 4,10 40,10" />
+  </g>
+
+  <!-- Logo placeholder -->
+  {{#logoDataUri}}
+  <image x="20" y="15" width="50" height="50" href="{{logoDataUri}}" />
+  {{/logoDataUri}}
+
+  <!-- Credential title -->
+  <text class="title" x="80" y="50">{{credentialTitle}}</text>
+
+  <!-- Issuer -->
+  <text class="label" x="40" y="110">Issued by</text>
+  <text class="value" x="40" y="130">{{issuerName}}</text>
+
+  <!-- Business name -->
+  <text class="label" x="40" y="170">Business Name</text>
+  <text class="value" x="40" y="190">{{subject.name}}</text>
+
+  <!-- Registration Number -->
+  <text class="label" x="40" y="230">Registration Number</text>
+  <text class="value" x="40" y="250">{{subject.registrationNumber}}</text>
+
+  <!-- Jurisdiction -->
+  <text class="label" x="40" y="290">Jurisdiction</text>
+  <text class="value" x="40" y="310">{{subject.jurisdiction}}</text>
+
+  <!-- Incorporation Date -->
+  <text class="label" x="40" y="350">Incorporation Date</text>
+  <text class="value" x="40" y="370">{{subject.incorporationDate}}</text>
+
+  <!-- Dates -->
+  <text class="label" x="40" y="430">Valid from</text>
+  <text class="value" x="40" y="450">{{validFrom}}</text>
+
+  {{#validUntil}}
+  <text class="label" x="300" y="430">Valid until</text>
+  <text class="value" x="300" y="450">{{validUntil}}</text>
+  {{/validUntil}}
+
+  <!-- QR code area -->
+  {{#qrCode}}
+  <image x="600" y="100" width="160" height="160" href="{{qrCode}}" />
+  {{/qrCode}}
+
+  <!-- Footer -->
+  <text class="footer" x="40" y="540">Verifiable Credential — powered by OpenCred</text>
+</svg>
