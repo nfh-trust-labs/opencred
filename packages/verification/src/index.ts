@@ -27,3 +27,5 @@ export type { AttestationCheckOptions } from "./attestation-check.js";
 export { checkX509Chain } from "./x509-chain-check.js";
 export type { X509ChainCheckOptions } from "./x509-chain-check.js";
 export { publicKeyFromMultibase } from "./key-utils.js";
+export { verifyBusinessVc, extractIdentity } from "./business-vc.js";
+export type { ExtractedIdentity, BusinessVcVerificationResult } from "./business-vc.js";
