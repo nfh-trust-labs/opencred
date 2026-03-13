@@ -15,3 +15,15 @@ export {
 export { createKeyAttestationVC } from "./builder.js";
 
 export { validateKeyAttestation, isKeyAttestationCredential } from "./validator.js";
+
+export { BusinessVcVerifier, extractIssuerIdentity } from "./business-vc-verification.js";
+export {
+  type BusinessIdentity,
+  type BusinessVcVerificationResult,
+} from "./business-vc-types.js";
+
+export {
+  type CertificateAuthorityAdapter,
+  type DSCRequest,
+  type DSCRequestStatus,
+} from "./ca-adapter.js";
