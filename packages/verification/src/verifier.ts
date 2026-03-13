@@ -6,6 +6,7 @@ import { verifyVcJwt, extractVcJwtCredentialFields } from "./vc-jwt.js";
 import { verifySdJwtVc, extractSdJwtVcCredentialFields } from "./sd-jwt-vc.js";
 import { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
 import { checkAttestationChain } from "./attestation-check.js";
+import { checkX509Chain } from "./x509-chain-check.js";
 import type {
   CredentialFormat,
   CredentialVerificationResult,
@@ -186,6 +187,17 @@ export async function verifyCredential(
         return { code: "REVOKED", verified: false, checks };
       }
       return { code: "UNRESOLVABLE", verified: false, checks };
+    }
+  }
+
+  // X.509 certificate chain check (validates DSC → CSCA trust chain)
+  if (format === "data-integrity") {
+    const x509Check = await checkX509Chain(input as Record<string, unknown>, {
+      didResolver: config.didResolver,
+    });
+    checks.push(x509Check);
+    if (!x509Check.passed) {
+      return { code: "INVALID", verified: false, checks };
     }
   }
 

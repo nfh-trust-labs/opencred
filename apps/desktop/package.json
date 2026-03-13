@@ -12,10 +12,10 @@
   "main": "dist/main/main/index.js",
   "scripts": {
     "dev": "concurrently -n vite,electron \"vite\" \"wait-on http://localhost:5174 && electron .\"",
-    "build": "tsc -p tsconfig.main.json && vite build",
-    "build:dist": "tsc -p tsconfig.main.json && vite build && electron-builder",
+    "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs && vite build",
+    "build:dist": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs && vite build && electron-builder",
     "build:renderer": "vite build",
-    "build:main": "tsc -p tsconfig.main.json",
+    "build:main": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "typecheck:main": "tsc -p tsconfig.main.json --noEmit",
     "typecheck:renderer": "tsc -p tsconfig.renderer.json --noEmit",
@@ -23,25 +23,27 @@
     "clean": "rm -rf dist out"
   },
   "dependencies": {
+    "@mosip/pixelpass": "^0.6.0",
     "@opencred/crypto": "workspace:*",
-    "@opencred/schema-engine": "workspace:*",
     "@opencred/key-attestation": "workspace:*",
+    "@opencred/schema-engine": "workspace:*",
     "@opencred/shared": "workspace:*",
     "@opencred/signing": "workspace:*",
     "@opencred/templates": "workspace:*",
     "@opencred/vc-core": "workspace:*",
     "@opencred/verification": "workspace:*",
+    "archiver": "^7.0.1",
     "electron-store": "^10.0.0",
     "electron-updater": "^6.3.9",
-    "archiver": "^7.0.1",
     "papaparse": "^5.4.1",
-    "pkcs11js": "^2.1.6",
     "pdfkit": "^0.15.0",
+    "pkcs11js": "^2.1.6",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.5.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
@@ -61,8 +63,7 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.5.0",
     "vite": "^5.4.11",
-    "wait-on": "^8.0.1",
-    "@electron/notarize": "^2.5.0"
+    "wait-on": "^8.0.1"
   },
   "build": {
     "appId": "io.opencred.desktop",

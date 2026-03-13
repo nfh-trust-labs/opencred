@@ -2,10 +2,14 @@
  * SettingsPage — key management and application settings.
  *
  * Provides:
- *  - Table of all imported/generated keys
- *  - Import Key button (file picker)
- *  - Generate Key button (ECDSA P-256)
+ *  - Table of all imported keys (DSCs)
+ *  - Import Key button (file picker for DSC files)
  *  - Offline status indicator
+ *
+ * Key generation is only available through the Quick Start onboarding
+ * flow, which ensures generated keys go through domain verification
+ * and receive a Key Attestation VC. Standalone key generation without
+ * attestation is intentionally not offered here.
  *
  * All key operations happen via IPC. Only metadata (ID, fingerprint,
  * algorithm, source) is displayed. Private keys NEVER reach the renderer.
@@ -55,8 +59,6 @@ export function SettingsPage() {
   const [keys, setKeys] = useState<KeyMetadata[]>([]);
   const [keysError, setKeysError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [generateLabel, setGenerateLabel] = useState("");
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
 
@@ -99,9 +101,9 @@ export function SettingsPage() {
 
     try {
       const fileResult = await window.opencred.openFile({
-        title: "Select Key File",
+        title: "Select DSC / Key File",
         filters: [
-          { name: "Key Files", extensions: ["pem", "json", "jwk", "der", "pfx", "p12"] },
+          { name: "Certificate Files", extensions: ["pfx", "p12", "pem", "crt", "key"] },
           { name: "All Files", extensions: ["*"] },
         ],
       });
@@ -130,32 +132,6 @@ export function SettingsPage() {
     }
   }
 
-  async function handleGenerateKey() {
-    setGenerating(true);
-    setActionFeedback(null);
-    setKeysError(null);
-
-    try {
-      const result = await window.opencred.generateKey({
-        label: generateLabel.trim() || undefined,
-      });
-
-      if (result.success && result.key) {
-        setActionFeedback(
-          `Key generated: ${result.key.algorithm} (${result.key.fingerprint.slice(0, 16)}...)`,
-        );
-        setGenerateLabel("");
-        void loadKeys();
-      } else {
-        setKeysError(result.error ?? "Key generation failed.");
-      }
-    } catch (err) {
-      setKeysError(err instanceof Error ? err.message : "Key generation failed.");
-    } finally {
-      setGenerating(false);
-    }
-  }
-
   // ------------------------------------------------------------------
   // Render
   // ------------------------------------------------------------------
@@ -171,41 +147,14 @@ export function SettingsPage() {
           </span>
         </div>
 
-        {/* Action buttons */}
-        <div className="flex items-end gap-3 flex-wrap">
-          <Button
-            onClick={() => void handleImportKey()}
-            disabled={importing}
-            variant="secondary"
-          >
-            {importing ? "Importing..." : "Import Key"}
-          </Button>
-
-          <div className="flex items-end gap-2">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">
-                Label (optional)
-              </label>
-              <input
-                type="text"
-                value={generateLabel}
-                onChange={(e) => setGenerateLabel(e.target.value)}
-                placeholder="e.g. Test Issuer Key"
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleGenerateKey();
-                }}
-              />
-            </div>
-            <Button
-              onClick={() => void handleGenerateKey()}
-              disabled={generating}
-              variant="secondary"
-            >
-              {generating ? "Generating..." : "Generate Key"}
-            </Button>
-          </div>
-        </div>
+        {/* Import button */}
+        <Button
+          onClick={() => void handleImportKey()}
+          disabled={importing}
+          variant="secondary"
+        >
+          {importing ? "Importing..." : "Import DSC"}
+        </Button>
 
         {/* Feedback */}
         {actionFeedback && (
@@ -216,7 +165,7 @@ export function SettingsPage() {
         {/* Key table */}
         {keys.length === 0 ? (
           <p className="text-sm text-gray-400 italic">
-            No keys registered yet. Import a file or generate a key to get started.
+            No keys registered yet. Import a DSC file to get started.
           </p>
         ) : (
           <div className="overflow-x-auto">

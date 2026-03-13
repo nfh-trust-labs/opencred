@@ -82,6 +82,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       const importResult = await window.opencred.importKey({
         filePath: fileResult.filePath,
         label: undefined,
+        password: password || undefined,
       });
 
       if (importResult.success && importResult.key) {

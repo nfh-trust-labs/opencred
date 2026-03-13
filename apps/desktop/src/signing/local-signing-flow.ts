@@ -28,6 +28,17 @@ import { getAttestation } from "../main/attestation-store.js";
 import type { Signer } from "./types.js";
 
 /**
+ * Convert a PEM-encoded certificate to base64-encoded DER (for x5c).
+ * Strips the PEM header/footer and joins all lines.
+ */
+function pemToBase64Der(pem: string): string {
+  return pem
+    .replace(/-----BEGIN CERTIFICATE-----/g, "")
+    .replace(/-----END CERTIFICATE-----/g, "")
+    .replace(/\s/g, "");
+}
+
+/**
  * Options for building and signing a credential.
  */
 export interface LocalSigningOptions {
@@ -193,7 +204,16 @@ export async function buildAndSign(
   // Step 5: Complete proof
   const signedCredential = completeProof(unsignedCredential, proofConfig, signatureBytes);
 
-  // Step 6: Embed attestation VC in proof if the signing key has one
+  // Step 6: Embed X.509 certificate chain in proof if the signer has one.
+  // This allows verifiers to trace the trust chain: VC → issuer key → DSC → CSCA.
+  // The x5c field follows JOSE conventions (RFC 7517 §4.7): an array of
+  // base64-encoded DER certificates, leaf (DSC) first.
+  if (signer.metadata.certificateChain && signer.metadata.certificateChain.length > 0) {
+    const proof = signedCredential.proof as Record<string, unknown>;
+    proof.x5c = signer.metadata.certificateChain.map(pemToBase64Der);
+  }
+
+  // Step 7: Embed attestation VC in proof if the signing key has one
   const attestation = getAttestation(signer.id);
   if (attestation) {
     const proof = signedCredential.proof as Record<string, unknown>;

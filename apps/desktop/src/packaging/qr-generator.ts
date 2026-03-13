@@ -1,92 +1,134 @@
 /**
  * QR code generator for Verifiable Credentials.
  *
- * Generates QR codes from VCs using the qrcode npm package.
- * Works completely offline -- no network requests.
+ * Uses PixelPass (@mosip/pixelpass) to compress credential data before
+ * encoding into QR codes. The compression pipeline is:
  *
- * The QR code encodes the JSON-LD credential as a string. For large
- * credentials that exceed QR capacity, the generator returns an error
- * rather than silently truncating data.
+ *   JSON → CBOR encode → zlib compress (level 9) → Base45 encode
+ *
+ * This dramatically reduces the QR payload size — a 3KB credential
+ * typically compresses to under 1KB, fitting comfortably in a QR code.
+ *
+ * QR data is prefixed with "OPENCRED1:" so decoders can identify the
+ * format and apply the correct decompression pipeline.
+ *
+ * Works completely offline — no network requests.
  */
 
 import QRCode from "qrcode";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import { ValidationError } from "@opencred/shared";
 
-/** Maximum bytes for a QR code (Version 40, Low EC). */
-const MAX_QR_BYTES = 2953;
+// PixelPass is a CJS module — use require-style import
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pixelpass = require("@mosip/pixelpass") as {
+  generateQRData: (data: string, header?: string) => string;
+  decode: (data: string) => string;
+};
+
+/** Header prefix for OpenCred QR codes. */
+const QR_HEADER = "OPENCRED1:";
+
+/**
+ * Compress a credential JSON string using the PixelPass pipeline.
+ *
+ * @param credential - The signed VerifiableCredential.
+ * @returns Compressed Base45 string with OPENCRED1: header.
+ */
+export function compressCredentialForQr(credential: VerifiableCredential): string {
+  const json = JSON.stringify(credential);
+  return pixelpass.generateQRData(json, QR_HEADER);
+}
+
+/**
+ * Decode a PixelPass-compressed QR string back to credential JSON.
+ *
+ * Strips the OPENCRED1: header if present, then runs the reverse
+ * pipeline: Base45 decode → zlib decompress → CBOR decode → JSON.
+ *
+ * @param qrData - The raw string scanned from a QR code.
+ * @returns The decompressed credential JSON string.
+ * @throws If the data cannot be decoded.
+ */
+export function decodeQrData(qrData: string): string {
+  const data = qrData.startsWith(QR_HEADER) ? qrData.slice(QR_HEADER.length) : qrData;
+  return pixelpass.decode(data);
+}
 
 /**
  * Generate a QR code from a VerifiableCredential as a PNG data URL.
  *
+ * The credential is compressed via PixelPass before QR encoding.
+ *
  * @param credential - The signed VerifiableCredential.
  * @returns A PNG data URL (base64-encoded).
- * @throws {ValidationError} if the credential JSON exceeds QR capacity.
+ * @throws {ValidationError} if the compressed data still exceeds QR capacity.
  */
 export async function generateQrPng(credential: VerifiableCredential): Promise<string> {
-  const json = JSON.stringify(credential);
-  const byteLength = Buffer.byteLength(json, "utf-8");
+  const compressed = compressCredentialForQr(credential);
 
-  if (byteLength > MAX_QR_BYTES) {
+  try {
+    return await QRCode.toDataURL(compressed, {
+      errorCorrectionLevel: "L",
+      type: "image/png",
+      margin: 2,
+      width: 400,
+    });
+  } catch (err) {
     throw new ValidationError(
-      `Credential JSON (${byteLength} bytes) exceeds QR code capacity (${MAX_QR_BYTES} bytes). Consider using JSON export instead.`,
+      `Credential too large for QR code even after compression. Consider using JSON export instead. (${err instanceof Error ? err.message : "unknown error"})`,
     );
   }
-
-  return QRCode.toDataURL(json, {
-    errorCorrectionLevel: "L",
-    type: "image/png",
-    margin: 2,
-    width: 400,
-  });
 }
 
 /**
  * Generate a QR code from a VerifiableCredential as an SVG string.
  *
+ * The credential is compressed via PixelPass before QR encoding.
+ *
  * @param credential - The signed VerifiableCredential.
  * @returns An SVG string.
- * @throws {ValidationError} if the credential JSON exceeds QR capacity.
+ * @throws {ValidationError} if the compressed data still exceeds QR capacity.
  */
 export async function generateQrSvg(credential: VerifiableCredential): Promise<string> {
-  const json = JSON.stringify(credential);
-  const byteLength = Buffer.byteLength(json, "utf-8");
+  const compressed = compressCredentialForQr(credential);
 
-  if (byteLength > MAX_QR_BYTES) {
+  try {
+    return await QRCode.toString(compressed, {
+      errorCorrectionLevel: "L",
+      type: "svg",
+      margin: 2,
+      width: 400,
+    });
+  } catch (err) {
     throw new ValidationError(
-      `Credential JSON (${byteLength} bytes) exceeds QR code capacity (${MAX_QR_BYTES} bytes). Consider using JSON export instead.`,
+      `Credential too large for QR code even after compression. Consider using JSON export instead. (${err instanceof Error ? err.message : "unknown error"})`,
     );
   }
-
-  return QRCode.toString(json, {
-    errorCorrectionLevel: "L",
-    type: "svg",
-    margin: 2,
-    width: 400,
-  });
 }
 
 /**
  * Generate a QR code from a VerifiableCredential as a PNG Buffer.
  *
+ * The credential is compressed via PixelPass before QR encoding.
+ *
  * @param credential - The signed VerifiableCredential.
  * @returns A PNG Buffer.
- * @throws {ValidationError} if the credential JSON exceeds QR capacity.
+ * @throws {ValidationError} if the compressed data still exceeds QR capacity.
  */
 export async function generateQrBuffer(credential: VerifiableCredential): Promise<Buffer> {
-  const json = JSON.stringify(credential);
-  const byteLength = Buffer.byteLength(json, "utf-8");
+  const compressed = compressCredentialForQr(credential);
 
-  if (byteLength > MAX_QR_BYTES) {
+  try {
+    return await QRCode.toBuffer(compressed, {
+      errorCorrectionLevel: "L",
+      type: "png",
+      margin: 2,
+      width: 400,
+    });
+  } catch (err) {
     throw new ValidationError(
-      `Credential JSON (${byteLength} bytes) exceeds QR code capacity (${MAX_QR_BYTES} bytes). Consider using JSON export instead.`,
+      `Credential too large for QR code even after compression. Consider using JSON export instead. (${err instanceof Error ? err.message : "unknown error"})`,
     );
   }
-
-  return QRCode.toBuffer(json, {
-    errorCorrectionLevel: "L",
-    type: "png",
-    margin: 2,
-    width: 400,
-  });
 }

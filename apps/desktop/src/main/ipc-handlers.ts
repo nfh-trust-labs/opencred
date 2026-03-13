@@ -148,7 +148,7 @@ async function handleKeyImport(
   request: KeyImportRequest,
 ): Promise<KeyImportResponse> {
   try {
-    const { signer, format } = createSoftwareSigner(request.filePath, request.label);
+    const { signer, format } = createSoftwareSigner(request.filePath, request.label, request.password);
 
     const meta: KeyMetadata = {
       id: signer.id,
@@ -619,7 +619,11 @@ async function handleFileSave(
     return { filePath: null };
   }
 
-  await fs.writeFile(result.filePath, request.content, "utf-8");
+  if (request.encoding === "base64") {
+    await fs.writeFile(result.filePath, Buffer.from(request.content, "base64"));
+  } else {
+    await fs.writeFile(result.filePath, request.content, "utf-8");
+  }
   return { filePath: result.filePath };
 }
 

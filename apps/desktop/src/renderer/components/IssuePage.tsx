@@ -225,6 +225,7 @@ export function IssuePage() {
         await window.opencred.saveFile({
           defaultName: pdfOutput.suggestedFileName,
           content: pdfOutput.data,
+          encoding: "base64",
           filters: [{ name: "PDF", extensions: ["pdf"] }],
         });
       }
@@ -242,9 +243,14 @@ export function IssuePage() {
       });
       if (result.success && result.outputs && result.outputs.length > 0) {
         const qrOutput = result.outputs[0];
+        // QR data is a data URL (data:image/png;base64,...) — extract the base64 payload
+        const base64Data = qrOutput.data.includes(",")
+          ? qrOutput.data.split(",")[1]
+          : qrOutput.data;
         await window.opencred.saveFile({
           defaultName: qrOutput.suggestedFileName,
-          content: qrOutput.data,
+          content: base64Data,
+          encoding: "base64",
           filters: [{ name: "PNG Image", extensions: ["png"] }],
         });
       }

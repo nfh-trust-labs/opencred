@@ -24,4 +24,6 @@ export { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.
 export type { BitstringStatusListOptions } from "./checks.js";
 export { checkAttestationChain } from "./attestation-check.js";
 export type { AttestationCheckOptions } from "./attestation-check.js";
+export { checkX509Chain } from "./x509-chain-check.js";
+export type { X509ChainCheckOptions } from "./x509-chain-check.js";
 export { publicKeyFromMultibase } from "./key-utils.js";

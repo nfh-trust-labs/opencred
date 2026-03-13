@@ -34,6 +34,8 @@ export interface KeyImportRequest {
   filePath: string;
   /** Optional user-friendly label for the key. */
   label?: string;
+  /** Password for PFX/P12 files (ignored for PEM). */
+  password?: string;
 }
 
 export interface KeyImportResponse {
@@ -274,6 +276,8 @@ export interface FileSaveRequest {
   defaultName: string;
   /** The content to write. */
   content: string;
+  /** Content encoding — "base64" for binary files (PDF, PNG), defaults to "utf-8". */
+  encoding?: "utf-8" | "base64";
   /** File type filters. */
   filters?: Array<{ name: string; extensions: string[] }>;
 }

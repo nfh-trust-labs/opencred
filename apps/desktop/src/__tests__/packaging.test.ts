@@ -12,7 +12,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { createSoftwareSigner } from "../signing/software-signer";
 import { buildAndSign } from "../signing/local-signing-flow";
-import { generateQrPng, generateQrSvg, generateQrBuffer } from "../packaging/qr-generator";
+import { generateQrPng, generateQrSvg, generateQrBuffer, compressCredentialForQr, decodeQrData } from "../packaging/qr-generator";
 import { generatePdf } from "../packaging/pdf-generator";
 import { exportAsJsonLd, exportAsCompactJson, parseCredentialJson } from "../packaging/json-export";
 import { packageCredential } from "../packaging/packager";
@@ -84,9 +84,10 @@ describe("QR Generator", () => {
     expect(buffer[3]).toBe(0x47); // 'G'
   });
 
-  it("should reject credentials that exceed QR capacity", async () => {
-    // Create a huge credential subject that exceeds QR capacity
-    const hugeCredential: VerifiableCredential = {
+  it("should handle large credentials via PixelPass compression", async () => {
+    // With PixelPass compression, repetitive data compresses well.
+    // A credential with 3000 repeated chars will compress and fit.
+    const largeCredential: VerifiableCredential = {
       ...testCredential,
       credentialSubject: {
         ...testCredential.credentialSubject,
@@ -94,7 +95,26 @@ describe("QR Generator", () => {
       },
     };
 
-    await expect(generateQrPng(hugeCredential)).rejects.toThrow(/exceeds QR code capacity/);
+    const dataUrl = await generateQrPng(largeCredential);
+    expect(dataUrl).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it("should roundtrip compress and decode credential data", () => {
+    const compressed = compressCredentialForQr(testCredential);
+
+    // Should have OPENCRED1: header
+    expect(compressed).toMatch(/^OPENCRED1:/);
+
+    // Should be significantly smaller than raw JSON
+    const rawJson = JSON.stringify(testCredential);
+    expect(compressed.length).toBeLessThan(rawJson.length);
+
+    // Should decode back to the original credential
+    const decoded = decodeQrData(compressed);
+    const parsed = JSON.parse(decoded);
+    expect(parsed["@context"]).toEqual(testCredential["@context"]);
+    expect(parsed.id).toBe(testCredential.id);
+    expect(parsed.credentialSubject).toEqual(testCredential.credentialSubject);
   });
 });
 
@@ -215,8 +235,8 @@ describe("Packager orchestrator", () => {
     expect(Buffer.isBuffer(result.outputs[0].data)).toBe(true);
   });
 
-  it("should capture errors without throwing", async () => {
-    const hugeCredential: VerifiableCredential = {
+  it("should succeed for large credentials with PixelPass compression", async () => {
+    const largeCredential: VerifiableCredential = {
       ...testCredential,
       credentialSubject: {
         ...testCredential.credentialSubject,
@@ -224,13 +244,13 @@ describe("Packager orchestrator", () => {
       },
     };
 
-    // QR will fail (too big), but JSON should succeed
-    const result = await packageCredential(hugeCredential, ["qr-png", "json-ld"]);
+    // With PixelPass compression, both QR and JSON should succeed
+    const result = await packageCredential(largeCredential, ["qr-png", "json-ld"]);
 
-    expect(result.errors.length).toBe(1);
-    expect(result.errors[0].format).toBe("qr-png");
-    expect(result.outputs.length).toBe(1);
-    expect(result.outputs[0].format).toBe("json-ld");
+    expect(result.errors.length).toBe(0);
+    expect(result.outputs.length).toBe(2);
+    expect(result.outputs[0].format).toBe("qr-png");
+    expect(result.outputs[1].format).toBe("json-ld");
   });
 
   it("should generate appropriate file names", async () => {

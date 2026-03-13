@@ -31,6 +31,8 @@ const IS_DEV = !app.isPackaged;
 const DEV_SERVER_URL = "http://localhost:5174";
 
 function createWindow(): void {
+  const preloadPath = path.join(__dirname, "..", "..", "preload", "main", "preload.cjs");
+  console.log("[main] preload path:", preloadPath);
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -38,12 +40,17 @@ function createWindow(): void {
     minHeight: 600,
     title: "OpenCred",
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true,
+      sandbox: false,
     },
     show: false,
+  });
+
+  // Forward renderer console to main process stdout for debugging.
+  mainWindow.webContents.on("console-message", (_ev, _level, message) => {
+    console.log("[renderer]", message);
   });
 
   // Show the window once the renderer is ready to avoid a blank flash.
