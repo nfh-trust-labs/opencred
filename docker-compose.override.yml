@@ -2,42 +2,7 @@
 # OpenCred — Docker Compose Override (Local Development)
 # ==============================================================================
 # Automatically loaded by `docker compose up` when present.
-# Adds bind mounts for hot reload, debug ports, and verbose logging.
+# Will be configured in Phase 7 alongside docker-compose.yml.
 #
 # To run production-only config: docker compose -f docker-compose.yml up
 # ==============================================================================
-
-services:
-  api:
-    build:
-      target: build
-    volumes:
-      # Bind mount source for hot reload (overrides built output)
-      - ./packages:/app/packages
-      - ./apps/api:/app/apps/api
-      # Preserve node_modules from the image
-      - /app/node_modules
-    environment:
-      - NODE_ENV=development
-      - LOG_LEVEL=debug
-    env_file:
-      - ./apps/api/.env
-    # Use tsx watch for development hot reload
-    command: ["npx", "tsx", "watch", "apps/api/src/index.ts"]
-    ports:
-      - "${API_PORT:-3000}:3000"
-      # Node.js debug port
-      - "9229:9229"
-
-  web:
-    build:
-      target: build
-    volumes:
-      - ./apps/web:/app/apps/web
-      - /app/node_modules
-    # Vite dev server instead of nginx
-    command: ["npx", "vite", "--host", "0.0.0.0"]
-    ports:
-      - "${WEB_PORT:-5173}:5173"
-    environment:
-      - NODE_ENV=development

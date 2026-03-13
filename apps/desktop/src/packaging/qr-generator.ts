@@ -15,12 +15,13 @@
  * Works completely offline — no network requests.
  */
 
+import { createRequire } from "node:module";
 import QRCode from "qrcode";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import { ValidationError } from "@opencred/shared";
 
-// PixelPass is a CJS module — use require-style import
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// PixelPass is a CJS module — use createRequire for ESM compatibility
+const require = createRequire(import.meta.url);
 const pixelpass = require("@mosip/pixelpass") as {
   generateQRData: (data: string, header?: string) => string;
   decode: (data: string) => string;

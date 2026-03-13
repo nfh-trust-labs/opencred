@@ -8,37 +8,33 @@ These rules are non-negotiable. Every agent, every PR, every line of code must r
 
 OpenCred handles **two categories** of private keys differently:
 
-- **Issuer private keys**: OpenCred NEVER receives, handles, or stores issuer private keys. In Local Signing the key stays on the issuer's machine. In Interface Signing the key never leaves the issuer's control (browser SubtleCrypto / HSM / cloud KMS). No code path should accept, transmit, or hold an issuer's private key.
-- **OpenCred's own signing keys**: Used for Delegated Signing. These are OpenCred-managed, long-lived keys (potentially HSM-backed). They ARE persisted and properly managed. Key rotation, access control, and audit logging apply.
+- **Issuer private keys**: OpenCred NEVER receives, handles, or stores issuer private keys. All signing is local — the issuer's key stays on their machine (Desktop Client) or within their controlled environment (Docker Image). No code path should accept, transmit, or hold an issuer's private key.
+- **OpenCred's own DSC**: Used for Key Attestation. Signs issuer public keys (not credentials) with its DSC, producing Key Attestation Credentials. These are OpenCred-managed, long-lived keys (potentially HSM-backed). They ARE persisted and properly managed. Key rotation, access control, and audit logging apply.
 
 ### Rules
 
-1. **Never touch issuer private keys.** No API endpoint, no function, no code path should accept an issuer's private key as input. Interface Signing sends signing payloads/digests TO the issuer — never the reverse.
+1. **Never touch issuer private keys.** No endpoint, no function, no code path should accept an issuer's private key as input. All signing happens locally on the issuer's machine or within the Docker container.
 2. **Never log key material.** No private keys, no signing buffers in `pino` logs, `console.log`, error messages, or stack traces. Log the key *ID* or *fingerprint*, never the key itself.
-3. **Session data is ephemeral.** Credential payloads, built VCs, and packaged output are purged within TTL (default 4 hours). Delegation certificates are the sole exception — they persist as long as the delegation is active.
+3. **Session data is ephemeral.** Credential payloads, built VCs, and packaged output are purged within TTL (default 4 hours). Key attestation credentials are the sole exception — they persist as long as the attestation is active.
 4. **CSPRNG only.** All key generation must use `crypto.randomBytes` or equivalent CSPRNG. Never use `Math.random()` for anything security-related.
-5. **No secrets in error responses.** API error responses must never leak key material, internal paths, or signing buffers. Use the `OpenCredError` hierarchy — it sanitizes by design.
-6. **Delegation certificates are trust boundaries.** Always validate `scope`, `validFrom`, `validUntil`, and the authorised key ID before accepting a delegation cert. Never skip validation even in dev/test.
+5. **No secrets in error responses.** Error responses must never leak key material, internal paths, or signing buffers. Use the `OpenCredError` hierarchy — it sanitizes by design.
+6. **Key attestation credentials are trust boundaries.** Validate full chain: issuer key → attestation → OpenCred DSC → CSCA. Always validate `validFrom`, `validUntil`, attested key match, and OpenCred DSC signature before accepting an attestation. Never skip validation even in dev/test.
 7. **JSON-LD contexts are bundled.** Never fetch remote contexts at runtime in production — use the bundled document loader. Remote fetch is a supply-chain attack vector.
 
 ## Project Tracking
 
-All implementation issues are on GitHub Issues at https://github.com/nfh-trust-labs/opencred/issues (43 issues, 12 labels).
+All implementation issues are on GitHub Issues at https://github.com/nfh-trust-labs/opencred/issues.
 
-| Label | Scope | Issues |
-|---|---|---|
-| `infra` | Monorepo scaffolding, CI | #4 |
-| `spike` | Risk spikes / technical PoCs | #5–#8 |
-| `phase-0` | Core Foundation packages | #9–#15 |
-| `phase-1` | Type A + Interface Signing + Verification | #16–#22 |
-| `phase-2` | Delegated Signing + Type D | #23–#27 |
-| `phase-3` | Type B (SSL) + Type C (CA API) | #28–#30 |
-| `phase-4` | Bulk Issuance | #31–#32 |
-| `phase-5` | Web UI Polish + QR/PDF | #33–#35 |
-| `phase-6a` | Desktop — Software Keys + Offline | #36–#38 |
-| `phase-6b` | Desktop — PKCS#11 Hardware Tokens | #39 |
-| `phase-6c` | Desktop — OS Cert Store + Distribution | #40–#41 |
-| `phase-7` | Containerization & Deployment | #42–#46 |
+| Label | Scope |
+|---|---|
+| `phase-0` | Core Foundation (DONE) |
+| `phase-1` | Desktop — DSC + Local Signing (DONE) |
+| `phase-2` | Desktop — OpenCred-Attested + Attestation (DONE) |
+| `phase-3` | Desktop — Issuer Auth + CA |
+| `phase-4` | Desktop — Hardware Tokens + OS Certs |
+| `phase-5` | Desktop — Bulk + Distribution |
+| `phase-6` | Docker Image |
+| `phase-7` | Containerization & Deployment |
 
 Full implementation plan: `implementation-plan.md`
 PRD (source of truth): `OpenCred_PRD.md`
@@ -60,7 +56,7 @@ Follow this protocol for every issue you work on:
 1. **Check open issues**: `gh issue list --state open --label <phase-label>`
 2. **Read the issue fully** before starting: `gh issue view <number>`
 3. **Claim the issue**: `gh issue edit <number> --add-assignee @me`
-4. **Create a feature branch** from `anusree-dev`:
+4. **Create a feature branch** from `new-opencred-dev`:
    - Branch naming: `feat/<number>-<short-description>` (e.g., `feat/9-crypto-core`)
    - For bug fixes: `fix/<number>-<short-description>`
 5. **Implement the issue** — stay scoped to what the issue describes; do not scope-creep
@@ -126,9 +122,9 @@ If requirements change in the PRD:
   - `chore: description` — tooling, CI, dependencies
   - `refactor(package): description` — code change that neither fixes a bug nor adds a feature
 - **Branch `main`**: Protected. NEVER push, merge, or commit to `main` directly. Do not target PRs to `main`.
-- **Branch `anusree-dev`**: This is the working integration branch — treat it as "main" for all practical purposes. All feature branches are created from `anusree-dev` and all PRs target `anusree-dev`.
-- **All changes go through PRs** — no direct pushes to `anusree-dev`, even for small fixes
-- **PR merge strategy**: Squash merge to keep `anusree-dev` history clean. The squashed commit message should follow conventional commits format.
+- **Branch `new-opencred-dev`**: This is the permanent integration branch — treat it as "main" for all practical purposes. All feature branches are created from `new-opencred-dev` and all PRs target `new-opencred-dev`.
+- **All changes go through PRs** — no direct pushes to `new-opencred-dev`, even for small fixes
+- **PR merge strategy**: Squash merge to keep `new-opencred-dev` history clean. The squashed commit message should follow conventional commits format.
 - **Delete branches after merge** — feature branches are ephemeral
 
 ### Definition of Done
@@ -139,7 +135,7 @@ An issue is only considered complete when ALL of the following are true:
 2. **Tests exist and pass** — unit tests for logic, integration tests for cross-package interactions
 3. **No lint/type errors** — code passes all static analysis checks
 4. **PR is reviewed and approved** (or self-reviewed if working solo)
-5. **PR is merged to `anusree-dev`**
+5. **PR is merged to `new-opencred-dev`**
 6. **Closing comment is posted** on the issue (see Working on Issues, step 8)
 7. **No regressions** — existing tests still pass
 
@@ -147,7 +143,7 @@ If any of these are not met, the issue stays open.
 
 ### Spike Protocol
 
-Spikes (#5–#8) are time-boxed investigations, not implementation work. They follow a different protocol:
+Spikes are time-boxed investigations, not implementation work. They follow a different protocol:
 
 1. **Goal**: Answer a specific technical question or validate a feasibility assumption
 2. **Output**: A spike produces a **written findings document**, not production code
