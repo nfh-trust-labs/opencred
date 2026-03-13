@@ -3,8 +3,7 @@ import type { KeyObject } from "node:crypto";
 /**
  * Supported signing algorithms.
  *
- * EC keys use Data Integrity proofs (ecdsa-rdfc-2019).
- * RSA keys use VC-JOSE-COSE enveloping proofs (JWS with PS256).
+ * All algorithms default to VC-JWT proof format.
  */
 export type SigningAlgorithm = "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RSA-4096" | "Ed25519";
 
@@ -80,7 +79,7 @@ export interface SigningKey {
   privateKey: KeyObject;
   /** The public key as a Node.js KeyObject. */
   publicKey: KeyObject;
-  /** The signing algorithm. EC keys use Data Integrity proofs, RSA keys use JWS proofs. */
+  /** The signing algorithm. All algorithms default to VC-JWT proof format. */
   algorithm: SigningAlgorithm;
 }
 

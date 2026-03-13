@@ -67,25 +67,14 @@ export function completeJwsProof(signingInput: string, signatureBytes: Uint8Arra
 /**
  * Return the default proof format for a given signing algorithm.
  */
-export function defaultProofFormat(algorithm: SigningAlgorithm): ProofFormat {
-  switch (algorithm) {
-    case "P-256":
-    case "P-384":
-      return "data-integrity";
-    case "Ed25519":
-      return "eddsa-di";
-    case "RSA-2048":
-    case "RSA-3072":
-    case "RSA-4096":
-      return "jws";
-  }
+export function defaultProofFormat(_algorithm: SigningAlgorithm): ProofFormat {
+  return "vc-jwt";
 }
 
 /**
  * Auto-dispatch credential signing to the appropriate proof format.
  *
- * When `proofFormat` is omitted, falls back to the algorithm's default:
- *   EC → Data Integrity, Ed25519 → EdDSA DI, RSA → JWS.
+ * When `proofFormat` is omitted, defaults to VC-JWT for all algorithms.
  */
 export async function signCredentialAuto(
   unsignedVC: UnsignedCredential,

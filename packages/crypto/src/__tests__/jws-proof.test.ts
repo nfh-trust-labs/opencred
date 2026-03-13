@@ -129,7 +129,7 @@ describe("completeJwsProof", () => {
 });
 
 describe("signCredentialAuto", () => {
-  it("should dispatch RSA keys to JWS and return a string", async () => {
+  it("should dispatch RSA keys to VC-JWT and return a JWT string", async () => {
     const signingKey = createRsaSigningKey(verificationMethod);
     const result = await signCredentialAuto(unsignedVC, signingKey, { verificationMethod });
 
@@ -137,24 +137,24 @@ describe("signCredentialAuto", () => {
     const parts = (result as string).split(".");
     expect(parts.length).toBe(3);
 
-    // Verify it's a PS256 JWS
+    // Verify it's a VC-JWT (typ: "JWT")
     const header = JSON.parse(Buffer.from(parts[0], "base64url").toString());
-    expect(header.alg).toBe("PS256");
+    expect(header.typ).toBe("JWT");
   });
 
-  it("should dispatch EC keys to Data Integrity and return a VC object with proof", async () => {
+  it("should dispatch EC keys to VC-JWT and return a JWT string", async () => {
     const signingKey = createEcSigningKey(verificationMethod);
     const result = await signCredentialAuto(unsignedVC, signingKey, {
       verificationMethod,
       proofPurpose: "assertionMethod",
     });
 
-    expect(typeof result).toBe("object");
-    expect(result).toHaveProperty("proof");
-    const vc = result as unknown as Record<string, unknown>;
-    const proof = vc.proof as Record<string, unknown>;
-    expect(proof.type).toBe("DataIntegrityProof");
-    expect(proof.cryptosuite).toBe("ecdsa-rdfc-2019");
-    expect(proof.proofPurpose).toBe("assertionMethod");
+    expect(typeof result).toBe("string");
+    const parts = (result as string).split(".");
+    expect(parts.length).toBe(3);
+
+    // Verify it's a VC-JWT (typ: "JWT")
+    const header = JSON.parse(Buffer.from(parts[0], "base64url").toString());
+    expect(header.typ).toBe("JWT");
   });
 });
