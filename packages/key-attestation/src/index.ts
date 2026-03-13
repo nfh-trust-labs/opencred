@@ -16,6 +16,7 @@ export { createKeyAttestationVC } from "./builder.js";
 
 export { validateKeyAttestation, isKeyAttestationCredential } from "./validator.js";
 
+<<<<<<< HEAD
 export {
   type DomainChallenge,
   type ChallengeDetails,
@@ -27,3 +28,16 @@ export {
   verifyDomainOwnership,
   isPrivateIP,
 } from "./domain-verification.js";
+=======
+export { BusinessVcVerifier, extractIssuerIdentity } from "./business-vc-verification.js";
+export {
+  type BusinessIdentity,
+  type BusinessVcVerificationResult,
+} from "./business-vc-types.js";
+
+export {
+  type CertificateAuthorityAdapter,
+  type DSCRequest,
+  type DSCRequestStatus,
+} from "./ca-adapter.js";
+>>>>>>> feat/phase3-business-vc-ca-adapter
