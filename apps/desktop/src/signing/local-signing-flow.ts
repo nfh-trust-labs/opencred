@@ -19,7 +19,7 @@
  */
 
 import { CryptoError } from "@opencred/shared";
-import { prepareProof, completeProof } from "@opencred/crypto";
+import { prepareVcJwtProof, completeVcJwtProof } from "@opencred/crypto";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
 import { createRegistry, Validator } from "@opencred/schema-engine";
@@ -177,13 +177,15 @@ export async function buildAndSign(
 
   const unsignedCredential = builder.build();
 
-  // Step 3: Prepare proof
-  const { dataToSign, proofConfig } = await prepareProof(unsignedCredential, {
+  // Step 3: Prepare VC-JWT proof (two-phase signing)
+  // VC-JWT is the default proof format for all algorithms.
+  const vcAsRecord = unsignedCredential as unknown as Record<string, unknown>;
+  const { signingInput } = prepareVcJwtProof(vcAsRecord, signer.algorithm, {
     verificationMethod: signer.id,
-    proofPurpose: "assertionMethod",
   });
 
-  // Step 4: Sign with the software signer
+  // Step 4: Sign the JWT signing input with the signer
+  const dataToSign = new TextEncoder().encode(signingInput);
   let signatureBytes: Uint8Array;
   try {
     signatureBytes = await signer.sign(dataToSign);
@@ -194,17 +196,23 @@ export async function buildAndSign(
     );
   }
 
-  // Validate signature length (P-256 raw r||s must be 64 bytes)
-  if (signatureBytes.length !== 64) {
-    throw new CryptoError(
-      `Invalid signature length: expected 64 bytes, got ${signatureBytes.length}`,
-    );
-  }
+  // Step 5: Complete VC-JWT proof — produces a compact JWT string
+  const jwt = completeVcJwtProof(signingInput, signatureBytes);
 
-  // Step 5: Complete proof
-  const signedCredential = completeProof(unsignedCredential, proofConfig, signatureBytes);
+  // Step 6: Build a VerifiableCredential envelope with the JWT proof.
+  // The JWT itself is the canonical representation; we also provide
+  // a structured envelope for downstream consumers that expect an object.
+  // The proof shape differs from Data Integrity (no created/proofValue/etc.),
+  // so we use a type assertion.
+  const signedCredential = {
+    ...unsignedCredential,
+    proof: {
+      type: "JsonWebSignature2020",
+      jwt,
+    },
+  } as unknown as VerifiableCredential;
 
-  // Step 6: Embed X.509 certificate chain in proof if the signer has one.
+  // Step 7: Embed X.509 certificate chain in proof if the signer has one.
   // This allows verifiers to trace the trust chain: VC → issuer key → DSC → CSCA.
   // The x5c field follows JOSE conventions (RFC 7517 §4.7): an array of
   // base64-encoded DER certificates, leaf (DSC) first.
@@ -213,7 +221,7 @@ export async function buildAndSign(
     proof.x5c = signer.metadata.certificateChain.map(pemToBase64Der);
   }
 
-  // Step 7: Embed attestation VC in proof if the signing key has one
+  // Step 8: Embed attestation VC in proof if the signing key has one
   const attestation = getAttestation(signer.id);
   if (attestation) {
     const proof = signedCredential.proof as Record<string, unknown>;
