@@ -12,6 +12,7 @@
  */
 
 import * as crypto from "node:crypto";
+import { DeDiClient } from "@opencred/dedi-client";
 import { getStore } from "./store.js";
 import type { DeDiCredentials } from "../shared/ipc-types.js";
 
@@ -166,12 +167,43 @@ export function purgePublished(): number {
   return before - remaining.length;
 }
 
+/** Maximum number of publish attempts before an item is permanently failed. */
+const MAX_PUBLISH_ATTEMPTS = 5;
+
+/**
+ * Create a temporary DeDi client from issuer-provided credentials.
+ *
+ * The client is ephemeral — it is created for one publish cycle and then
+ * discarded. Credentials are never persisted or logged.
+ *
+ * @param dediBaseUrl - The DeDi API base URL.
+ * @param dediCredentials - The issuer's DeDi credentials.
+ * @param defaultNamespace - Default namespace for record operations.
+ */
+function createDeDiClient(
+  dediBaseUrl: string,
+  dediCredentials: DeDiCredentials,
+  defaultNamespace: string,
+): DeDiClient {
+  return new DeDiClient({
+    baseUrl: dediBaseUrl,
+    auth: dediCredentials,
+    defaultNamespace,
+    timeoutMs: 30_000,
+    circuitBreakerThreshold: 5,
+    maxRetries: 2,
+  });
+}
+
 /**
  * Attempt to publish all pending revocations to the issuer's DeDi registry.
  *
  * The issuer provides their own DeDi credentials for each publish request.
  * A temporary DeDi client is created, used to publish hashes, and then
  * discarded — credentials are never persisted.
+ *
+ * Items that have reached the maximum retry count ({@link MAX_PUBLISH_ATTEMPTS})
+ * are skipped — they are considered permanently failed.
  *
  * @param dediCredentials - The issuer's DeDi authentication credentials.
  * @param dediBaseUrl - The base URL of the DeDi revocation registry.
@@ -183,28 +215,49 @@ export async function publishPendingRevocations(
 ): Promise<Array<{ queueId: string; success: boolean; error?: string }>> {
   const pending = getQueueItemsByStatus("pending");
   const failed = getQueueItemsByStatus("failed");
-  const toPublish = [...pending, ...failed];
+  const toPublish = [...pending, ...failed].filter(
+    (item) => item.attemptCount < MAX_PUBLISH_ATTEMPTS,
+  );
   const results: Array<{ queueId: string; success: boolean; error?: string }> = [];
+
+  if (toPublish.length === 0) {
+    return results;
+  }
+
+  // Check connectivity before creating the client
+  try {
+    const dns = await import("node:dns/promises");
+    await dns.lookup("dns.google");
+  } catch {
+    // Offline — mark every item as failed but do not waste an attempt
+    for (const item of toPublish) {
+      results.push({
+        queueId: item.queueId,
+        success: false,
+        error: "No network connectivity",
+      });
+    }
+    return results;
+  }
 
   for (const item of toPublish) {
     updateQueueItemStatus(item.queueId, "publishing");
 
     try {
-      // Check connectivity first
-      const dns = await import("node:dns/promises");
-      await dns.lookup("dns.google");
+      if (!item.revocationHash) {
+        throw new Error("Revocation hash is missing");
+      }
 
-      // TODO: Create temporary DeDi client with issuer's credentials and publish.
-      // In production, this would:
-      //   const client = createDeDiClient(dediBaseUrl, dediCredentials);
-      //   await client.publishRevocationHash(item.revocationHash);
-      // For now, we validate the queue flow by marking items as published.
-      void dediCredentials;
-      void dediBaseUrl;
+      // Create a temporary DeDi client per-item — the registryUrl serves as
+      // the DeDi namespace so each item publishes to its correct registry.
+      // The client is discarded after use; credentials are never persisted.
+      const client = createDeDiClient(dediBaseUrl, dediCredentials, item.registryUrl);
+      await client.publishRevocationHash(item.revocationHash);
       updateQueueItemStatus(item.queueId, "published");
       results.push({ queueId: item.queueId, success: true });
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "Publication failed";
+      const errorMsg =
+        error instanceof Error ? error.message : "Publication failed";
       updateQueueItemStatus(item.queueId, "failed", errorMsg);
       results.push({ queueId: item.queueId, success: false, error: errorMsg });
     }
