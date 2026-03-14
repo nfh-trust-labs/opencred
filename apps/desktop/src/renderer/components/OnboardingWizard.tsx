@@ -1,13 +1,13 @@
 /**
  * OnboardingWizard — multi-step first-run setup for new users.
  *
- * Supports two workflows:
- *   Workflow 1 (DSC): Welcome → DSC check → Import DSC → Profile summary
- *   Workflow 3 (Quick Start): Welcome → DSC check → Generate Key →
- *     Organization Info → Domain Verification → Attestation Result
+ * Presents 3 onboarding paths:
+ *   1. "I have a DSC" → choose source (Upload File, Hardware Token, OS Cert Store) → Profile
+ *   2. "I want to get a DSC" → Coming Soon (connect to CAs)
+ *   3. "Get started without a DSC" → Coming Soon (OpenCred-Attested)
  *
  * On completion the wizard calls `onComplete` so the parent can
- * switch to the main tabbed interface.
+ * switch to the main sidebar interface.
  *
  * SECURITY NOTE: Private keys are never exposed to the renderer.
  * The file path is sent to the main process via IPC and only key
@@ -18,109 +18,44 @@ import { useState } from "react";
 import type { KeyMetadata } from "../../shared/ipc-types";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
-import { KeyGenerationStep } from "./KeyGenerationStep";
-import { OrganizationInfoStep } from "./OrganizationInfoStep";
-import { DomainVerificationStep } from "./DomainVerificationStep";
-import { AttestationResultStep } from "./AttestationResultStep";
+import { KeyImport } from "./KeyImport";
+import { HardwareToken } from "./HardwareToken";
+import { OsCertStore } from "./OsCertStore";
 
-type Workflow = "dsc" | "quick-start";
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-// DSC workflow steps
-type DscStep = "welcome" | "dsc-check" | "import-dsc" | "profile";
-// Quick Start workflow steps
-type QuickStartStep = "welcome" | "dsc-check" | "key-gen" | "org-info" | "domain-verify" | "attestation-result";
-
-type Step = DscStep | QuickStartStep;
+type Step =
+  | "welcome"
+  | "choose-path"
+  | "dsc-source"
+  | "dsc-upload"
+  | "dsc-hardware"
+  | "dsc-os-cert"
+  | "profile"
+  | "get-dsc-soon"
+  | "attested-soon";
 
 interface OnboardingWizardProps {
   onComplete: () => void;
 }
 
-export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
-  const [workflow, setWorkflow] = useState<Workflow | null>(null);
-  const [step, setStep] = useState<Step>("welcome");
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
-  // DSC workflow state
-  const [password, setPassword] = useState("");
-  const [importing, setImporting] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
+export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
+  const [step, setStep] = useState<Step>("welcome");
   const [importedKey, setImportedKey] = useState<KeyMetadata | null>(null);
 
-  // Quick Start workflow state
-  const [generatedKey, setGeneratedKey] = useState<{ id: string; fingerprint: string; algorithm: string } | null>(null);
-  const [orgInfo, setOrgInfo] = useState<{ organizationName: string; domain: string } | null>(null);
-  const [attestationCredential, setAttestationCredential] = useState<Record<string, unknown> | null>(null);
-
-  // Step counts for progress indicator
-  const dscSteps: DscStep[] = ["welcome", "dsc-check", "import-dsc", "profile"];
-  const quickStartSteps: QuickStartStep[] = ["welcome", "dsc-check", "key-gen", "org-info", "domain-verify", "attestation-result"];
-  const currentSteps = workflow === "quick-start" ? quickStartSteps : dscSteps;
-  const stepIndex = currentSteps.indexOf(step as never);
-
   // ------------------------------------------------------------------
-  // DSC import handler
+  // Key connected handler (shared by all DSC sources)
   // ------------------------------------------------------------------
 
-  async function handleImportDsc() {
-    setImportError(null);
-    setImporting(true);
-
-    try {
-      const fileResult = await window.opencred.openFile({
-        title: "Select Document Signer Certificate",
-        filters: [
-          { name: "Certificate Files", extensions: ["pfx", "p12", "pem", "crt", "key"] },
-          { name: "All Files", extensions: ["*"] },
-        ],
-      });
-
-      if (!fileResult.filePath) {
-        setImporting(false);
-        return;
-      }
-
-      const importResult = await window.opencred.importKey({
-        filePath: fileResult.filePath,
-        label: undefined,
-        password: password || undefined,
-      });
-
-      if (importResult.success && importResult.key) {
-        setImportedKey(importResult.key);
-        setPassword("");
-        setStep("profile");
-      } else {
-        setImportError(importResult.error ?? "Import failed. Please check the file format.");
-      }
-    } catch (err) {
-      setImportError(err instanceof Error ? err.message : "Import failed.");
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // Step indicator
-  // ------------------------------------------------------------------
-
-  function StepIndicator() {
-    return (
-      <div className="flex items-center justify-center gap-2 mb-8">
-        {currentSteps.map((s, i) => (
-          <div
-            key={s}
-            className={`h-2.5 w-2.5 rounded-full transition-colors ${
-              i === stepIndex
-                ? "bg-blue-600"
-                : i < stepIndex
-                  ? "bg-blue-300"
-                  : "bg-gray-200"
-            }`}
-            aria-label={`Step ${i + 1}${i === stepIndex ? " (current)" : ""}`}
-          />
-        ))}
-      </div>
-    );
+  function handleKeyReady(key: KeyMetadata) {
+    setImportedKey(key);
+    setStep("profile");
   }
 
   // ------------------------------------------------------------------
@@ -128,77 +63,103 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   // ------------------------------------------------------------------
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen bg-surface-bg flex flex-col font-body">
       <div className="oc-titlebar">
         <span style={{ flex: 1, textAlign: "center" }}>OpenCred</span>
       </div>
 
-      <main className="flex-1 flex items-start justify-center pt-16 px-4">
-        <div className="w-full max-w-lg">
-          <StepIndicator />
+      <main className="flex-1 flex items-start justify-center pt-12 px-4">
+        <div className="w-full max-w-xl">
 
-          {/* Step: Welcome */}
+          {/* ============================================================
+              Step: Welcome
+              ============================================================ */}
           {step === "welcome" && (
             <Card className="space-y-6 text-center">
-              <div className="space-y-2">
-                <h2 className="text-xl font-semibold text-gray-900">
+              <div className="space-y-3">
+                <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
                   Welcome to OpenCred
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-body-sm text-txt-secondary">
                   Let&apos;s set up your signing identity. This will allow you to issue
                   and sign Verifiable Credentials from your desktop.
                 </p>
               </div>
-              <p className="text-xs text-gray-500">
+              <p className="oc-label">
                 Your private keys never leave this machine. All signing happens locally.
               </p>
               <div className="pt-2">
-                <Button onClick={() => setStep("dsc-check")}>Get Started</Button>
+                <Button onClick={() => setStep("choose-path")}>Get Started</Button>
               </div>
             </Card>
           )}
 
-          {/* Step: DSC check */}
-          {step === "dsc-check" && (
-            <Card className="space-y-6">
+          {/* ============================================================
+              Step: Choose Path (3 options)
+              ============================================================ */}
+          {step === "choose-path" && (
+            <Card variant="neutral" className="space-y-6">
               <div className="space-y-2">
-                <h2 className="text-lg font-semibold text-gray-900">
+                <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
                   How would you like to get started?
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-body-sm text-txt-secondary">
                   Choose how to set up your signing identity.
                 </p>
               </div>
 
               <div className="space-y-3">
+                {/* Option 1: I have a DSC */}
                 <button
-                  onClick={() => {
-                    setWorkflow("dsc");
-                    setStep("import-dsc");
-                  }}
-                  className="w-full rounded-lg border-2 border-gray-200 p-4 text-left transition-colors hover:border-blue-500 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onClick={() => setStep("dsc-source")}
+                  className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
-                  <span className="block text-sm font-medium text-gray-900">
-                    I have a DSC
+                  <span className="block text-body-sm font-semibold text-txt-primary">
+                    I have a Document Signer Certificate
                   </span>
-                  <span className="block text-xs text-gray-500 mt-1">
-                    Import your PFX or PEM certificate file
+                  <span className="block text-[0.78rem] text-txt-muted mt-1">
+                    Sign credentials using your existing DSC from a certificate authority
                   </span>
                 </button>
 
+                {/* Option 2: I want to get a DSC */}
                 <button
-                  onClick={() => {
-                    setWorkflow("quick-start");
-                    setStep("key-gen");
-                  }}
-                  className="w-full rounded-lg border-2 border-gray-200 p-4 text-left transition-colors hover:border-blue-500 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onClick={() => setStep("get-dsc-soon")}
+                  className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-border-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
-                  <span className="block text-sm font-medium text-gray-900">
-                    Quick Start
-                  </span>
-                  <span className="block text-xs text-gray-500 mt-1">
-                    Generate a key and verify your domain for attestation
-                  </span>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="block text-body-sm font-semibold text-txt-primary">
+                        I want to get a DSC
+                      </span>
+                      <span className="block text-[0.78rem] text-txt-muted mt-1">
+                        Connect to a Certificate Authority to obtain your DSC
+                      </span>
+                    </div>
+                    <span className="inline-flex items-center rounded-oc bg-amber-50 border border-amber-200/60 px-2 py-0.5 font-mono text-[0.6rem] uppercase tracking-wider text-amber-700 flex-shrink-0 ml-3 mt-0.5">
+                      Coming Soon
+                    </span>
+                  </div>
+                </button>
+
+                {/* Option 3: Get started without a DSC */}
+                <button
+                  onClick={() => setStep("attested-soon")}
+                  className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-border-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="block text-body-sm font-semibold text-txt-primary">
+                        Get started without a DSC
+                      </span>
+                      <span className="block text-[0.78rem] text-txt-muted mt-1">
+                        Generate a key and get OpenCred-attested to start issuing credentials
+                      </span>
+                    </div>
+                    <span className="inline-flex items-center rounded-oc bg-amber-50 border border-amber-200/60 px-2 py-0.5 font-mono text-[0.6rem] uppercase tracking-wider text-amber-700 flex-shrink-0 ml-3 mt-0.5">
+                      Coming Soon
+                    </span>
+                  </div>
                 </button>
               </div>
 
@@ -210,68 +171,152 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             </Card>
           )}
 
-          {/* DSC Workflow: Import DSC */}
-          {step === "import-dsc" && (
-            <Card className="space-y-6">
+          {/* ============================================================
+              Step: DSC Source (3 sub-options)
+              ============================================================ */}
+          {step === "dsc-source" && (
+            <Card variant="neutral" className="space-y-6">
               <div className="space-y-2">
-                <h2 className="text-lg font-semibold text-gray-900">
-                  Import your Document Signer Certificate
+                <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
+                  How is your DSC stored?
                 </h2>
-                <p className="text-sm text-gray-600">
-                  Select a PFX (.pfx, .p12) or PEM (.pem, .crt) file from your computer.
-                  The private key stays on this machine and is never transmitted.
+                <p className="text-body-sm text-txt-secondary">
+                  Choose where your Document Signer Certificate is located.
+                  Your private key never leaves your machine.
                 </p>
               </div>
 
-              <div>
-                <label htmlFor="pfx-password" className="block text-xs font-medium text-gray-600">
-                  Certificate Password (if PFX/P12)
-                </label>
-                <input
-                  id="pfx-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Leave blank if not password-protected"
-                  disabled={importing}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
-                />
+              <div className="space-y-3">
+                {/* Upload file */}
+                <button
+                  onClick={() => setStep("dsc-upload")}
+                  className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                >
+                  <span className="block text-body-sm font-semibold text-txt-primary">
+                    Certificate File
+                  </span>
+                  <span className="block text-[0.78rem] text-txt-muted mt-1">
+                    Import a PFX (.pfx, .p12) or PEM (.pem, .crt) file from your computer
+                  </span>
+                </button>
+
+                {/* Hardware token */}
+                <button
+                  onClick={() => setStep("dsc-hardware")}
+                  className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                >
+                  <span className="block text-body-sm font-semibold text-txt-primary">
+                    Hardware Token
+                  </span>
+                  <span className="block text-[0.78rem] text-txt-muted mt-1">
+                    Connect a PKCS#11 device (YubiKey, smart card, HSM)
+                  </span>
+                </button>
+
+                {/* OS certificate store */}
+                <button
+                  onClick={() => setStep("dsc-os-cert")}
+                  className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                >
+                  <span className="block text-body-sm font-semibold text-txt-primary">
+                    OS Certificate Store
+                  </span>
+                  <span className="block text-[0.78rem] text-txt-muted mt-1">
+                    Use a certificate from macOS Keychain or Windows Certificate Store
+                  </span>
+                </button>
               </div>
 
-              <Button onClick={() => void handleImportDsc()} disabled={importing}>
-                {importing ? "Importing..." : "Choose File & Import"}
-              </Button>
-
-              {importError && (
-                <div className="rounded-md border border-red-200 bg-red-50 p-3">
-                  <p className="text-sm text-red-700">{importError}</p>
-                </div>
-              )}
-
               <div className="pt-2">
-                <Button variant="secondary" onClick={() => setStep("dsc-check")}>
+                <Button variant="secondary" onClick={() => setStep("choose-path")}>
                   Back
                 </Button>
               </div>
             </Card>
           )}
 
-          {/* DSC Workflow: Profile summary */}
+          {/* ============================================================
+              DSC: Upload File
+              ============================================================ */}
+          {step === "dsc-upload" && (
+            <div className="space-y-4">
+              <KeyImport
+                onKeyImported={() => {
+                  // KeyImport doesn't return metadata directly; we need to
+                  // list keys and use the most recently added one
+                  void window.opencred.listKeys().then((response) => {
+                    if (response.keys.length > 0) {
+                      handleKeyReady(response.keys[response.keys.length - 1]);
+                    }
+                  });
+                }}
+              />
+              <Button variant="secondary" onClick={() => setStep("dsc-source")}>
+                Back
+              </Button>
+            </div>
+          )}
+
+          {/* ============================================================
+              DSC: Hardware Token
+              ============================================================ */}
+          {step === "dsc-hardware" && (
+            <div className="space-y-4">
+              <HardwareToken
+                onKeyConnected={() => {
+                  void window.opencred.listKeys().then((response) => {
+                    if (response.keys.length > 0) {
+                      handleKeyReady(response.keys[response.keys.length - 1]);
+                    }
+                  });
+                }}
+              />
+              <Button variant="secondary" onClick={() => setStep("dsc-source")}>
+                Back
+              </Button>
+            </div>
+          )}
+
+          {/* ============================================================
+              DSC: OS Certificate Store
+              ============================================================ */}
+          {step === "dsc-os-cert" && (
+            <div className="space-y-4">
+              <OsCertStore
+                onKeyConnected={() => {
+                  void window.opencred.listKeys().then((response) => {
+                    if (response.keys.length > 0) {
+                      handleKeyReady(response.keys[response.keys.length - 1]);
+                    }
+                  });
+                }}
+              />
+              <Button variant="secondary" onClick={() => setStep("dsc-source")}>
+                Back
+              </Button>
+            </div>
+          )}
+
+          {/* ============================================================
+              Profile Summary (after any DSC source)
+              ============================================================ */}
           {step === "profile" && importedKey && (
             <Card className="space-y-6">
               <div className="space-y-2">
-                <h2 className="text-lg font-semibold text-gray-900">Signing Identity Ready</h2>
-                <p className="text-sm text-gray-600">
-                  Your signing key has been imported successfully.
+                <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
+                  Signing Identity Ready
+                </h2>
+                <p className="text-body-sm text-txt-secondary">
+                  Your signing key has been connected successfully.
                 </p>
               </div>
 
-              <div className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-2">
-                <h3 className="text-sm font-medium text-green-800">Key Details</h3>
-                <dl className="text-xs text-green-700 space-y-1">
+              <div className="rounded-oc border border-green-200 bg-green-50 p-4 space-y-2">
+                <h3 className="oc-card-label" style={{ color: "#2e7d32" }}>Key Details</h3>
+                <dl className="text-[0.78rem] text-green-700 space-y-1.5">
                   <div className="flex gap-2">
                     <dt className="font-medium w-24 flex-shrink-0">DID:</dt>
-                    <dd className="font-mono break-all">{importedKey.id}</dd>
+                    <dd className="font-mono text-[0.72rem] break-all">{importedKey.id}</dd>
                   </div>
                   <div className="flex gap-2">
                     <dt className="font-medium w-24 flex-shrink-0">Algorithm:</dt>
@@ -279,8 +324,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   </div>
                   <div className="flex gap-2">
                     <dt className="font-medium w-24 flex-shrink-0">Fingerprint:</dt>
-                    <dd className="font-mono">{importedKey.fingerprint}</dd>
+                    <dd className="font-mono text-[0.72rem]">{importedKey.fingerprint}</dd>
                   </div>
+                  {importedKey.source && (
+                    <div className="flex gap-2">
+                      <dt className="font-medium w-24 flex-shrink-0">Source:</dt>
+                      <dd>{importedKey.source}</dd>
+                    </div>
+                  )}
                 </dl>
               </div>
 
@@ -290,52 +341,71 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             </Card>
           )}
 
-          {/* Quick Start: Generate Key */}
-          {step === "key-gen" && (
-            <KeyGenerationStep
-              onKeyGenerated={(keyMeta) => {
-                setGeneratedKey(keyMeta);
-                setStep("org-info");
-              }}
-              onBack={() => setStep("dsc-check")}
-            />
+          {/* ============================================================
+              Coming Soon: Get a DSC
+              ============================================================ */}
+          {step === "get-dsc-soon" && (
+            <Card variant="neutral" className="space-y-6">
+              <div className="space-y-2">
+                <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
+                  Get a Document Signer Certificate
+                </h2>
+                <p className="text-body-sm text-txt-secondary">
+                  OpenCred will connect you to trusted Certificate Authorities to
+                  obtain your own DSC. This feature is under development.
+                </p>
+              </div>
+
+              <div className="rounded-oc border border-amber-200 bg-amber-50 p-4">
+                <p className="text-[0.82rem] text-amber-800 font-medium mb-1">Coming Soon</p>
+                <p className="text-[0.78rem] text-amber-700">
+                  CA integration is being built as part of Phase 3. In the meantime,
+                  if you already have a DSC from a certificate authority, choose
+                  &ldquo;I have a DSC&rdquo; to import it.
+                </p>
+              </div>
+
+              <div className="pt-2">
+                <Button variant="secondary" onClick={() => setStep("choose-path")}>
+                  Back
+                </Button>
+              </div>
+            </Card>
           )}
 
-          {/* Quick Start: Organization Info */}
-          {step === "org-info" && (
-            <OrganizationInfoStep
-              onSubmit={(info) => {
-                setOrgInfo(info);
-                setStep("domain-verify");
-              }}
-              onBack={() => setStep("key-gen")}
-            />
+          {/* ============================================================
+              Coming Soon: OpenCred Attested
+              ============================================================ */}
+          {step === "attested-soon" && (
+            <Card variant="neutral" className="space-y-6">
+              <div className="space-y-2">
+                <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
+                  OpenCred-Attested Issuance
+                </h2>
+                <p className="text-body-sm text-txt-secondary">
+                  Generate a signing key and have OpenCred attest your identity
+                  through domain and business verification. No DSC required.
+                </p>
+              </div>
+
+              <div className="rounded-oc border border-amber-200 bg-amber-50 p-4">
+                <p className="text-[0.82rem] text-amber-800 font-medium mb-1">Coming Soon</p>
+                <p className="text-[0.78rem] text-amber-700">
+                  OpenCred-attested issuance will generate a key, verify your
+                  organization through domain ownership and business credentials,
+                  then attest your public key with OpenCred&apos;s DSC. This creates
+                  a trust chain without requiring your own certificate authority.
+                </p>
+              </div>
+
+              <div className="pt-2">
+                <Button variant="secondary" onClick={() => setStep("choose-path")}>
+                  Back
+                </Button>
+              </div>
+            </Card>
           )}
 
-          {/* Quick Start: Domain Verification */}
-          {step === "domain-verify" && orgInfo && generatedKey && (
-            <DomainVerificationStep
-              domain={orgInfo.domain}
-              keyId={generatedKey.id}
-              organizationName={orgInfo.organizationName}
-              onVerified={(credential) => {
-                setAttestationCredential(credential);
-                setStep("attestation-result");
-              }}
-              onBack={() => setStep("org-info")}
-            />
-          )}
-
-          {/* Quick Start: Attestation Result */}
-          {step === "attestation-result" && attestationCredential && generatedKey && orgInfo && (
-            <AttestationResultStep
-              attestationCredential={attestationCredential}
-              keyId={generatedKey.id}
-              organizationName={orgInfo.organizationName}
-              domain={orgInfo.domain}
-              onComplete={onComplete}
-            />
-          )}
         </div>
       </main>
     </div>
