@@ -34,6 +34,14 @@ jobs:
       - name: Build workspace dependencies
         run: pnpm --filter @opencred/desktop... build
 
+      - name: Rebuild native addons for Electron
+        run: pnpm --filter @opencred/desktop rebuild:native
+        continue-on-error: true
+
+      - name: Verify native addons
+        run: node scripts/verify-native-addons.cjs
+        working-directory: packages/signing
+
       - name: Run tests
         run: pnpm --filter @opencred/desktop test
 

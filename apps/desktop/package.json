@@ -12,8 +12,9 @@
   "main": "dist/main/main/index.js",
   "scripts": {
     "dev": "concurrently -n vite,electron \"vite\" \"wait-on http://localhost:5174 && electron .\"",
+    "rebuild:native": "electron-rebuild -f -m ../../packages/signing/native -o pkcs11js",
     "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs && vite build",
-    "build:dist": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs && vite build && electron-builder",
+    "build:dist": "npm run rebuild:native && tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs && vite build && electron-builder",
     "build:renderer": "vite build",
     "build:main": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
@@ -43,6 +44,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.6.1",
     "@electron/notarize": "^2.5.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
@@ -75,6 +77,9 @@
     "files": [
       "dist/**/*",
       "package.json"
+    ],
+    "asarUnpack": [
+      "**/*.node"
     ],
     "mac": {
       "target": [
