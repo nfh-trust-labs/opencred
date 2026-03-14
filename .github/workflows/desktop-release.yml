@@ -29,11 +29,19 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Build workspace dependencies
         run: pnpm --filter @opencred/desktop... build
+
+      - name: Rebuild native addons for Electron
+        run: pnpm --filter @opencred/desktop rebuild:native
+        continue-on-error: true
 
       - name: Run tests
         run: pnpm --filter @opencred/desktop test
@@ -62,8 +70,19 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build workspace dependencies
+        run: pnpm --filter @opencred/desktop... build
+
+      - name: Rebuild native addons for Electron
+        run: pnpm --filter @opencred/desktop rebuild:native
+        continue-on-error: true
 
       - name: Build renderer
         run: pnpm --filter @opencred/desktop build:renderer

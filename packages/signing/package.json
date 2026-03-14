@@ -52,10 +52,11 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "build:native": "cd native && node-gyp rebuild",
+    "build": "tsc && npm run build:native",
+    "build:native": "cd native && node-gyp rebuild || true",
+    "verify:native": "node scripts/verify-native-addons.cjs",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist native/build"
   },
   "dependencies": {
     "@opencred/crypto": "workspace:*",
