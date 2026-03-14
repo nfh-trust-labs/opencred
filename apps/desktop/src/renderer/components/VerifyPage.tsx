@@ -146,11 +146,11 @@ export function VerifyPage() {
   // ------------------------------------------------------------------
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Input */}
       <Card className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-gray-700">Verify Credential</h2>
+          <h2 className="oc-card-label">Input</h2>
           <div className="flex gap-2">
             <button
               onClick={() => void handleLoadFile()}
@@ -236,7 +236,7 @@ export function VerifyPage() {
       {/* Per-check results */}
       {checks.length > 0 && (
         <Card className="space-y-3">
-          <h3 className="text-xs font-medium text-gray-600">Verification Checks</h3>
+          <h3 className="oc-card-label">Verification Checks</h3>
           <div className="space-y-2">
             {checks.map((check, i) => (
               <div

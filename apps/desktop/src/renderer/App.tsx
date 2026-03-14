@@ -1,8 +1,10 @@
 /**
  * App — root component for the OpenCred desktop renderer.
  *
+ * Editorial Refined layout: sidebar navigation + content area.
+ *
  * On first launch (no keys imported) shows the OnboardingWizard.
- * After onboarding, displays a tabbed interface:
+ * After onboarding, displays a sidebar-driven interface:
  *   - Issue: credential issuance form
  *   - Verify: credential verification
  *   - Batch: bulk issuance from CSV
@@ -11,6 +13,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { OnboardingWizard } from "./components/OnboardingWizard";
+import { Navigation } from "./components/Navigation";
 import { IssuePage } from "./components/IssuePage";
 import { VerifyPage } from "./components/VerifyPage";
 import { BatchIssuance } from "./components/BatchIssuance";
@@ -23,12 +26,28 @@ import { UpdateNotification } from "./components/UpdateNotification";
 
 export type Tab = "issue" | "verify" | "batch" | "settings";
 
-const TABS: Array<{ id: Tab; label: string }> = [
-  { id: "issue", label: "Issue" },
-  { id: "verify", label: "Verify" },
-  { id: "batch", label: "Batch" },
-  { id: "settings", label: "Settings" },
-];
+const PAGE_META: Record<Tab, { eyebrow: string; title: string; subtitle: string }> = {
+  issue: {
+    eyebrow: "Credential Issuance",
+    title: "Issue Credential",
+    subtitle: "Create and sign a new verifiable credential locally",
+  },
+  verify: {
+    eyebrow: "Verification",
+    title: "Verify Credential",
+    subtitle: "Validate the authenticity and integrity of a verifiable credential",
+  },
+  batch: {
+    eyebrow: "Bulk Operations",
+    title: "Batch Issuance",
+    subtitle: "Issue multiple credentials from a CSV data source",
+  },
+  settings: {
+    eyebrow: "Management",
+    title: "Settings",
+    subtitle: "Manage signing keys, attestations, and application preferences",
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Component
@@ -48,7 +67,6 @@ export default function App() {
       const response = await window.opencred.listKeys();
       setShowOnboarding(response.keys.length === 0);
     } catch {
-      // If the IPC call fails, show onboarding as a safe default.
       setShowOnboarding(true);
     }
   }, []);
@@ -76,8 +94,8 @@ export default function App() {
 
   if (showOnboarding === null) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-sm text-gray-400">Loading...</p>
+      <div className="min-h-screen bg-surface-bg flex items-center justify-center">
+        <p className="text-body-sm text-txt-muted font-body">Loading...</p>
       </div>
     );
   }
@@ -95,71 +113,53 @@ export default function App() {
   }
 
   // ------------------------------------------------------------------
-  // Main tabbed interface
+  // Main sidebar layout
   // ------------------------------------------------------------------
 
+  const meta = PAGE_META[activeTab];
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200">
-        <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between">
-          <h1 className="text-lg font-semibold text-gray-900">OpenCred</h1>
-          <div className="flex items-center gap-3">
-            <span
-              className={`inline-flex items-center gap-1.5 text-xs ${
-                isOffline ? "text-amber-600" : "text-green-600"
-              }`}
-            >
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  isOffline ? "bg-amber-500" : "bg-green-500"
-                }`}
-                aria-hidden="true"
-              />
-              {isOffline ? "Offline" : "Online"}
-            </span>
+    <div className="min-h-screen bg-surface-bg flex flex-col font-body">
+      {/* Titlebar */}
+      <div className="oc-titlebar">
+        <span style={{ flex: 1, textAlign: "center" }}>OpenCred</span>
+      </div>
+
+      {/* Sidebar + Content */}
+      <div className="flex flex-1 min-h-0">
+        {/* Sidebar navigation */}
+        <Navigation activeTab={activeTab} onChange={setActiveTab} />
+
+        {/* Main content area */}
+        <main className="flex-1 overflow-y-auto bg-surface-bg">
+          <div className="px-7 py-6 max-w-[900px]">
+            {/* Page header — editorial typography */}
+            <div className="oc-page-eyebrow">{meta.eyebrow}</div>
+            <h1 className="oc-page-title">{meta.title}</h1>
+            <p className="oc-page-subtitle">{meta.subtitle}</p>
+
+            {/* Page content */}
+            {activeTab === "issue" && <IssuePage />}
+            {activeTab === "verify" && <VerifyPage />}
+            {activeTab === "batch" && <BatchIssuance />}
+            {activeTab === "settings" && <SettingsPage />}
           </div>
-        </div>
-      </header>
+        </main>
+      </div>
 
-      {/* Tab navigation */}
-      <nav className="bg-white border-b border-gray-100">
-        <div className="mx-auto max-w-5xl px-4">
-          <div className="flex gap-1" role="tablist">
-            {TABS.map((tab) => (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={activeTab === tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab.id
-                    ? "border-blue-600 text-blue-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </nav>
+      {/* Status bar */}
+      <div className="oc-status-bar">
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${
+            isOffline ? "bg-amber-500" : "bg-green-500"
+          }`}
+          aria-hidden="true"
+        />
+        {isOffline ? "Offline" : "Connected"}
 
-      {/* Main content */}
-      <main className="mx-auto max-w-5xl w-full px-4 py-6 flex-1">
-        {activeTab === "issue" && <IssuePage />}
-        {activeTab === "verify" && <VerifyPage />}
-        {activeTab === "batch" && <BatchIssuance />}
-        {activeTab === "settings" && <SettingsPage />}
-      </main>
-
-      {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 py-2 text-center text-xs text-gray-400">
-        OpenCred Desktop v0.1.0
-      </footer>
-
-      {/* Update notification toast */}
-      <UpdateNotification />
+        {/* Update notification toast */}
+        <UpdateNotification />
+      </div>
     </div>
   );
 }

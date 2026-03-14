@@ -264,10 +264,10 @@ export function IssuePage() {
   // ------------------------------------------------------------------
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Schema selection */}
       <Card className="space-y-3">
-        <h2 className="text-sm font-medium text-gray-700">Credential Type</h2>
+        <h2 className="oc-card-label">Credential Type</h2>
         <p className="text-xs text-gray-500">
           Select a credential schema to define the subject fields.
         </p>
@@ -291,7 +291,7 @@ export function IssuePage() {
 
       {/* Dynamic form fields */}
       <Card className="space-y-3">
-        <h2 className="text-sm font-medium text-gray-700">Credential Details</h2>
+        <h2 className="oc-card-label">Credential Details</h2>
         {schemaFields.length === 0 ? (
           <p className="text-sm text-gray-500">
             Select a credential type above to see the form fields.
@@ -330,7 +330,7 @@ export function IssuePage() {
 
       {/* Issuance settings */}
       <Card className="space-y-3">
-        <h2 className="text-sm font-medium text-gray-700">Issuance Settings</h2>
+        <h2 className="oc-card-label">Issuance Settings</h2>
 
         {/* Key selector */}
         <div>
@@ -402,7 +402,7 @@ export function IssuePage() {
       <Card className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-medium text-gray-700">Build & Sign</h2>
+            <h2 className="oc-card-label">Build & Sign</h2>
             <p className="text-xs text-gray-500">
               Keys never leave this machine. Signing works offline.
             </p>
