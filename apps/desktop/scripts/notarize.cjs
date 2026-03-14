@@ -13,6 +13,11 @@
  *  - CSC_IDENTITY_AUTO_DISCOVERY is set to "false"
  *  - Any required Apple Developer credential env var is missing
  *
+ * Environment variables:
+ *  - APPLE_ID: Apple Developer account email
+ *  - APPLE_APP_SPECIFIC_PASSWORD (or APPLE_ID_PASSWORD): App-specific password
+ *  - APPLE_TEAM_ID: Apple Developer Team ID
+ *
  * Usage in electron-builder config (package.json):
  *   "afterSign": "scripts/notarize.cjs"
  */
@@ -36,12 +41,15 @@ module.exports = async function notarizing(context) {
   }
 
   const appleId = process.env.APPLE_ID;
-  const appleIdPassword = process.env.APPLE_ID_PASSWORD;
+  // Accept both APPLE_APP_SPECIFIC_PASSWORD (preferred) and APPLE_ID_PASSWORD (legacy).
+  const appleIdPassword =
+    process.env.APPLE_APP_SPECIFIC_PASSWORD || process.env.APPLE_ID_PASSWORD;
   const appleTeamId = process.env.APPLE_TEAM_ID;
 
   if (!appleId || !appleIdPassword || !appleTeamId) {
     console.log(
-      "Notarize: skipping -- missing one or more required Apple Developer env vars.",
+      "Notarize: skipping -- missing one or more required Apple Developer env vars " +
+        "(APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD or APPLE_ID_PASSWORD, APPLE_TEAM_ID).",
     );
     return;
   }
