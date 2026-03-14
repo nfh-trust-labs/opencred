@@ -406,6 +406,9 @@ importers:
       '@opencred/vc-core':
         specifier: workspace:*
         version: link:../vc-core
+      '@opencred/verification':
+        specifier: workspace:*
+        version: link:../verification
     devDependencies:
       typescript:
         specifier: ^5.5.0

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { generateKeyPairSync, type KeyObject } from "node:crypto";
+import { generateKeyPairSync, createPrivateKey, createPublicKey, type KeyObject } from "node:crypto";
 import { signCredential } from "@opencred/crypto";
 import type { UnsignedCredential } from "@opencred/vc-core";
 import type {
@@ -8,7 +8,7 @@ import type {
   DIDDocument,
   VerificationMethod,
 } from "@opencred/did";
-import { checkAttestationChain } from "../attestation-check.js";
+import { checkAttestationChain, _validateDscCertificate } from "../attestation-check.js";
 import type { VerificationResultCode } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -190,6 +190,76 @@ function credentialWithAttestation(): Record<string, unknown> {
       keyAttestationCredential: validAttestationVC(),
     },
   };
+}
+
+/**
+ * Format a Date to OpenSSL's GeneralizedTime format (YYYYMMDDHHmmssZ).
+ */
+function toOpenSslTime(date: Date): string {
+  return date.toISOString().replace(/[-:T]/g, "").replace(/\.\d+Z/, "Z");
+}
+
+/**
+ * Generate a self-signed X.509 certificate for testing.
+ * Returns the PEM-encoded certificate and its base64 DER body.
+ * Uses temporary files that are cleaned up immediately.
+ */
+function generateSelfSignedCert(options: {
+  notBefore?: Date;
+  notAfter?: Date;
+  subject?: string;
+} = {}): { pem: string; derBase64: string; keyPair: { privateKey: KeyObject; publicKey: KeyObject } } {
+  const { execSync } = require("node:child_process");
+  const { mkdtempSync, readFileSync, rmSync } = require("node:fs");
+  const { join } = require("node:path");
+  const os = require("node:os");
+
+  const tmpDir = mkdtempSync(join(os.tmpdir(), "opencred-test-cert-"));
+  const keyPath = join(tmpDir, "key.pem");
+  const certPath = join(tmpDir, "cert.pem");
+
+  try {
+    const subject = options.subject ?? "/CN=OpenCred Test DSC";
+    const notBefore = options.notBefore ?? new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    const notAfter = options.notAfter ?? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
+    // Generate EC test key and self-signed cert via openssl
+    // Use -not_before/-not_after (OpenSSL 3.x) for exact date control
+    execSync(
+      `openssl ecparam -genkey -name prime256v1 -noout -out "${keyPath}" 2>/dev/null`,
+    );
+    execSync(
+      `openssl req -new -x509 -key "${keyPath}" -out "${certPath}" ` +
+      `-not_before ${toOpenSslTime(notBefore)} -not_after ${toOpenSslTime(notAfter)} ` +
+      `-subj "${subject}" 2>/dev/null`,
+    );
+
+    const pem = readFileSync(certPath, "utf-8").trim();
+    const derBase64 = pem
+      .replace(/-----BEGIN CERTIFICATE-----/g, "")
+      .replace(/-----END CERTIFICATE-----/g, "")
+      .replace(/\s/g, "");
+
+    const keyPem = readFileSync(keyPath, "utf-8");
+    const privateKey = createPrivateKey(keyPem);
+    const publicKey = createPublicKey(privateKey);
+
+    return { pem, derBase64, keyPair: { privateKey, publicKey } };
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Generate an expired self-signed certificate for testing.
+ * The cert was valid 2020-01-01 to 2021-01-01 (expired years ago).
+ */
+function generateExpiredCert(): { pem: string; derBase64: string; keyPair: { privateKey: KeyObject; publicKey: KeyObject } } {
+  return generateSelfSignedCert({
+    notBefore: new Date("2020-01-01T00:00:00Z"),
+    notAfter: new Date("2021-01-01T00:00:00Z"),
+    subject: "/CN=OpenCred Expired DSC",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -595,5 +665,210 @@ describe("checkAttestationChain", () => {
     ];
     expect(validCodes).not.toContain("DELEGATION_INVALID");
     expect(validCodes).toContain("ATTESTATION_INVALID");
+  });
+
+  // ---- DSC certificate validation ----
+
+  describe("DSC certificate validation", () => {
+    it("validates a valid DSC certificate", () => {
+      const cert = generateSelfSignedCert();
+      const proofTime = new Date();
+      const result = _validateDscCertificate(cert.pem, proofTime);
+      expect(result).toBeNull();
+    });
+
+    it("rejects an expired DSC certificate", () => {
+      const cert = generateExpiredCert();
+      // Proof time is now (2026), cert expired in 2021
+      const proofTime = new Date("2026-06-01T00:00:00Z");
+      const result = _validateDscCertificate(cert.pem, proofTime);
+      expect(result).toContain("expired");
+    });
+
+    it("rejects a not-yet-valid DSC certificate", () => {
+      const cert = generateSelfSignedCert({
+        notBefore: new Date("2030-01-01T00:00:00Z"),
+        notAfter: new Date("2031-01-01T00:00:00Z"),
+      });
+      const proofTime = new Date("2026-06-01T00:00:00Z");
+      const result = _validateDscCertificate(cert.pem, proofTime);
+      expect(result).toContain("not yet valid");
+    });
+
+    it("rejects invalid PEM data", () => {
+      const result = _validateDscCertificate("not-a-certificate", new Date());
+      expect(result).toContain("not a valid X.509 certificate");
+    });
+
+    it("fails attestation chain when configured DSC is expired", async () => {
+      const opencredKeyPair = generateTestKeyPair();
+      const issuerVmId = "did:key:z6MkIssuer#z6MkIssuer";
+
+      const signedAttestation = await createSignedAttestationVC(opencredKeyPair, issuerVmId);
+      const credential = credentialWithSignedAttestation(signedAttestation, issuerVmId);
+
+      const expiredCert = generateExpiredCert();
+
+      const result = await checkAttestationChain(credential, {
+        opencredPublicKey: opencredKeyPair.publicKey,
+        opencredDscCertificate: expiredCert.pem,
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("DSC certificate");
+      expect(result.detail).toContain("expired");
+    });
+  });
+
+  // ---- X.509 chain with x5c in attestation proof ----
+
+  describe("attestation x5c chain validation", () => {
+    it("fails when x5c leaf does not match configured DSC", async () => {
+      const opencredKeyPair = generateTestKeyPair();
+      const issuerVmId = "did:key:z6MkIssuer#z6MkIssuer";
+
+      const signedAttestation = await createSignedAttestationVC(opencredKeyPair, issuerVmId);
+
+      // Add an x5c chain with a different certificate
+      const differentCert = generateSelfSignedCert({ subject: "/CN=Different CA" });
+      const configuredCert = generateSelfSignedCert({ subject: "/CN=OpenCred DSC" });
+
+      const attestationProof = (signedAttestation as Record<string, unknown>)["proof"] as Record<string, unknown>;
+      attestationProof["x5c"] = [differentCert.derBase64];
+
+      const credential = credentialWithSignedAttestation(signedAttestation, issuerVmId);
+
+      const result = await checkAttestationChain(credential, {
+        opencredPublicKey: opencredKeyPair.publicKey,
+        opencredDscCertificate: configuredCert.pem,
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("does not match configured OpenCred DSC");
+    });
+
+    it("passes x5c DSC match check when leaf matches configured certificate", async () => {
+      // Use the cert's own key pair to sign the attestation so the x5c key binding also matches
+      // The cert must cover both the attestation proof.created (2025-01-01) and
+      // the credential proof.created (2026-06-01) timeframes
+      const cert = generateSelfSignedCert({
+        subject: "/CN=OpenCred Test DSC",
+        notBefore: new Date("2024-01-01T00:00:00Z"),
+        notAfter: new Date("2028-01-01T00:00:00Z"),
+      });
+      const issuerVmId = "did:key:z6MkIssuer#z6MkIssuer";
+
+      // Sign the attestation with the certificate's key pair
+      const signedAttestation = await createSignedAttestationVC(cert.keyPair, issuerVmId);
+
+      // Add x5c chain matching the configured DSC
+      const attestationProof = (signedAttestation as Record<string, unknown>)["proof"] as Record<string, unknown>;
+      attestationProof["x5c"] = [cert.derBase64];
+
+      const credential = credentialWithSignedAttestation(signedAttestation, issuerVmId);
+
+      const result = await checkAttestationChain(credential, {
+        opencredPublicKey: cert.keyPair.publicKey,
+        opencredDscCertificate: cert.pem,
+      });
+
+      expect(result.passed).toBe(true);
+    });
+  });
+
+  // ---- Full chain integration scenarios ----
+
+  describe("full attestation chain scenarios", () => {
+    it("valid credential with valid attestation chain passes all checks", async () => {
+      const opencredKeyPair = generateTestKeyPair();
+      const issuerVmId = "did:key:z6MkIssuer#z6MkIssuer";
+
+      const signedAttestation = await createSignedAttestationVC(opencredKeyPair, issuerVmId);
+      const credential = credentialWithSignedAttestation(signedAttestation, issuerVmId);
+
+      const result = await checkAttestationChain(credential, {
+        opencredPublicKey: opencredKeyPair.publicKey,
+      });
+
+      expect(result.passed).toBe(true);
+      expect(result.name).toBe("attestation");
+    });
+
+    it("valid credential with expired attestation returns failure", async () => {
+      const opencredKeyPair = generateTestKeyPair();
+      const issuerVmId = "did:key:z6MkIssuer#z6MkIssuer";
+
+      // Create attestation that expired before the credential was signed
+      const signedAttestation = await createSignedAttestationVC(opencredKeyPair, issuerVmId, {
+        validFrom: "2024-01-01T00:00:00Z",
+        validUntil: "2025-06-01T00:00:00Z", // Expires before credential proof.created (2026-06-01)
+      });
+      const credential = credentialWithSignedAttestation(signedAttestation, issuerVmId);
+
+      const result = await checkAttestationChain(credential, {
+        opencredPublicKey: opencredKeyPair.publicKey,
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("expired");
+    });
+
+    it("valid credential with mismatched attested key returns failure", async () => {
+      const opencredKeyPair = generateTestKeyPair();
+      const issuerVmId = "did:key:z6MkIssuer#z6MkIssuer";
+      const wrongVmId = "did:key:z6MkWrongIssuer#z6MkWrongIssuer";
+
+      // Attestation attests a different key than the one signing the credential
+      const signedAttestation = await createSignedAttestationVC(opencredKeyPair, wrongVmId);
+      const credential = credentialWithSignedAttestation(signedAttestation, issuerVmId);
+
+      const result = await checkAttestationChain(credential, {
+        opencredPublicKey: opencredKeyPair.publicKey,
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("key binding mismatch");
+    });
+
+    it("credential without attestation (regular DSC proof) skips attestation check", async () => {
+      // Non-attested credentials should pass attestation check (skipped)
+      const credential = {
+        "@context": ["https://www.w3.org/ns/credentials/v2"],
+        type: ["VerifiableCredential"],
+        issuer: "did:key:z6MkIssuer",
+        credentialSubject: { id: "did:key:z6MkStudent" },
+        proof: {
+          type: "DataIntegrityProof",
+          cryptosuite: "ecdsa-rdfc-2019",
+          created: "2026-06-01T00:00:00Z",
+          verificationMethod: "did:key:z6MkIssuer#z6MkIssuer",
+          proofPurpose: "assertionMethod",
+          proofValue: "z...",
+          // No keyAttestationCredential or keyAttestationUrl
+        },
+      };
+
+      const result = await checkAttestationChain(credential);
+
+      expect(result.passed).toBe(true);
+      expect(result.detail).toContain("No attestation reference");
+    });
+
+    it("valid credential with untrusted DSC (wrong key) returns failure", async () => {
+      const opencredKeyPair = generateTestKeyPair();
+      const wrongKeyPair = generateTestKeyPair();
+      const issuerVmId = "did:key:z6MkIssuer#z6MkIssuer";
+
+      // Sign attestation with one key, verify with another
+      const signedAttestation = await createSignedAttestationVC(opencredKeyPair, issuerVmId);
+      const credential = credentialWithSignedAttestation(signedAttestation, issuerVmId);
+
+      const result = await checkAttestationChain(credential, {
+        opencredPublicKey: wrongKeyPair.publicKey,
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("Attestation VC signature invalid");
+    });
   });
 });

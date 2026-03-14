@@ -12,7 +12,7 @@
  * 5. The attestation was valid at credential sign time (proof.created)
  */
 
-import type { KeyObject } from "node:crypto";
+import { type KeyObject, X509Certificate } from "node:crypto";
 import type { DeDiClient } from "@opencred/dedi-client";
 import type { DIDResolver } from "@opencred/did";
 import type { VerifiableCredential } from "@opencred/vc-core";
@@ -280,13 +280,52 @@ async function verifyAttestationSignature(
 }
 
 /**
+ * Validate the OpenCred DSC certificate itself (expiry, format).
+ * This is checked independently of the x5c chain — even when no x5c is
+ * present in the attestation proof, we still validate the configured DSC.
+ */
+function validateDscCertificate(
+  dscPem: string,
+  proofTime: Date,
+): string | null {
+  let cert: X509Certificate;
+  try {
+    cert = new X509Certificate(dscPem);
+  } catch {
+    return "OpenCred DSC certificate is not a valid X.509 certificate";
+  }
+
+  const notBefore = new Date(cert.validFrom);
+  const notAfter = new Date(cert.validTo);
+
+  if (proofTime < notBefore) {
+    return "OpenCred DSC certificate was not yet valid at credential signing time";
+  }
+
+  if (proofTime > notAfter) {
+    return "OpenCred DSC certificate had expired at credential signing time";
+  }
+
+  return null;
+}
+
+/**
  * Verify the OpenCred DSC -> CSCA chain on the attestation VC.
  * This validates that OpenCred's signing certificate chains to a trusted root.
  */
 async function verifyAttestationX509Chain(
   attestation: Record<string, unknown>,
   options: AttestationCheckOptions,
+  proofTime: Date,
 ): Promise<string | null> {
+  // Validate the configured DSC certificate itself (expiry)
+  if (options.opencredDscCertificate) {
+    const dscError = validateDscCertificate(options.opencredDscCertificate, proofTime);
+    if (dscError) {
+      return dscError;
+    }
+  }
+
   const attestationProof = attestation["proof"] as Record<string, unknown> | undefined;
   if (!attestationProof) {
     return null; // No proof means no x5c to check -- signature check will catch this
@@ -437,7 +476,7 @@ export async function checkAttestationChain(
   }
 
   // X.509 DSC -> CSCA chain validation on the attestation VC
-  const chainError = await verifyAttestationX509Chain(attestation, options);
+  const chainError = await verifyAttestationX509Chain(attestation, options, proofTime);
   if (chainError) {
     return {
       name: "attestation",
@@ -459,4 +498,5 @@ export {
   fetchAttestationFromUrl as _fetchAttestationFromUrl,
   verifyAttestationSignature as _verifyAttestationSignature,
   verifyAttestationX509Chain as _verifyAttestationX509Chain,
+  validateDscCertificate as _validateDscCertificate,
 };

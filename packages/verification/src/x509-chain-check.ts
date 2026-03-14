@@ -14,7 +14,7 @@
  * 3. No certificate in the chain is expired at the credential's proof.created time
  */
 
-import { createPublicKey, X509Certificate } from "node:crypto";
+import { X509Certificate } from "node:crypto";
 import type { DIDResolver } from "@opencred/did";
 import type { VerificationCheck } from "./types.js";
 
@@ -74,8 +74,8 @@ function checkKeyBinding(
   didPublicKey: { x: string; y: string; crv: string },
 ): boolean {
   try {
-    // Export the leaf cert's public key as JWK
-    const certKeyObject = createPublicKey(leafCert.publicKey);
+    // leafCert.publicKey is already a KeyObject in Node 23+
+    const certKeyObject = leafCert.publicKey;
     const certJwk = certKeyObject.export({ format: "jwk" }) as { x?: string; y?: string; crv?: string };
 
     if (!certJwk.x || !certJwk.y || !certJwk.crv) return false;
