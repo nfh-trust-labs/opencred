@@ -21,7 +21,8 @@
     "@opencred/crypto": "workspace:*",
     "@opencred/did": "workspace:*",
     "@opencred/shared": "workspace:*",
-    "@opencred/vc-core": "workspace:*"
+    "@opencred/vc-core": "workspace:*",
+    "@opencred/verification": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

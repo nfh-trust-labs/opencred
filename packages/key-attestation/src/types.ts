@@ -23,8 +23,8 @@ export interface PublicKeyJwk {
   [key: string]: unknown;
 }
 
-/** Verification methods for domain ownership. */
-export type IdentityVerificationMethod = "dns-txt" | "http-challenge";
+/** Verification methods for issuer identity. */
+export type IdentityVerificationMethod = "dns-txt" | "http-challenge" | "business-vc";
 
 /** Identity verification details embedded in the attestation. */
 export interface IdentityVerification {

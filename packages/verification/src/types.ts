@@ -1,3 +1,4 @@
+import type { KeyObject } from "node:crypto";
 import type { DeDiClient } from "@opencred/dedi-client";
 import type { DIDResolver } from "@opencred/did";
 
@@ -10,7 +11,6 @@ export type VerificationResultCode =
   | "EXPIRED"
   | "INVALID"
   | "UNRESOLVABLE"
-  | "DELEGATION_INVALID"
   | "ATTESTATION_INVALID";
 
 /**
@@ -42,6 +42,10 @@ export type CredentialFormat = "data-integrity" | "vc-jwt" | "sd-jwt-vc" | "jws"
 export interface VerifierConfig {
   didResolver?: DIDResolver;
   dediClient?: DeDiClient;
+  /** Public key (not private) of OpenCred for attestation VC signature verification. */
+  opencredPublicKey?: KeyObject;
+  /** Public DSC certificate (PEM) for attestation chain validation (not a secret). */
+  opencredDscCertificate?: string;
 }
 
 /**
