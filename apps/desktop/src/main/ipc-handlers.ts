@@ -682,6 +682,16 @@ async function handleBatchStart(
   }
 
   try {
+    // Lightweight pre-check: count data lines before full parsing to prevent
+    // excessive memory/CPU usage on very large CSVs.
+    const lineCount = request.csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0).length - 1;
+    if (lineCount > BATCH_ROW_LIMIT) {
+      return {
+        success: false,
+        error: `Batch exceeds maximum of 1,000 rows (found ~${lineCount}). Please split your CSV into smaller files.`,
+      };
+    }
+
     const parseResult = parseCsv(request.csvContent, {
       schemaId: request.schemaId,
       columnMapping: request.columnMapping,
@@ -689,14 +699,6 @@ async function handleBatchStart(
     });
 
     batchState.parseResult = parseResult;
-
-    // Enforce row limit to prevent excessive memory/CPU usage
-    if (parseResult.totalCount > BATCH_ROW_LIMIT) {
-      return {
-        success: false,
-        error: `Batch exceeds maximum of 1,000 rows. Please split your CSV into smaller files.`,
-      };
-    }
 
     const parseErrors = parseResult.rows
       .filter((r) => !r.valid)
