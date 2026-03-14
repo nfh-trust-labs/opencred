@@ -111,6 +111,8 @@ import {
 // OS cert imports are lazy to avoid requiring the native addon at startup.
 
 
+import { BATCH_ROW_LIMIT } from "../shared/constants.js";
+
 // ---------------------------------------------------------------------------
 // In-memory registries
 // ---------------------------------------------------------------------------
@@ -680,6 +682,16 @@ async function handleBatchStart(
   }
 
   try {
+    // Lightweight pre-check: count data lines before full parsing to prevent
+    // excessive memory/CPU usage on very large CSVs.
+    const lineCount = request.csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0).length - 1;
+    if (lineCount > BATCH_ROW_LIMIT) {
+      return {
+        success: false,
+        error: `Batch exceeds maximum of 1,000 rows (found ~${lineCount}). Please split your CSV into smaller files.`,
+      };
+    }
+
     const parseResult = parseCsv(request.csvContent, {
       schemaId: request.schemaId,
       columnMapping: request.columnMapping,
