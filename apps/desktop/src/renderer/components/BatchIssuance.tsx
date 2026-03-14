@@ -17,6 +17,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { KeyMetadata, BatchRowStatus } from "../../shared/ipc-types";
 import { SchemaSelector } from "./SchemaSelector";
+import { BATCH_ROW_LIMIT } from "../../shared/constants";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,6 +51,7 @@ export function BatchIssuance() {
   const [csvFileName, setCsvFileName] = useState<string>("");
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvPreview, setCsvPreview] = useState<string[][]>([]);
+  const [csvRowCount, setCsvRowCount] = useState(0);
 
   // Schema & field mapping
   const [schemaId, setSchemaId] = useState("");
@@ -141,6 +143,10 @@ export function BatchIssuance() {
           .map((h: string) => h.trim().replace(/^"|"$/g, ""));
         setCsvHeaders(headers);
 
+        // Count data rows (excluding header)
+        const dataRowCount = lines.length - 1;
+        setCsvRowCount(dataRowCount);
+
         const previewRows = lines
           .slice(1, 6)
           .map((line: string) =>
@@ -154,6 +160,15 @@ export function BatchIssuance() {
           initialMapping[header] = header;
         }
         setColumnMapping(initialMapping);
+
+        // Check row limit
+        if (dataRowCount > BATCH_ROW_LIMIT) {
+          setBatchError(
+            `CSV contains ${dataRowCount.toLocaleString()} rows, which exceeds the maximum of ${BATCH_ROW_LIMIT.toLocaleString()} rows. Please split your CSV into smaller files.`,
+          );
+        } else {
+          setBatchError(null);
+        }
 
         setPhase("mapping");
       }
@@ -199,9 +214,18 @@ export function BatchIssuance() {
   // Batch processing
   // ---------------------------------------------------------------------------
 
+  const isOverRowLimit = csvRowCount > BATCH_ROW_LIMIT;
+
   async function handleStartBatch() {
     if (!csvContent || !schemaId || !issuerDid || !selectedKeyId) {
       setBatchError("Please complete all required fields.");
+      return;
+    }
+
+    if (isOverRowLimit) {
+      setBatchError(
+        `CSV contains ${csvRowCount.toLocaleString()} rows, which exceeds the maximum of ${BATCH_ROW_LIMIT.toLocaleString()} rows. Please split your CSV into smaller files.`,
+      );
       return;
     }
 
@@ -346,6 +370,7 @@ export function BatchIssuance() {
     setCsvFileName("");
     setCsvHeaders([]);
     setCsvPreview([]);
+    setCsvRowCount(0);
     setSchemaId("");
     setSchemaFields([]);
     setColumnMapping({});
@@ -437,7 +462,20 @@ export function BatchIssuance() {
               </table>
             </div>
             {csvPreview.length >= 5 && (
-              <p className="text-xs text-gray-400">Showing first 5 rows...</p>
+              <p className="text-xs text-gray-400">
+                Showing first 5 of {csvRowCount.toLocaleString()} rows...
+              </p>
+            )}
+
+            {/* Row limit warning */}
+            {isOverRowLimit && (
+              <div className="rounded-md bg-red-50 border border-red-200 p-3">
+                <p className="text-sm text-red-700">
+                  This CSV contains {csvRowCount.toLocaleString()} rows, which exceeds the maximum of{" "}
+                  {BATCH_ROW_LIMIT.toLocaleString()} rows per batch. Please split your CSV into smaller
+                  files before continuing.
+                </p>
+              </div>
             )}
           </div>
 
@@ -614,7 +652,7 @@ export function BatchIssuance() {
           <div className="flex gap-3">
             <button
               onClick={() => void handleStartBatch()}
-              disabled={!schemaId || !issuerDid || !selectedKeyId}
+              disabled={!schemaId || !issuerDid || !selectedKeyId || isOverRowLimit}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Start Batch Issuance

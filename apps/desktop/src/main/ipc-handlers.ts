@@ -111,6 +111,8 @@ import {
 // OS cert imports are lazy to avoid requiring the native addon at startup.
 
 
+import { BATCH_ROW_LIMIT } from "../shared/constants.js";
+
 // ---------------------------------------------------------------------------
 // In-memory registries
 // ---------------------------------------------------------------------------
@@ -687,6 +689,14 @@ async function handleBatchStart(
     });
 
     batchState.parseResult = parseResult;
+
+    // Enforce row limit to prevent excessive memory/CPU usage
+    if (parseResult.totalCount > BATCH_ROW_LIMIT) {
+      return {
+        success: false,
+        error: `Batch exceeds maximum of 1,000 rows. Please split your CSV into smaller files.`,
+      };
+    }
 
     const parseErrors = parseResult.rows
       .filter((r) => !r.valid)
