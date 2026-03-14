@@ -2,37 +2,47 @@
  * Button — reusable styled button with variant support.
  *
  * Variants:
- *  - primary: blue background (default action)
- *  - secondary: gray background (cancel / back)
- *  - danger: red background (destructive action)
+ *  - primary: brand blue background (default action)
+ *  - secondary: transparent with border (cancel / back)
+ *  - danger: transparent with red border (destructive action)
+ *
+ * Styled to match the Editorial Refined design scheme.
  */
 
 import type { ButtonHTMLAttributes } from "react";
 
 type Variant = "primary" | "secondary" | "danger";
+type Size = "default" | "sm";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
+  size?: Size;
 }
 
 const VARIANT_CLASSES: Record<Variant, string> = {
   primary:
-    "bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500 disabled:bg-blue-300",
+    "bg-brand-blue text-white hover:bg-[#004AD9] focus:ring-brand-blue disabled:opacity-40",
   secondary:
-    "bg-gray-100 text-gray-700 hover:bg-gray-200 focus:ring-gray-400 disabled:bg-gray-50 disabled:text-gray-400",
+    "bg-transparent text-txt-primary border border-border hover:bg-surface-warm focus:ring-brand-blue disabled:opacity-40 disabled:text-txt-muted",
   danger:
-    "bg-red-600 text-white hover:bg-red-700 focus:ring-red-500 disabled:bg-red-300",
+    "bg-transparent text-red-700 border border-red-300 hover:bg-red-50 focus:ring-red-500 disabled:opacity-40",
+};
+
+const SIZE_CLASSES: Record<Size, string> = {
+  default: "px-6 py-2.5 text-[0.82rem]",
+  sm: "px-3.5 py-1.5 text-[0.72rem]",
 };
 
 export function Button({
   variant = "primary",
+  size = "default",
   className = "",
   children,
   ...rest
 }: ButtonProps) {
   return (
     <button
-      className={`rounded-md px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed ${VARIANT_CLASSES[variant]} ${className}`}
+      className={`rounded-oc font-semibold font-body transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed oc-hover-glow ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`}
       {...rest}
     >
       {children}
