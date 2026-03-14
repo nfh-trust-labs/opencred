@@ -71,6 +71,7 @@
   "build": {
     "appId": "io.opencred.desktop",
     "productName": "OpenCred",
+    "forceCodeSigning": false,
     "directories": {
       "output": "out",
       "buildResources": "build"
@@ -91,8 +92,7 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
-      "identity": null
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "afterSign": "scripts/notarize.cjs",
     "win": {
@@ -102,8 +102,7 @@
       ],
       "signingHashAlgorithms": [
         "sha256"
-      ],
-      "sign": null
+      ]
     },
     "publish": {
       "provider": "github",

@@ -2,9 +2,9 @@ name: Desktop Build
 
 on:
   push:
-    branches: [anusree-dev]
+    branches: [new-opencred-dev]
   pull_request:
-    branches: [anusree-dev]
+    branches: [new-opencred-dev]
 
 jobs:
   build:
