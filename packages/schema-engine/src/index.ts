@@ -13,6 +13,7 @@ export {
   downloadSchema,
   loadCachedSchemas,
   saveSchemasToCache,
+  validateSchemaChecksum,
 } from "./updater.js";
 export {
   educationSchema,
