@@ -19,6 +19,7 @@ import {
   downloadSchema,
   saveSchemasToCache,
   loadCachedSchemas,
+  validateSchemaChecksum,
 } from "@opencred/schema-engine";
 import type { SchemaDefinition } from "@opencred/schema-engine";
 
@@ -64,16 +65,29 @@ export async function checkForSchemaUpdatesAtStartup(): Promise<void> {
 
   console.log(`[schema-updater] Updates available for: ${result.updatedIds.join(", ")}`);
 
-  // 3. Download updated schemas
+  // 3. Download updated schemas and validate checksums
+  const checksumLookup = new Map(
+    result.remoteManifest.schemas.map((s) => [s.id, s.checksum]),
+  );
   const downloaded: SchemaDefinition[] = [];
   for (const schemaId of result.updatedIds) {
     const schema = await downloadSchema(schemaId, updateUrl);
-    if (schema) {
-      downloaded.push(schema);
-      console.log(`[schema-updater] Downloaded: ${schemaId}@${schema.version}`);
-    } else {
+    if (!schema) {
       console.warn(`[schema-updater] Failed to download: ${schemaId}`);
+      continue;
     }
+
+    // Validate checksum to prevent tampered/corrupted schemas from being cached
+    const expectedChecksum = checksumLookup.get(schemaId);
+    if (expectedChecksum && !validateSchemaChecksum(schema, expectedChecksum)) {
+      console.warn(
+        `[schema-updater] Checksum mismatch for ${schemaId} — discarding (possible tampering)`,
+      );
+      continue;
+    }
+
+    downloaded.push(schema);
+    console.log(`[schema-updater] Downloaded and verified: ${schemaId}@${schema.version}`);
   }
 
   if (downloaded.length === 0) {
