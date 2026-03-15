@@ -239,11 +239,18 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               DSC: Upload File
               ============================================================ */}
           {step === "dsc-upload" && (
-            <div className="space-y-4">
+            <Card className="space-y-5">
+              <div className="space-y-2">
+                <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
+                  Import Certificate File
+                </h2>
+                <p className="text-body-sm text-txt-secondary">
+                  Select a PFX, PEM, JWK, or PKCS#8 DER file from your computer.
+                  Only ECDSA P-256 keys are accepted. Your private key never leaves this machine.
+                </p>
+              </div>
               <KeyImport
                 onKeyImported={() => {
-                  // KeyImport doesn't return metadata directly; we need to
-                  // list keys and use the most recently added one
                   void window.opencred.listKeys().then((response) => {
                     if (response.keys.length > 0) {
                       handleKeyReady(response.keys[response.keys.length - 1]);
@@ -251,17 +258,28 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   });
                 }}
               />
-              <Button variant="secondary" onClick={() => setStep("dsc-source")}>
-                Back
-              </Button>
-            </div>
+              <div className="pt-1">
+                <Button variant="secondary" onClick={() => setStep("dsc-source")}>
+                  Back
+                </Button>
+              </div>
+            </Card>
           )}
 
           {/* ============================================================
               DSC: Hardware Token
               ============================================================ */}
           {step === "dsc-hardware" && (
-            <div className="space-y-4">
+            <Card className="space-y-5">
+              <div className="space-y-2">
+                <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
+                  Connect Hardware Token
+                </h2>
+                <p className="text-body-sm text-txt-secondary">
+                  Connect a PKCS#11 device such as a YubiKey, smart card, or HSM
+                  to use your DSC for signing.
+                </p>
+              </div>
               <HardwareToken
                 onKeyConnected={() => {
                   void window.opencred.listKeys().then((response) => {
@@ -271,17 +289,28 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   });
                 }}
               />
-              <Button variant="secondary" onClick={() => setStep("dsc-source")}>
-                Back
-              </Button>
-            </div>
+              <div className="pt-1">
+                <Button variant="secondary" onClick={() => setStep("dsc-source")}>
+                  Back
+                </Button>
+              </div>
+            </Card>
           )}
 
           {/* ============================================================
               DSC: OS Certificate Store
               ============================================================ */}
           {step === "dsc-os-cert" && (
-            <div className="space-y-4">
+            <Card className="space-y-5">
+              <div className="space-y-2">
+                <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
+                  OS Certificate Store
+                </h2>
+                <p className="text-body-sm text-txt-secondary">
+                  Browse certificates from macOS Keychain or Windows Certificate Store.
+                  Your private key stays in the OS — signing is handled natively.
+                </p>
+              </div>
               <OsCertStore
                 onKeyConnected={() => {
                   void window.opencred.listKeys().then((response) => {
@@ -291,10 +320,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   });
                 }}
               />
-              <Button variant="secondary" onClick={() => setStep("dsc-source")}>
-                Back
-              </Button>
-            </div>
+              <div className="pt-1">
+                <Button variant="secondary" onClick={() => setStep("dsc-source")}>
+                  Back
+                </Button>
+              </div>
+            </Card>
           )}
 
           {/* ============================================================
