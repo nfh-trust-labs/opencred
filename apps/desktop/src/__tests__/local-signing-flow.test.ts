@@ -215,6 +215,52 @@ describe("buildAndSign — full offline round-trip", () => {
     ).rejects.toThrow(/validation/i);
   });
 
+  it("should produce an SD-JWT-VC compact token when requested", async () => {
+    const { signer } = createSoftwareSigner(pemKeyPath);
+    const result = await buildAndSign(signer, {
+      schemaId: "education",
+      issuerDid: "did:web:university.example",
+      credentialSubject: {
+        name: "Jane Doe",
+        degree: "Bachelor of Science",
+        institution: "MIT",
+        dateConferred: "2025-06-15",
+      },
+      validFrom: "2025-06-15T00:00:00Z",
+      proofFormat: "sd-jwt-vc",
+      selectiveDisclosureClaims: ["name", "degree"],
+    });
+    expect(result.proofFormat).toBe("sd-jwt-vc");
+    expect(result.isCompactToken).toBe(true);
+    expect(typeof result.credential).toBe("string");
+    // SD-JWT format: <jwt>~<disc1>~<disc2>~...~
+    const compactStr = result.credential as string;
+    expect(compactStr).toContain("~");
+    // Should have at least 2 disclosures for the 2 claims
+    const tildeCount = (compactStr.match(/~/g) || []).length;
+    expect(tildeCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it("should include credentialSchema when credentialSchemaUrl is provided", async () => {
+    const { signer } = createSoftwareSigner(pemKeyPath);
+    const result = await buildAndSign(signer, {
+      schemaId: "education",
+      issuerDid: "did:web:university.example",
+      credentialSubject: {
+        name: "Jane Doe",
+        degree: "Bachelor of Science",
+        institution: "MIT",
+        dateConferred: "2025-06-15",
+      },
+      validFrom: "2025-06-15T00:00:00Z",
+      credentialSchemaUrl: "https://example.com/schemas/education.json",
+    });
+    expect(result.unsignedCredential.credentialSchema).toBeDefined();
+    const schema = result.unsignedCredential.credentialSchema as { id: string; type: string };
+    expect(schema.id).toBe("https://example.com/schemas/education.json");
+    expect(schema.type).toBe("JsonSchema");
+  });
+
   it("should reject unknown schema IDs", async () => {
     const { signer } = createSoftwareSigner(pemKeyPath);
 

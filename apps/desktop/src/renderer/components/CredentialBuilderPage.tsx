@@ -508,6 +508,187 @@ function CredentialResult({ signedCredential, schemaId, onExportJson, onExportPd
 }
 
 // ---------------------------------------------------------------------------
+// SD-JWT-VC Result Display
+// ---------------------------------------------------------------------------
+
+interface SdJwtResultProps {
+  signedCredential: string;
+  onExport: () => void;
+}
+
+function SdJwtResult({ signedCredential, onExport }: SdJwtResultProps) {
+  const [showRaw, setShowRaw] = useState(false);
+  const disclosureCount = signedCredential.split("~").length - 1;
+
+  return (
+    <div style={{ marginTop: 20 }}>
+      {/* Success banner */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "10px 16px",
+          borderRadius: "10px 10px 0 0",
+          background: "linear-gradient(135deg, #ecfdf5, #fff)",
+          borderBottom: "none",
+        }}
+      >
+        <div
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: "50%",
+            backgroundColor: "#10B981",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={3}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <span
+          style={{
+            fontFamily: "var(--oc-font-body)",
+            fontSize: "0.82rem",
+            fontWeight: 600,
+            color: "var(--oc-text-primary)",
+          }}
+        >
+          Credential issued as SD-JWT-VC
+        </span>
+      </div>
+
+      {/* Card body */}
+      <div
+        style={{
+          borderRadius: "0 0 12px 12px",
+          overflow: "hidden",
+          border: "1px solid var(--oc-border)",
+          borderTop: "none",
+          backgroundColor: "var(--oc-surface)",
+        }}
+      >
+        {/* Metadata */}
+        <div style={{ padding: "16px 28px" }}>
+          <div style={{ display: "flex", gap: 32 }}>
+            <div>
+              <dt style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "var(--oc-text-muted)" }}>
+                Format
+              </dt>
+              <dd style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.72rem", color: "var(--oc-text-secondary)", marginTop: 2, margin: 0 }}>
+                SD-JWT-VC
+              </dd>
+            </div>
+            <div>
+              <dt style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "var(--oc-text-muted)" }}>
+                Disclosures
+              </dt>
+              <dd style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.72rem", color: "var(--oc-text-secondary)", marginTop: 2, margin: 0 }}>
+                {disclosureCount}
+              </dd>
+            </div>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "14px 28px",
+            borderTop: "1px solid var(--oc-border-light)",
+            backgroundColor: "var(--oc-surface)",
+          }}
+        >
+          <button
+            onClick={onExport}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "8px 16px",
+              borderRadius: 8,
+              border: "1px solid var(--oc-border)",
+              background: "var(--oc-surface)",
+              fontFamily: "var(--oc-font-body)",
+              fontSize: "0.76rem",
+              fontWeight: 500,
+              color: "var(--oc-text-secondary)",
+              cursor: "pointer",
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+            </svg>
+            Export .sd-jwt
+          </button>
+
+          <button
+            onClick={() => setShowRaw((prev) => !prev)}
+            style={{
+              marginLeft: "auto",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "none",
+              background: "none",
+              fontFamily: "var(--oc-font-mono)",
+              fontSize: "0.68rem",
+              color: "var(--oc-text-muted)",
+              cursor: "pointer",
+            }}
+          >
+            {showRaw ? "Hide" : "Show"} Raw
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              style={{ transition: "transform 0.2s", transform: showRaw ? "rotate(180deg)" : "none" }}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Raw compact token */}
+        {showRaw && (
+          <div style={{ borderTop: "1px solid var(--oc-border-light)" }}>
+            <pre
+              style={{
+                maxHeight: 300,
+                overflow: "auto",
+                backgroundColor: "#1e1e2e",
+                color: "#cdd6f4",
+                padding: "20px 28px",
+                margin: 0,
+                fontFamily: "var(--oc-font-mono)",
+                fontSize: "0.72rem",
+                lineHeight: 1.7,
+                borderRadius: "0 0 12px 12px",
+                wordBreak: "break-all",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {signedCredential}
+            </pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -528,6 +709,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
   // Result
   const [signing, setSigning] = useState(false);
   const [signedCredential, setSignedCredential] = useState<string | null>(null);
+  const [resultProofFormat, setResultProofFormat] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // More options
@@ -616,6 +798,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
 
     setError(null);
     setSignedCredential(null);
+    setResultProofFormat(null);
     setSigning(true);
 
     try {
@@ -641,6 +824,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
 
       if (response.success && response.signedCredential) {
         setSignedCredential(response.signedCredential);
+        setResultProofFormat(response.proofFormat ?? "vc-jwt");
 
         // For blank credentials: auto-save the custom schema so reissue works
         let savedSchemaId = effectiveSchemaId;
@@ -686,8 +870,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
     if (!signedCredential) return;
     try {
       // SD-JWT-VC: export as compact token with .sd-jwt extension
-      const isSdJwt = signedCredential.includes("~");
-      if (isSdJwt) {
+      if (resultProofFormat === "sd-jwt-vc") {
         await window.opencred.saveFile({
           defaultName: "credential.sd-jwt",
           content: signedCredential,
@@ -928,7 +1111,14 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
 
             {error && <p className="text-sm text-red-600">{error}</p>}
 
-            {signedCredential && (
+            {signedCredential && resultProofFormat === "sd-jwt-vc" && (
+              <SdJwtResult
+                signedCredential={signedCredential}
+                onExport={() => void handleExportJson()}
+              />
+            )}
+
+            {signedCredential && resultProofFormat !== "sd-jwt-vc" && (
               <CredentialResult
                 signedCredential={signedCredential}
                 schemaId={isBlank ? undefined : schemaId}

@@ -101,6 +101,7 @@ import { verifyProof } from "@opencred/crypto";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
+import { CryptoError, ValidationError, SchemaValidationError } from "@opencred/shared";
 import {
   packageCredential as packageCredentialWithTemplates,
 } from "./credential-export.js";
@@ -426,20 +427,17 @@ async function handleBuildAndSign(
 
     return response;
   } catch (err) {
-    const { CryptoError, ValidationError } = await import("@opencred/shared");
     const message = err instanceof Error ? err.message : "Build and sign failed.";
     let errorCode = "UNKNOWN_ERROR";
     let errorField: string | undefined;
 
-    if (err instanceof CryptoError) {
+    if (err instanceof SchemaValidationError) {
+      errorCode = "SCHEMA_VALIDATION_ERROR";
+      errorField = (err as { field?: string }).field;
+    } else if (err instanceof CryptoError) {
       errorCode = "SIGNING_ERROR";
     } else if (err instanceof ValidationError) {
       errorCode = "VALIDATION_ERROR";
-    }
-    // Check for SchemaValidationError (extends ValidationError)
-    if (err && typeof err === "object" && "field" in err) {
-      errorCode = "SCHEMA_VALIDATION_ERROR";
-      errorField = String((err as { field: string }).field);
     }
 
     return { success: false, error: message, errorCode, errorField };
