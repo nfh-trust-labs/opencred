@@ -12,6 +12,41 @@
 import ElectronStore from "electron-store";
 import * as fs from "node:fs";
 
+/** A record of a previously issued credential (stored locally). */
+export interface CredentialHistoryEntry {
+  /** Unique ID for this history entry. */
+  id: string;
+  /** Schema ID used (e.g. "education") or "custom:<uuid>". */
+  schemaId: string;
+  /** Human-readable schema name for display. */
+  schemaName: string;
+  /** One-line summary of the credential subject (e.g. "John Doe — BSc"). */
+  subjectSummary: string;
+  /** ISO 8601 timestamp when the credential was issued. */
+  issuedAt: string;
+  /** The full signed credential JSON (serialized). */
+  credentialJson: string;
+  /** Fingerprint of the key used to sign. */
+  keyFingerprint: string;
+  /** Proof format used (backward-compatible — absent means "vc-jwt"). */
+  proofFormat?: string;
+}
+
+/** A user-defined custom schema saved for reuse. */
+export interface CustomSchemaEntry {
+  /** ID in the form "custom:<uuid>". */
+  id: string;
+  /** User-chosen name for this schema. */
+  name: string;
+  /** The JSON Schema definition. */
+  schema: Record<string, unknown>;
+  /** ISO 8601 timestamp when this schema was created. */
+  createdAt: string;
+}
+
+/** Maximum number of credential history entries to retain (FIFO). */
+export const CREDENTIAL_HISTORY_CAP = 100;
+
 export interface StoreSchema {
   /** ID of the last-used signing key (for convenience, not the key itself). */
   lastKeyId: string | undefined;
@@ -28,6 +63,10 @@ export interface StoreSchema {
   persistKeyPaths: boolean;
   /** Custom user preferences — intentionally loosely typed for extensibility. */
   preferences: Record<string, unknown>;
+  /** Recently issued credentials (capped at CREDENTIAL_HISTORY_CAP). */
+  credentialHistory: CredentialHistoryEntry[];
+  /** User-created custom schemas for blank credentials. */
+  customSchemas: CustomSchemaEntry[];
 }
 
 const DEFAULTS: StoreSchema = {
@@ -36,6 +75,8 @@ const DEFAULTS: StoreSchema = {
   offlineMode: false,
   persistKeyPaths: true,
   preferences: {},
+  credentialHistory: [],
+  customSchemas: [],
 };
 
 let store: ElectronStore<StoreSchema> | null = null;

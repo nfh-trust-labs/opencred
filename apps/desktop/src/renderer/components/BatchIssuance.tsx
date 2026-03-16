@@ -16,8 +16,9 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { KeyMetadata, BatchRowStatus } from "../../shared/ipc-types";
+import type { KeyMetadata, BatchRowStatus, UiProofFormat } from "../../shared/ipc-types";
 import { SchemaSelector } from "./SchemaSelector";
+import { MoreOptions } from "./MoreOptions";
 import { BATCH_ROW_LIMIT } from "../../shared/constants";
 
 // ---------------------------------------------------------------------------
@@ -69,10 +70,15 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
   // Issuance config
   const [validFrom, setValidFrom] = useState(new Date().toISOString().split("T")[0]);
   const [validUntil, setValidUntil] = useState("");
-  const [revocationUrl, setRevocationUrl] = useState("");
   const [selectedKeyId, setSelectedKeyId] = useState(preSelectedKeyId ?? "");
   const [keys, setKeys] = useState<KeyMetadata[]>([]);
   const [packageFormats, setPackageFormats] = useState<string[]>(["json-ld"]);
+
+  // More options
+  const [proofFormat, setProofFormat] = useState<UiProofFormat>("vc-jwt");
+  const [selectiveDisclosureClaims, setSelectiveDisclosureClaims] = useState<string[]>([]);
+  const [revocationUrl, setRevocationUrl] = useState("");
+  const [credentialSchemaUrl, setCredentialSchemaUrl] = useState("");
 
   // Processing state
   const [processing, setProcessing] = useState(false);
@@ -262,6 +268,14 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
   // Derive issuer DID from the selected signing key (same as single issuance)
   const selectedKey = keys.find((k) => k.id === selectedKeyId);
   const issuerDid = selectedKey?.id ?? selectedKeyId;
+  const selectedKeyAlgorithm = selectedKey?.algorithm;
+
+  // Auto-revert proof format when key changes to RSA while "data-integrity" is selected
+  useEffect(() => {
+    if (proofFormat === "data-integrity" && selectedKeyAlgorithm?.startsWith("RSA")) {
+      setProofFormat("vc-jwt");
+    }
+  }, [selectedKeyId, selectedKeyAlgorithm, proofFormat]);
 
   async function handleStartBatch() {
     if (!csvContent || !schemaId || !selectedKeyId) {
@@ -305,7 +319,10 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
         revocationRegistryUrl: revocationUrl || undefined,
         keyId: selectedKeyId,
         columnMapping: Object.keys(effectiveMapping).length > 0 ? effectiveMapping : undefined,
-        packageFormats,
+        packageFormats: proofFormat === "sd-jwt-vc" ? [] : packageFormats,
+        proofFormat,
+        selectiveDisclosureClaims: proofFormat === "sd-jwt-vc" ? selectiveDisclosureClaims : undefined,
+        credentialSchemaUrl: credentialSchemaUrl || undefined,
       });
 
       if (!response.success) {
@@ -424,6 +441,9 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
     setValidFrom(new Date().toISOString().split("T")[0]);
     setValidUntil("");
     setRevocationUrl("");
+    setProofFormat("vc-jwt");
+    setSelectiveDisclosureClaims([]);
+    setCredentialSchemaUrl("");
     setTotal(0);
     setCompleted(0);
     setSuccessCount(0);
@@ -618,23 +638,6 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
 
             <div>
               <label
-                htmlFor="batch-revocation-url"
-                className="block text-xs font-medium text-gray-600"
-              >
-                Revocation Registry URL (optional)
-              </label>
-              <input
-                id="batch-revocation-url"
-                type="url"
-                value={revocationUrl}
-                onChange={(e) => setRevocationUrl(e.target.value)}
-                placeholder="https://dedi.example/revocations/..."
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label
                 htmlFor="batch-signing-key"
                 className="block text-xs font-medium text-gray-600"
               >
@@ -678,6 +681,20 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
               </div>
             </div>
           </div>
+
+          {/* More Options */}
+          <MoreOptions
+            keyAlgorithm={selectedKeyAlgorithm}
+            proofFormat={proofFormat}
+            onProofFormatChange={setProofFormat}
+            subjectFieldNames={schemaFields.map((f) => f.name)}
+            selectiveDisclosureClaims={selectiveDisclosureClaims}
+            onSelectiveDisclosureChange={setSelectiveDisclosureClaims}
+            revocationRegistryUrl={revocationUrl}
+            onRevocationRegistryUrlChange={setRevocationUrl}
+            credentialSchemaUrl={credentialSchemaUrl}
+            onCredentialSchemaUrlChange={setCredentialSchemaUrl}
+          />
 
           {batchError && <p className="text-sm text-red-600">{batchError}</p>}
 
