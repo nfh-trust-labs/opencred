@@ -31,9 +31,6 @@
   /* Spacing */
   --oc-card-padding: 2rem;
   --oc-radius: 4px;
-
-  /* Sidebar */
-  --oc-sidebar-width: 190px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -177,61 +174,157 @@
     opacity: 0.7;
   }
 
-  /* Sidebar */
-  .oc-sidebar {
-    width: var(--oc-sidebar-width);
+  /* TopBar — replaces both titlebar and sidebar */
+  .oc-topbar {
     background-color: var(--oc-bg-warm);
-    border-right: 1px solid var(--oc-border-light);
-    padding: 16px 0;
+    border-bottom: 1px solid var(--oc-border-light);
+    padding: 0 14px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    -webkit-app-region: drag;
+  }
+
+  .oc-topbar-logo {
+    font-family: var(--oc-font-body);
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--oc-text-primary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: var(--oc-radius);
+    -webkit-app-region: no-drag;
+    transition: background-color 0.15s;
+    flex-shrink: 0;
+  }
+  .oc-topbar-logo:hover {
+    background-color: rgba(0, 87, 255, 0.05);
+  }
+
+  .oc-topbar-drag {
+    flex: 1;
+  }
+
+  .oc-topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    -webkit-app-region: no-drag;
     flex-shrink: 0;
   }
 
-  .oc-sidebar-section {
-    font-family: var(--oc-font-mono);
-    font-size: 0.56rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--oc-text-muted);
-    padding: 12px 18px 6px;
-  }
-
-  .oc-sidebar-item {
-    display: flex;
+  .oc-topbar-nav-btn {
+    display: inline-flex;
     align-items: center;
-    gap: 9px;
-    padding: 9px 18px;
-    font-family: var(--oc-font-mono);
-    font-size: 0.72rem;
-    font-weight: 500;
-    letter-spacing: 0.02em;
-    color: var(--oc-text-secondary);
-    cursor: default;
-    transition: background-color 0.15s, color 0.15s;
+    gap: 5px;
+    padding: 5px 12px;
+    border-radius: 6px;
     border: none;
     background: none;
-    width: 100%;
-    text-align: left;
+    font-family: var(--oc-font-body);
+    font-size: 0.76rem;
+    font-weight: 500;
+    color: var(--oc-text-secondary);
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+    -webkit-app-region: no-drag;
   }
-  .oc-sidebar-item:hover {
-    background-color: rgba(0, 87, 255, 0.03);
+  .oc-topbar-nav-btn:hover {
+    background-color: rgba(0, 87, 255, 0.06);
+    color: var(--oc-text-primary);
   }
-  .oc-sidebar-item.active {
-    color: var(--oc-blue);
+  .oc-topbar-nav-btn.active {
     background-color: var(--oc-blue-light);
+    color: var(--oc-blue);
   }
 
-  /* Titlebar */
-  .oc-titlebar {
-    background-color: var(--oc-bg-warm);
-    border-bottom: 1px solid var(--oc-border-light);
-    padding: 10px 14px;
+  /* Template grid — Google Docs-style card grid */
+  .oc-template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 14px;
+  }
+
+  .oc-template-card {
+    --tc-border: var(--oc-blue);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 28px 16px 22px;
+    border: 1.5px solid var(--oc-border);
+    border-radius: 10px;
+    background-color: var(--oc-surface);
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+    min-height: 140px;
+  }
+  .oc-template-card:hover {
+    border-color: var(--tc-border);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 0 0 1px var(--tc-border);
+    transform: translateY(-2px);
+  }
+
+  .oc-template-card-icon {
     display: flex;
     align-items: center;
-    -webkit-app-region: drag;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    transition: transform 0.2s;
+  }
+  .oc-template-card:hover .oc-template-card-icon {
+    transform: scale(1.08);
+  }
+
+  .oc-template-card-name {
     font-family: var(--oc-font-body);
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--oc-text-primary);
+    text-align: center;
+    line-height: 1.35;
+  }
+
+  /* Segmented control — Single / Batch toggle */
+  .oc-segmented-control {
+    display: inline-flex;
+    border: 1px solid var(--oc-border);
+    border-radius: var(--oc-radius);
+    overflow: hidden;
+    background-color: var(--oc-bg-warm);
+  }
+
+  .oc-segmented-option {
+    padding: 7px 20px;
+    font-family: var(--oc-font-mono);
     font-size: 0.72rem;
     font-weight: 500;
-    color: var(--oc-text-muted);
+    color: var(--oc-text-secondary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+  }
+  .oc-segmented-option:hover {
+    background-color: rgba(0, 87, 255, 0.04);
+  }
+  .oc-segmented-option.active {
+    background-color: var(--oc-surface);
+    color: var(--oc-blue);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+
+  /* Field builder row — blank credential editor */
+  .oc-field-builder-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   /* Status bar */
@@ -291,6 +384,31 @@
   }
 }
 
+  /* More Options — collapsible section trigger (Google-style) */
+  .oc-more-options-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: var(--oc-font-body);
+    font-size: 0.76rem;
+    font-weight: 500;
+    color: var(--oc-text-secondary);
+    padding: 8px 0;
+  }
+  .oc-more-options-trigger:hover {
+    color: var(--oc-blue);
+  }
+  .oc-more-options-chevron {
+    transition: transform 0.2s ease;
+  }
+  .oc-more-options-chevron.open {
+    transform: rotate(180deg);
+  }
+}
+
 /* ---------------------------------------------------------------------------
  * Interactive hover effects
  * --------------------------------------------------------------------------- */
@@ -310,10 +428,6 @@
   .oc-card,
   .oc-card-neutral {
     padding: 1.25rem;
-  }
-
-  .oc-sidebar {
-    width: 160px;
   }
 }
 

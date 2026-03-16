@@ -145,10 +145,16 @@ export async function exportBatchAsZip(options: BatchExportOptions): Promise<Bat
       const subjectId = deriveSubjectId(row);
       const baseName = `credential-${row.rowIndex}-${subjectId}`;
 
-      // Always include the raw JSON-LD credential
+      // Include the credential in the appropriate format
       if (row.credential) {
-        const jsonContent = JSON.stringify(row.credential, null, 2);
-        archive.append(jsonContent, { name: `${baseName}.jsonld` });
+        if (row.isCompactToken && typeof row.credential === "string") {
+          // SD-JWT-VC compact token
+          archive.append(row.credential, { name: `${baseName}.sd-jwt` });
+        } else {
+          // JSON-LD credential
+          const jsonContent = JSON.stringify(row.credential, null, 2);
+          archive.append(jsonContent, { name: `${baseName}.json` });
+        }
         fileCount++;
       }
 

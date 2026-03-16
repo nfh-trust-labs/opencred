@@ -19,12 +19,13 @@
  */
 
 import { CryptoError } from "@opencred/shared";
-import { prepareVcJwtProof, completeVcJwtProof } from "@opencred/crypto";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
 import { createRegistry, Validator } from "@opencred/schema-engine";
 import type { SchemaRegistry, ValidationResult } from "@opencred/schema-engine";
 import { getAttestation } from "../main/attestation-store.js";
+import { signWithFormat } from "./proof-format-router.js";
+import type { UiProofFormat } from "../shared/ipc-types.js";
 import type { Signer } from "./types.js";
 
 /**
@@ -58,16 +59,26 @@ export interface LocalSigningOptions {
   additionalTypes?: string[];
   /** Optional subject DID. */
   subjectDid?: string;
+  /** Proof format (default: "vc-jwt"). */
+  proofFormat?: UiProofFormat;
+  /** Field names for SD-JWT-VC selective disclosure. */
+  selectiveDisclosureClaims?: string[];
+  /** Optional credential schema URL (JSON Schema link in the VC). */
+  credentialSchemaUrl?: string;
 }
 
 /**
  * Result of a local signing operation.
  */
 export interface LocalSigningResult {
-  /** The signed Verifiable Credential. */
-  credential: VerifiableCredential;
+  /** The signed VC (JSON object) or compact token string (SD-JWT-VC). */
+  credential: VerifiableCredential | string;
   /** The unsigned credential (for reference). */
   unsignedCredential: UnsignedCredential;
+  /** The proof format used. */
+  proofFormat: string;
+  /** True when credential is a compact token (SD-JWT-VC). */
+  isCompactToken: boolean;
 }
 
 // Singleton registry -- created once and reused
@@ -175,20 +186,31 @@ export async function buildAndSign(
     });
   }
 
+  // Set credential schema link
+  if (options.credentialSchemaUrl) {
+    builder.setSchema({ id: options.credentialSchemaUrl, type: "JsonSchema" });
+  }
+
   const unsignedCredential = builder.build();
 
-  // Step 3: Prepare VC-JWT proof (two-phase signing)
-  // VC-JWT is the default proof format for all algorithms.
-  const vcAsRecord = unsignedCredential as unknown as Record<string, unknown>;
-  const { signingInput } = prepareVcJwtProof(vcAsRecord, signer.algorithm, {
-    verificationMethod: signer.id,
-  });
+  // Step 3–5: Sign using the proof format router
+  const format = options.proofFormat ?? "vc-jwt";
 
-  // Step 4: Sign the JWT signing input with the signer
-  const dataToSign = new TextEncoder().encode(signingInput);
-  let signatureBytes: Uint8Array;
+  // Derive vct for SD-JWT-VC from additional types or schema ID
+  const vct =
+    options.additionalTypes?.[0] ?? options.schemaId;
+
+  let signedOutput: string;
+  let isCompactToken: boolean;
+
   try {
-    signatureBytes = await signer.sign(dataToSign);
+    const result = await signWithFormat(signer, unsignedCredential, format, {
+      verificationMethod: signer.id,
+      selectiveDisclosureClaims: options.selectiveDisclosureClaims,
+      vct,
+    });
+    signedOutput = result.signedOutput;
+    isCompactToken = result.isCompactToken;
   } catch (error) {
     if (error instanceof CryptoError) throw error;
     throw new CryptoError(
@@ -196,40 +218,35 @@ export async function buildAndSign(
     );
   }
 
-  // Step 5: Complete VC-JWT proof — produces a compact JWT string
-  const jwt = completeVcJwtProof(signingInput, signatureBytes);
+  // Step 6: For JSON-based proofs (vc-jwt, data-integrity), embed trust chain metadata
+  if (!isCompactToken) {
+    const signedCredential = JSON.parse(signedOutput) as VerifiableCredential;
 
-  // Step 6: Build a VerifiableCredential envelope with the JWT proof.
-  // The JWT itself is the canonical representation; we also provide
-  // a structured envelope for downstream consumers that expect an object.
-  // The proof shape differs from Data Integrity (no created/proofValue/etc.),
-  // so we use a type assertion.
-  const signedCredential = {
-    ...unsignedCredential,
-    proof: {
-      type: "JsonWebSignature2020",
-      jwt,
-    },
-  } as unknown as VerifiableCredential;
+    // Embed X.509 certificate chain in proof if the signer has one.
+    if (signer.metadata.certificateChain && signer.metadata.certificateChain.length > 0) {
+      const proof = signedCredential.proof as Record<string, unknown>;
+      proof.x5c = signer.metadata.certificateChain.map(pemToBase64Der);
+    }
 
-  // Step 7: Embed X.509 certificate chain in proof if the signer has one.
-  // This allows verifiers to trace the trust chain: VC → issuer key → DSC → CSCA.
-  // The x5c field follows JOSE conventions (RFC 7517 §4.7): an array of
-  // base64-encoded DER certificates, leaf (DSC) first.
-  if (signer.metadata.certificateChain && signer.metadata.certificateChain.length > 0) {
-    const proof = signedCredential.proof as Record<string, unknown>;
-    proof.x5c = signer.metadata.certificateChain.map(pemToBase64Der);
+    // Embed attestation VC in proof if the signing key has one
+    const attestation = getAttestation(signer.id);
+    if (attestation) {
+      const proof = signedCredential.proof as Record<string, unknown>;
+      proof.keyAttestationCredential = attestation.credential;
+    }
+
+    signedOutput = JSON.stringify(signedCredential);
   }
 
-  // Step 8: Embed attestation VC in proof if the signing key has one
-  const attestation = getAttestation(signer.id);
-  if (attestation) {
-    const proof = signedCredential.proof as Record<string, unknown>;
-    proof.keyAttestationCredential = attestation.credential;
-  }
+  // For compact tokens (SD-JWT-VC), return the compact string directly
+  const credential: VerifiableCredential | string = isCompactToken
+    ? signedOutput
+    : (JSON.parse(signedOutput) as VerifiableCredential);
 
   return {
-    credential: signedCredential,
+    credential,
     unsignedCredential,
+    proofFormat: format,
+    isCompactToken,
   };
 }

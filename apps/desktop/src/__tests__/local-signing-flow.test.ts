@@ -87,7 +87,7 @@ describe("Schema validation", () => {
 });
 
 describe("buildAndSign — full offline round-trip", () => {
-  it("should build, sign, and produce a valid VerifiableCredential", async () => {
+  it("should build, sign, and produce a valid VerifiableCredential (default vc-jwt)", async () => {
     const { signer } = createSoftwareSigner(pemKeyPath);
 
     const result = await buildAndSign(signer, {
@@ -102,16 +102,20 @@ describe("buildAndSign — full offline round-trip", () => {
       validFrom: "2025-06-15T00:00:00Z",
     });
 
-    const { credential, unsignedCredential } = result;
+    const { credential, unsignedCredential, proofFormat, isCompactToken } = result;
 
-    // Verify the signed credential structure
+    // Default format is vc-jwt
+    expect(proofFormat).toBe("vc-jwt");
+    expect(isCompactToken).toBe(false);
+
+    // Verify the signed credential structure (VC-JWT)
     expect(credential).toBeDefined();
-    expect(credential.proof).toBeDefined();
-    expect(credential.proof.type).toBe("DataIntegrityProof");
-    expect(credential.proof.cryptosuite).toBe("ecdsa-rdfc-2019");
-    expect(credential.proof.verificationMethod).toBe(signer.id);
-    expect(credential.proof.proofPurpose).toBe("assertionMethod");
-    expect(credential.proof.proofValue).toMatch(/^z/); // multibase base58btc
+    const vc = credential as Record<string, unknown>;
+    const proof = vc.proof as Record<string, unknown>;
+    expect(proof).toBeDefined();
+    expect(proof.type).toBe("JsonWebSignature2020");
+    expect(proof.jwt).toBeDefined();
+    expect(typeof proof.jwt).toBe("string");
 
     // Verify the unsigned credential structure
     expect(unsignedCredential).toBeDefined();
@@ -119,7 +123,33 @@ describe("buildAndSign — full offline round-trip", () => {
     expect(unsignedCredential.credentialSubject.name).toBe("Jane Doe");
   });
 
-  it("should produce a credential that verifies with verifyProof", async () => {
+  it("should produce a Data Integrity proof when explicitly requested", async () => {
+    const { signer } = createSoftwareSigner(pemKeyPath);
+
+    const result = await buildAndSign(signer, {
+      schemaId: "education",
+      issuerDid: "did:web:university.example",
+      credentialSubject: {
+        name: "Jane Doe",
+        degree: "Bachelor of Science",
+        institution: "MIT",
+        dateConferred: "2025-06-15",
+      },
+      validFrom: "2025-06-15T00:00:00Z",
+      proofFormat: "data-integrity",
+    });
+
+    const { credential, proofFormat } = result;
+    expect(proofFormat).toBe("data-integrity");
+
+    const vc = credential as Record<string, unknown>;
+    const proof = vc.proof as Record<string, unknown>;
+    expect(proof.type).toBe("DataIntegrityProof");
+    expect(proof.cryptosuite).toBe("ecdsa-rdfc-2019");
+    expect(proof.proofValue).toMatch(/^z/);
+  });
+
+  it("should produce a data-integrity credential that verifies with verifyProof", async () => {
     const { signer } = createSoftwareSigner(pemKeyPath);
     const publicKey = createPublicKey(testPrivateKey);
 
@@ -133,9 +163,10 @@ describe("buildAndSign — full offline round-trip", () => {
         dateConferred: "2025-06-15",
       },
       validFrom: "2025-06-15T00:00:00Z",
+      proofFormat: "data-integrity",
     });
 
-    // Verify the proof using @opencred/crypto
+    // Verify the proof using @opencred/crypto (works with Data Integrity proofs)
     const verifyResult = await verifyProof(result.credential, { publicKey });
     expect(verifyResult.verified).toBe(true);
     expect(verifyResult.error).toBeUndefined();
@@ -201,7 +232,7 @@ describe("buildAndSign — full offline round-trip", () => {
     const { signer } = createSoftwareSigner(pemKeyPath);
     const publicKey = createPublicKey(testPrivateKey);
 
-    // Employment
+    // Employment (data-integrity for verifyProof compatibility)
     const employment = await buildAndSign(signer, {
       schemaId: "employment",
       issuerDid: "did:web:employer.example",
@@ -212,11 +243,12 @@ describe("buildAndSign — full offline round-trip", () => {
         startDate: "2024-01-15",
       },
       validFrom: "2024-01-15T00:00:00Z",
+      proofFormat: "data-integrity",
     });
     const empVerify = await verifyProof(employment.credential, { publicKey });
     expect(empVerify.verified).toBe(true);
 
-    // Identity
+    // Identity (data-integrity for verifyProof compatibility)
     const identity = await buildAndSign(signer, {
       schemaId: "identity",
       issuerDid: "did:web:gov.example",
@@ -227,6 +259,7 @@ describe("buildAndSign — full offline round-trip", () => {
         documentNumber: "AB123456",
       },
       validFrom: "2024-01-01T00:00:00Z",
+      proofFormat: "data-integrity",
     });
     const idVerify = await verifyProof(identity.credential, { publicKey });
     expect(idVerify.verified).toBe(true);
@@ -246,6 +279,7 @@ describe("buildAndSign — full offline round-trip", () => {
         dateConferred: "2025-06-15",
       },
       validFrom: "2025-06-15T00:00:00Z",
+      proofFormat: "data-integrity",
     });
 
     // Tamper with a W3C-defined property (issuer) which is in the canonical form.

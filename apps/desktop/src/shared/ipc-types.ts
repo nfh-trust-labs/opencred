@@ -99,11 +99,16 @@ export interface SignCredentialResponse {
 // Build and Sign (full flow)
 // ---------------------------------------------------------------------------
 
+/** UI-facing proof format union (3 user-visible choices). */
+export type UiProofFormat = "vc-jwt" | "data-integrity" | "sd-jwt-vc";
+
 export interface BuildAndSignRequest {
   /** The schema ID to validate against. */
   schemaId: string;
   /** The issuer DID. */
   issuerDid: string;
+  /** Inline JSON Schema for blank credentials (alternative to schemaId lookup). */
+  inlineSchema?: Record<string, unknown>;
   /** Credential subject fields. */
   credentialSubject: Record<string, unknown>;
   /** ISO 8601 validFrom date. */
@@ -120,11 +125,17 @@ export interface BuildAndSignRequest {
   keyId: string;
   /** Output packaging formats (optional). */
   packageFormats?: string[];
+  /** Proof format (default: "vc-jwt"). */
+  proofFormat?: UiProofFormat;
+  /** Field names for SD-JWT-VC selective disclosure. */
+  selectiveDisclosureClaims?: string[];
+  /** Optional credential schema URL (JSON Schema link). */
+  credentialSchemaUrl?: string;
 }
 
 export interface BuildAndSignResponse {
   success: boolean;
-  /** JSON-serialised signed Verifiable Credential. */
+  /** JSON-serialised signed Verifiable Credential (or SD-JWT-VC compact string). */
   signedCredential?: string;
   /** Packaged outputs (if packaging was requested). */
   packagedOutputs?: Array<{
@@ -135,6 +146,12 @@ export interface BuildAndSignResponse {
     suggestedFileName: string;
   }>;
   error?: string;
+  /** Echo back proof format for display/export logic. */
+  proofFormat?: string;
+  /** Structured error code for contextual UI display. */
+  errorCode?: string;
+  /** Which field caused the error (for inline error display). */
+  errorField?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +336,12 @@ export interface BatchStartRequest {
   packageFormats?: string[];
   /** Force a specific delimiter instead of auto-detecting. */
   delimiter?: "," | ";" | "\t";
+  /** Proof format (default: "vc-jwt"). */
+  proofFormat?: UiProofFormat;
+  /** Field names for SD-JWT-VC selective disclosure. */
+  selectiveDisclosureClaims?: string[];
+  /** Optional credential schema URL (JSON Schema link). */
+  credentialSchemaUrl?: string;
 }
 
 /** Status of a single row in the batch. */
@@ -638,6 +661,75 @@ export interface AttestationCheckResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Credential history
+// ---------------------------------------------------------------------------
+
+export interface CredentialHistoryAddRequest {
+  schemaId: string;
+  schemaName: string;
+  subjectSummary: string;
+  credentialJson: string;
+  keyFingerprint: string;
+  proofFormat?: string;
+}
+
+export interface CredentialHistoryListResponse {
+  entries: Array<{
+    id: string;
+    schemaId: string;
+    schemaName: string;
+    subjectSummary: string;
+    issuedAt: string;
+    credentialJson: string;
+    keyFingerprint: string;
+    proofFormat?: string;
+  }>;
+}
+
+export interface CredentialHistoryDeleteRequest {
+  id: string;
+}
+
+export interface CredentialHistoryDeleteResponse {
+  deleted: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Custom schemas
+// ---------------------------------------------------------------------------
+
+export interface CustomSchemaSaveRequest {
+  name: string;
+  schema: Record<string, unknown>;
+  /** If provided, updates an existing custom schema; otherwise creates new. */
+  id?: string;
+}
+
+export interface CustomSchemaSaveResponse {
+  id: string;
+  name: string;
+  schema: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface CustomSchemaListResponse {
+  schemas: Array<{
+    id: string;
+    name: string;
+    schema: Record<string, unknown>;
+    createdAt: string;
+  }>;
+}
+
+export interface CustomSchemaDeleteRequest {
+  id: string;
+}
+
+export interface CustomSchemaDeleteResponse {
+  deleted: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Preload API shape (exposed on window.opencred)
 // ---------------------------------------------------------------------------
 
@@ -694,6 +786,16 @@ export interface OpenCredDesktopAPI {
   osCertList: () => Promise<OsCertListResponse>;
   osCertSign: (request: OsCertSignRequest) => Promise<OsCertSignResponse>;
   osCertConnect: (request: OsCertConnectRequest) => Promise<OsCertConnectResponse>;
+
+  // Credential history
+  credentialHistoryList: () => Promise<CredentialHistoryListResponse>;
+  credentialHistoryAdd: (request: CredentialHistoryAddRequest) => Promise<CredentialHistoryAddRequest & { id: string; issuedAt: string }>;
+  credentialHistoryDelete: (request: CredentialHistoryDeleteRequest) => Promise<CredentialHistoryDeleteResponse>;
+
+  // Custom schemas
+  customSchemaList: () => Promise<CustomSchemaListResponse>;
+  customSchemaSave: (request: CustomSchemaSaveRequest) => Promise<CustomSchemaSaveResponse>;
+  customSchemaDelete: (request: CustomSchemaDeleteRequest) => Promise<CustomSchemaDeleteResponse>;
 
   // Config
   getConfig: (key: string) => Promise<unknown>;
