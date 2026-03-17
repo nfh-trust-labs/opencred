@@ -51,6 +51,11 @@ export interface BatchExportResult {
  * or a short random hex string.
  */
 function deriveSubjectId(row: BatchRowResult): string {
+  // Compact tokens (SD-JWT-VC) don't have structured fields — use random ID
+  if (typeof row.credential === "string") {
+    return randomBytes(4).toString("hex");
+  }
+
   if (row.credential?.credentialSubject?.id) {
     // Use last segment of DID or full ID, sanitized
     const subjectId = String(row.credential.credentialSubject.id);
