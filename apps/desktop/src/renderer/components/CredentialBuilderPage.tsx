@@ -144,15 +144,17 @@ function buildSubjectSummary(values: Record<string, string>): string {
 interface CredentialResultProps {
   signedCredential: string;
   schemaId?: string;
+  schemaName?: string;
   onExportJson: () => void;
   onExportPdf: () => void;
   onShowQr: () => void;
 }
 
-function CredentialResult({ signedCredential, schemaId, onExportJson, onExportPdf, onShowQr }: CredentialResultProps) {
+function CredentialResult({ signedCredential, schemaId, schemaName, onExportJson, onExportPdf, onShowQr }: CredentialResultProps) {
   const [showRaw, setShowRaw] = useState(false);
   const vc = parseCredential(signedCredential);
-  const displayType = vc.types.find((t) => t !== "VerifiableCredential") ?? "Verifiable Credential";
+  const typeFromVc = vc.types.find((t) => t !== "VerifiableCredential");
+  const displayType = typeFromVc ?? schemaName ?? "Verifiable Credential";
   const v = getVisual(schemaId);
 
   const subjectEntries = Object.entries(vc.subject).filter(
@@ -285,7 +287,9 @@ function CredentialResult({ signedCredential, schemaId, onExportJson, onExportPd
                   lineHeight: 1.2,
                 }}
               >
-                {labelForField(displayType.replace("Credential", "").trim()) || "Credential"}
+                {typeFromVc
+                  ? (labelForField(typeFromVc.replace("Credential", "").trim()) || "Credential")
+                  : (displayType)}
               </h3>
             </div>
             <div
@@ -1182,6 +1186,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
               <CredentialResult
                 signedCredential={signedCredential}
                 schemaId={isBlank ? undefined : schemaId}
+                schemaName={schemaName}
                 onExportJson={() => void handleExportJson()}
                 onExportPdf={() => void handleExportPdf()}
                 onShowQr={() => void handleShowQr()}
