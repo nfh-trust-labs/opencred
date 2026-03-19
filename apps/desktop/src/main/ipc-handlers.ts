@@ -73,6 +73,15 @@ import type {
   AttestationRemoveResponse,
   AttestationCheckRequest,
   AttestationCheckResponse,
+  CredentialHistoryAddRequest,
+  CredentialHistoryListResponse,
+  CredentialHistoryDeleteRequest,
+  CredentialHistoryDeleteResponse,
+  CustomSchemaSaveRequest,
+  CustomSchemaSaveResponse,
+  CustomSchemaListResponse,
+  CustomSchemaDeleteRequest,
+  CustomSchemaDeleteResponse,
 } from "../shared/ipc-types.js";
 import {
   storeAttestation,
@@ -81,14 +90,18 @@ import {
   removeAttestation,
   hasAttestation,
 } from "./attestation-store.js";
-import { getStore, restrictStoreFilePermissions } from "./store.js";
+import { getStore, restrictStoreFilePermissions, CREDENTIAL_HISTORY_CAP } from "./store.js";
+import type { CredentialHistoryEntry, CustomSchemaEntry } from "./store.js";
 import { createSoftwareSigner, buildSigner } from "../signing/software-signer.js";
 import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local-signing-flow.js";
-import { generateKeyPairSync, createPublicKey } from "node:crypto";
+import { signWithFormat } from "../signing/proof-format-router.js";
+import type { UiProofFormat } from "../shared/ipc-types.js";
+import { generateKeyPairSync, createPublicKey, randomUUID } from "node:crypto";
 import { verifyProof } from "@opencred/crypto";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
+import { CryptoError, ValidationError, SchemaValidationError } from "@opencred/shared";
 import {
   packageCredential as packageCredentialWithTemplates,
 } from "./credential-export.js";
@@ -300,6 +313,10 @@ async function handleSignCredential(
 
 /**
  * BUILD_AND_SIGN — full flow: validate + build + sign + optionally package.
+ *
+ * When `inlineSchema` is provided (blank/custom credentials), schema registry
+ * validation is skipped and the credential is built directly from the inline
+ * schema definition.
  */
 async function handleBuildAndSign(
   _event: IpcMainInvokeEvent,
@@ -307,30 +324,99 @@ async function handleBuildAndSign(
 ): Promise<BuildAndSignResponse> {
   const signer = loadedSigners.get(request.keyId);
   if (!signer) {
-    return { success: false, error: `Key not found: ${request.keyId}` };
+    return { success: false, error: `Key not found: ${request.keyId}`, errorCode: "KEY_NOT_FOUND" };
+  }
+
+  const proofFormat: UiProofFormat = request.proofFormat ?? "vc-jwt";
+
+  // Pre-signing validation: Data Integrity requires ECDSA or EdDSA
+  if (proofFormat === "data-integrity" && signer.algorithm.startsWith("RSA")) {
+    return {
+      success: false,
+      error: "Data Integrity proofs require ECDSA or EdDSA keys. Your key uses RSA — please select VC-JWT or SD-JWT-VC.",
+      errorCode: "INCOMPATIBLE_FORMAT",
+      errorField: "proofFormat",
+    };
   }
 
   try {
-    const result = await buildAndSign(signer, {
-      schemaId: request.schemaId,
-      issuerDid: request.issuerDid,
-      credentialSubject: request.credentialSubject,
-      validFrom: request.validFrom,
-      validUntil: request.validUntil,
-      revocationRegistryUrl: request.revocationRegistryUrl,
-      additionalTypes: request.additionalTypes,
-      subjectDid: request.subjectDid,
-    });
+    let signedCredentialJson: string;
+    let isCompactToken = false;
+
+    if (request.inlineSchema) {
+      // Blank/custom credential — skip schema registry, use proof format router.
+      const { CredentialBuilder } = await import("@opencred/vc-core");
+
+      const builder = new CredentialBuilder()
+        .setIssuer(request.issuerDid)
+        .setValidFrom(request.validFrom);
+
+      const subject: Record<string, unknown> = { ...request.credentialSubject };
+      if (request.subjectDid) {
+        subject["id"] = request.subjectDid;
+      }
+      builder.setCredentialSubject(subject);
+
+      if (request.additionalTypes) {
+        for (const type of request.additionalTypes) {
+          builder.addType(type);
+        }
+      }
+      if (request.validUntil) {
+        builder.setValidUntil(request.validUntil);
+      }
+      if (request.revocationRegistryUrl) {
+        builder.setCredentialStatus({
+          id: request.revocationRegistryUrl,
+          type: "DeDiRevocationListStatusV1",
+          statusPurpose: "revocation",
+        });
+      }
+      if (request.credentialSchemaUrl) {
+        builder.setSchema({ id: request.credentialSchemaUrl, type: "JsonSchema" });
+      }
+
+      const unsigned = builder.build();
+
+      const vct = request.additionalTypes?.[0] ?? request.schemaId;
+      const result = await signWithFormat(signer, unsigned, proofFormat, {
+        verificationMethod: signer.id,
+        selectiveDisclosureClaims: request.selectiveDisclosureClaims,
+        vct,
+      });
+      signedCredentialJson = result.signedOutput;
+      isCompactToken = result.isCompactToken;
+    } else {
+      const result = await buildAndSign(signer, {
+        schemaId: request.schemaId,
+        issuerDid: request.issuerDid,
+        credentialSubject: request.credentialSubject,
+        validFrom: request.validFrom,
+        validUntil: request.validUntil,
+        revocationRegistryUrl: request.revocationRegistryUrl,
+        additionalTypes: request.additionalTypes,
+        subjectDid: request.subjectDid,
+        proofFormat,
+        selectiveDisclosureClaims: request.selectiveDisclosureClaims,
+        credentialSchemaUrl: request.credentialSchemaUrl,
+      });
+      signedCredentialJson = typeof result.credential === "string"
+        ? result.credential
+        : JSON.stringify(result.credential);
+      isCompactToken = result.isCompactToken;
+    }
 
     const response: BuildAndSignResponse = {
       success: true,
-      signedCredential: JSON.stringify(result.credential),
+      signedCredential: signedCredentialJson,
+      proofFormat,
     };
 
-    // Package if formats were requested
-    if (request.packageFormats && request.packageFormats.length > 0) {
+    // Package if formats were requested (only for JSON-based outputs)
+    if (!isCompactToken && request.packageFormats && request.packageFormats.length > 0) {
       const formats = request.packageFormats as PackageFormat[];
-      const packaging = await packageCredential(result.credential, formats);
+      const parsed = parseCredentialJson(signedCredentialJson);
+      const packaging = await packageCredential(parsed, formats);
       response.packagedOutputs = packaging.outputs.map((output) => ({
         format: output.format,
         data: Buffer.isBuffer(output.data) ? output.data.toString("base64") : output.data,
@@ -342,7 +428,19 @@ async function handleBuildAndSign(
     return response;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Build and sign failed.";
-    return { success: false, error: message };
+    let errorCode = "UNKNOWN_ERROR";
+    let errorField: string | undefined;
+
+    if (err instanceof SchemaValidationError) {
+      errorCode = "SCHEMA_VALIDATION_ERROR";
+      errorField = (err as { field?: string }).field;
+    } else if (err instanceof CryptoError) {
+      errorCode = "SIGNING_ERROR";
+    } else if (err instanceof ValidationError) {
+      errorCode = "VALIDATION_ERROR";
+    }
+
+    return { success: false, error: message, errorCode, errorField };
   }
 }
 
@@ -712,6 +810,9 @@ async function handleBatchStart(
       revocationRegistryUrl: request.revocationRegistryUrl,
       additionalTypes: request.additionalTypes,
       packageFormats: (request.packageFormats as PackageFormat[]) ?? ["json-ld"],
+      proofFormat: request.proofFormat,
+      selectiveDisclosureClaims: request.selectiveDisclosureClaims,
+      credentialSchemaUrl: request.credentialSchemaUrl,
     });
 
     batchState.engine = engine;
@@ -1183,6 +1284,108 @@ async function handleAttestationCheck(
 }
 
 // ---------------------------------------------------------------------------
+// Credential history handlers
+// ---------------------------------------------------------------------------
+
+/** CREDENTIAL_HISTORY_LIST — return all credential history entries. */
+async function handleCredentialHistoryList(): Promise<CredentialHistoryListResponse> {
+  const store = getStore();
+  const history = (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
+  return { entries: history };
+}
+
+/** CREDENTIAL_HISTORY_ADD — add a credential to history (FIFO cap). */
+async function handleCredentialHistoryAdd(
+  _event: IpcMainInvokeEvent,
+  request: CredentialHistoryAddRequest,
+): Promise<CredentialHistoryEntry> {
+  const store = getStore();
+  const history = (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
+
+  const entry: CredentialHistoryEntry = {
+    id: randomUUID(),
+    schemaId: request.schemaId,
+    schemaName: request.schemaName,
+    subjectSummary: request.subjectSummary,
+    issuedAt: new Date().toISOString(),
+    credentialJson: request.credentialJson,
+    keyFingerprint: request.keyFingerprint,
+    proofFormat: request.proofFormat,
+  };
+
+  // Prepend new entry, cap at limit
+  const updated = [entry, ...history].slice(0, CREDENTIAL_HISTORY_CAP);
+  store.set("credentialHistory" as keyof typeof store.store, updated);
+  return entry;
+}
+
+/** CREDENTIAL_HISTORY_DELETE — remove a credential from history. */
+async function handleCredentialHistoryDelete(
+  _event: IpcMainInvokeEvent,
+  request: CredentialHistoryDeleteRequest,
+): Promise<CredentialHistoryDeleteResponse> {
+  const store = getStore();
+  const history = (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
+  const filtered = history.filter((e) => e.id !== request.id);
+  const deleted = filtered.length < history.length;
+  store.set("credentialHistory" as keyof typeof store.store, filtered);
+  return { deleted };
+}
+
+// ---------------------------------------------------------------------------
+// Custom schema handlers
+// ---------------------------------------------------------------------------
+
+/** CUSTOM_SCHEMA_LIST — return all custom schemas. */
+async function handleCustomSchemaList(): Promise<CustomSchemaListResponse> {
+  const store = getStore();
+  const schemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+  return { schemas };
+}
+
+/** CUSTOM_SCHEMA_SAVE — create or update a custom schema. */
+async function handleCustomSchemaSave(
+  _event: IpcMainInvokeEvent,
+  request: CustomSchemaSaveRequest,
+): Promise<CustomSchemaSaveResponse> {
+  const store = getStore();
+  const schemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+
+  if (request.id) {
+    // Update existing
+    const idx = schemas.findIndex((s) => s.id === request.id);
+    if (idx >= 0) {
+      schemas[idx] = { ...schemas[idx], name: request.name, schema: request.schema };
+      store.set("customSchemas" as keyof typeof store.store, schemas);
+      return schemas[idx];
+    }
+  }
+
+  // Create new
+  const entry: CustomSchemaEntry = {
+    id: `custom:${randomUUID()}`,
+    name: request.name,
+    schema: request.schema,
+    createdAt: new Date().toISOString(),
+  };
+  store.set("customSchemas" as keyof typeof store.store, [...schemas, entry]);
+  return entry;
+}
+
+/** CUSTOM_SCHEMA_DELETE — remove a custom schema. */
+async function handleCustomSchemaDelete(
+  _event: IpcMainInvokeEvent,
+  request: CustomSchemaDeleteRequest,
+): Promise<CustomSchemaDeleteResponse> {
+  const store = getStore();
+  const schemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+  const filtered = schemas.filter((s) => s.id !== request.id);
+  const deleted = filtered.length < schemas.length;
+  store.set("customSchemas" as keyof typeof store.store, filtered);
+  return { deleted };
+}
+
+// ---------------------------------------------------------------------------
 // Registration / cleanup
 // ---------------------------------------------------------------------------
 
@@ -1250,6 +1453,16 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.ATTESTATION_LIST, handleAttestationList);
   ipcMain.handle(IPC_CHANNELS.ATTESTATION_REMOVE, handleAttestationRemove);
   ipcMain.handle(IPC_CHANNELS.ATTESTATION_CHECK, handleAttestationCheck);
+
+  // Credential history
+  ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_LIST, handleCredentialHistoryList);
+  ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_ADD, handleCredentialHistoryAdd);
+  ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_DELETE, handleCredentialHistoryDelete);
+
+  // Custom schemas
+  ipcMain.handle(IPC_CHANNELS.CUSTOM_SCHEMA_SAVE, handleCustomSchemaSave);
+  ipcMain.handle(IPC_CHANNELS.CUSTOM_SCHEMA_LIST, handleCustomSchemaList);
+  ipcMain.handle(IPC_CHANNELS.CUSTOM_SCHEMA_DELETE, handleCustomSchemaDelete);
 
   // Config
   ipcMain.handle(IPC_CHANNELS.GET_CONFIG, handleGetConfig);

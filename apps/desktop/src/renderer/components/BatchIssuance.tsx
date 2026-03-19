@@ -5,18 +5,20 @@
  *   1. Import CSV file via native file dialog
  *   2. Preview parsed data (first 5 rows)
  *   3. Map CSV columns to schema fields
- *   4. Select schema, signing key, issuer DID, dates
+ *   4. Select signing key, dates
  *   5. Start batch processing with progress tracking
  *   6. View per-row results (success/error)
  *   7. Export all packaged credentials as ZIP
  *
+ * Issuer DID is derived automatically from the selected signing key.
  * All operations work entirely offline. Private keys never leave
  * the main process.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { KeyMetadata, BatchRowStatus } from "../../shared/ipc-types";
+import type { KeyMetadata, BatchRowStatus, UiProofFormat } from "../../shared/ipc-types";
 import { SchemaSelector } from "./SchemaSelector";
+import { MoreOptions } from "./MoreOptions";
 import { BATCH_ROW_LIMIT } from "../../shared/constants";
 
 // ---------------------------------------------------------------------------
@@ -42,7 +44,14 @@ type BatchPhase = "upload" | "mapping" | "config" | "processing" | "complete";
 // Component
 // ---------------------------------------------------------------------------
 
-export function BatchIssuance() {
+interface BatchIssuanceProps {
+  /** Pre-selected schema ID from the credential builder page. */
+  preSelectedSchemaId?: string;
+  /** Pre-selected signing key ID from the credential builder page. */
+  preSelectedKeyId?: string;
+}
+
+export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIssuanceProps = {}) {
   // Phase control
   const [phase, setPhase] = useState<BatchPhase>("upload");
 
@@ -54,18 +63,22 @@ export function BatchIssuance() {
   const [csvRowCount, setCsvRowCount] = useState(0);
 
   // Schema & field mapping
-  const [schemaId, setSchemaId] = useState("");
+  const [schemaId, setSchemaId] = useState(preSelectedSchemaId ?? "");
   const [schemaFields, setSchemaFields] = useState<SchemaField[]>([]);
   const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
 
   // Issuance config
-  const [issuerDid, setIssuerDid] = useState("");
   const [validFrom, setValidFrom] = useState(new Date().toISOString().split("T")[0]);
   const [validUntil, setValidUntil] = useState("");
-  const [revocationUrl, setRevocationUrl] = useState("");
-  const [selectedKeyId, setSelectedKeyId] = useState("");
+  const [selectedKeyId, setSelectedKeyId] = useState(preSelectedKeyId ?? "");
   const [keys, setKeys] = useState<KeyMetadata[]>([]);
   const [packageFormats, setPackageFormats] = useState<string[]>(["json-ld"]);
+
+  // More options
+  const [proofFormat, setProofFormat] = useState<UiProofFormat>("vc-jwt");
+  const [selectiveDisclosureClaims, setSelectiveDisclosureClaims] = useState<string[]>([]);
+  const [revocationUrl, setRevocationUrl] = useState("");
+  const [credentialSchemaUrl, setCredentialSchemaUrl] = useState("");
 
   // Processing state
   const [processing, setProcessing] = useState(false);
@@ -103,6 +116,42 @@ export function BatchIssuance() {
   useEffect(() => {
     void loadKeys();
   }, [loadKeys]);
+
+  // Auto-load schema fields if pre-selected (supports both built-in and custom schemas)
+  useEffect(() => {
+    if (preSelectedSchemaId) {
+      void (async () => {
+        try {
+          let schema: Record<string, unknown> | undefined;
+
+          if (preSelectedSchemaId.startsWith("custom:")) {
+            const customRes = await window.opencred.customSchemaList();
+            const match = customRes.schemas.find((s) => s.id === preSelectedSchemaId);
+            schema = match?.schema as Record<string, unknown> | undefined;
+          } else {
+            const response = await window.opencred.getSchema({ schemaId: preSelectedSchemaId });
+            schema = response.schema;
+          }
+
+          if (schema) {
+            const properties = schema["properties"] as Record<string, Record<string, unknown>> | undefined;
+            const required = (schema["required"] as string[]) ?? [];
+            if (properties) {
+              const fields = Object.entries(properties).map(([name, prop]) => ({
+                name,
+                type: String(prop["type"] ?? "string"),
+                required: required.includes(name),
+                format: prop["format"] as string | undefined,
+              }));
+              setSchemaFields(fields);
+            }
+          }
+        } catch {
+          // Schema not available
+        }
+      })();
+    }
+  }, [preSelectedSchemaId]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -216,8 +265,20 @@ export function BatchIssuance() {
 
   const isOverRowLimit = csvRowCount > BATCH_ROW_LIMIT;
 
+  // Derive issuer DID from the selected signing key (same as single issuance)
+  const selectedKey = keys.find((k) => k.id === selectedKeyId);
+  const issuerDid = selectedKey?.id ?? selectedKeyId;
+  const selectedKeyAlgorithm = selectedKey?.algorithm;
+
+  // Auto-revert proof format when key changes to RSA while "data-integrity" is selected
+  useEffect(() => {
+    if (proofFormat === "data-integrity" && selectedKeyAlgorithm?.startsWith("RSA")) {
+      setProofFormat("vc-jwt");
+    }
+  }, [selectedKeyId, selectedKeyAlgorithm, proofFormat]);
+
   async function handleStartBatch() {
-    if (!csvContent || !schemaId || !issuerDid || !selectedKeyId) {
+    if (!csvContent || !schemaId || !selectedKeyId) {
       setBatchError("Please complete all required fields.");
       return;
     }
@@ -258,7 +319,10 @@ export function BatchIssuance() {
         revocationRegistryUrl: revocationUrl || undefined,
         keyId: selectedKeyId,
         columnMapping: Object.keys(effectiveMapping).length > 0 ? effectiveMapping : undefined,
-        packageFormats,
+        packageFormats: proofFormat === "sd-jwt-vc" ? [] : packageFormats,
+        proofFormat,
+        selectiveDisclosureClaims: proofFormat === "sd-jwt-vc" ? selectiveDisclosureClaims : undefined,
+        credentialSchemaUrl: credentialSchemaUrl || undefined,
       });
 
       if (!response.success) {
@@ -374,10 +438,12 @@ export function BatchIssuance() {
     setSchemaId("");
     setSchemaFields([]);
     setColumnMapping({});
-    setIssuerDid("");
     setValidFrom(new Date().toISOString().split("T")[0]);
     setValidUntil("");
     setRevocationUrl("");
+    setProofFormat("vc-jwt");
+    setSelectiveDisclosureClaims([]);
+    setCredentialSchemaUrl("");
     setTotal(0);
     setCompleted(0);
     setSuccessCount(0);
@@ -537,20 +603,6 @@ export function BatchIssuance() {
               </button>
             </div>
 
-            <div>
-              <label htmlFor="batch-issuer-did" className="block text-xs font-medium text-gray-600">
-                Issuer DID <span className="text-red-500">*</span>
-              </label>
-              <input
-                id="batch-issuer-did"
-                type="text"
-                value={issuerDid}
-                onChange={(e) => setIssuerDid(e.target.value)}
-                placeholder="did:web:example.com"
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label
@@ -582,23 +634,6 @@ export function BatchIssuance() {
                   className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 />
               </div>
-            </div>
-
-            <div>
-              <label
-                htmlFor="batch-revocation-url"
-                className="block text-xs font-medium text-gray-600"
-              >
-                Revocation Registry URL (optional)
-              </label>
-              <input
-                id="batch-revocation-url"
-                type="url"
-                value={revocationUrl}
-                onChange={(e) => setRevocationUrl(e.target.value)}
-                placeholder="https://dedi.example/revocations/..."
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              />
             </div>
 
             <div>
@@ -640,19 +675,33 @@ export function BatchIssuance() {
                       onChange={() => toggleFormat(fmt)}
                       className="rounded border-gray-300"
                     />
-                    {fmt === "json-ld" ? "JSON-LD" : fmt === "qr-png" ? "QR Code" : "PDF"}
+                    {fmt === "json-ld" ? "JSON" : fmt === "qr-png" ? "QR Code" : "PDF"}
                   </label>
                 ))}
               </div>
             </div>
           </div>
 
+          {/* More Options */}
+          <MoreOptions
+            keyAlgorithm={selectedKeyAlgorithm}
+            proofFormat={proofFormat}
+            onProofFormatChange={setProofFormat}
+            subjectFieldNames={schemaFields.map((f) => f.name)}
+            selectiveDisclosureClaims={selectiveDisclosureClaims}
+            onSelectiveDisclosureChange={setSelectiveDisclosureClaims}
+            revocationRegistryUrl={revocationUrl}
+            onRevocationRegistryUrlChange={setRevocationUrl}
+            credentialSchemaUrl={credentialSchemaUrl}
+            onCredentialSchemaUrlChange={setCredentialSchemaUrl}
+          />
+
           {batchError && <p className="text-sm text-red-600">{batchError}</p>}
 
           <div className="flex gap-3">
             <button
               onClick={() => void handleStartBatch()}
-              disabled={!schemaId || !issuerDid || !selectedKeyId || isOverRowLimit}
+              disabled={!schemaId || !selectedKeyId || isOverRowLimit}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Start Batch Issuance

@@ -97,7 +97,7 @@ export interface MacOsNativeAddon {
 function loadNativeAddon(): MacOsNativeAddon | null {
   try {
     // The native addon will be at this path when built with node-gyp.
-    const addon = require("../../native/build/Release/macos-keychain.node") as MacOsNativeAddon;
+    const addon = require("../native/build/Release/macos-keychain.node") as MacOsNativeAddon;
     if (
       typeof addon.listSigningCertificates === "function" &&
       typeof addon.signWithCertificate === "function" &&

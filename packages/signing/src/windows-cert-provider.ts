@@ -109,7 +109,7 @@ export interface WindowsNativeAddon {
 function loadNativeAddon(): WindowsNativeAddon | null {
   try {
     // The native addon will be at this path when built with node-gyp.
-    const addon = require("../../native/build/Release/windows-cng.node") as WindowsNativeAddon;
+    const addon = require("../native/build/Release/windows-cng.node") as WindowsNativeAddon;
     if (
       typeof addon.listSigningCertificates === "function" &&
       typeof addon.signWithCertificate === "function" &&

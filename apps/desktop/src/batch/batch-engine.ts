@@ -20,6 +20,7 @@ import type { PackageFormat, PackagingResult } from "../packaging/packager.js";
 import { queueRevocation } from "../main/revocation-queue.js";
 import type { Signer } from "../signing/types.js";
 import type { VerifiableCredential } from "@opencred/vc-core";
+import type { UiProofFormat } from "../shared/ipc-types.js";
 import type { ParsedRow } from "./csv-parser.js";
 
 // ---------------------------------------------------------------------------
@@ -37,10 +38,12 @@ export interface BatchRowResult {
   status: BatchRowStatus;
   /** Error message if status is 'error'. */
   error?: string;
-  /** The signed credential (if status is 'success'). */
-  credential?: VerifiableCredential;
+  /** The signed credential (if status is 'success'). String for SD-JWT-VC compact tokens. */
+  credential?: VerifiableCredential | string;
   /** Packaged outputs (if packaging was requested and succeeded). */
   packagingResult?: PackagingResult;
+  /** Whether the credential is a compact token (SD-JWT-VC). */
+  isCompactToken?: boolean;
 }
 
 /** Overall batch progress. */
@@ -79,6 +82,12 @@ export interface BatchConfig {
   additionalTypes?: string[];
   /** Output packaging formats. Defaults to ["json-ld"]. */
   packageFormats?: PackageFormat[];
+  /** Proof format (default: "vc-jwt"). */
+  proofFormat?: UiProofFormat;
+  /** Field names for SD-JWT-VC selective disclosure. */
+  selectiveDisclosureClaims?: string[];
+  /** Optional credential schema URL. */
+  credentialSchemaUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -143,20 +152,30 @@ export function createBatchEngine(signer: Signer, parsedRows: ParsedRow[], confi
         validUntil: config.validUntil,
         revocationRegistryUrl: config.revocationRegistryUrl,
         additionalTypes: config.additionalTypes,
+        proofFormat: config.proofFormat,
+        selectiveDisclosureClaims: config.selectiveDisclosureClaims,
+        credentialSchemaUrl: config.credentialSchemaUrl,
       };
 
       // Build and sign the credential
       const result = await buildAndSign(signer, signingOptions);
       rowResult.credential = result.credential;
+      rowResult.isCompactToken = result.isCompactToken;
 
-      // Package the credential
-      if (packageFormats.length > 0) {
-        rowResult.packagingResult = await packageCredential(result.credential, packageFormats);
+      // Package the credential (only for JSON-based outputs, not compact tokens)
+      if (!result.isCompactToken && packageFormats.length > 0) {
+        rowResult.packagingResult = await packageCredential(
+          result.credential as VerifiableCredential,
+          packageFormats,
+        );
       }
 
       // Queue revocation hash if a revocation registry URL is configured
-      if (config.revocationRegistryUrl && result.credential.id) {
-        queueRevocation(result.credential.id, config.revocationRegistryUrl);
+      const credentialId = typeof result.credential === "string"
+        ? undefined
+        : result.credential.id;
+      if (config.revocationRegistryUrl && credentialId) {
+        queueRevocation(credentialId, config.revocationRegistryUrl);
       }
 
       rowResult.status = "success";

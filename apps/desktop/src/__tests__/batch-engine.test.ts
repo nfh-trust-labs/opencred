@@ -92,13 +92,15 @@ describe("Batch engine — valid rows", () => {
     expect(result.completed).toBe(5);
     expect(result.running).toBe(false);
 
-    // Verify each row produced a valid credential
+    // Verify each row produced a valid credential (default vc-jwt format)
     for (const row of result.rows) {
       expect(row.status).toBe("success");
       expect(row.credential).toBeDefined();
-      expect(row.credential?.proof).toBeDefined();
-      expect(row.credential?.proof.type).toBe("DataIntegrityProof");
-      expect(row.credential?.proof.cryptosuite).toBe("ecdsa-rdfc-2019");
+      const cred = row.credential as Record<string, unknown>;
+      const proof = cred.proof as Record<string, unknown>;
+      expect(proof).toBeDefined();
+      expect(proof.type).toBe("JsonWebSignature2020");
+      expect(proof.jwt).toBeDefined();
     }
   });
 
@@ -293,14 +295,17 @@ describe("Batch engine — offline operation", () => {
 
     expect(result.successCount).toBe(3);
 
-    // Verify all credentials have proper structure
+    // Verify all credentials have proper structure (default vc-jwt format)
     for (const row of result.rows) {
       if (row.status === "success" && row.credential) {
-        expect(row.credential.issuer).toBe("did:web:offline.example");
-        expect(row.credential.validFrom).toBe("2025-01-01T00:00:00Z");
-        expect(row.credential.validUntil).toBe("2030-12-31T00:00:00Z");
-        expect(row.credential.type).toContain("VerifiableCredential");
-        expect(row.credential.proof.proofValue).toMatch(/^z/);
+        const cred = row.credential as Record<string, unknown>;
+        expect(cred.issuer).toBe("did:web:offline.example");
+        expect(cred.validFrom).toBe("2025-01-01T00:00:00Z");
+        expect(cred.validUntil).toBe("2030-12-31T00:00:00Z");
+        expect(cred.type).toContain("VerifiableCredential");
+        const proof = cred.proof as Record<string, unknown>;
+        expect(proof.type).toBe("JsonWebSignature2020");
+        expect(proof.jwt).toBeDefined();
       }
     }
   });

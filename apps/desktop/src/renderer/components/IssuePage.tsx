@@ -14,6 +14,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { KeyMetadata } from "../../shared/ipc-types";
+import { Badge } from "./ui/Badge";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
 
@@ -83,6 +84,184 @@ function oneYearFromNow(): string {
   const d = new Date();
   d.setFullYear(d.getFullYear() + 1);
   return d.toISOString().split("T")[0];
+}
+
+// ---------------------------------------------------------------------------
+// Credential Result Display
+// ---------------------------------------------------------------------------
+
+/** Parse a VC JSON string into display-friendly fields. */
+function parseCredential(raw: string): {
+  types: string[];
+  issuer: string;
+  issuanceDate: string;
+  expirationDate: string | null;
+  subject: Record<string, unknown>;
+  proofType: string | null;
+} {
+  const vc = JSON.parse(raw);
+  const types: string[] = Array.isArray(vc.type) ? vc.type : [vc.type ?? "VerifiableCredential"];
+  const issuer = typeof vc.issuer === "string" ? vc.issuer : vc.issuer?.id ?? "Unknown";
+  const issuanceDate = vc.issuanceDate ?? vc.validFrom ?? "";
+  const expirationDate = vc.expirationDate ?? vc.validUntil ?? null;
+  const subject = (vc.credentialSubject ?? {}) as Record<string, unknown>;
+  const proofType = vc.proof?.type ?? null;
+  return { types, issuer, issuanceDate, expirationDate, subject, proofType };
+}
+
+/** Format an ISO date string for display. */
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** Truncate a DID for display, keeping the method and last 8 chars. */
+function truncateDid(did: string): string {
+  if (did.length <= 32) return did;
+  const parts = did.split(":");
+  if (parts.length >= 3) {
+    const method = parts.slice(0, 2).join(":");
+    const id = parts.slice(2).join(":");
+    return `${method}:${id.slice(0, 8)}...${id.slice(-8)}`;
+  }
+  return `${did.slice(0, 16)}...${did.slice(-8)}`;
+}
+
+interface CredentialResultProps {
+  signedCredential: string;
+  onExportJson: () => void;
+  onExportPdf: () => void;
+  onShowQr: () => void;
+}
+
+function CredentialResult({ signedCredential, onExportJson, onExportPdf, onShowQr }: CredentialResultProps) {
+  const [showRaw, setShowRaw] = useState(false);
+  const vc = parseCredential(signedCredential);
+  const displayType = vc.types.find((t) => t !== "VerifiableCredential") ?? "Verifiable Credential";
+
+  return (
+    <div className="space-y-4">
+      {/* Success banner */}
+      <div className="flex items-center gap-3 rounded-oc bg-green-50 border border-green-200/60 px-4 py-3">
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100">
+          <svg className="h-3.5 w-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <span className="text-sm font-medium text-green-800">Credential issued and signed</span>
+        <Badge variant="success" className="ml-auto">Signed</Badge>
+      </div>
+
+      {/* Credential card */}
+      <div className="relative overflow-hidden rounded-oc border border-gray-200 bg-white">
+        {/* Card header — blue gradient strip */}
+        <div className="bg-gradient-to-r from-[var(--oc-blue)] to-[#3377FF] px-5 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-mono text-[0.6rem] uppercase tracking-wider text-blue-200">
+                Verifiable Credential
+              </p>
+              <h3 className="mt-0.5 text-lg text-white" style={{ fontFamily: "var(--oc-font-display)" }}>
+                {labelForField(displayType.replace("Credential", "").trim()) || "Credential"}
+              </h3>
+            </div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm">
+              <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        {/* Card body — credential details */}
+        <div className="px-5 py-4 space-y-4">
+          {/* Subject fields */}
+          {Object.keys(vc.subject).length > 0 && (
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+              {Object.entries(vc.subject).map(([key, value]) => {
+                if (key === "id" || typeof value === "object") return null;
+                return (
+                  <div key={key}>
+                    <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">
+                      {labelForField(key)}
+                    </dt>
+                    <dd className="mt-0.5 text-sm text-gray-800">{String(value)}</dd>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Divider */}
+          <div className="border-t border-gray-100" />
+
+          {/* Metadata row */}
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+            <div>
+              <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">Issuer</dt>
+              <dd className="mt-0.5 text-xs text-gray-600 font-mono" title={vc.issuer}>
+                {truncateDid(vc.issuer)}
+              </dd>
+            </div>
+            {vc.proofType && (
+              <div>
+                <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">Proof</dt>
+                <dd className="mt-0.5 text-xs text-gray-600 font-mono">{vc.proofType}</dd>
+              </div>
+            )}
+            <div>
+              <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">Issued</dt>
+              <dd className="mt-0.5 text-sm text-gray-700">{formatDate(vc.issuanceDate)}</dd>
+            </div>
+            {vc.expirationDate && (
+              <div>
+                <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">Expires</dt>
+                <dd className="mt-0.5 text-sm text-gray-700">{formatDate(vc.expirationDate)}</dd>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Card footer — export actions */}
+        <div className="flex items-center gap-2 border-t border-gray-100 bg-gray-50/50 px-5 py-3">
+          <Button variant="secondary" size="sm" onClick={onExportJson}>
+            Download JSON
+          </Button>
+          <Button variant="secondary" size="sm" onClick={onExportPdf}>
+            Download PDF
+          </Button>
+          <Button variant="secondary" size="sm" onClick={onShowQr}>
+            QR Code
+          </Button>
+          <button
+            onClick={() => setShowRaw((prev) => !prev)}
+            className="ml-auto flex items-center gap-1 rounded-oc px-2 py-1 text-[0.7rem] font-mono text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+          >
+            {showRaw ? "Hide" : "Show"} Raw
+            <svg className={`h-3 w-3 transition-transform ${showRaw ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Collapsible raw JSON */}
+        {showRaw && (
+          <div className="border-t border-gray-100">
+            <pre className="max-h-72 overflow-auto bg-gray-50 px-5 py-3 font-mono text-[0.7rem] leading-relaxed text-gray-600">
+              {JSON.stringify(JSON.parse(signedCredential), null, 2)}
+            </pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -418,36 +597,12 @@ export function IssuePage() {
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         {signedCredential && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-green-700">
-                Credential issued successfully
-              </span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => void handleExportJson()}
-                  className="rounded-md bg-gray-100 px-3 py-1 text-xs text-gray-700 hover:bg-gray-200"
-                >
-                  Download JSON
-                </button>
-                <button
-                  onClick={() => void handleExportPdf()}
-                  className="rounded-md bg-gray-100 px-3 py-1 text-xs text-gray-700 hover:bg-gray-200"
-                >
-                  Download PDF
-                </button>
-                <button
-                  onClick={() => void handleShowQr()}
-                  className="rounded-md bg-gray-100 px-3 py-1 text-xs text-gray-700 hover:bg-gray-200"
-                >
-                  Show QR
-                </button>
-              </div>
-            </div>
-            <pre className="max-h-60 overflow-auto rounded-md bg-gray-50 border border-gray-200 p-3 font-mono text-xs text-gray-700">
-              {JSON.stringify(JSON.parse(signedCredential), null, 2)}
-            </pre>
-          </div>
+          <CredentialResult
+            signedCredential={signedCredential}
+            onExportJson={() => void handleExportJson()}
+            onExportPdf={() => void handleExportPdf()}
+            onShowQr={() => void handleShowQr()}
+          />
         )}
       </Card>
     </div>
