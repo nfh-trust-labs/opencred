@@ -144,15 +144,17 @@ function buildSubjectSummary(values: Record<string, string>): string {
 interface CredentialResultProps {
   signedCredential: string;
   schemaId?: string;
+  schemaName?: string;
   onExportJson: () => void;
   onExportPdf: () => void;
   onShowQr: () => void;
 }
 
-function CredentialResult({ signedCredential, schemaId, onExportJson, onExportPdf, onShowQr }: CredentialResultProps) {
+function CredentialResult({ signedCredential, schemaId, schemaName, onExportJson, onExportPdf, onShowQr }: CredentialResultProps) {
   const [showRaw, setShowRaw] = useState(false);
   const vc = parseCredential(signedCredential);
-  const displayType = vc.types.find((t) => t !== "VerifiableCredential") ?? "Verifiable Credential";
+  const typeFromVc = vc.types.find((t) => t !== "VerifiableCredential");
+  const displayType = typeFromVc ?? schemaName ?? "Verifiable Credential";
   const v = getVisual(schemaId);
 
   const subjectEntries = Object.entries(vc.subject).filter(
@@ -285,7 +287,9 @@ function CredentialResult({ signedCredential, schemaId, onExportJson, onExportPd
                   lineHeight: 1.2,
                 }}
               >
-                {labelForField(displayType.replace("Credential", "").trim()) || "Credential"}
+                {typeFromVc
+                  ? (labelForField(typeFromVc.replace("Credential", "").trim()) || "Credential")
+                  : (displayType)}
               </h3>
             </div>
             <div
@@ -718,6 +722,10 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
   const [revocationRegistryUrl, setRevocationRegistryUrl] = useState("");
   const [credentialSchemaUrl, setCredentialSchemaUrl] = useState("");
 
+  // Rename
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+
   // Blank credential inline schema
   const [inlineSchema, setInlineSchema] = useState<Record<string, unknown> | null>(null);
 
@@ -941,6 +949,30 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
   }
 
   // ------------------------------------------------------------------
+  // Rename handler
+  // ------------------------------------------------------------------
+
+  const isRenameable = isBlank || schemaId.startsWith("custom:");
+
+  async function handleRename() {
+    const newName = nameInput.trim();
+    if (!newName) { setEditingName(false); return; }
+    setSchemaName(newName);
+    setEditingName(false);
+
+    // Persist rename for saved custom schemas
+    if (schemaId.startsWith("custom:")) {
+      try {
+        const list = await window.opencred.customSchemaList();
+        const existing = list.schemas.find((s) => s.id === schemaId);
+        if (existing) {
+          await window.opencred.customSchemaSave({ id: schemaId, name: newName, schema: existing.schema });
+        }
+      } catch { /* non-fatal */ }
+    }
+  }
+
+  // ------------------------------------------------------------------
   // Render
   // ------------------------------------------------------------------
 
@@ -958,7 +990,39 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
           Home
         </button>
         <span className="text-gray-300">/</span>
-        <span className="text-gray-700 font-medium">{schemaName || "Credential"}</span>
+        {editingName ? (
+          <input
+            type="text"
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void handleRename();
+              if (e.key === "Escape") setEditingName(false);
+            }}
+            onBlur={() => void handleRename()}
+            autoFocus
+            className="rounded border border-gray-300 px-2 py-0.5 text-sm font-medium focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            style={{ minWidth: 120 }}
+          />
+        ) : (
+          <span
+            className={`text-gray-700 font-medium ${isRenameable ? "cursor-pointer hover:text-blue-600" : ""}`}
+            onClick={() => {
+              if (isRenameable) {
+                setNameInput(schemaName || "Credential");
+                setEditingName(true);
+              }
+            }}
+            title={isRenameable ? "Click to rename" : undefined}
+          >
+            {schemaName || "Credential"}
+            {isRenameable && (
+              <svg className="inline ml-1 opacity-0 group-hover:opacity-100" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} style={{ opacity: 0.4 }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+              </svg>
+            )}
+          </span>
+        )}
       </div>
 
       {/* Segmented control: Single / Batch */}
@@ -1122,6 +1186,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
               <CredentialResult
                 signedCredential={signedCredential}
                 schemaId={isBlank ? undefined : schemaId}
+                schemaName={schemaName}
                 onExportJson={() => void handleExportJson()}
                 onExportPdf={() => void handleExportPdf()}
                 onShowQr={() => void handleShowQr()}
