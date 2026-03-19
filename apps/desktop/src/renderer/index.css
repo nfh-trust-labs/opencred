@@ -384,6 +384,58 @@
   }
 }
 
+  /* More Options — collapsible section trigger (Google-style) */
+  .oc-more-options-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: var(--oc-font-body);
+    font-size: 0.76rem;
+    font-weight: 500;
+    color: var(--oc-text-secondary);
+    padding: 8px 0;
+  }
+  .oc-more-options-trigger:hover {
+    color: var(--oc-blue);
+  }
+  .oc-more-options-chevron {
+    transition: transform 0.2s ease;
+  }
+  .oc-more-options-chevron.open {
+    transform: rotate(180deg);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * More Options — collapsible section trigger (Google-style)
+ * --------------------------------------------------------------------------- */
+
+.oc-more-options-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--oc-font-body);
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--oc-text-secondary);
+  padding: 8px 0;
+}
+.oc-more-options-trigger:hover {
+  color: var(--oc-blue);
+}
+.oc-more-options-chevron {
+  transition: transform 0.2s ease;
+}
+.oc-more-options-chevron.open {
+  transform: rotate(180deg);
+}
+
 /* ---------------------------------------------------------------------------
  * More Options — collapsible section trigger (Google-style)
  * --------------------------------------------------------------------------- */
