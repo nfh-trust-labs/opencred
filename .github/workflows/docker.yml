@@ -3,8 +3,10 @@ name: Docker
 # ==============================================================================
 # OpenCred — Docker CI/CD Pipeline
 # ==============================================================================
-# Will be fully configured in Phase 7 (Containerization & Deployment).
 # Builds, scans, and pushes the apps/server Docker image.
+#
+# - PRs: build + Trivy vulnerability scan (validates Dockerfile compiles)
+# - Merge to new-opencred-dev: build + scan + tag + push to GHCR
 # ==============================================================================
 
 on:
@@ -13,6 +15,7 @@ on:
     paths:
       - "apps/server/Dockerfile"
       - "apps/server/src/**"
+      - "apps/server/package.json"
       - "docker-compose.yml"
       - ".dockerignore"
       - "packages/**"
@@ -23,6 +26,7 @@ on:
     paths:
       - "apps/server/Dockerfile"
       - "apps/server/src/**"
+      - "apps/server/package.json"
       - "docker-compose.yml"
       - ".dockerignore"
       - "packages/**"
@@ -33,13 +37,86 @@ env:
   REGISTRY: ghcr.io
   SERVER_IMAGE: ghcr.io/${{ github.repository }}/opencred-server
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
-  # Placeholder — Phase 7 will add:
-  # - docker-build: Build + Trivy scan of apps/server image
-  # - docker-push: Push to GHCR on merge to new-opencred-dev
-  # - smoke-test: docker compose up -> /health -> issue -> verify -> tear down
-  placeholder:
-    name: Docker pipeline (Phase 7)
+  # --------------------------------------------------------------------------
+  # Build and scan on every PR and push
+  # --------------------------------------------------------------------------
+  docker-build:
+    name: Build & Scan
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Docker pipeline will be configured in Phase 7"
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.SERVER_IMAGE }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.SERVER_IMAGE }}:ci
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+  # --------------------------------------------------------------------------
+  # Push to GHCR on merge to new-opencred-dev (not on PRs)
+  # --------------------------------------------------------------------------
+  docker-push:
+    name: Push to GHCR
+    needs: docker-build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/new-opencred-dev'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from package.json
+        id: version
+        run: |
+          VERSION=$(node -p "require('./apps/server/package.json').version")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          echo "sha_short=${SHA_SHORT}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          push: true
+          tags: |
+            ${{ env.SERVER_IMAGE }}:${{ steps.version.outputs.sha_short }}
+            ${{ env.SERVER_IMAGE }}:${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}

@@ -57,3 +57,6 @@ opencred-website/
 demos/
 scripts/
 demo-fixtures/
+scratchpad.md
+.pnpm-store/
+.playwright-mcp/
