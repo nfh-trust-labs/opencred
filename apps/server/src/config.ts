@@ -33,6 +33,23 @@ const configSchema = z.object({
 
   /** Session TTL in seconds (for ephemeral credential data). Default: 4 hours. */
   OPENCRED_SESSION_TTL: z.coerce.number().int().min(60).default(14400),
+
+  // --- Cloud HSM (KMS) configuration ---
+
+  /** KMS provider: aws | azure | gcp | none. Default: none (file-based). */
+  OPENCRED_KMS_PROVIDER: z.enum(["aws", "azure", "gcp", "none"]).default("none"),
+
+  /** AWS KMS key ARN (required when OPENCRED_KMS_PROVIDER=aws). */
+  OPENCRED_KMS_KEY_ARN: z.string().optional(),
+
+  /** Azure Key Vault URL (required when OPENCRED_KMS_PROVIDER=azure). */
+  OPENCRED_AZURE_KEY_VAULT_URL: z.string().url().optional(),
+
+  /** Azure Key Vault key name (required when OPENCRED_KMS_PROVIDER=azure). */
+  OPENCRED_AZURE_KEY_NAME: z.string().optional(),
+
+  /** GCP KMS key resource name (required when OPENCRED_KMS_PROVIDER=gcp). */
+  OPENCRED_GCP_KMS_KEY_NAME: z.string().optional(),
 });
 
 export type ServerConfig = z.infer<typeof configSchema>;

@@ -63,11 +63,18 @@ export function getActiveSigner(): Signer | null {
 }
 
 /**
+ * Set the active signer (used by the Cloud HSM factory).
+ */
+export function setActiveSigner(signer: Signer): void {
+  activeSigner = signer;
+}
+
+/**
  * Require the active signer. Throws if no key is loaded.
  */
 export function requireSigner(): Signer {
   if (!activeSigner) {
-    throw new Error("No signing key loaded. Set OPENCRED_KEY_PATH to a valid key file.");
+    throw new Error("No signing key loaded. Set OPENCRED_KEY_PATH or configure a KMS provider.");
   }
   return activeSigner;
 }
