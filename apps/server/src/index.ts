@@ -28,6 +28,7 @@ import { credentials } from "./routes/credentials.js";
 import { batch } from "./routes/batch.js";
 import { attestation } from "./routes/attestation.js";
 import { revocation } from "./routes/revocation.js";
+import { packaging } from "./routes/packaging.js";
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -60,6 +61,7 @@ app.route("/", credentials);
 app.route("/", batch);
 app.route("/", attestation);
 app.route("/", revocation);
+app.route("/", packaging);
 
 // Global error handler
 app.onError((err, c) => {

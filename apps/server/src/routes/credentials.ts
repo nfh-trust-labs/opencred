@@ -32,6 +32,8 @@ import {
 import { publicKeyFromMultibase } from "@opencred/verification";
 import { ValidationError, CryptoError } from "@opencred/shared";
 import { requireSigner } from "../signing/key-manager.js";
+import { packageCredential } from "../packaging/packager.js";
+import type { PackageFormat } from "../packaging/packager.js";
 
 const credentials = new Hono();
 
@@ -67,6 +69,7 @@ const issueRequestSchema = z.object({
   selectiveDisclosureClaims: z.array(z.string()).optional(),
   revocationRegistryUrl: z.string().url().optional(),
   credentialSchemaUrl: z.string().url().optional(),
+  packageFormats: z.array(z.enum(["qr-png", "qr-svg", "pdf", "json-ld", "json-compact"])).optional(),
 });
 
 const verifyRequestSchema = z.object({
@@ -192,10 +195,25 @@ credentials.post("/credentials/issue", async (c) => {
     }
   }
 
+  // Package if formats requested (only for JSON-based credentials, not compact tokens)
+  let packagedOutputs: Array<{ format: string; data: string; mimeType: string; suggestedFileName: string; encoding: string }> | undefined;
+  if (!isCompactToken && parsed.packageFormats && parsed.packageFormats.length > 0) {
+    const credential = JSON.parse(signedOutput) as Parameters<typeof packageCredential>[0];
+    const result = await packageCredential(credential, parsed.packageFormats as PackageFormat[]);
+    packagedOutputs = result.outputs.map((output) => ({
+      format: output.format,
+      data: Buffer.isBuffer(output.data) ? output.data.toString("base64") : output.data,
+      mimeType: output.mimeType,
+      suggestedFileName: output.suggestedFileName,
+      encoding: Buffer.isBuffer(output.data) ? "base64" : "utf-8",
+    }));
+  }
+
   return c.json({
     credential: isCompactToken ? signedOutput : JSON.parse(signedOutput),
     proofFormat,
     isCompactToken,
+    packagedOutputs,
   });
 });
 
