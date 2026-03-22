@@ -1,14 +1,66 @@
 # ==============================================================================
 # OpenCred — Docker Compose (Production)
 # ==============================================================================
-# The `server` service (apps/server) will be added in Phase 7.
-# It replaces the old apps/api + apps/web services.
-#
-# Usage (Phase 7+):
+# Usage:
 #   docker compose up -d            # Start OpenCred server
 #   docker compose down              # Stop all services
 #   docker compose logs -f server    # Follow server logs
+#
+# SECURITY:
+#   - Non-root user inside container (node)
+#   - Read-only root filesystem (tmpfs for writable paths)
+#   - All capabilities dropped except NET_BIND_SERVICE
+#   - No secrets baked into image — inject via .env file
 # ==============================================================================
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    env_file: .env
+    ports:
+      - "${OPENCRED_PORT:-3100}:${OPENCRED_PORT:-3100}"
+    restart: unless-stopped
+    networks:
+      - opencred-net
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - csca-trust-store:/app/trust-store:ro
+    # Mount signing key at runtime (uncomment and set path):
+    # - ./path/to/key.pem:/app/keys/key.pem:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3100/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ---------- Reverse proxy (optional) ----------
+  # Uncomment to add nginx in front of the server.
+  #
+  # nginx:
+  #   image: nginx:1-alpine
+  #   ports:
+  #     - "443:443"
+  #     - "80:80"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./certs:/etc/nginx/certs:ro
+  #   depends_on:
+  #     server:
+  #       condition: service_healthy
+  #   networks:
+  #     - opencred-net
+  #   restart: unless-stopped
 
 volumes:
   csca-trust-store:

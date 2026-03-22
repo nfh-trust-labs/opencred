@@ -2,7 +2,26 @@
 # OpenCred — Docker Compose Override (Local Development)
 # ==============================================================================
 # Automatically loaded by `docker compose up` when present.
-# Will be configured in Phase 7 alongside docker-compose.yml.
-#
 # To run production-only config: docker compose -f docker-compose.yml up
 # ==============================================================================
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+      # Rebuild on source changes (compose watch)
+      target: builder
+    environment:
+      - OPENCRED_LOG_LEVEL=debug
+      - OPENCRED_API_KEY=dev-key
+    ports:
+      - "${OPENCRED_PORT:-3100}:${OPENCRED_PORT:-3100}"
+      - "9229:9229" # Node.js inspector / debug port
+    # Override read_only for dev convenience
+    read_only: false
+    volumes:
+      # Bind-mount source for live reload (with tsx watch)
+      - ./apps/server/src:/app/apps/server/src:ro
+      - ./packages:/app/packages:ro
+    command: ["node", "--inspect=0.0.0.0:9229", "apps/server/dist/index.js"]
