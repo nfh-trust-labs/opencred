@@ -29,3 +29,10 @@ export function getLogger(): pino.Logger {
   }
   return loggerInstance;
 }
+
+/**
+ * Reset the logger instance (for testing only).
+ */
+export function resetLogger(): void {
+  loggerInstance = null;
+}
