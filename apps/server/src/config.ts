@@ -75,3 +75,10 @@ export function getConfig(): ServerConfig {
   }
   return cachedConfig;
 }
+
+/**
+ * Reset cached config (for testing only).
+ */
+export function resetConfig(): void {
+  cachedConfig = null;
+}
