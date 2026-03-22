@@ -20,7 +20,8 @@ import { loadConfig } from "./config.js";
 import { createLogger } from "./logger.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/error-handler.js";
-import { loadSigningKey } from "./signing/key-manager.js";
+import { setActiveSigner } from "./signing/key-manager.js";
+import { createSignerFromConfig } from "./signing/cloud-hsm/factory.js";
 import { health } from "./routes/health.js";
 import { schemas } from "./routes/schemas.js";
 import { credentials } from "./routes/credentials.js";
@@ -37,8 +38,11 @@ const logger = createLogger();
 
 logger.info({ port: config.OPENCRED_PORT }, "Starting OpenCred Server");
 
-// Load signing key (if configured)
-loadSigningKey();
+// Load signing key — from Cloud HSM or file-based key manager
+const signer = await createSignerFromConfig();
+if (signer) {
+  setActiveSigner(signer);
+}
 
 // ---------------------------------------------------------------------------
 // App setup

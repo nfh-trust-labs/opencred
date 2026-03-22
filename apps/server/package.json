@@ -10,6 +10,9 @@
   },
   "homepage": "https://github.com/nfh-trust-labs/opencred",
   "main": "dist/index.js",
+  "bin": {
+    "opencred": "./dist/cli.js"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
@@ -26,6 +29,11 @@
     "@opencred/signing": "workspace:*",
     "@opencred/vc-core": "workspace:*",
     "@opencred/verification": "workspace:*",
+    "@aws-sdk/client-kms": "^3.700.0",
+    "@azure/identity": "^4.5.0",
+    "@azure/keyvault-keys": "^4.9.0",
+    "@google-cloud/kms": "^4.5.0",
+    "commander": "^12.1.0",
     "hono": "^4.6.0",
     "pino": "^9.6.0",
     "zod": "^3.24.0"
