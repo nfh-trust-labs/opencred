@@ -83,8 +83,13 @@ interface CredentialDetailModalProps {
 
 function CredentialDetailModal({ entry, onClose, onDelete, onReissue }: CredentialDetailModalProps) {
   const v = getVisual(entry.schemaId);
-  const vc = JSON.parse(entry.credentialJson);
-  const subject = (vc.credentialSubject ?? {}) as Record<string, unknown>;
+  let vc: Record<string, unknown>;
+  try {
+    vc = JSON.parse(entry.credentialJson) as Record<string, unknown>;
+  } catch {
+    vc = {};
+  }
+  const subject = ((vc.credentialSubject ?? {}) as Record<string, unknown>);
   const subjectEntries = Object.entries(subject).filter(
     ([key, value]) => key !== "id" && typeof value !== "object",
   );
