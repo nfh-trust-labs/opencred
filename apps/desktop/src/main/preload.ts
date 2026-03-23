@@ -75,6 +75,15 @@ import type {
   AttestationRemoveResponse,
   AttestationCheckRequest,
   AttestationCheckResponse,
+  CredentialHistoryListResponse,
+  CredentialHistoryAddRequest,
+  CredentialHistoryDeleteRequest,
+  CredentialHistoryDeleteResponse,
+  CustomSchemaListResponse,
+  CustomSchemaSaveRequest,
+  CustomSchemaSaveResponse,
+  CustomSchemaDeleteRequest,
+  CustomSchemaDeleteResponse,
   OpenCredDesktopAPI,
 } from "../shared/ipc-types.js";
 
@@ -199,6 +208,26 @@ const api: OpenCredDesktopAPI = {
     check: (request: AttestationCheckRequest): Promise<AttestationCheckResponse> =>
       ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_CHECK, request),
   },
+
+  // Credential history
+  credentialHistoryList: (): Promise<CredentialHistoryListResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CREDENTIAL_HISTORY_LIST),
+
+  credentialHistoryAdd: (request: CredentialHistoryAddRequest): Promise<CredentialHistoryAddRequest & { id: string; issuedAt: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CREDENTIAL_HISTORY_ADD, request),
+
+  credentialHistoryDelete: (request: CredentialHistoryDeleteRequest): Promise<CredentialHistoryDeleteResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CREDENTIAL_HISTORY_DELETE, request),
+
+  // Custom schemas
+  customSchemaList: (): Promise<CustomSchemaListResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CUSTOM_SCHEMA_LIST),
+
+  customSchemaSave: (request: CustomSchemaSaveRequest): Promise<CustomSchemaSaveResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CUSTOM_SCHEMA_SAVE, request),
+
+  customSchemaDelete: (request: CustomSchemaDeleteRequest): Promise<CustomSchemaDeleteResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CUSTOM_SCHEMA_DELETE, request),
 
   // Config
   getConfig: (key: string): Promise<unknown> =>

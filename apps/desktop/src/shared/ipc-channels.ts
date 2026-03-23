@@ -104,6 +104,22 @@ export const IPC_CHANNELS = {
   /** Check if a key has an attestation. Payload: { keyId }. Response: { hasAttestation: boolean }. */
   ATTESTATION_CHECK: "attestation:check",
 
+  // --- Credential history ---
+  /** List credential history entries. Response: history entry array. */
+  CREDENTIAL_HISTORY_LIST: "credential-history:list",
+  /** Add a credential to history. Payload: credential entry. Response: void. */
+  CREDENTIAL_HISTORY_ADD: "credential-history:add",
+  /** Delete a credential from history. Payload: { id }. Response: void. */
+  CREDENTIAL_HISTORY_DELETE: "credential-history:delete",
+
+  // --- Custom schemas ---
+  /** Save a custom schema. Payload: schema definition. Response: void. */
+  CUSTOM_SCHEMA_SAVE: "custom-schema:save",
+  /** List custom schemas. Response: schema array. */
+  CUSTOM_SCHEMA_LIST: "custom-schema:list",
+  /** Delete a custom schema. Payload: { id }. Response: void. */
+  CUSTOM_SCHEMA_DELETE: "custom-schema:delete",
+
   // --- Config (electron-store) ---
   /** Read a config value. Payload: key string. Response: value or undefined. */
   GET_CONFIG: "config:get",
