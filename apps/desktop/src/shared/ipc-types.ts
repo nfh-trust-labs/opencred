@@ -660,6 +660,58 @@ export interface AttestationCheckResponse {
   hasAttestation: boolean;
 }
 
+export interface AttestationRequestChallengeRequest {
+  /** The domain to verify ownership of. */
+  domain: string;
+  /** The verification method to use. */
+  method: "dns-txt" | "http";
+}
+
+export interface AttestationRequestChallengeResponse {
+  success: boolean;
+  /** Server-assigned challenge ID. */
+  challengeId?: string;
+  /** Challenge token to place in DNS or HTTP. */
+  token?: string;
+  /** Human-readable instructions for completing the challenge. */
+  instructions?: string;
+  /** ISO 8601 expiry timestamp for the challenge. */
+  expiresAt?: string;
+  error?: string;
+}
+
+export interface AttestationSubmitVerificationRequest {
+  /** The challenge ID returned from requestChallenge. */
+  challengeId: string;
+  /** The key ID to attest. */
+  keyId: string;
+  /** The domain being verified. */
+  domain: string;
+  /** The organization name for the attestation. */
+  organizationName: string;
+}
+
+export interface AttestationSubmitVerificationResponse {
+  success: boolean;
+  /** The Key Attestation Credential if successful. */
+  credential?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface AttestationSubmitBusinessVcRequest {
+  /** The business VC (JSON string or parsed object). */
+  businessVc: string | Record<string, unknown>;
+  /** The key ID to attest. */
+  keyId: string;
+}
+
+export interface AttestationSubmitBusinessVcResponse {
+  success: boolean;
+  /** The Key Attestation Credential if successful. */
+  credential?: Record<string, unknown>;
+  error?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Credential history
 // ---------------------------------------------------------------------------
@@ -808,5 +860,8 @@ export interface OpenCredDesktopAPI {
     list: () => Promise<AttestationListResponse>;
     remove: (request: AttestationRemoveRequest) => Promise<AttestationRemoveResponse>;
     check: (request: AttestationCheckRequest) => Promise<AttestationCheckResponse>;
+    requestChallenge: (request: AttestationRequestChallengeRequest) => Promise<AttestationRequestChallengeResponse>;
+    submitVerification: (request: AttestationSubmitVerificationRequest) => Promise<AttestationSubmitVerificationResponse>;
+    submitBusinessVc: (request: AttestationSubmitBusinessVcRequest) => Promise<AttestationSubmitBusinessVcResponse>;
   };
 }

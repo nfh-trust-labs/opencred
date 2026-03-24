@@ -4,7 +4,7 @@
  * Presents 3 onboarding paths:
  *   1. "I have a DSC" → choose source (Upload File, Hardware Token, OS Cert Store) → Profile
  *   2. "I want to get a DSC" → Coming Soon (connect to CAs)
- *   3. "Get started without a DSC" → Coming Soon (OpenCred-Attested)
+ *   3. "Get started without a DSC" → Key Gen → Org Info → Domain Verify → Attestation Result
  *
  * On completion the wizard calls `onComplete` so the parent can
  * switch to the main sidebar interface.
@@ -21,6 +21,10 @@ import { Card } from "./ui/Card";
 import { KeyImport } from "./KeyImport";
 import { HardwareToken } from "./HardwareToken";
 import { OsCertStore } from "./OsCertStore";
+import { KeyGenerationStep } from "./KeyGenerationStep";
+import { OrganizationInfoStep } from "./OrganizationInfoStep";
+import { DomainVerificationStep } from "./DomainVerificationStep";
+import { AttestationResultStep } from "./AttestationResultStep";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,7 +39,10 @@ type Step =
   | "dsc-os-cert"
   | "profile"
   | "get-dsc-soon"
-  | "attested-soon";
+  | "attested-keygen"
+  | "attested-org-info"
+  | "attested-domain-verify"
+  | "attested-result";
 
 interface OnboardingWizardProps {
   onComplete: () => void;
@@ -48,6 +55,9 @@ interface OnboardingWizardProps {
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [step, setStep] = useState<Step>("welcome");
   const [importedKey, setImportedKey] = useState<KeyMetadata | null>(null);
+  const [generatedKeyId, setGeneratedKeyId] = useState<string | null>(null);
+  const [orgInfo, setOrgInfo] = useState<{ organizationName: string; domain: string } | null>(null);
+  const [attestationCredential, setAttestationCredential] = useState<Record<string, unknown> | null>(null);
 
   // ------------------------------------------------------------------
   // Key connected handler (shared by all DSC sources)
@@ -142,24 +152,17 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   </div>
                 </button>
 
-                {/* Option 3: Get started without a DSC */}
+                {/* Option 3: Get started without a DSC (OpenCred-Attested) */}
                 <button
-                  onClick={() => setStep("attested-soon")}
-                  className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-border-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                  onClick={() => setStep("attested-keygen")}
+                  className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <span className="block text-body-sm font-semibold text-txt-primary">
-                        Get started without a DSC
-                      </span>
-                      <span className="block text-[0.78rem] text-txt-muted mt-1">
-                        Generate a key and get OpenCred-attested to start issuing credentials
-                      </span>
-                    </div>
-                    <span className="inline-flex items-center rounded-oc bg-amber-50 border border-amber-200/60 px-2 py-0.5 font-mono text-[0.6rem] uppercase tracking-wider text-amber-700 flex-shrink-0 ml-3 mt-0.5">
-                      Coming Soon
-                    </span>
-                  </div>
+                  <span className="block text-body-sm font-semibold text-txt-primary">
+                    Get started without a DSC
+                  </span>
+                  <span className="block text-[0.78rem] text-txt-muted mt-1">
+                    Generate a key and get OpenCred-attested to start issuing credentials
+                  </span>
                 </button>
               </div>
 
@@ -405,36 +408,58 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           )}
 
           {/* ============================================================
-              Coming Soon: OpenCred Attested
+              OpenCred-Attested: Key Generation
               ============================================================ */}
-          {step === "attested-soon" && (
-            <Card variant="neutral" className="space-y-6">
-              <div className="space-y-2">
-                <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-                  OpenCred-Attested Issuance
-                </h2>
-                <p className="text-body-sm text-txt-secondary">
-                  Generate a signing key and have OpenCred attest your identity
-                  through domain and business verification. No DSC required.
-                </p>
-              </div>
+          {step === "attested-keygen" && (
+            <KeyGenerationStep
+              onKeyGenerated={(keyMeta) => {
+                setGeneratedKeyId(keyMeta.id);
+                setStep("attested-org-info");
+              }}
+              onBack={() => setStep("choose-path")}
+            />
+          )}
 
-              <div className="rounded-oc border border-amber-200 bg-amber-50 p-4">
-                <p className="text-[0.82rem] text-amber-800 font-medium mb-1">Coming Soon</p>
-                <p className="text-[0.78rem] text-amber-700">
-                  OpenCred-attested issuance will generate a key, verify your
-                  organization through domain ownership and business credentials,
-                  then attest your public key with OpenCred&apos;s DSC. This creates
-                  a trust chain without requiring your own certificate authority.
-                </p>
-              </div>
+          {/* ============================================================
+              OpenCred-Attested: Organization Info
+              ============================================================ */}
+          {step === "attested-org-info" && (
+            <OrganizationInfoStep
+              onSubmit={(info) => {
+                setOrgInfo(info);
+                setStep("attested-domain-verify");
+              }}
+              onBack={() => setStep("attested-keygen")}
+            />
+          )}
 
-              <div className="pt-2">
-                <Button variant="secondary" onClick={() => setStep("choose-path")}>
-                  Back
-                </Button>
-              </div>
-            </Card>
+          {/* ============================================================
+              OpenCred-Attested: Domain Verification
+              ============================================================ */}
+          {step === "attested-domain-verify" && orgInfo && generatedKeyId && (
+            <DomainVerificationStep
+              domain={orgInfo.domain}
+              keyId={generatedKeyId}
+              organizationName={orgInfo.organizationName}
+              onVerified={(credential) => {
+                setAttestationCredential(credential);
+                setStep("attested-result");
+              }}
+              onBack={() => setStep("attested-org-info")}
+            />
+          )}
+
+          {/* ============================================================
+              OpenCred-Attested: Attestation Result
+              ============================================================ */}
+          {step === "attested-result" && attestationCredential && generatedKeyId && orgInfo && (
+            <AttestationResultStep
+              attestationCredential={attestationCredential}
+              keyId={generatedKeyId}
+              organizationName={orgInfo.organizationName}
+              domain={orgInfo.domain}
+              onComplete={onComplete}
+            />
           )}
 
         </div>

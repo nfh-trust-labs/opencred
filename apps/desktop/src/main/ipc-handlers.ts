@@ -73,6 +73,12 @@ import type {
   AttestationRemoveResponse,
   AttestationCheckRequest,
   AttestationCheckResponse,
+  AttestationRequestChallengeRequest,
+  AttestationRequestChallengeResponse,
+  AttestationSubmitVerificationRequest,
+  AttestationSubmitVerificationResponse,
+  AttestationSubmitBusinessVcRequest,
+  AttestationSubmitBusinessVcResponse,
   CredentialHistoryAddRequest,
   CredentialHistoryListResponse,
   CredentialHistoryDeleteRequest,
@@ -135,6 +141,9 @@ const importedKeys = new Map<string, KeyMetadata>();
 
 /** Maps key ID -> Signer instance (private key stays in memory, never serialized). */
 const loadedSigners = new Map<string, Signer>();
+
+/** Maps key ID -> public key JWK (for attestation requests). Stays in main process only. */
+const loadedPublicKeyJwks = new Map<string, Record<string, unknown>>();
 
 /** Mutable batch processing state. */
 const batchState: {
@@ -228,6 +237,10 @@ async function handleKeyGenerate(
     const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
     const publicKey = createPublicKey(privateKey);
     const signer = buildSigner(privateKey, publicKey, request.label);
+
+    // Store the public key JWK for attestation requests (stays in main process).
+    const jwk = publicKey.export({ format: "jwk" });
+    loadedPublicKeyJwks.set(signer.id, jwk as Record<string, unknown>);
 
     const meta: KeyMetadata = {
       id: signer.id,
@@ -1283,6 +1296,168 @@ async function handleAttestationCheck(
   return { hasAttestation: hasAttestation(request.keyId) };
 }
 
+/**
+ * ATTESTATION_REQUEST_CHALLENGE — request a domain verification challenge
+ * from the OpenCred API server.
+ */
+async function handleAttestationRequestChallenge(
+  _event: IpcMainInvokeEvent,
+  request: AttestationRequestChallengeRequest,
+): Promise<AttestationRequestChallengeResponse> {
+  try {
+    const store = getStore();
+    const apiUrl = (store.get("opencredApiUrl" as keyof typeof store.store) as string | undefined)
+      ?? "https://api.opencred.dev";
+
+    const response = await fetch(`${apiUrl}/attestation/challenge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        domain: request.domain,
+        method: request.method,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      return { success: false, error: `API error (${response.status}): ${body}` };
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
+    return {
+      success: true,
+      challengeId: data.challengeId as string | undefined,
+      token: data.token as string | undefined,
+      instructions: data.instructions as string | undefined,
+      expiresAt: data.expiresAt as string | undefined,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to request challenge.";
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * ATTESTATION_SUBMIT_VERIFICATION — submit domain verification and request
+ * key attestation from the OpenCred API.
+ *
+ * SECURITY NOTE: Only the public key JWK is sent to the API. The private key
+ * never leaves the main process.
+ */
+async function handleAttestationSubmitVerification(
+  _event: IpcMainInvokeEvent,
+  request: AttestationSubmitVerificationRequest,
+): Promise<AttestationSubmitVerificationResponse> {
+  try {
+    const publicKeyJwk = loadedPublicKeyJwks.get(request.keyId);
+    if (!publicKeyJwk) {
+      return { success: false, error: `Public key JWK not found for key: ${request.keyId}` };
+    }
+
+    const keyMeta = importedKeys.get(request.keyId);
+    if (!keyMeta) {
+      return { success: false, error: `Key metadata not found: ${request.keyId}` };
+    }
+
+    const store = getStore();
+    const apiUrl = (store.get("opencredApiUrl" as keyof typeof store.store) as string | undefined)
+      ?? "https://api.opencred.dev";
+
+    const response = await fetch(
+      `${apiUrl}/attestation/challenge/${request.challengeId}/verify`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          publicKeyJwk,
+          issuerDid: request.keyId.split("#")[0],
+          keyFingerprint: keyMeta.fingerprint,
+          keyAlgorithm: "P-256",
+          verificationMethodId: request.keyId,
+          organizationName: request.organizationName,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const body = await response.text();
+      return { success: false, error: `API error (${response.status}): ${body}` };
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
+    const credential = (data.credential ?? data) as Record<string, unknown>;
+
+    // Persist the attestation locally
+    storeAttestation(request.keyId, credential);
+
+    return { success: true, credential };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Verification submission failed.";
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * ATTESTATION_SUBMIT_BUSINESS_VC — submit a business credential for key
+ * attestation from the OpenCred API.
+ *
+ * SECURITY NOTE: Only the public key JWK is sent to the API. The private key
+ * never leaves the main process.
+ */
+async function handleAttestationSubmitBusinessVc(
+  _event: IpcMainInvokeEvent,
+  request: AttestationSubmitBusinessVcRequest,
+): Promise<AttestationSubmitBusinessVcResponse> {
+  try {
+    const publicKeyJwk = loadedPublicKeyJwks.get(request.keyId);
+    if (!publicKeyJwk) {
+      return { success: false, error: `Public key JWK not found for key: ${request.keyId}` };
+    }
+
+    const keyMeta = importedKeys.get(request.keyId);
+    if (!keyMeta) {
+      return { success: false, error: `Key metadata not found: ${request.keyId}` };
+    }
+
+    const store = getStore();
+    const apiUrl = (store.get("opencredApiUrl" as keyof typeof store.store) as string | undefined)
+      ?? "https://api.opencred.dev";
+
+    const businessVc = typeof request.businessVc === "string"
+      ? JSON.parse(request.businessVc)
+      : request.businessVc;
+
+    const response = await fetch(`${apiUrl}/attestation/attest-by-vc`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        businessVc,
+        publicKeyJwk,
+        issuerDid: request.keyId.split("#")[0],
+        keyFingerprint: keyMeta.fingerprint,
+        keyAlgorithm: "P-256",
+        verificationMethodId: request.keyId,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      return { success: false, error: `API error (${response.status}): ${body}` };
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
+    const credential = (data.credential ?? data) as Record<string, unknown>;
+
+    // Persist the attestation locally
+    storeAttestation(request.keyId, credential);
+
+    return { success: true, credential };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Business VC attestation failed.";
+    return { success: false, error: message };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Credential history handlers
 // ---------------------------------------------------------------------------
@@ -1453,6 +1628,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.ATTESTATION_LIST, handleAttestationList);
   ipcMain.handle(IPC_CHANNELS.ATTESTATION_REMOVE, handleAttestationRemove);
   ipcMain.handle(IPC_CHANNELS.ATTESTATION_CHECK, handleAttestationCheck);
+  ipcMain.handle(IPC_CHANNELS.ATTESTATION_REQUEST_CHALLENGE, handleAttestationRequestChallenge);
+  ipcMain.handle(IPC_CHANNELS.ATTESTATION_SUBMIT_VERIFICATION, handleAttestationSubmitVerification);
+  ipcMain.handle(IPC_CHANNELS.ATTESTATION_SUBMIT_BUSINESS_VC, handleAttestationSubmitBusinessVc);
 
   // Credential history
   ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_LIST, handleCredentialHistoryList);

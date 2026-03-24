@@ -67,6 +67,8 @@ export interface StoreSchema {
   credentialHistory: CredentialHistoryEntry[];
   /** User-created custom schemas for blank credentials. */
   customSchemas: CustomSchemaEntry[];
+  /** Base URL for the OpenCred Attestation API. */
+  opencredApiUrl: string;
 }
 
 const DEFAULTS: StoreSchema = {
@@ -77,6 +79,7 @@ const DEFAULTS: StoreSchema = {
   preferences: {},
   credentialHistory: [],
   customSchemas: [],
+  opencredApiUrl: "https://api.opencred.dev",
 };
 
 let store: ElectronStore<StoreSchema> | null = null;

@@ -1,22 +1,27 @@
 /**
  * DomainVerificationStep — Quick Start step for verifying domain ownership.
  *
- * Shows a DNS TXT or HTTP challenge and checks verification status
- * via the attestation API.
+ * Supports three verification methods:
+ *   1. DNS TXT record challenge
+ *   2. HTTP challenge (file on web server)
+ *   3. Business Credential (file upload)
+ *
+ * Calls the OpenCred API via IPC preload bridge.
  */
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
 import { Badge } from "./ui/Badge";
 
-type VerificationMethod = "dns-txt" | "http-challenge";
+type VerificationMethod = "dns-txt" | "http" | "business-vc";
 type Status = "idle" | "challenge-created" | "checking" | "verified" | "failed";
 
 interface ChallengeInfo {
   challengeId: string;
-  challenge: string;
+  token: string;
   instructions: string;
+  expiresAt?: string;
 }
 
 interface DomainVerificationStepProps {
@@ -31,34 +36,44 @@ export function DomainVerificationStep({
   domain,
   keyId,
   organizationName,
-  onVerified: _onVerified,
+  onVerified,
   onBack,
 }: DomainVerificationStepProps) {
   const [method, setMethod] = useState<VerificationMethod>("dns-txt");
   const [status, setStatus] = useState<Status>("idle");
   const [challenge, setChallenge] = useState<ChallengeInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [businessVcContent, setBusinessVcContent] = useState<string | null>(null);
+  const [businessVcFileName, setBusinessVcFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function handleStartChallenge() {
     setError(null);
     setStatus("checking");
 
     try {
-      // In a real implementation, this would call the API via IPC.
-      // For now, we simulate the challenge creation.
-      // The main process would proxy: POST /attestation/challenge
-      const mockChallenge: ChallengeInfo = {
-        challengeId: `ch_${Date.now()}`,
-        challenge: method === "dns-txt"
-          ? `opencred-verify=mock-token-${Date.now()}`
-          : `mock-token-${Date.now()}`,
-        instructions: method === "dns-txt"
-          ? `Add a DNS TXT record to _opencred-verify.${domain} with the value shown below.`
-          : `Place a file at https://${domain}/.well-known/opencred-challenge/mock-token containing the token below.`,
-      };
+      const apiMethod = method === "dns-txt" ? "dns-txt" : "http";
+      const result = await window.opencred.attestation.requestChallenge({
+        domain,
+        method: apiMethod,
+      });
 
-      setChallenge(mockChallenge);
-      setStatus("challenge-created");
+      if (result.success && result.challengeId) {
+        setChallenge({
+          challengeId: result.challengeId,
+          token: result.token ?? "",
+          instructions: result.instructions ?? (
+            method === "dns-txt"
+              ? `Add a DNS TXT record to _opencred-verify.${domain} with the token value shown below.`
+              : `Place a file at https://${domain}/.well-known/opencred-challenge containing the token below.`
+          ),
+          expiresAt: result.expiresAt,
+        });
+        setStatus("challenge-created");
+      } else {
+        setError(result.error ?? "Failed to create challenge");
+        setStatus("failed");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create challenge");
       setStatus("failed");
@@ -71,14 +86,61 @@ export function DomainVerificationStep({
     setStatus("checking");
 
     try {
-      // In a real implementation, this would call:
-      // POST /attestation/challenge/:id/verify via IPC
-      // For now, we show the UI flow. The actual API integration
-      // will be wired up when the API is running.
-      setError("Domain verification requires the OpenCred API server. Configure the API URL in Settings.");
-      setStatus("failed");
+      const result = await window.opencred.attestation.submitVerification({
+        challengeId: challenge.challengeId,
+        keyId,
+        domain,
+        organizationName,
+      });
+
+      if (result.success && result.credential) {
+        setStatus("verified");
+        onVerified(result.credential);
+      } else {
+        setError(result.error ?? "Verification failed. Make sure you have completed the challenge.");
+        setStatus("failed");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verification check failed");
+      setStatus("failed");
+    }
+  }
+
+  async function handleBusinessVcUpload() {
+    try {
+      const result = await window.opencred.openFile({
+        title: "Select Business Credential",
+        filters: [{ name: "JSON", extensions: ["json", "jsonld"] }],
+      });
+      if (result.content) {
+        setBusinessVcContent(result.content);
+        setBusinessVcFileName(result.filePath?.split("/").pop() ?? "credential.json");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to open file");
+    }
+  }
+
+  async function handleSubmitBusinessVc() {
+    if (!businessVcContent) return;
+    setError(null);
+    setStatus("checking");
+
+    try {
+      const result = await window.opencred.attestation.submitBusinessVc({
+        businessVc: businessVcContent,
+        keyId,
+      });
+
+      if (result.success && result.credential) {
+        setStatus("verified");
+        onVerified(result.credential);
+      } else {
+        setError(result.error ?? "Business credential verification failed.");
+        setStatus("failed");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Business credential submission failed");
       setStatus("failed");
     }
   }
@@ -86,10 +148,11 @@ export function DomainVerificationStep({
   return (
     <Card className="space-y-6">
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-gray-900">Verify Domain Ownership</h2>
+        <h2 className="text-lg font-semibold text-gray-900">Verify Your Identity</h2>
         <p className="text-sm text-gray-600">
-          Prove you control <span className="font-mono font-medium">{domain}</span> by
-          completing a verification challenge.
+          Prove your organization controls{" "}
+          <span className="font-mono font-medium">{domain}</span> or submit a
+          business credential to receive a Key Attestation.
         </p>
       </div>
 
@@ -113,9 +176,9 @@ export function DomainVerificationStep({
                 <div className="text-xs mt-1 opacity-75">Add a TXT record to your DNS</div>
               </button>
               <button
-                onClick={() => setMethod("http-challenge")}
+                onClick={() => setMethod("http")}
                 className={`flex-1 rounded-md border px-4 py-3 text-sm text-left ${
-                  method === "http-challenge"
+                  method === "http"
                     ? "border-blue-500 bg-blue-50 text-blue-900"
                     : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
                 }`}
@@ -123,23 +186,74 @@ export function DomainVerificationStep({
                 <div className="font-medium">HTTP Challenge</div>
                 <div className="text-xs mt-1 opacity-75">Host a file on your web server</div>
               </button>
+              <button
+                onClick={() => setMethod("business-vc")}
+                className={`flex-1 rounded-md border px-4 py-3 text-sm text-left ${
+                  method === "business-vc"
+                    ? "border-blue-500 bg-blue-50 text-blue-900"
+                    : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                }`}
+              >
+                <div className="font-medium">Business Credential</div>
+                <div className="text-xs mt-1 opacity-75">Upload a verified business VC</div>
+              </button>
             </div>
           </div>
 
-          <Button onClick={() => void handleStartChallenge()}>
-            Start Verification
-          </Button>
+          {method !== "business-vc" && (
+            <Button onClick={() => void handleStartChallenge()}>
+              Start Verification
+            </Button>
+          )}
+
+          {method === "business-vc" && (
+            <div className="space-y-3">
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-4 space-y-3">
+                <p className="text-sm text-gray-700">
+                  Upload a business Verifiable Credential (e.g. a GLEIF vLEI credential
+                  or similar business identity VC) to verify your organization.
+                </p>
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="secondary"
+                    onClick={() => void handleBusinessVcUpload()}
+                  >
+                    Choose File
+                  </Button>
+                  {businessVcFileName && (
+                    <span className="text-sm text-gray-600">{businessVcFileName}</span>
+                  )}
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json,.jsonld"
+                  className="hidden"
+                />
+              </div>
+              {businessVcContent && (
+                <Button onClick={() => void handleSubmitBusinessVc()}>
+                  Submit Business Credential
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Challenge instructions */}
-      {challenge && status !== "idle" && (
+      {/* Challenge instructions (DNS/HTTP) */}
+      {challenge && status !== "idle" && method !== "business-vc" && (
         <div className="space-y-4">
           <div className="rounded-md border border-blue-200 bg-blue-50 p-4">
             <p className="text-sm text-blue-800 mb-2">{challenge.instructions}</p>
             <div className="rounded bg-white border border-blue-100 p-2">
-              <code className="text-xs text-blue-900 break-all">{challenge.challenge}</code>
+              <code className="text-xs text-blue-900 break-all">{challenge.token}</code>
             </div>
+            {challenge.expiresAt && (
+              <p className="text-xs text-blue-600 mt-2">
+                Expires: {new Date(challenge.expiresAt).toLocaleString()}
+              </p>
+            )}
           </div>
 
           {status === "challenge-created" && (
@@ -161,7 +275,7 @@ export function DomainVerificationStep({
       {status === "verified" && (
         <div className="rounded-md border border-green-200 bg-green-50 p-3 flex items-center gap-2">
           <Badge variant="success">Verified</Badge>
-          <span className="text-sm text-green-800">Domain ownership confirmed</span>
+          <span className="text-sm text-green-800">Identity verified successfully</span>
         </div>
       )}
 
@@ -189,9 +303,6 @@ export function DomainVerificationStep({
           Back
         </Button>
       </div>
-
-      {/* Hidden context info for debugging */}
-      <input type="hidden" data-key-id={keyId} data-org={organizationName} />
     </Card>
   );
 }
