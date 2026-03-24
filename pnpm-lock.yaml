@@ -183,6 +183,9 @@ importers:
       '@opencred/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
+      '@opencred/domain-verification':
+        specifier: workspace:*
+        version: link:../../packages/domain-verification
       '@opencred/key-attestation':
         specifier: workspace:*
         version: link:../../packages/key-attestation

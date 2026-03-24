@@ -23,8 +23,15 @@ export async function authMiddleware(c: Context, next: Next): Promise<void> {
     return;
   }
 
-  // Health endpoint is always public
-  if (c.req.path === "/health") {
+  // Public endpoints — no auth required
+  const publicPaths = [
+    "/health",
+    "/attestation/challenge",
+    "/attestation/attest-by-vc",
+  ];
+  const path = c.req.path;
+  const isPublic = publicPaths.some((p) => path === p || path.startsWith(p + "/"));
+  if (isPublic) {
     await next();
     return;
   }

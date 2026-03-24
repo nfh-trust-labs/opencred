@@ -86,8 +86,8 @@ function validateParams(params: CreateKeyAttestationParams): void {
   if (!params.identityVerification.verifiedAt) {
     throw new AttestationError("identityVerification.verifiedAt is required");
   }
-  if (!params.identityVerification.challengeId) {
-    throw new AttestationError("identityVerification.challengeId is required");
+  if (params.identityVerification.method === "business-vc" && !params.identityVerification.sourceCredentialId) {
+    throw new AttestationError("identityVerification.sourceCredentialId is required when method is business-vc");
   }
   if (!params.organizationName) {
     throw new AttestationError("organizationName is required");
