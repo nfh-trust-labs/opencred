@@ -189,8 +189,8 @@ async function handleKeyImport(
     if (shouldPersist) {
       const prefs =
         (store.get("preferences" as keyof typeof store.store) as Record<string, unknown>) ?? {};
-      const savedPaths = (prefs["importedKeyPaths"] as Record<string, string>) ?? {};
-      savedPaths[signer.id] = request.filePath;
+      const savedPaths = (prefs["importedKeyPaths"] as Record<string, unknown>) ?? {};
+      savedPaths[signer.id] = { path: request.filePath, label: request.label };
       store.set("preferences" as keyof typeof store.store, {
         ...prefs,
         importedKeyPaths: savedPaths,
@@ -1411,7 +1411,7 @@ export function reloadPersistedKeys(): void {
 
     const prefs =
       (store.get("preferences" as keyof typeof store.store) as Record<string, unknown>) ?? {};
-    const savedPaths = (prefs["importedKeyPaths"] as Record<string, string>) ?? {};
+    const savedPaths = (prefs["importedKeyPaths"] as Record<string, unknown>) ?? {};
 
     const keyIds = Object.keys(savedPaths);
     if (keyIds.length === 0) {
@@ -1424,16 +1424,31 @@ export function reloadPersistedKeys(): void {
     const stalePaths: string[] = [];
 
     for (const keyId of keyIds) {
-      const filePath = savedPaths[keyId];
+      const entry = savedPaths[keyId];
+
+      // Support both old format (string path) and new format ({ path, label })
+      let filePath: string;
+      let label: string | undefined;
+      if (typeof entry === "string") {
+        filePath = entry;
+      } else if (entry && typeof entry === "object" && "path" in entry) {
+        const obj = entry as { path: string; label?: string };
+        filePath = obj.path;
+        label = obj.label;
+      } else {
+        stalePaths.push(keyId);
+        continue;
+      }
+
       try {
-        const { signer, format } = createSoftwareSigner(filePath);
+        const { signer, format } = createSoftwareSigner(filePath, label);
 
         const meta: KeyMetadata = {
           id: signer.id,
           fingerprint: signer.metadata.fingerprint,
           algorithm: "ECDSA P-256",
           importedAt: new Date().toISOString(),
-          label: undefined,
+          label,
           format,
           source: "file",
         };

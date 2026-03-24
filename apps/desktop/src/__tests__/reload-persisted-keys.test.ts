@@ -179,7 +179,7 @@ describe("reloadPersistedKeys", () => {
     expect(mockCreateSoftwareSigner).not.toHaveBeenCalled();
   });
 
-  it("should load keys from persisted paths", () => {
+  it("should load keys from persisted paths (legacy string format)", () => {
     mockStoreData["persistKeyPaths"] = true;
     mockStoreData["preferences"] = {
       importedKeyPaths: {
@@ -199,15 +199,38 @@ describe("reloadPersistedKeys", () => {
 
     reloadPersistedKeys();
 
-    expect(mockCreateSoftwareSigner).toHaveBeenCalledWith("/mock/fixtures/test-keyfile-1");
+    expect(mockCreateSoftwareSigner).toHaveBeenCalledWith("/mock/fixtures/test-keyfile-1", undefined);
+  });
+
+  it("should restore label from persisted key entry", () => {
+    mockStoreData["persistKeyPaths"] = true;
+    mockStoreData["preferences"] = {
+      importedKeyPaths: {
+        "did:key:z6MkTest1": { path: "/mock/fixtures/test-keyfile-1", label: "My DSC Key" },
+      },
+    };
+
+    const mockSigner = {
+      id: "did:key:z6MkTest1",
+      metadata: { fingerprint: "z6MkTest1fp" },
+      sign: vi.fn(),
+    };
+    mockCreateSoftwareSigner.mockReturnValue({
+      signer: mockSigner,
+      format: "pem",
+    });
+
+    reloadPersistedKeys();
+
+    expect(mockCreateSoftwareSigner).toHaveBeenCalledWith("/mock/fixtures/test-keyfile-1", "My DSC Key");
   });
 
   it("should remove stale paths when key file is missing", () => {
     mockStoreData["persistKeyPaths"] = true;
     mockStoreData["preferences"] = {
       importedKeyPaths: {
-        "did:key:z6MkStale": "/mock/fixtures/missing-keyfile",
-        "did:key:z6MkValid": "/mock/fixtures/valid-keyfile",
+        "did:key:z6MkStale": { path: "/mock/fixtures/missing-keyfile", label: "Gone" },
+        "did:key:z6MkValid": { path: "/mock/fixtures/valid-keyfile", label: "Good" },
       },
     };
 
@@ -228,7 +251,7 @@ describe("reloadPersistedKeys", () => {
     // Store should be updated to remove the stale path
     expect(mockStoreInstance.set).toHaveBeenCalledWith("preferences", {
       importedKeyPaths: {
-        "did:key:z6MkValid": "/mock/fixtures/valid-keyfile",
+        "did:key:z6MkValid": { path: "/mock/fixtures/valid-keyfile", label: "Good" },
       },
     });
   });
@@ -272,12 +295,12 @@ describe("reloadPersistedKeys", () => {
     expect(() => reloadPersistedKeys()).not.toThrow();
   });
 
-  it("should load multiple keys successfully", () => {
+  it("should load multiple keys with labels", () => {
     mockStoreData["persistKeyPaths"] = true;
     mockStoreData["preferences"] = {
       importedKeyPaths: {
-        "did:key:z6MkFirst": "/mock/fixtures/keyfile-1",
-        "did:key:z6MkSecond": "/mock/fixtures/keyfile-2",
+        "did:key:z6MkFirst": { path: "/mock/fixtures/keyfile-1", label: "Key One" },
+        "did:key:z6MkSecond": { path: "/mock/fixtures/keyfile-2", label: "Key Two" },
       },
     };
 
@@ -294,7 +317,7 @@ describe("reloadPersistedKeys", () => {
     reloadPersistedKeys();
 
     expect(mockCreateSoftwareSigner).toHaveBeenCalledTimes(2);
-    expect(mockCreateSoftwareSigner).toHaveBeenCalledWith("/mock/fixtures/keyfile-1");
-    expect(mockCreateSoftwareSigner).toHaveBeenCalledWith("/mock/fixtures/keyfile-2");
+    expect(mockCreateSoftwareSigner).toHaveBeenCalledWith("/mock/fixtures/keyfile-1", "Key One");
+    expect(mockCreateSoftwareSigner).toHaveBeenCalledWith("/mock/fixtures/keyfile-2", "Key Two");
   });
 });
