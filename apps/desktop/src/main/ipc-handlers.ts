@@ -12,7 +12,8 @@
  *  - All crypto operations happen in the main process.
  */
 
-import { ipcMain, dialog, type IpcMainInvokeEvent } from "electron";
+import { app, ipcMain, dialog, type IpcMainInvokeEvent } from "electron";
+import * as os from "node:os";
 import * as fs from "node:fs/promises";
 import { IPC_CHANNELS } from "../shared/ipc-channels.js";
 import type {
@@ -82,6 +83,12 @@ import type {
   CustomSchemaListResponse,
   CustomSchemaDeleteRequest,
   CustomSchemaDeleteResponse,
+  AttestationRequestChallengeRequest,
+  AttestationRequestChallengeResponse,
+  AttestationSubmitVerificationRequest,
+  AttestationSubmitVerificationResponse,
+  AttestationSubmitBusinessVcRequest,
+  AttestationSubmitBusinessVcResponse,
   SystemInfoResponse,
   LogTailResponse,
 } from "../shared/ipc-types.js";
@@ -138,6 +145,13 @@ const importedKeys = new Map<string, KeyMetadata>();
 
 /** Maps key ID -> Signer instance (private key stays in memory, never serialized). */
 const loadedSigners = new Map<string, Signer>();
+
+/**
+ * Maps key ID -> public key JWK for generated keys.
+ * Stays in the main process — never exposed to the renderer.
+ * Used when requesting attestation from the OpenCred API.
+ */
+const loadedPublicKeyJwks = new Map<string, Record<string, unknown>>();
 
 /** Mutable batch processing state. */
 const batchState: {
@@ -244,6 +258,10 @@ async function handleKeyGenerate(
 
     importedKeys.set(signer.id, meta);
     loadedSigners.set(signer.id, signer);
+
+    // Store public key JWK for attestation requests (never crosses IPC).
+    const jwk = publicKey.export({ format: "jwk" });
+    loadedPublicKeyJwks.set(signer.id, jwk as Record<string, unknown>);
 
     return { success: true, key: meta };
   } catch (err) {
@@ -1394,13 +1412,12 @@ async function handleCustomSchemaDelete(
 
 /** SYSTEM_INFO — return app version, OS, Electron/Node versions, log path. */
 async function handleSystemInfo(): Promise<SystemInfoResponse> {
-  const { app } = await import("electron");
   return {
     appVersion: app.getVersion(),
     electronVersion: process.versions.electron ?? "unknown",
     nodeVersion: process.versions.node,
     os: process.platform,
-    osVersion: (await import("node:os")).release(),
+    osVersion: os.release(),
     arch: process.arch,
     logPath: getLogFilePath(),
   };
@@ -1414,6 +1431,193 @@ async function handleLogTail(
   const lines = request?.lines ?? 200;
   const logs = await readRecentLogs(lines);
   return { logs, logPath: getLogFilePath() };
+}
+
+// ---------------------------------------------------------------------------
+// Attestation API handlers (OpenCred-Attested onboarding)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the OpenCred attestation API URL from config.
+ * Defaults to https://api.opencred.dev if not set.
+ */
+function getAttestationApiUrl(): string {
+  const store = getStore();
+  const url = store.get("opencredApiUrl" as keyof typeof store.store) as string | undefined;
+  return url || "https://api.opencred.dev";
+}
+
+/**
+ * Validate that the API URL is acceptable (https or localhost).
+ */
+function validateApiUrl(url: string): string | null {
+  if (url.startsWith("https://") || url.startsWith("http://localhost")) {
+    return null;
+  }
+  return "API URL must use HTTPS or http://localhost";
+}
+
+/**
+ * ATTESTATION_REQUEST_CHALLENGE — request a domain verification challenge.
+ *
+ * Proxies to the OpenCred attestation API to create a DNS TXT or HTTP
+ * verification challenge for domain ownership proof.
+ */
+async function handleAttestationRequestChallenge(
+  _event: IpcMainInvokeEvent,
+  request: AttestationRequestChallengeRequest,
+): Promise<AttestationRequestChallengeResponse> {
+  try {
+    const apiUrl = getAttestationApiUrl();
+    const urlError = validateApiUrl(apiUrl);
+    if (urlError) {
+      return { success: false, error: urlError };
+    }
+
+    const response = await fetch(`${apiUrl}/attestation/challenge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: request.domain, method: request.method }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      return { success: false, error: `API error (${response.status}): ${body || response.statusText}` };
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
+    return {
+      success: true,
+      challengeId: data.challengeId as string | undefined,
+      token: data.token as string | undefined,
+      instructions: data.instructions as string | undefined,
+      expiresAt: data.expiresAt as string | undefined,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to request challenge.";
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * ATTESTATION_SUBMIT_VERIFICATION — verify domain ownership and request attestation.
+ *
+ * Sends the public key JWK (from the main process registry) along with
+ * challenge verification data. On success, stores the attestation credential.
+ *
+ * SECURITY: The public key JWK is read from loadedPublicKeyJwks (main process
+ * only). It is never received from the renderer.
+ */
+async function handleAttestationSubmitVerification(
+  _event: IpcMainInvokeEvent,
+  request: AttestationSubmitVerificationRequest,
+): Promise<AttestationSubmitVerificationResponse> {
+  try {
+    const apiUrl = getAttestationApiUrl();
+    const urlError = validateApiUrl(apiUrl);
+    if (urlError) {
+      return { success: false, error: urlError };
+    }
+
+    const publicKeyJwk = loadedPublicKeyJwks.get(request.keyId);
+    if (!publicKeyJwk) {
+      return { success: false, error: "Key not found or not a generated key" };
+    }
+
+    const metadata = importedKeys.get(request.keyId);
+    if (!metadata) {
+      return { success: false, error: "Key metadata not found" };
+    }
+
+    const response = await fetch(`${apiUrl}/attestation/challenge/${request.challengeId}/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        publicKeyJwk,
+        issuerDid: metadata.id,
+        keyFingerprint: metadata.fingerprint,
+        keyAlgorithm: "P-256",
+        verificationMethodId: request.keyId,
+        organizationName: request.organizationName,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      return { success: false, error: `API error (${response.status}): ${body || response.statusText}` };
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
+    const credential = (data.credential ?? data) as Record<string, unknown>;
+
+    // Store the attestation locally
+    storeAttestation(request.keyId, credential);
+
+    return { success: true, credential };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Verification submission failed.";
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * ATTESTATION_SUBMIT_BUSINESS_VC — submit a business VC for attestation.
+ *
+ * Alternative to domain verification: the issuer provides a business VC
+ * that OpenCred validates, then attests the public key.
+ *
+ * SECURITY: Same as above — public key JWK stays in main process.
+ */
+async function handleAttestationSubmitBusinessVc(
+  _event: IpcMainInvokeEvent,
+  request: AttestationSubmitBusinessVcRequest,
+): Promise<AttestationSubmitBusinessVcResponse> {
+  try {
+    const apiUrl = getAttestationApiUrl();
+    const urlError = validateApiUrl(apiUrl);
+    if (urlError) {
+      return { success: false, error: urlError };
+    }
+
+    const publicKeyJwk = loadedPublicKeyJwks.get(request.keyId);
+    if (!publicKeyJwk) {
+      return { success: false, error: "Key not found or not a generated key" };
+    }
+
+    const metadata = importedKeys.get(request.keyId);
+    if (!metadata) {
+      return { success: false, error: "Key metadata not found" };
+    }
+
+    const response = await fetch(`${apiUrl}/attestation/attest-by-vc`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        businessVc: request.businessVc,
+        publicKeyJwk,
+        issuerDid: metadata.id,
+        keyFingerprint: metadata.fingerprint,
+        keyAlgorithm: "P-256",
+        verificationMethodId: request.keyId,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      return { success: false, error: `API error (${response.status}): ${body || response.statusText}` };
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
+    const credential = (data.credential ?? data) as Record<string, unknown>;
+
+    // Store the attestation locally
+    storeAttestation(request.keyId, credential);
+
+    return { success: true, credential };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Business VC attestation failed.";
+    return { success: false, error: message };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1484,6 +1688,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.ATTESTATION_LIST, handleAttestationList);
   ipcMain.handle(IPC_CHANNELS.ATTESTATION_REMOVE, handleAttestationRemove);
   ipcMain.handle(IPC_CHANNELS.ATTESTATION_CHECK, handleAttestationCheck);
+
+  // Attestation API (OpenCred-Attested onboarding)
+  ipcMain.handle(IPC_CHANNELS.ATTESTATION_REQUEST_CHALLENGE, handleAttestationRequestChallenge);
+  ipcMain.handle(IPC_CHANNELS.ATTESTATION_SUBMIT_VERIFICATION, handleAttestationSubmitVerification);
+  ipcMain.handle(IPC_CHANNELS.ATTESTATION_SUBMIT_BUSINESS_VC, handleAttestationSubmitBusinessVc);
 
   // Credential history
   ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_LIST, handleCredentialHistoryList);

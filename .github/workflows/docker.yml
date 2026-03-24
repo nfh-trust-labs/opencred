@@ -25,15 +25,8 @@ on:
   push:
     branches: [new-opencred-dev]
     tags: ['v*']
-    paths:
-      - "apps/server/Dockerfile"
-      - "apps/server/src/**"
-      - "apps/server/package.json"
-      - "docker-compose.yml"
-      - ".dockerignore"
-      - "packages/**"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/docker.yml"
+    # Note: no paths filter on push — tags don't carry a changed-files diff,
+    # so paths would prevent tag pushes from triggering. PRs still use paths.
 
 env:
   REGISTRY: ghcr.io

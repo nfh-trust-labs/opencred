@@ -28,21 +28,23 @@ export interface Logger {
 }
 
 // ---------------------------------------------------------------------------
-// Key-material redaction
+// Key-material redaction (exported for testing)
 // ---------------------------------------------------------------------------
 
 const PEM_BLOCK_RE = /-----BEGIN[A-Z ]+-----[\s\S]*?-----END[A-Z ]+-----/g;
 const JWK_D_FIELD_RE = /"d"\s*:\s*"[^"]+"/g;
-const LONG_BASE64_RE = /[A-Za-z0-9+/]{40,}={0,3}/g;
+// Require "+" to distinguish base64 from URLs/paths/IDs — "+" is unique to
+// standard base64 encoding and absent from URLs, file paths, and identifiers.
+const LONG_BASE64_RE = /(?=[A-Za-z0-9+/]*\+)[A-Za-z0-9+/]{40,}={0,3}/g;
 
-function redact(input: string): string {
+export function redact(input: string): string {
   return input
     .replace(PEM_BLOCK_RE, "[REDACTED-PEM]")
     .replace(JWK_D_FIELD_RE, '"d":"[REDACTED]"')
     .replace(LONG_BASE64_RE, "[REDACTED]");
 }
 
-function redactValue(value: unknown): unknown {
+export function redactValue(value: unknown): unknown {
   if (typeof value === "string") return redact(value);
   if (typeof value === "object" && value !== null) {
     try {

@@ -17,19 +17,22 @@ export function BugReportDialog({ open, onClose }: BugReportDialogProps) {
   const [systemInfo, setSystemInfo] = useState<SystemInfoResponse | null>(null);
   const [logs, setLogs] = useState("");
   const [logPath, setLogPath] = useState("");
+  const [formUrl, setFormUrl] = useState("https://forms.gle/f1wFUhzN1VwgR5QD6");
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [info, logResult] = await Promise.all([
+      const [info, logResult, storedUrl] = await Promise.all([
         window.opencred.getSystemInfo(),
         window.opencred.getRecentLogs(100),
+        window.opencred.getConfig("bugReportFormUrl") as Promise<string | undefined>,
       ]);
       setSystemInfo(info);
       setLogs(logResult.logs);
       setLogPath(logResult.logPath);
+      if (storedUrl) setFormUrl(storedUrl);
     } catch {
       setSystemInfo(null);
       setLogs("Failed to load logs.");
@@ -73,8 +76,8 @@ export function BugReportDialog({ open, onClose }: BugReportDialogProps) {
   }
 
   function handleOpenForm() {
-    // Open the bug report form — user pastes the copied report into the form
-    window.open("https://forms.gle/f1wFUhzN1VwgR5QD6", "_blank");
+    // Open the bug report form — URL is configurable via store
+    window.open(formUrl, "_blank");
   }
 
   return (
