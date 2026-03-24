@@ -82,7 +82,10 @@ import type {
   CustomSchemaListResponse,
   CustomSchemaDeleteRequest,
   CustomSchemaDeleteResponse,
+  SystemInfoResponse,
+  LogTailResponse,
 } from "../shared/ipc-types.js";
+import { getLogFilePath, readRecentLogs } from "./logger.js";
 import {
   storeAttestation,
   getAttestation,
@@ -1386,6 +1389,34 @@ async function handleCustomSchemaDelete(
 }
 
 // ---------------------------------------------------------------------------
+// System / diagnostics handlers
+// ---------------------------------------------------------------------------
+
+/** SYSTEM_INFO — return app version, OS, Electron/Node versions, log path. */
+async function handleSystemInfo(): Promise<SystemInfoResponse> {
+  const { app } = await import("electron");
+  return {
+    appVersion: app.getVersion(),
+    electronVersion: process.versions.electron ?? "unknown",
+    nodeVersion: process.versions.node,
+    os: process.platform,
+    osVersion: (await import("node:os")).release(),
+    arch: process.arch,
+    logPath: getLogFilePath(),
+  };
+}
+
+/** LOG_TAIL — read recent lines from the log file. */
+async function handleLogTail(
+  _event: IpcMainInvokeEvent,
+  request?: { lines?: number },
+): Promise<LogTailResponse> {
+  const lines = request?.lines ?? 200;
+  const logs = await readRecentLogs(lines);
+  return { logs, logPath: getLogFilePath() };
+}
+
+// ---------------------------------------------------------------------------
 // Registration / cleanup
 // ---------------------------------------------------------------------------
 
@@ -1467,6 +1498,10 @@ export function registerIpcHandlers(): void {
   // Config
   ipcMain.handle(IPC_CHANNELS.GET_CONFIG, handleGetConfig);
   ipcMain.handle(IPC_CHANNELS.SET_CONFIG, handleSetConfig);
+
+  // System / diagnostics
+  ipcMain.handle(IPC_CHANNELS.SYSTEM_INFO, handleSystemInfo);
+  ipcMain.handle(IPC_CHANNELS.LOG_TAIL, handleLogTail);
 }
 
 /**

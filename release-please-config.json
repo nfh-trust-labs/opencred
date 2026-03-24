@@ -1,0 +1,13 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "bump-minor-pre-major": true,
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        "apps/desktop/package.json",
+        "apps/server/package.json"
+      ]
+    }
+  }
+}

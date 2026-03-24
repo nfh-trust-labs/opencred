@@ -68,6 +68,9 @@ importers:
       archiver:
         specifier: ^7.0.1
         version: 7.0.1
+      electron-log:
+        specifier: ^5.2.0
+        version: 5.4.3
       electron-store:
         specifier: ^10.0.0
         version: 10.1.0
@@ -2571,6 +2574,10 @@ packages:
     resolution: {integrity: sha512-poRgAtUHHOnlzZnc9PK4nzG53xh74wj2Jy7jkTrqZ0MWPoHGh1M2+C//hGeYdA+4K8w4yiVCNYoLXF7ySj2Wig==}
     engines: {node: '>=14.0.0'}
     hasBin: true
+
+  electron-log@5.4.3:
+    resolution: {integrity: sha512-sOUsM3LjZdugatazSQ/XTyNcw8dfvH1SYhXWiJyfYodAAKOZdHs0txPiLDXFzOZbhXgAgshQkshH2ccq0feyLQ==}
+    engines: {node: '>= 14'}
 
   electron-publish@25.1.7:
     resolution: {integrity: sha512-+jbTkR9m39eDBMP4gfbqglDd6UvBC7RLh5Y0MhFSsc6UkGHj9Vj9TWobxevHYMMqmoujL11ZLjfPpMX+Pt6YEg==}
@@ -7463,6 +7470,8 @@ snapshots:
       - bluebird
       - electron-builder-squirrel-windows
       - supports-color
+
+  electron-log@5.4.3: {}
 
   electron-publish@25.1.7:
     dependencies:

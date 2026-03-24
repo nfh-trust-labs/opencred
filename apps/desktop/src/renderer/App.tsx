@@ -19,6 +19,7 @@ import { CredentialBuilderPage } from "./components/CredentialBuilderPage";
 import { VerifyPage } from "./components/VerifyPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { UpdateNotification } from "./components/UpdateNotification";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,9 +90,11 @@ export default function App() {
 
   if (showOnboarding === null) {
     return (
-      <div className="min-h-screen bg-surface-bg flex items-center justify-center">
-        <p className="text-body-sm text-txt-muted font-body">Loading...</p>
-      </div>
+      <ErrorBoundary>
+        <div className="min-h-screen bg-surface-bg flex items-center justify-center">
+          <p className="text-body-sm text-txt-muted font-body">Loading...</p>
+        </div>
+      </ErrorBoundary>
     );
   }
 
@@ -101,9 +104,11 @@ export default function App() {
 
   if (showOnboarding) {
     return (
-      <OnboardingWizard
-        onComplete={() => setShowOnboarding(false)}
-      />
+      <ErrorBoundary>
+        <OnboardingWizard
+          onComplete={() => setShowOnboarding(false)}
+        />
+      </ErrorBoundary>
     );
   }
 
@@ -112,45 +117,47 @@ export default function App() {
   // ------------------------------------------------------------------
 
   return (
-    <div className="min-h-screen bg-surface-bg flex flex-col font-body">
-      {/* Top bar */}
-      <TopBar
-        activeView={activeView}
-        isOffline={isOffline}
-        onNavigate={setActiveView}
-      />
-
-      {/* Main content area */}
-      <main className="flex-1 overflow-y-auto bg-surface-bg">
-        <div className="px-7 py-6 max-w-[900px] mx-auto">
-          {activeView === "home" && (
-            <HomeScreen onSelectTemplate={handleSelectTemplate} />
-          )}
-          {activeView === "builder" && (
-            <CredentialBuilderPage
-              schemaId={builderSchemaId}
-              isBlank={builderIsBlank}
-              onBack={handleBackToHome}
-            />
-          )}
-          {activeView === "verify" && <VerifyPage />}
-          {activeView === "settings" && <SettingsPage />}
-        </div>
-      </main>
-
-      {/* Status bar */}
-      <div className="oc-status-bar">
-        <span
-          className={`h-1.5 w-1.5 rounded-full ${
-            isOffline ? "bg-amber-500" : "bg-green-500"
-          }`}
-          aria-hidden="true"
+    <ErrorBoundary>
+      <div className="min-h-screen bg-surface-bg flex flex-col font-body">
+        {/* Top bar */}
+        <TopBar
+          activeView={activeView}
+          isOffline={isOffline}
+          onNavigate={setActiveView}
         />
-        {isOffline ? "Offline" : "Connected"}
 
-        {/* Update notification toast */}
-        <UpdateNotification />
+        {/* Main content area */}
+        <main className="flex-1 overflow-y-auto bg-surface-bg">
+          <div className="px-7 py-6 max-w-[900px] mx-auto">
+            {activeView === "home" && (
+              <HomeScreen onSelectTemplate={handleSelectTemplate} />
+            )}
+            {activeView === "builder" && (
+              <CredentialBuilderPage
+                schemaId={builderSchemaId}
+                isBlank={builderIsBlank}
+                onBack={handleBackToHome}
+              />
+            )}
+            {activeView === "verify" && <VerifyPage />}
+            {activeView === "settings" && <SettingsPage />}
+          </div>
+        </main>
+
+        {/* Status bar */}
+        <div className="oc-status-bar">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              isOffline ? "bg-amber-500" : "bg-green-500"
+            }`}
+            aria-hidden="true"
+          />
+          {isOffline ? "Offline" : "Connected"}
+
+          {/* Update notification toast */}
+          <UpdateNotification />
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 }

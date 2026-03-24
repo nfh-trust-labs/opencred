@@ -730,6 +730,25 @@ export interface CustomSchemaDeleteResponse {
 }
 
 // ---------------------------------------------------------------------------
+// System / diagnostics
+// ---------------------------------------------------------------------------
+
+export interface SystemInfoResponse {
+  appVersion: string;
+  electronVersion: string;
+  nodeVersion: string;
+  os: string;
+  osVersion: string;
+  arch: string;
+  logPath: string;
+}
+
+export interface LogTailResponse {
+  logs: string;
+  logPath: string;
+}
+
+// ---------------------------------------------------------------------------
 // Preload API shape (exposed on window.opencred)
 // ---------------------------------------------------------------------------
 
@@ -800,6 +819,10 @@ export interface OpenCredDesktopAPI {
   // Config
   getConfig: (key: string) => Promise<unknown>;
   setConfig: (key: string, value: unknown) => Promise<void>;
+
+  // System / diagnostics
+  getSystemInfo: () => Promise<SystemInfoResponse>;
+  getRecentLogs: (lines?: number) => Promise<LogTailResponse>;
 
   // Attestation (Quick Start / Workflow 3)
   attestation: {
