@@ -23,8 +23,8 @@
       "@id": "ocka:verifiedAt",
       "@type": "http://www.w3.org/2001/XMLSchema#dateTime"
     },
-    "challengeId": {
-      "@id": "ocka:challengeId",
+    "sourceCredentialId": {
+      "@id": "ocka:sourceCredentialId",
       "@type": "@id"
     },
     "organizationName": "ocka:organizationName",

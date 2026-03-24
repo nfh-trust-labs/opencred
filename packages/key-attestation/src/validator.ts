@@ -99,8 +99,8 @@ export function validateKeyAttestation(
       if (!iv["verifiedAt"] || typeof iv["verifiedAt"] !== "string") {
         errors.push("identityVerification.verifiedAt is required");
       }
-      if (!iv["challengeId"] || typeof iv["challengeId"] !== "string") {
-        errors.push("identityVerification.challengeId is required");
+      if (iv["method"] === "business-vc" && (!iv["sourceCredentialId"] || typeof iv["sourceCredentialId"] !== "string")) {
+        errors.push("identityVerification.sourceCredentialId is required for business-vc method");
       }
     }
   }

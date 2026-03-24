@@ -74,7 +74,6 @@ describe("CertificateAuthorityAdapter (interface compliance)", () => {
       method: "dns-txt",
       verifiedDomain: "university.example",
       verifiedAt: "2026-03-10T00:00:00Z",
-      challengeId: "urn:uuid:challenge-1",
     };
 
     const request: DSCRequest = {
@@ -125,7 +124,6 @@ describe("CertificateAuthorityAdapter (interface compliance)", () => {
       method: "dns-txt",
       verifiedDomain: "university.example",
       verifiedAt: "2026-03-10T00:00:00Z",
-      challengeId: "urn:uuid:challenge-1",
     };
 
     const request: DSCRequest = {
@@ -149,7 +147,6 @@ describe("CertificateAuthorityAdapter (interface compliance)", () => {
       method: "dns-txt",
       verifiedDomain: "university.example",
       verifiedAt: "2026-03-10T00:00:00Z",
-      challengeId: "urn:uuid:challenge-1",
     };
 
     const request: DSCRequest = {
@@ -186,7 +183,6 @@ describe("CertificateAuthorityAdapter (interface compliance)", () => {
       method: "dns-txt",
       verifiedDomain: "university.example",
       verifiedAt: "2026-03-10T00:00:00Z",
-      challengeId: "urn:uuid:challenge-1",
     };
 
     const request: DSCRequest = {

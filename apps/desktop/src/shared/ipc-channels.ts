@@ -103,6 +103,12 @@ export const IPC_CHANNELS = {
   ATTESTATION_REMOVE: "attestation:remove",
   /** Check if a key has an attestation. Payload: { keyId }. Response: { hasAttestation: boolean }. */
   ATTESTATION_CHECK: "attestation:check",
+  /** Request a domain verification challenge from the OpenCred API. */
+  ATTESTATION_REQUEST_CHALLENGE: "attestation:request-challenge",
+  /** Submit domain verification proof and request attestation. */
+  ATTESTATION_SUBMIT_VERIFICATION: "attestation:submit-verification",
+  /** Submit a business VC for attestation (alternative to domain verification). */
+  ATTESTATION_SUBMIT_BUSINESS_VC: "attestation:submit-business-vc",
 
   // --- Credential history ---
   /** List credential history entries. Response: history entry array. */

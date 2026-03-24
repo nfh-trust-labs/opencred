@@ -1443,8 +1443,7 @@ async function handleLogTail(
  */
 function getAttestationApiUrl(): string {
   const store = getStore();
-  const url = store.get("opencredApiUrl" as keyof typeof store.store) as string | undefined;
-  return url || "https://api.opencred.dev";
+  return store.get("opencredApiUrl");
 }
 
 /**

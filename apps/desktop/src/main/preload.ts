@@ -75,6 +75,12 @@ import type {
   AttestationRemoveResponse,
   AttestationCheckRequest,
   AttestationCheckResponse,
+  AttestationRequestChallengeRequest,
+  AttestationRequestChallengeResponse,
+  AttestationSubmitVerificationRequest,
+  AttestationSubmitVerificationResponse,
+  AttestationSubmitBusinessVcRequest,
+  AttestationSubmitBusinessVcResponse,
   CredentialHistoryListResponse,
   CredentialHistoryAddRequest,
   CredentialHistoryDeleteRequest,
@@ -209,6 +215,15 @@ const api: OpenCredDesktopAPI = {
 
     check: (request: AttestationCheckRequest): Promise<AttestationCheckResponse> =>
       ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_CHECK, request),
+
+    requestChallenge: (request: AttestationRequestChallengeRequest): Promise<AttestationRequestChallengeResponse> =>
+      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_REQUEST_CHALLENGE, request),
+
+    submitVerification: (request: AttestationSubmitVerificationRequest): Promise<AttestationSubmitVerificationResponse> =>
+      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_SUBMIT_VERIFICATION, request),
+
+    submitBusinessVc: (request: AttestationSubmitBusinessVcRequest): Promise<AttestationSubmitBusinessVcResponse> =>
+      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_SUBMIT_BUSINESS_VC, request),
   },
 
   // Credential history

@@ -1,64 +1,258 @@
 /**
- * Attestation challenge endpoints (stub).
+ * Attestation challenge and verification endpoints.
  *
- * POST /attestation/challenge          — request an attestation challenge
- * POST /attestation/challenge/:id/verify — submit proof, get Key Attestation Credential
+ * POST /attestation/challenge          — request a domain verification challenge
+ * POST /attestation/challenge/:id/verify — verify domain ownership and receive Key Attestation VC
+ * POST /attestation/attest-by-vc       — submit a business VC for attestation
  *
- * These are stubs for now — full implementation requires Cloud HSM integration
- * (Phase 6/7). The endpoints exist so the API surface is complete.
+ * SECURITY INVARIANTS:
+ *  - Signing uses the server's loaded key — never from request bodies.
+ *  - Key material is NEVER logged or returned in responses.
+ *  - Challenge tokens use CSPRNG (via @opencred/domain-verification).
+ *  - Challenges are single-use — deleted after verification.
  */
 
 import { Hono } from "hono";
-import { randomUUID } from "node:crypto";
-import { NotImplementedError } from "@opencred/shared";
+import { z } from "zod";
+import {
+  ChallengeStore,
+  generateChallenge,
+  verifyDomainOwnership,
+  DNS_TXT_PREFIX,
+  WELL_KNOWN_PATH,
+} from "@opencred/domain-verification";
+import { createKeyAttestationVC } from "@opencred/key-attestation";
+import type { IdentityVerificationMethod } from "@opencred/key-attestation";
+import {
+  prepareVcJwtProof,
+  completeVcJwtProof,
+} from "@opencred/crypto";
+import { verifyBusinessVc } from "@opencred/verification";
+import { requireSigner } from "../signing/key-manager.js";
 
 const attestation = new Hono();
 
-// In-memory challenge store
-const challenges = new Map<string, {
-  id: string;
-  createdAt: string;
-  expiresAt: string;
-  nonce: string;
-}>();
+// Singleton challenge store (in-memory with TTL-based expiry)
+const challengeStore = new ChallengeStore();
 
-attestation.post("/attestation/challenge", (c) => {
-  const id = randomUUID();
-  const nonce = randomUUID();
-  const now = new Date();
-  const expires = new Date(now.getTime() + 5 * 60 * 1000); // 5 min TTL
+// --- Request schemas ---
 
-  challenges.set(id, {
-    id,
-    createdAt: now.toISOString(),
-    expiresAt: expires.toISOString(),
-    nonce,
+const challengeRequestSchema = z.object({
+  domain: z.string().min(1),
+  method: z.enum(["dns-txt", "http"]),
+});
+
+const verifyRequestSchema = z.object({
+  publicKeyJwk: z.object({ kty: z.string() }).passthrough(),
+  issuerDid: z.string().startsWith("did:"),
+  keyFingerprint: z.string().min(1),
+  keyAlgorithm: z.string().min(1),
+  verificationMethodId: z.string().min(1),
+  organizationName: z.string().min(1),
+});
+
+const attestByVcRequestSchema = z.object({
+  businessVc: z.union([z.string(), z.record(z.unknown())]),
+  publicKeyJwk: z.object({ kty: z.string() }).passthrough(),
+  issuerDid: z.string().startsWith("did:"),
+  keyFingerprint: z.string().min(1),
+  keyAlgorithm: z.string().min(1),
+  verificationMethodId: z.string().min(1),
+});
+
+// --- Helpers ---
+
+/**
+ * Build and sign a Key Attestation VC using the server's loaded key.
+ */
+async function buildAndSignAttestation(params: {
+  issuerDid: string;
+  publicKeyJwk: Record<string, unknown>;
+  keyFingerprint: string;
+  keyAlgorithm: string;
+  verificationMethodId: string;
+  organizationName: string;
+  domain: string;
+  method: IdentityVerificationMethod;
+  sourceCredentialId?: string;
+}): Promise<Record<string, unknown>> {
+  const signer = requireSigner();
+
+  const unsigned = createKeyAttestationVC({
+    opencredDid: signer.id,
+    issuerDid: params.issuerDid,
+    issuerKeyJwk: params.publicKeyJwk as { kty: string; [key: string]: unknown },
+    keyFingerprint: params.keyFingerprint,
+    keyAlgorithm: params.keyAlgorithm,
+    verificationMethodId: params.verificationMethodId,
+    identityVerification: {
+      method: params.method,
+      verifiedDomain: params.domain,
+      verifiedAt: new Date().toISOString(),
+      sourceCredentialId: params.sourceCredentialId,
+    },
+    organizationName: params.organizationName,
   });
+
+  // Sign with VC-JWT (same pattern as credentials.ts)
+  const vcAsRecord = unsigned as unknown as Record<string, unknown>;
+  const { signingInput } = prepareVcJwtProof(vcAsRecord, signer.algorithm, {
+    verificationMethod: signer.id,
+  });
+  const dataToSign = new TextEncoder().encode(signingInput);
+  const signatureBytes = await signer.sign(dataToSign);
+  const jwt = completeVcJwtProof(signingInput, signatureBytes);
+
+  return {
+    ...unsigned,
+    proof: { type: "JsonWebSignature2020", jwt },
+  };
+}
+
+// --- Endpoints ---
+
+/**
+ * POST /attestation/challenge
+ *
+ * Create a domain verification challenge (DNS TXT or HTTP).
+ */
+attestation.post("/attestation/challenge", async (c) => {
+  const body = await c.req.json();
+  const parsed = challengeRequestSchema.parse(body);
+
+  // Generate a challenge token, then store it so we can verify later.
+  // We use ChallengeStore.create() which produces its own ID and stores
+  // the token. The returned DomainChallenge.id is used as the challengeId.
+  const details = generateChallenge(parsed.domain, parsed.method);
+  const stored = challengeStore.create(parsed.domain, parsed.method, details.token);
+
+  const instructions = parsed.method === "dns-txt"
+    ? `Add a DNS TXT record to ${parsed.domain} with value: ${DNS_TXT_PREFIX}${details.token}`
+    : `Place the token at https://${parsed.domain}/${WELL_KNOWN_PATH}/${stored.id}`;
 
   return c.json({
-    challengeId: id,
-    nonce,
-    expiresAt: expires.toISOString(),
+    challengeId: stored.id,
+    token: details.token,
+    instructions,
+    expiresAt: stored.expiresAt.toISOString(),
   });
 });
 
+/**
+ * POST /attestation/challenge/:id/verify
+ *
+ * Verify domain ownership via a previously created challenge,
+ * then build and sign a Key Attestation VC.
+ */
 attestation.post("/attestation/challenge/:id/verify", async (c) => {
-  const id = c.req.param("id");
-  const challenge = challenges.get(id);
+  const challengeId = c.req.param("id");
 
+  // Check if challenge exists
+  const challenge = challengeStore.get(challengeId);
   if (!challenge) {
-    return c.json({ error: { code: "NOT_FOUND", message: "Challenge not found or expired" } }, 404);
+    // Could be expired or never existed
+    return c.json(
+      { error: { code: "NOT_FOUND", message: "Challenge not found or expired" } },
+      404,
+    );
   }
 
-  if (new Date() > new Date(challenge.expiresAt)) {
-    challenges.delete(id);
-    return c.json({ error: { code: "EXPIRED", message: "Challenge has expired" } }, 410);
+  if (challenge.expiresAt <= new Date()) {
+    challengeStore.delete(challengeId);
+    return c.json(
+      { error: { code: "EXPIRED", message: "Challenge has expired" } },
+      410,
+    );
   }
 
-  // Full implementation requires OpenCred DSC + Cloud HSM signing
-  throw new NotImplementedError(
-    "Attestation verification requires Cloud HSM integration (Phase 7)",
-  );
+  const body = await c.req.json();
+  const parsed = verifyRequestSchema.parse(body);
+
+  // Verify domain ownership
+  const result = await verifyDomainOwnership(challengeId, challengeStore);
+
+  if (!result.verified) {
+    return c.json(
+      { error: { code: "VERIFICATION_FAILED", message: result.error ?? "Domain verification failed" } },
+      400,
+    );
+  }
+
+  // Delete challenge (single-use)
+  challengeStore.delete(challengeId);
+
+  // Build and sign attestation VC
+  const credential = await buildAndSignAttestation({
+    issuerDid: parsed.issuerDid,
+    publicKeyJwk: parsed.publicKeyJwk as Record<string, unknown>,
+    keyFingerprint: parsed.keyFingerprint,
+    keyAlgorithm: parsed.keyAlgorithm,
+    verificationMethodId: parsed.verificationMethodId,
+    organizationName: parsed.organizationName,
+    domain: challenge.domain,
+    method: challenge.method as IdentityVerificationMethod,
+  });
+
+  return c.json({ credential });
 });
 
-export { attestation };
+/**
+ * POST /attestation/attest-by-vc
+ *
+ * Alternative attestation path: submit a verified business VC
+ * instead of a domain challenge. OpenCred verifies the VC,
+ * extracts identity, and signs a Key Attestation VC.
+ */
+attestation.post("/attestation/attest-by-vc", async (c) => {
+  const body = await c.req.json();
+  const parsed = attestByVcRequestSchema.parse(body);
+
+  // Verify the business VC
+  const verification = await verifyBusinessVc(parsed.businessVc);
+
+  if (!verification.verification.verified) {
+    const failedCheck = verification.verification.checks.find((ch) => !ch.passed);
+    const detail = failedCheck?.detail ?? "unknown error";
+    return c.json(
+      {
+        error: {
+          code: "BUSINESS_VC_INVALID",
+          message: `Business VC verification failed: ${detail}`,
+        },
+      },
+      400,
+    );
+  }
+
+  if (!verification.identity) {
+    return c.json(
+      { error: { code: "IDENTITY_EXTRACTION_FAILED", message: "Could not extract identity from business VC" } },
+      400,
+    );
+  }
+
+  const organizationName = verification.identity.organizationName ?? "Unknown Organization";
+  const domain = verification.identity.subjectId ?? "verified-by-vc";
+
+  // Extract a credential ID for audit trail
+  let sourceCredentialId: string | undefined;
+  if (typeof parsed.businessVc === "object") {
+    sourceCredentialId = (parsed.businessVc as Record<string, unknown>).id as string | undefined;
+  }
+
+  const credential = await buildAndSignAttestation({
+    issuerDid: parsed.issuerDid,
+    publicKeyJwk: parsed.publicKeyJwk as Record<string, unknown>,
+    keyFingerprint: parsed.keyFingerprint,
+    keyAlgorithm: parsed.keyAlgorithm,
+    verificationMethodId: parsed.verificationMethodId,
+    organizationName,
+    domain,
+    method: "business-vc",
+    sourceCredentialId,
+  });
+
+  return c.json({ credential });
+});
+
+export { attestation, challengeStore };

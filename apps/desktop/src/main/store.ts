@@ -63,6 +63,8 @@ export interface StoreSchema {
    * each session.
    */
   persistKeyPaths: boolean;
+  /** OpenCred attestation API URL. */
+  opencredApiUrl: string;
   /** Custom user preferences — intentionally loosely typed for extensibility. */
   preferences: Record<string, unknown>;
   /** Recently issued credentials (capped at CREDENTIAL_HISTORY_CAP). */
@@ -76,6 +78,7 @@ const DEFAULTS: StoreSchema = {
   theme: "system",
   offlineMode: false,
   bugReportFormUrl: "https://forms.gle/f1wFUhzN1VwgR5QD6",
+  opencredApiUrl: "https://api.opencred.dev",
   persistKeyPaths: true,
   preferences: {},
   credentialHistory: [],

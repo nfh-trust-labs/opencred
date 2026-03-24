@@ -30,7 +30,6 @@ function validAttestationCredential(): Record<string, unknown> {
         method: "dns-txt",
         verifiedDomain: "university.example",
         verifiedAt: "2026-03-10T12:00:00Z",
-        challengeId: "urn:uuid:test-challenge",
       },
       organizationName: "Example University",
     },
