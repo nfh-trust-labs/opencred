@@ -1386,6 +1386,104 @@ async function handleCustomSchemaDelete(
 }
 
 // ---------------------------------------------------------------------------
+// Persisted key reload
+// ---------------------------------------------------------------------------
+
+/**
+ * Reload signing keys from persisted file paths on app startup.
+ *
+ * Reads `persistKeyPaths` and `preferences.importedKeyPaths` from the
+ * electron-store. For each saved path, attempts to re-create the signer.
+ * On failure (file moved/deleted), logs a warning and removes the stale
+ * entry from the store. If `lastKeyId` is set, verifies it was loaded.
+ *
+ * SECURITY: Private key material is NEVER logged — only key ID and fingerprint.
+ */
+export function reloadPersistedKeys(): void {
+  try {
+    const store = getStore();
+    const shouldPersist = store.get("persistKeyPaths" as keyof typeof store.store) ?? true;
+
+    if (!shouldPersist) {
+      console.log("[key-reload] persistKeyPaths is disabled — skipping auto-reload");
+      return;
+    }
+
+    const prefs =
+      (store.get("preferences" as keyof typeof store.store) as Record<string, unknown>) ?? {};
+    const savedPaths = (prefs["importedKeyPaths"] as Record<string, string>) ?? {};
+
+    const keyIds = Object.keys(savedPaths);
+    if (keyIds.length === 0) {
+      console.log("[key-reload] No persisted key paths found");
+      return;
+    }
+
+    console.log(`[key-reload] Attempting to reload ${keyIds.length} persisted key(s)`);
+
+    const stalePaths: string[] = [];
+
+    for (const keyId of keyIds) {
+      const filePath = savedPaths[keyId];
+      try {
+        const { signer, format } = createSoftwareSigner(filePath);
+
+        const meta: KeyMetadata = {
+          id: signer.id,
+          fingerprint: signer.metadata.fingerprint,
+          algorithm: "ECDSA P-256",
+          importedAt: new Date().toISOString(),
+          label: undefined,
+          format,
+          source: "file",
+        };
+
+        importedKeys.set(signer.id, meta);
+        loadedSigners.set(signer.id, signer);
+
+        console.log(
+          `[key-reload] Loaded key id=${signer.id} fingerprint=${signer.metadata.fingerprint}`,
+        );
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.warn(`[key-reload] Failed to reload key id=${keyId} — ${reason}`);
+        stalePaths.push(keyId);
+      }
+    }
+
+    // Remove stale entries from the store
+    if (stalePaths.length > 0) {
+      const updatedPaths = { ...savedPaths };
+      for (const staleId of stalePaths) {
+        delete updatedPaths[staleId];
+      }
+      store.set("preferences" as keyof typeof store.store, {
+        ...prefs,
+        importedKeyPaths: updatedPaths,
+      });
+      console.warn(
+        `[key-reload] Removed ${stalePaths.length} stale key path(s) from store`,
+      );
+    }
+
+    // Verify lastKeyId was loaded
+    const lastKeyId = store.get("lastKeyId" as keyof typeof store.store) as string | undefined;
+    if (lastKeyId && !loadedSigners.has(lastKeyId)) {
+      console.warn(
+        `[key-reload] lastKeyId=${lastKeyId} was not loaded — it may need to be re-imported`,
+      );
+    }
+
+    console.log(
+      `[key-reload] Reload complete: ${importedKeys.size} key(s) available`,
+    );
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(`[key-reload] Failed to reload persisted keys — ${reason}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Registration / cleanup
 // ---------------------------------------------------------------------------
 

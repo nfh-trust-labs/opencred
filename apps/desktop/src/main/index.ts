@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-import { registerIpcHandlers, cleanupIpcHandlers } from "./ipc-handlers.js";
+import { registerIpcHandlers, cleanupIpcHandlers, reloadPersistedKeys } from "./ipc-handlers.js";
 import { initStore } from "./store.js";
 import { initAutoUpdater, cleanupAutoUpdater } from "./auto-updater.js";
 import { checkForSchemaUpdatesAtStartup } from "./schema-updater.js";
@@ -156,6 +156,7 @@ function buildAppMenu(): void {
 app.whenReady().then(() => {
   initStore();
   registerIpcHandlers();
+  reloadPersistedKeys();
   buildAppMenu();
   createWindow();
 
