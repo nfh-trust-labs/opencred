@@ -84,6 +84,8 @@ import type {
   CustomSchemaSaveResponse,
   CustomSchemaDeleteRequest,
   CustomSchemaDeleteResponse,
+  SystemInfoResponse,
+  LogTailResponse,
   OpenCredDesktopAPI,
 } from "../shared/ipc-types.js";
 
@@ -235,6 +237,13 @@ const api: OpenCredDesktopAPI = {
 
   setConfig: (key: string, value: unknown): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SET_CONFIG, { key, value }),
+
+  // System / diagnostics
+  getSystemInfo: (): Promise<SystemInfoResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_INFO),
+
+  getRecentLogs: (lines?: number): Promise<LogTailResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.LOG_TAIL, { lines }),
 };
 
 console.log("[preload] about to expose API on window.opencred");

@@ -125,6 +125,12 @@ export const IPC_CHANNELS = {
   GET_CONFIG: "config:get",
   /** Write a config value. Payload: { key, value }. Response: void. */
   SET_CONFIG: "config:set",
+
+  // --- System / diagnostics ---
+  /** Get system info (app version, OS, paths). Response: SystemInfoResponse. */
+  SYSTEM_INFO: "system:info",
+  /** Read recent log lines from the log file. Response: LogTailResponse. */
+  LOG_TAIL: "log:tail",
 } as const;
 
 /** Union type of all IPC channel name values. */

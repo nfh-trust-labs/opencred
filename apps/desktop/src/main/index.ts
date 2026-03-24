@@ -25,6 +25,22 @@ import { registerIpcHandlers, cleanupIpcHandlers } from "./ipc-handlers.js";
 import { initStore } from "./store.js";
 import { initAutoUpdater, cleanupAutoUpdater } from "./auto-updater.js";
 import { checkForSchemaUpdatesAtStartup } from "./schema-updater.js";
+import { createLogger } from "./logger.js";
+
+// ---------------------------------------------------------------------------
+// Global crash handlers — catch unhandled errors before app.whenReady()
+// ---------------------------------------------------------------------------
+
+const crashLogger = createLogger("crash");
+
+process.on("uncaughtException", (error) => {
+  crashLogger.error("Uncaught exception", { error: error.message, stack: error.stack });
+});
+
+process.on("unhandledRejection", (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  crashLogger.error("Unhandled rejection", { reason: msg });
+});
 
 let mainWindow: BrowserWindow | null = null;
 

@@ -54,6 +54,8 @@ export interface StoreSchema {
   theme: "light" | "dark" | "system";
   /** Whether to start in offline-first mode. */
   offlineMode: boolean;
+  /** URL for the bug report Google Form (configurable). */
+  bugReportFormUrl: string;
   /**
    * Whether to persist imported key file paths in the config store.
    * When true (default), key file paths are saved so they can be auto-reloaded
@@ -73,6 +75,7 @@ const DEFAULTS: StoreSchema = {
   lastKeyId: undefined,
   theme: "system",
   offlineMode: false,
+  bugReportFormUrl: "https://forms.gle/f1wFUhzN1VwgR5QD6",
   persistKeyPaths: true,
   preferences: {},
   credentialHistory: [],

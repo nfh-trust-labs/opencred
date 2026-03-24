@@ -3,6 +3,8 @@ name: Desktop Release
 on:
   push:
     tags: ['v*']
+  workflow_call:
+    secrets: inherit
 
 permissions:
   contents: write

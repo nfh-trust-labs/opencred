@@ -6,7 +6,8 @@ name: Docker
 # Builds, scans, and pushes the apps/server Docker image.
 #
 # - PRs: build + Trivy vulnerability scan (validates Dockerfile compiles)
-# - Merge to new-opencred-dev: build + scan + tag + push to GHCR
+# - Push to new-opencred-dev: build + scan
+# - v* tags: build + scan + push to GHCR + smoke test
 # ==============================================================================
 
 on:
@@ -23,15 +24,9 @@ on:
       - ".github/workflows/docker.yml"
   push:
     branches: [new-opencred-dev]
-    paths:
-      - "apps/server/Dockerfile"
-      - "apps/server/src/**"
-      - "apps/server/package.json"
-      - "docker-compose.yml"
-      - ".dockerignore"
-      - "packages/**"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/docker.yml"
+    tags: ['v*']
+    # Note: no paths filter on push — tags don't carry a changed-files diff,
+    # so paths would prevent tag pushes from triggering. PRs still use paths.
 
 env:
   REGISTRY: ghcr.io
@@ -76,12 +71,12 @@ jobs:
           ignore-unfixed: true
 
   # --------------------------------------------------------------------------
-  # Push to GHCR on merge to new-opencred-dev (not on PRs)
+  # Push to GHCR on v* tags
   # --------------------------------------------------------------------------
   docker-push:
     name: Push to GHCR
     needs: docker-build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/new-opencred-dev'
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -97,13 +92,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from package.json
+      - name: Extract version from tag
         id: version
+        env:
+          GIT_REF: ${{ github.ref_name }}
         run: |
-          VERSION=$(node -p "require('./apps/server/package.json').version")
+          # Strip leading 'v' from tag (v1.2.3 -> 1.2.3)
+          VERSION="${GIT_REF#v}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          SHA_SHORT=$(git rev-parse --short HEAD)
-          echo "sha_short=${SHA_SHORT}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -112,11 +108,63 @@ jobs:
           file: apps/server/Dockerfile
           push: true
           tags: |
-            ${{ env.SERVER_IMAGE }}:${{ steps.version.outputs.sha_short }}
             ${{ env.SERVER_IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ env.SERVER_IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
+
+  # --------------------------------------------------------------------------
+  # Smoke test after push
+  # --------------------------------------------------------------------------
+  smoke-test:
+    name: Smoke Test
+    needs: docker-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        env:
+          GIT_REF: ${{ github.ref_name }}
+        run: |
+          VERSION="${GIT_REF#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and run container
+        env:
+          IMAGE_TAG: ${{ steps.version.outputs.version }}
+        run: |
+          docker run -d --name opencred-smoke \
+            -p 3100:3100 \
+            -e OPENCRED_LOG_LEVEL=info \
+            "$SERVER_IMAGE:$IMAGE_TAG"
+
+          # Wait for container to start
+          sleep 5
+
+          # Health check
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3100/health)
+          echo "Health check returned: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Smoke test failed — /health returned $HTTP_CODE"
+            docker logs opencred-smoke
+            exit 1
+          fi
+
+          echo "Smoke test passed"
+          docker stop opencred-smoke
+          docker rm opencred-smoke
