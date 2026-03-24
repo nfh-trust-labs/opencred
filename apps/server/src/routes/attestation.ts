@@ -14,9 +14,9 @@
 
 import { Hono } from "hono";
 import { z } from "zod";
+import { randomBytes } from "node:crypto";
 import {
   ChallengeStore,
-  generateChallenge,
   verifyDomainOwnership,
   DNS_TXT_PREFIX,
   WELL_KNOWN_PATH,
@@ -120,19 +120,17 @@ attestation.post("/attestation/challenge", async (c) => {
   const body = await c.req.json();
   const parsed = challengeRequestSchema.parse(body);
 
-  // Generate a challenge token, then store it so we can verify later.
-  // We use ChallengeStore.create() which produces its own ID and stores
-  // the token. The returned DomainChallenge.id is used as the challengeId.
-  const details = generateChallenge(parsed.domain, parsed.method);
-  const stored = challengeStore.create(parsed.domain, parsed.method, details.token);
+  // Generate a CSPRNG token (256-bit entropy) and store via ChallengeStore.
+  const token = randomBytes(32).toString("hex");
+  const stored = challengeStore.create(parsed.domain, parsed.method, token);
 
   const instructions = parsed.method === "dns-txt"
-    ? `Add a DNS TXT record to ${parsed.domain} with value: ${DNS_TXT_PREFIX}${details.token}`
+    ? `Add a DNS TXT record to ${parsed.domain} with value: ${DNS_TXT_PREFIX}${token}`
     : `Place the token at https://${parsed.domain}/${WELL_KNOWN_PATH}/${stored.id}`;
 
   return c.json({
     challengeId: stored.id,
-    token: details.token,
+    token,
     instructions,
     expiresAt: stored.expiresAt.toISOString(),
   });
@@ -147,21 +145,12 @@ attestation.post("/attestation/challenge", async (c) => {
 attestation.post("/attestation/challenge/:id/verify", async (c) => {
   const challengeId = c.req.param("id");
 
-  // Check if challenge exists
+  // ChallengeStore.get() returns undefined for expired or missing challenges
   const challenge = challengeStore.get(challengeId);
   if (!challenge) {
-    // Could be expired or never existed
     return c.json(
       { error: { code: "NOT_FOUND", message: "Challenge not found or expired" } },
       404,
-    );
-  }
-
-  if (challenge.expiresAt <= new Date()) {
-    challengeStore.delete(challengeId);
-    return c.json(
-      { error: { code: "EXPIRED", message: "Challenge has expired" } },
-      410,
     );
   }
 
@@ -231,8 +220,14 @@ attestation.post("/attestation/attest-by-vc", async (c) => {
     );
   }
 
-  const organizationName = verification.identity.organizationName ?? "Unknown Organization";
-  const domain = verification.identity.subjectId ?? "verified-by-vc";
+  const organizationName = verification.identity.organizationName;
+  if (!organizationName) {
+    return c.json(
+      { error: { code: "IDENTITY_EXTRACTION_FAILED", message: "Business VC does not contain an organization name" } },
+      400,
+    );
+  }
+  const domain = verification.identity.subjectId ?? organizationName;
 
   // Extract a credential ID for audit trail
   let sourceCredentialId: string | undefined;
@@ -255,4 +250,4 @@ attestation.post("/attestation/attest-by-vc", async (c) => {
   return c.json({ credential });
 });
 
-export { attestation, challengeStore };
+export { attestation };
