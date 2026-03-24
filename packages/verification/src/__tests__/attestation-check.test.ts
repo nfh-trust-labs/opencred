@@ -151,7 +151,6 @@ function validAttestationVC(): Record<string, unknown> {
         method: "dns-txt",
         verifiedDomain: "university.example",
         verifiedAt: "2025-06-01T00:00:00Z",
-        challengeId: "urn:uuid:challenge-id",
       },
       organizationName: "Example University",
     },

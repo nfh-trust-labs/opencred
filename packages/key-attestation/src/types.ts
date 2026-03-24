@@ -31,7 +31,8 @@ export interface IdentityVerification {
   method: IdentityVerificationMethod;
   verifiedDomain: string;
   verifiedAt: string;
-  challengeId: string;
+  /** ID of the business VC used for verification (business-vc method only). */
+  sourceCredentialId?: string;
 }
 
 /** The credentialSubject of a Key Attestation VC. */

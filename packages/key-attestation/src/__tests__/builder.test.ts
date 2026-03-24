@@ -16,7 +16,6 @@ function validParams(): CreateKeyAttestationParams {
       method: "dns-txt",
       verifiedDomain: "university.example",
       verifiedAt: "2026-03-10T12:00:00Z",
-      challengeId: "urn:uuid:test-challenge",
     },
     organizationName: "Example University",
   };
@@ -70,7 +69,32 @@ describe("createKeyAttestationVC", () => {
     expect(iv.method).toBe("dns-txt");
     expect(iv.verifiedDomain).toBe("university.example");
     expect(iv.verifiedAt).toBe("2026-03-10T12:00:00Z");
-    expect(iv.challengeId).toBe("urn:uuid:test-challenge");
+  });
+
+  it("requires sourceCredentialId for business-vc method", () => {
+    const params = validParams();
+    params.identityVerification = {
+      method: "business-vc",
+      verifiedDomain: "example.com",
+      verifiedAt: "2026-03-10T12:00:00Z",
+    };
+
+    expect(() => createKeyAttestationVC(params)).toThrow(
+      "identityVerification.sourceCredentialId is required for business-vc method",
+    );
+  });
+
+  it("accepts business-vc method with sourceCredentialId", () => {
+    const params = validParams();
+    params.identityVerification = {
+      method: "business-vc",
+      verifiedDomain: "example.com",
+      verifiedAt: "2026-03-10T12:00:00Z",
+      sourceCredentialId: "urn:uuid:biz-vc-123",
+    };
+
+    const vc = createKeyAttestationVC(params);
+    expect(vc.credentialSubject.identityVerification.sourceCredentialId).toBe("urn:uuid:biz-vc-123");
   });
 
   it("defaults validFrom to now and validUntil to 1 year from now", () => {

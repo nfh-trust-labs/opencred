@@ -25,7 +25,6 @@ function validAttestation(): Record<string, unknown> {
         method: "dns-txt",
         verifiedDomain: "university.example",
         verifiedAt: "2026-03-10T12:00:00Z",
-        challengeId: "urn:uuid:test-challenge",
       },
       organizationName: "Example University",
     },
@@ -260,6 +259,38 @@ describe("validateKeyAttestation", () => {
 
     expect(result.valid).toBe(false);
     expect(result.errors[0]).toContain("Verification method mismatch");
+  });
+
+  // sourceCredentialId validation for business-vc
+  it("requires sourceCredentialId for business-vc method", () => {
+    const attestation = validAttestation();
+    const subject = attestation["credentialSubject"] as Record<string, unknown>;
+    subject["identityVerification"] = {
+      method: "business-vc",
+      verifiedDomain: "example.com",
+      verifiedAt: "2026-03-10T12:00:00Z",
+    };
+
+    const result = validateKeyAttestation(attestation);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "identityVerification.sourceCredentialId is required for business-vc method",
+    );
+  });
+
+  it("accepts business-vc method with sourceCredentialId", () => {
+    const attestation = validAttestation();
+    const subject = attestation["credentialSubject"] as Record<string, unknown>;
+    subject["identityVerification"] = {
+      method: "business-vc",
+      verifiedDomain: "example.com",
+      verifiedAt: "2026-03-10T12:00:00Z",
+      sourceCredentialId: "urn:uuid:biz-vc-123",
+    };
+
+    const result = validateKeyAttestation(attestation);
+    expect(result.valid).toBe(true);
   });
 
   // Multiple errors

@@ -1,11 +1,12 @@
 /**
  * AttestationResultStep — Quick Start final step showing attestation result.
  *
- * Displays the received Key Attestation VC details and allows the user
- * to store it and proceed to credential issuance.
+ * Displays the received Key Attestation VC details. The attestation is
+ * already stored by the IPC handler (storeAttestation is called in
+ * handleAttestationSubmitVerification / handleAttestationSubmitBusinessVc),
+ * so this component only presents the details and a Continue button.
  */
 
-import { useState } from "react";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
 import { Badge } from "./ui/Badge";
@@ -25,35 +26,9 @@ export function AttestationResultStep({
   domain,
   onComplete,
 }: AttestationResultStepProps) {
-  const [storing, setStoring] = useState(false);
-  const [stored, setStored] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   const validFrom = attestationCredential.validFrom as string | undefined;
   const validUntil = attestationCredential.validUntil as string | undefined;
   const issuer = attestationCredential.issuer as string | undefined;
-
-  async function handleStore() {
-    setStoring(true);
-    setError(null);
-
-    try {
-      const result = await window.opencred.attestation.import({
-        keyId,
-        credential: attestationCredential,
-      });
-
-      if (result.success) {
-        setStored(true);
-      } else {
-        setError(result.error ?? "Failed to store attestation");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to store attestation");
-    } finally {
-      setStoring(false);
-    }
-  }
 
   return (
     <Card className="space-y-6">
@@ -102,34 +77,19 @@ export function AttestationResultStep({
         </dl>
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3">
-          <p className="text-sm text-red-700">{error}</p>
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="flex items-center justify-between pt-2">
-        {!stored ? (
-          <Button onClick={() => void handleStore()} disabled={storing}>
-            {storing ? "Storing..." : "Store Attestation"}
-          </Button>
-        ) : (
-          <Button onClick={onComplete}>
-            Start Issuing Credentials
-          </Button>
-        )}
+      <div className="rounded-md border border-green-200 bg-green-50 p-3">
+        <p className="text-sm text-green-700">
+          Attestation stored. Your credentials will now include this attestation
+          in their proof, establishing a verifiable trust chain.
+        </p>
       </div>
 
-      {stored && (
-        <div className="rounded-md border border-green-200 bg-green-50 p-3">
-          <p className="text-sm text-green-700">
-            Attestation stored. Your credentials will now include this attestation
-            in their proof, establishing a verifiable trust chain.
-          </p>
-        </div>
-      )}
+      {/* Actions */}
+      <div className="flex items-center justify-end pt-2">
+        <Button onClick={onComplete}>
+          Start Issuing Credentials
+        </Button>
+      </div>
     </Card>
   );
 }

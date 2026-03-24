@@ -661,6 +661,48 @@ export interface AttestationCheckResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Attestation API (OpenCred-Attested onboarding)
+// ---------------------------------------------------------------------------
+
+export interface AttestationRequestChallengeRequest {
+  domain: string;
+  method: "dns-txt" | "http";
+}
+
+export interface AttestationRequestChallengeResponse {
+  success: boolean;
+  challengeId?: string;
+  token?: string;
+  instructions?: string;
+  expiresAt?: string;
+  error?: string;
+}
+
+export interface AttestationSubmitVerificationRequest {
+  challengeId: string;
+  keyId: string;
+  domain: string;
+  organizationName: string;
+}
+
+export interface AttestationSubmitVerificationResponse {
+  success: boolean;
+  credential?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface AttestationSubmitBusinessVcRequest {
+  businessVc: string | Record<string, unknown>;
+  keyId: string;
+}
+
+export interface AttestationSubmitBusinessVcResponse {
+  success: boolean;
+  credential?: Record<string, unknown>;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Credential history
 // ---------------------------------------------------------------------------
 
@@ -831,5 +873,8 @@ export interface OpenCredDesktopAPI {
     list: () => Promise<AttestationListResponse>;
     remove: (request: AttestationRemoveRequest) => Promise<AttestationRemoveResponse>;
     check: (request: AttestationCheckRequest) => Promise<AttestationCheckResponse>;
+    requestChallenge: (request: AttestationRequestChallengeRequest) => Promise<AttestationRequestChallengeResponse>;
+    submitVerification: (request: AttestationSubmitVerificationRequest) => Promise<AttestationSubmitVerificationResponse>;
+    submitBusinessVc: (request: AttestationSubmitBusinessVcRequest) => Promise<AttestationSubmitBusinessVcResponse>;
   };
 }
