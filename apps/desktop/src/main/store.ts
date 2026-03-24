@@ -11,6 +11,7 @@
 
 import ElectronStore from "electron-store";
 import * as fs from "node:fs";
+import type { StoredAttestation } from "./attestation-store.js";
 
 /** A record of a previously issued credential (stored locally). */
 export interface CredentialHistoryEntry {
@@ -67,6 +68,8 @@ export interface StoreSchema {
   credentialHistory: CredentialHistoryEntry[];
   /** User-created custom schemas for blank credentials. */
   customSchemas: CustomSchemaEntry[];
+  /** Persisted Key Attestation Credentials (survive app restarts). */
+  attestations: StoredAttestation[];
 }
 
 const DEFAULTS: StoreSchema = {
@@ -77,6 +80,7 @@ const DEFAULTS: StoreSchema = {
   preferences: {},
   credentialHistory: [],
   customSchemas: [],
+  attestations: [],
 };
 
 let store: ElectronStore<StoreSchema> | null = null;
