@@ -31,15 +31,15 @@ import { createLogger } from "./logger.js";
 // Global crash handlers — catch unhandled errors before app.whenReady()
 // ---------------------------------------------------------------------------
 
-const crashLogger = createLogger("crash");
+const logger = createLogger("main");
 
 process.on("uncaughtException", (error) => {
-  crashLogger.error("Uncaught exception", { error: error.message, stack: error.stack });
+  logger.error("Uncaught exception", { error: error.message, stack: error.stack });
 });
 
 process.on("unhandledRejection", (reason) => {
   const msg = reason instanceof Error ? reason.message : String(reason);
-  crashLogger.error("Unhandled rejection", { reason: msg });
+  logger.error("Unhandled rejection", { reason: msg });
 });
 
 let mainWindow: BrowserWindow | null = null;
@@ -49,7 +49,7 @@ const DEV_SERVER_URL = "http://localhost:5174";
 
 function createWindow(): void {
   const preloadPath = path.join(__dirname, "..", "..", "preload", "main", "preload.cjs");
-  console.log("[main] preload path:", preloadPath);
+  logger.debug("Preload path resolved", { preloadPath });
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -67,7 +67,7 @@ function createWindow(): void {
 
   // Forward renderer console to main process stdout for debugging.
   mainWindow.webContents.on("console-message", (_ev, _level, message) => {
-    console.log("[renderer]", message);
+    logger.debug("[renderer] " + message);
   });
 
   // Show the window once the renderer is ready to avoid a blank flash.
@@ -170,10 +170,12 @@ function buildAppMenu(): void {
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(() => {
+  logger.info("App ready, initialising");
   initStore();
   registerIpcHandlers();
   buildAppMenu();
   createWindow();
+  logger.info("Window created");
 
   // Initialise auto-updater after the window is ready (checks GitHub Releases).
   if (!IS_DEV) {
@@ -183,7 +185,7 @@ app.whenReady().then(() => {
   // Check for schema updates in the background (non-blocking).
   // App starts immediately with bundled schemas; updates are cached for next launch.
   checkForSchemaUpdatesAtStartup().catch((err: unknown) => {
-    console.warn("[schema-updater] Background schema update check failed:", err instanceof Error ? err.message : String(err));
+    logger.warn("Background schema update check failed", { error: err instanceof Error ? err.message : String(err) });
   });
 
   app.on("activate", () => {
@@ -201,6 +203,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  logger.info("App shutting down");
   cleanupAutoUpdater();
   cleanupIpcHandlers();
 });

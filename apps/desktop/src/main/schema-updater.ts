@@ -13,6 +13,9 @@
 
 import { app } from "electron";
 import * as path from "node:path";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("schema-updater");
 import {
   getSchemaManifest,
   checkForSchemaUpdates,
@@ -48,22 +51,20 @@ export async function checkForSchemaUpdatesAtStartup(): Promise<void> {
   const updateUrl = DEFAULT_SCHEMA_UPDATE_URL;
   const cacheDir = getSchemaCacheDir();
 
-  console.log("[schema-updater] Starting background schema update check");
+  logger.info("Starting background schema update check");
 
   // 1. Get the current bundled manifest
   const currentManifest = getSchemaManifest();
-  console.log(
-    `[schema-updater] Current manifest: ${currentManifest.schemas.length} schemas`,
-  );
+  logger.info("Current manifest", { schemaCount: currentManifest.schemas.length });
 
   // 2. Check for updates
   const result = await checkForSchemaUpdates(currentManifest, updateUrl);
   if (!result.hasUpdates) {
-    console.log("[schema-updater] No schema updates available");
+    logger.info("No schema updates available");
     return;
   }
 
-  console.log(`[schema-updater] Updates available for: ${result.updatedIds.join(", ")}`);
+  logger.info("Schema updates available", { updatedIds: result.updatedIds });
 
   // 3. Download updated schemas and validate checksums
   const checksumLookup = new Map(
@@ -73,31 +74,29 @@ export async function checkForSchemaUpdatesAtStartup(): Promise<void> {
   for (const schemaId of result.updatedIds) {
     const schema = await downloadSchema(schemaId, updateUrl);
     if (!schema) {
-      console.warn(`[schema-updater] Failed to download: ${schemaId}`);
+      logger.warn("Failed to download schema", { schemaId });
       continue;
     }
 
     // Validate checksum to prevent tampered/corrupted schemas from being cached
     const expectedChecksum = checksumLookup.get(schemaId);
     if (expectedChecksum && !validateSchemaChecksum(schema, expectedChecksum)) {
-      console.warn(
-        `[schema-updater] Checksum mismatch for ${schemaId} — discarding (possible tampering)`,
-      );
+      logger.warn("Schema checksum mismatch — discarding", { schemaId });
       continue;
     }
 
     downloaded.push(schema);
-    console.log(`[schema-updater] Downloaded and verified: ${schemaId}@${schema.version}`);
+    logger.info("Schema downloaded and verified", { schemaId, version: schema.version });
   }
 
   if (downloaded.length === 0) {
-    console.log("[schema-updater] No schemas were successfully downloaded");
+    logger.info("No schemas were successfully downloaded");
     return;
   }
 
   // 4. Cache to disk
   await saveSchemasToCache(downloaded, cacheDir);
-  console.log(`[schema-updater] Cached ${downloaded.length} schema updates to ${cacheDir}`);
+  logger.info("Schema updates cached", { count: downloaded.length, cacheDir });
 }
 
 /**
