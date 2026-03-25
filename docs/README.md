@@ -13,7 +13,7 @@ OpenCred is a local-first platform for issuing and verifying W3C Verifiable Cred
 
 ## Docker Image (Self-Hosted)
 
-The Docker image is the headless version of the Desktop app for deploying in your own infrastructure. All credential operations run locally — the only interaction with OpenCred is the [Key Attestation](desktop/attestation.md) flow via the OpenCred website.
+The Docker image is the headless version of the Desktop app for deploying in your own infrastructure. All operations run locally — no data is sent to OpenCred.
 
 - [Getting Started](server/getting-started.md) — Docker build, env setup, first request
 - [Configuration Reference](server/configuration.md) — all environment variables
