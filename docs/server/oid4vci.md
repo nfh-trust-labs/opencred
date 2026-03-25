@@ -1,6 +1,6 @@
 # OID4VCI (OpenID for Verifiable Credential Issuance)
 
-OpenCred Server implements the Credential Issuer role of the OID4VCI specification, supporting the **pre-authorized code** grant type.
+Your OpenCred Docker deployment can act as a Credential Issuer under the OID4VCI specification, supporting the **pre-authorized code** grant type. This runs entirely in your infrastructure.
 
 ## Configuration
 
@@ -15,7 +15,7 @@ Set these environment variables to enable OID4VCI:
 ## Protocol Flow
 
 ```
-1. Server creates a credential offer (POST /oid4vci/offers)
+1. Your server creates a credential offer (POST /oid4vci/offers)
    |
 2. Offer URI is presented to wallet (QR code or deep link)
    openid-credential-offer://...
@@ -24,7 +24,7 @@ Set these environment variables to enable OID4VCI:
    |
 4. Wallet requests credential with proof-of-possession (POST /oid4vci/credential)
    |
-5. Server issues credential and returns it to wallet
+5. Your server issues credential and returns it to wallet
 ```
 
 ## Credential Formats

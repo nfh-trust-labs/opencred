@@ -11,4 +11,4 @@ Template-based credential issuance. Designed as horizontally reusable infrastruc
 See [docs/README.md](docs/README.md) for the full documentation, including:
 
 - **[Desktop App](docs/desktop/getting-started.md)** — Electron app for interactive credential issuance with local signing
-- **[Server / Docker](docs/server/getting-started.md)** — Headless HTTP API and CLI for cloud deployment
+- **[Docker Image](docs/server/getting-started.md)** — Self-hosted headless version for your own infrastructure

@@ -1,24 +1,22 @@
-# Getting Started with OpenCred Server
+# Getting Started with the OpenCred Docker Image
 
-OpenCred Server is a headless HTTP API for credential issuance, verification, and packaging. It provides the same credential capabilities as the Desktop app, minus the GUI. Designed for Docker deployment with support for file-based and Cloud HSM signing keys.
+The OpenCred Docker Image is the headless version of the Desktop app — same credential capabilities, no GUI. You deploy it in **your own infrastructure** and it runs entirely under your control. All signing uses your keys, on your machines. No data is sent to OpenCred.
+
+The only interaction with OpenCred is during the [OpenCred-Attested onboarding flow](../desktop/attestation.md), where the Desktop app or your integration calls the OpenCred website to request a Key Attestation VC after domain or business VC verification.
 
 ## Quick Start (Docker)
 
 ```bash
 # Build the image
-docker build -f apps/server/Dockerfile -t opencred-server:latest .
-
-# Create .env file
-cat > .env << 'EOF'
-OPENCRED_PORT=3100
-OPENCRED_API_KEY=your-secret-api-key
-OPENCRED_KEY_PATH=/secrets/issuer-key.pem
-EOF
+docker build -f apps/server/Dockerfile -t opencred:latest .
 
 # Run with a mounted signing key
-docker run -p 3100:3100 --env-file .env \
+docker run -p 3100:3100 \
+  -e OPENCRED_PORT=3100 \
+  -e OPENCRED_API_KEY=your-secret-api-key \
+  -e OPENCRED_KEY_PATH=/secrets/issuer-key.pem \
   -v /path/to/your/key.pem:/secrets/issuer-key.pem:ro \
-  opencred-server:latest
+  opencred:latest
 
 # Verify
 curl http://localhost:3100/health
@@ -42,7 +40,7 @@ pnpm dev
 
 ## Providing a Signing Key
 
-Two options:
+Your signing key stays in your infrastructure — it is loaded at startup and never transmitted.
 
 **File-based** (default): Set `OPENCRED_KEY_PATH` to a PEM, JWK, PKCS#8, or PFX file. For PFX, also set `OPENCRED_KEY_PASSWORD`.
 
@@ -68,6 +66,6 @@ If `signingKeyLoaded` is `false`, check your key path or KMS configuration.
 ## Next Steps
 
 - [Configuration Reference](configuration.md) -- all environment variables
-- [API Reference](api-reference.md) -- HTTP endpoints
+- [API Reference](api-reference.md) -- endpoints exposed by your deployment
 - [CLI Reference](cli-reference.md) -- command-line tool
 - [Cloud HSM](cloud-hsm.md) -- AWS KMS, Azure Key Vault, GCP Cloud KMS
