@@ -1,5 +1,5 @@
 /**
- * DSC (Document Signer Certificate) import module for the OpenCred desktop app.
+ * DSC (Digital Signature Certificate) import module for the OpenCred desktop app.
  *
  * Handles importing DSC files from PFX/P12 and PEM formats, extracting
  * certificate metadata, deriving DIDs from public keys, and providing

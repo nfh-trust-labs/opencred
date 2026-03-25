@@ -1,5 +1,5 @@
 /**
- * Tests for the DSC (Document Signer Certificate) import module.
+ * Tests for the DSC (Digital Signature Certificate) import module.
  *
  * Validates PFX/PEM import, certificate metadata extraction, DID derivation,
  * key storage, key listing, and the security invariant that private keys are

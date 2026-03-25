@@ -30,7 +30,7 @@ test.describe("Onboarding Wizard", () => {
     await page.click("button:has-text('Get Started')");
     await page.click("text=I have a DSC");
 
-    await expect(page.locator("text=Import your Document Signer Certificate")).toBeVisible();
+    await expect(page.locator("text=Import your Digital Signature Certificate")).toBeVisible();
 
     await page.click("button:has-text('Back')");
     await expect(page.locator("text=How would you like to get started")).toBeVisible();
@@ -46,7 +46,7 @@ test.describe("Onboarding Wizard", () => {
     await page.click("button:has-text('Get Started')");
     await page.click("text=I have a DSC");
 
-    await expect(page.locator("text=Import your Document Signer Certificate")).toBeVisible();
+    await expect(page.locator("text=Import your Digital Signature Certificate")).toBeVisible();
     await expect(page.locator("#pfx-password")).toBeVisible();
     await expect(page.locator("button:has-text('Choose File & Import')")).toBeVisible();
 

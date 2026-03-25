@@ -2,7 +2,7 @@
  * X.509 certificate chain verification.
  *
  * Validates the x5c certificate chain embedded in a credential's proof,
- * linking the signing key back to a DSC (Document Signer Certificate)
+ * linking the signing key back to a DSC (Digital Signature Certificate)
  * and optionally to a CSCA (Country Signing Certificate Authority).
  *
  * The x5c field follows JOSE conventions (RFC 7517 §4.7): an array of

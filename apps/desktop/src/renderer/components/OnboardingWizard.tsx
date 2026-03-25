@@ -115,7 +115,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
                   <span className="block text-body-sm font-semibold text-txt-primary">
-                    I have a Document Signer Certificate
+                    I have a Digital Signature Certificate
                   </span>
                   <span className="block text-[0.78rem] text-txt-muted mt-1">
                     Sign credentials using your existing DSC from a certificate authority
@@ -181,7 +181,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   How is your DSC stored?
                 </h2>
                 <p className="text-body-sm text-txt-secondary">
-                  Choose where your Document Signer Certificate is located.
+                  Choose where your Digital Signature Certificate is located.
                   Your private key never leaves your machine.
                 </p>
               </div>
@@ -379,7 +379,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             <Card variant="neutral" className="space-y-6">
               <div className="space-y-2">
                 <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-                  Get a Document Signer Certificate
+                  Get a Digital Signature Certificate
                 </h2>
                 <p className="text-body-sm text-txt-secondary">
                   OpenCred will connect you to trusted Certificate Authorities to
