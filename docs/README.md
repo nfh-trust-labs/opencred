@@ -25,5 +25,4 @@ OpenCred is a local-first platform for issuing and verifying W3C Verifiable Cred
 - [Deployment Guide](../deploy/README.md) — GCP Cloud Run, VM deployment, TLS
 - [Demo Walkthrough](../demos/WALKTHROUGH.md) — end-to-end demos
 - [Manual Test Plan](testing/manual-test-plan.md) — manual testing procedures
-- [Technical Spikes](spikes/) — research findings
 - [Standards Proposals](proposals/) — W3C CCG proposals
