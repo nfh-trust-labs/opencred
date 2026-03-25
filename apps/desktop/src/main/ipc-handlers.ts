@@ -65,15 +65,6 @@ import type {
   OsCertSignResponse,
   OsCertConnectRequest,
   OsCertConnectResponse,
-  AttestationImportRequest,
-  AttestationImportResponse,
-  AttestationGetRequest,
-  AttestationGetResponse,
-  AttestationListResponse,
-  AttestationRemoveRequest,
-  AttestationRemoveResponse,
-  AttestationCheckRequest,
-  AttestationCheckResponse,
   CredentialHistoryAddRequest,
   CredentialHistoryListResponse,
   CredentialHistoryDeleteRequest,
@@ -83,24 +74,13 @@ import type {
   CustomSchemaListResponse,
   CustomSchemaDeleteRequest,
   CustomSchemaDeleteResponse,
-  AttestationRequestChallengeRequest,
-  AttestationRequestChallengeResponse,
-  AttestationSubmitVerificationRequest,
-  AttestationSubmitVerificationResponse,
-  AttestationSubmitBusinessVcRequest,
-  AttestationSubmitBusinessVcResponse,
   SystemInfoResponse,
   LogTailResponse,
 } from "../shared/ipc-types.js";
-import { getLogFilePath, readRecentLogs } from "./logger.js";
-import {
-  storeAttestation,
-  getAttestation,
-  listAttestations,
-  removeAttestation,
-  hasAttestation,
-} from "./attestation-store.js";
+import { createLogger, getLogFilePath, readRecentLogs } from "./logger.js";
 import { getStore, restrictStoreFilePermissions, CREDENTIAL_HISTORY_CAP } from "./store.js";
+
+const logger = createLogger("ipc");
 import type { CredentialHistoryEntry, CustomSchemaEntry } from "./store.js";
 import { createSoftwareSigner, buildSigner } from "../signing/software-signer.js";
 import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local-signing-flow.js";
@@ -146,13 +126,6 @@ const importedKeys = new Map<string, KeyMetadata>();
 /** Maps key ID -> Signer instance (private key stays in memory, never serialized). */
 const loadedSigners = new Map<string, Signer>();
 
-/**
- * Maps key ID -> public key JWK for generated keys.
- * Stays in the main process — never exposed to the renderer.
- * Used when requesting attestation from the OpenCred API.
- */
-const loadedPublicKeyJwks = new Map<string, Record<string, unknown>>();
-
 /** Mutable batch processing state. */
 const batchState: {
   engine: BatchEngine | null;
@@ -194,6 +167,7 @@ async function handleKeyImport(
 
     importedKeys.set(signer.id, meta);
     loadedSigners.set(signer.id, signer);
+    logger.info("Key imported", { keyId: signer.id, fingerprint: meta.fingerprint, format, source: "file" });
 
     // SECURITY TRADE-OFF: Persisting file paths enables auto-reload on
     // restart but means an attacker with filesystem read access can discover
@@ -221,6 +195,7 @@ async function handleKeyImport(
     return { success: true, key: meta };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to import key.";
+    logger.error("Key import failed", { error: message });
     return { success: false, error: message };
   }
 }
@@ -259,13 +234,11 @@ async function handleKeyGenerate(
     importedKeys.set(signer.id, meta);
     loadedSigners.set(signer.id, signer);
 
-    // Store public key JWK for attestation requests (never crosses IPC).
-    const jwk = publicKey.export({ format: "jwk" });
-    loadedPublicKeyJwks.set(signer.id, jwk as Record<string, unknown>);
-
+    logger.info("Key generated", { keyId: signer.id, fingerprint: meta.fingerprint });
     return { success: true, key: meta };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Key generation failed.";
+    logger.error("Key generation failed", { error: message });
     return { success: false, error: message };
   }
 }
@@ -322,12 +295,14 @@ async function handleSignCredential(
     const signatureBytes = await signer.sign(dataToSign);
     const signedCredential = completeProof(unsignedCredential, proofConfig, signatureBytes);
 
+    logger.info("Credential signed", { keyId: request.keyId });
     return {
       success: true,
       signedCredential: JSON.stringify(signedCredential),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Signing failed.";
+    logger.error("Credential signing failed", { keyId: request.keyId, error: message });
     return { success: false, error: message };
   }
 }
@@ -446,6 +421,7 @@ async function handleBuildAndSign(
       }));
     }
 
+    logger.info("Build and sign completed", { keyId: request.keyId, schemaId: request.schemaId, proofFormat });
     return response;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Build and sign failed.";
@@ -461,6 +437,7 @@ async function handleBuildAndSign(
       errorCode = "VALIDATION_ERROR";
     }
 
+    logger.error("Build and sign failed", { keyId: request.keyId, errorCode, error: message });
     return { success: false, error: message, errorCode, errorField };
   }
 }
@@ -545,6 +522,7 @@ async function handleVerifyCredential(
     const allChecks = [...checks, ...dateChecks];
     const allPassed = allChecks.every((c) => c.passed);
 
+    logger.info("Credential verified", { valid: allPassed });
     return {
       success: true,
       valid: allPassed,
@@ -555,6 +533,7 @@ async function handleVerifyCredential(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Verification failed.";
+    logger.error("Credential verification failed", { error: message });
     return { success: false, error: message };
   }
 }
@@ -838,8 +817,10 @@ async function handleBatchStart(
 
     batchState.engine = engine;
 
+    logger.info("Batch started", { schemaId: request.schemaId, totalRows: parseResult.totalCount, validRows: parseResult.validCount });
     void engine.start().then((finalProgress) => {
       batchState.results = finalProgress.rows;
+      logger.info("Batch completed", { total: finalProgress.total, success: finalProgress.successCount, errors: finalProgress.errorCount });
     });
 
     return {
@@ -852,6 +833,7 @@ async function handleBatchStart(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to start batch.";
+    logger.error("Batch start failed", { error: message });
     return { success: false, error: message };
   }
 }
@@ -1077,6 +1059,7 @@ async function handlePkcs11Connect(
 
     importedKeys.set(signer.id, meta);
     loadedSigners.set(signer.id, signer);
+    logger.info("PKCS#11 key connected", { keyId: signer.id, fingerprint: meta.fingerprint, slotIndex: request.slotIndex });
 
     return {
       success: true,
@@ -1090,6 +1073,7 @@ async function handlePkcs11Connect(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to connect to hardware token.";
+    logger.error("PKCS#11 connect failed", { error: message });
     return { success: false, error: message };
   }
 }
@@ -1214,6 +1198,7 @@ async function handleOsCertConnect(
 
     importedKeys.set(signer.id, meta);
     loadedSigners.set(signer.id, signer);
+    logger.info("OS certificate connected", { keyId: signer.id, fingerprint: meta.fingerprint, platform });
 
     return {
       success: true,
@@ -1221,87 +1206,9 @@ async function handleOsCertConnect(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to connect OS certificate.";
+    logger.error("OS certificate connect failed", { error: message });
     return { success: false, error: message };
   }
-}
-
-// ---------------------------------------------------------------------------
-// Attestation handlers (Quick Start / Workflow 3)
-// ---------------------------------------------------------------------------
-
-/** ATTESTATION_IMPORT — store a Key Attestation VC. */
-async function handleAttestationImport(
-  _event: IpcMainInvokeEvent,
-  request: AttestationImportRequest,
-): Promise<AttestationImportResponse> {
-  try {
-    const stored = storeAttestation(request.keyId, request.credential);
-    return {
-      success: true,
-      attestation: {
-        keyId: stored.keyId,
-        organizationName: stored.organizationName,
-        verifiedDomain: stored.verifiedDomain,
-        validFrom: stored.validFrom,
-        validUntil: stored.validUntil,
-        storedAt: stored.storedAt,
-      },
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to store attestation.";
-    return { success: false, error: message };
-  }
-}
-
-/** ATTESTATION_GET — retrieve attestation for a key. */
-async function handleAttestationGet(
-  _event: IpcMainInvokeEvent,
-  request: AttestationGetRequest,
-): Promise<AttestationGetResponse> {
-  const stored = getAttestation(request.keyId);
-  if (!stored) return { attestation: null };
-  return {
-    attestation: {
-      keyId: stored.keyId,
-      credential: stored.credential,
-      organizationName: stored.organizationName,
-      verifiedDomain: stored.verifiedDomain,
-      validFrom: stored.validFrom,
-      validUntil: stored.validUntil,
-      storedAt: stored.storedAt,
-    },
-  };
-}
-
-/** ATTESTATION_LIST — list all attestation metadata. */
-async function handleAttestationList(): Promise<AttestationListResponse> {
-  const all = listAttestations();
-  return {
-    attestations: all.map((a) => ({
-      keyId: a.keyId,
-      organizationName: a.organizationName,
-      verifiedDomain: a.verifiedDomain,
-      validFrom: a.validFrom,
-      validUntil: a.validUntil,
-      storedAt: a.storedAt,
-    })),
-  };
-}
-
-/** ATTESTATION_REMOVE — remove an attestation. */
-async function handleAttestationRemove(
-  _event: IpcMainInvokeEvent,
-  request: AttestationRemoveRequest,
-): Promise<AttestationRemoveResponse> {
-  return { removed: removeAttestation(request.keyId) };
-}
-
-/** ATTESTATION_CHECK — check if a key has an attestation. */
-async function handleAttestationCheck(
-  _event: IpcMainInvokeEvent,
-  request: AttestationCheckRequest,
-): Promise<AttestationCheckResponse> {
-  return { hasAttestation: hasAttestation(request.keyId) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1434,192 +1341,6 @@ async function handleLogTail(
 }
 
 // ---------------------------------------------------------------------------
-// Attestation API handlers (OpenCred-Attested onboarding)
-// ---------------------------------------------------------------------------
-
-/**
- * Resolve the OpenCred attestation API URL from config.
- * Defaults to https://api.opencred.dev if not set.
- */
-function getAttestationApiUrl(): string {
-  const store = getStore();
-  return store.get("opencredApiUrl");
-}
-
-/**
- * Validate that the API URL is acceptable (https or localhost).
- */
-function validateApiUrl(url: string): string | null {
-  if (url.startsWith("https://") || url.startsWith("http://localhost")) {
-    return null;
-  }
-  return "API URL must use HTTPS or http://localhost";
-}
-
-/**
- * ATTESTATION_REQUEST_CHALLENGE — request a domain verification challenge.
- *
- * Proxies to the OpenCred attestation API to create a DNS TXT or HTTP
- * verification challenge for domain ownership proof.
- */
-async function handleAttestationRequestChallenge(
-  _event: IpcMainInvokeEvent,
-  request: AttestationRequestChallengeRequest,
-): Promise<AttestationRequestChallengeResponse> {
-  try {
-    const apiUrl = getAttestationApiUrl();
-    const urlError = validateApiUrl(apiUrl);
-    if (urlError) {
-      return { success: false, error: urlError };
-    }
-
-    const response = await fetch(`${apiUrl}/attestation/challenge`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domain: request.domain, method: request.method }),
-    });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      return { success: false, error: `API error (${response.status}): ${body || response.statusText}` };
-    }
-
-    const data = (await response.json()) as Record<string, unknown>;
-    return {
-      success: true,
-      challengeId: data.challengeId as string | undefined,
-      token: data.token as string | undefined,
-      instructions: data.instructions as string | undefined,
-      expiresAt: data.expiresAt as string | undefined,
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to request challenge.";
-    return { success: false, error: message };
-  }
-}
-
-/**
- * ATTESTATION_SUBMIT_VERIFICATION — verify domain ownership and request attestation.
- *
- * Sends the public key JWK (from the main process registry) along with
- * challenge verification data. On success, stores the attestation credential.
- *
- * SECURITY: The public key JWK is read from loadedPublicKeyJwks (main process
- * only). It is never received from the renderer.
- */
-async function handleAttestationSubmitVerification(
-  _event: IpcMainInvokeEvent,
-  request: AttestationSubmitVerificationRequest,
-): Promise<AttestationSubmitVerificationResponse> {
-  try {
-    const apiUrl = getAttestationApiUrl();
-    const urlError = validateApiUrl(apiUrl);
-    if (urlError) {
-      return { success: false, error: urlError };
-    }
-
-    const publicKeyJwk = loadedPublicKeyJwks.get(request.keyId);
-    if (!publicKeyJwk) {
-      return { success: false, error: "Key not found or not a generated key" };
-    }
-
-    const metadata = importedKeys.get(request.keyId);
-    if (!metadata) {
-      return { success: false, error: "Key metadata not found" };
-    }
-
-    const response = await fetch(`${apiUrl}/attestation/challenge/${request.challengeId}/verify`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        publicKeyJwk,
-        issuerDid: metadata.id,
-        keyFingerprint: metadata.fingerprint,
-        keyAlgorithm: "P-256",
-        verificationMethodId: request.keyId,
-        organizationName: request.organizationName,
-      }),
-    });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      return { success: false, error: `API error (${response.status}): ${body || response.statusText}` };
-    }
-
-    const data = (await response.json()) as Record<string, unknown>;
-    const credential = (data.credential ?? data) as Record<string, unknown>;
-
-    // Store the attestation locally
-    storeAttestation(request.keyId, credential);
-
-    return { success: true, credential };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Verification submission failed.";
-    return { success: false, error: message };
-  }
-}
-
-/**
- * ATTESTATION_SUBMIT_BUSINESS_VC — submit a business VC for attestation.
- *
- * Alternative to domain verification: the issuer provides a business VC
- * that OpenCred validates, then attests the public key.
- *
- * SECURITY: Same as above — public key JWK stays in main process.
- */
-async function handleAttestationSubmitBusinessVc(
-  _event: IpcMainInvokeEvent,
-  request: AttestationSubmitBusinessVcRequest,
-): Promise<AttestationSubmitBusinessVcResponse> {
-  try {
-    const apiUrl = getAttestationApiUrl();
-    const urlError = validateApiUrl(apiUrl);
-    if (urlError) {
-      return { success: false, error: urlError };
-    }
-
-    const publicKeyJwk = loadedPublicKeyJwks.get(request.keyId);
-    if (!publicKeyJwk) {
-      return { success: false, error: "Key not found or not a generated key" };
-    }
-
-    const metadata = importedKeys.get(request.keyId);
-    if (!metadata) {
-      return { success: false, error: "Key metadata not found" };
-    }
-
-    const response = await fetch(`${apiUrl}/attestation/attest-by-vc`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        businessVc: request.businessVc,
-        publicKeyJwk,
-        issuerDid: metadata.id,
-        keyFingerprint: metadata.fingerprint,
-        keyAlgorithm: "P-256",
-        verificationMethodId: request.keyId,
-      }),
-    });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      return { success: false, error: `API error (${response.status}): ${body || response.statusText}` };
-    }
-
-    const data = (await response.json()) as Record<string, unknown>;
-    const credential = (data.credential ?? data) as Record<string, unknown>;
-
-    // Store the attestation locally
-    storeAttestation(request.keyId, credential);
-
-    return { success: true, credential };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Business VC attestation failed.";
-    return { success: false, error: message };
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Registration / cleanup
 // ---------------------------------------------------------------------------
 
@@ -1680,18 +1401,6 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.OSCERT_LIST, handleOsCertList);
   ipcMain.handle(IPC_CHANNELS.OSCERT_SIGN, handleOsCertSign);
   ipcMain.handle(IPC_CHANNELS.OSCERT_CONNECT, handleOsCertConnect);
-
-  // Attestation (Quick Start / Workflow 3)
-  ipcMain.handle(IPC_CHANNELS.ATTESTATION_IMPORT, handleAttestationImport);
-  ipcMain.handle(IPC_CHANNELS.ATTESTATION_GET, handleAttestationGet);
-  ipcMain.handle(IPC_CHANNELS.ATTESTATION_LIST, handleAttestationList);
-  ipcMain.handle(IPC_CHANNELS.ATTESTATION_REMOVE, handleAttestationRemove);
-  ipcMain.handle(IPC_CHANNELS.ATTESTATION_CHECK, handleAttestationCheck);
-
-  // Attestation API (OpenCred-Attested onboarding)
-  ipcMain.handle(IPC_CHANNELS.ATTESTATION_REQUEST_CHALLENGE, handleAttestationRequestChallenge);
-  ipcMain.handle(IPC_CHANNELS.ATTESTATION_SUBMIT_VERIFICATION, handleAttestationSubmitVerification);
-  ipcMain.handle(IPC_CHANNELS.ATTESTATION_SUBMIT_BUSINESS_VC, handleAttestationSubmitBusinessVc);
 
   // Credential history
   ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_LIST, handleCredentialHistoryList);

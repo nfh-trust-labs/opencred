@@ -28,6 +28,9 @@ import pkg from "electron-updater";
 const { autoUpdater } = pkg;
 import type { UpdateInfo, ProgressInfo } from "electron-updater";
 import { BrowserWindow } from "electron";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("updater");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -124,12 +127,14 @@ export function initAutoUpdater(): void {
   // --- Event handlers ---------------------------------------------------
 
   autoUpdater.on("checking-for-update", () => {
+    logger.info("Checking for updates");
     status.checking = true;
     status.error = undefined;
     broadcastStatus();
   });
 
   autoUpdater.on("update-available", (info: UpdateInfo) => {
+    logger.info("Update available", { version: info.version });
     status.checking = false;
     status.available = true;
     status.version = info.version;
@@ -138,6 +143,7 @@ export function initAutoUpdater(): void {
   });
 
   autoUpdater.on("update-not-available", () => {
+    logger.info("No update available");
     status.checking = false;
     status.available = false;
     broadcastStatus();
@@ -155,6 +161,7 @@ export function initAutoUpdater(): void {
   });
 
   autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
+    logger.info("Update downloaded", { version: info.version });
     status.downloading = false;
     status.downloaded = true;
     status.version = info.version;
@@ -164,6 +171,7 @@ export function initAutoUpdater(): void {
   });
 
   autoUpdater.on("error", (err: Error) => {
+    logger.error("Auto-updater error", { error: err.message });
     status.checking = false;
     status.downloading = false;
     status.error = err.message;
