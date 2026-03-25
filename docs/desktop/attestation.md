@@ -2,7 +2,7 @@
 
 ## What is Key Attestation?
 
-Key Attestation is how OpenCred establishes trust for issuers who do not have their own Document Signer Certificate (DSC). OpenCred verifies the issuer's identity (via domain ownership or a business credential) and then signs the issuer's public key with OpenCred's own DSC.
+Key Attestation is how OpenCred establishes trust for issuers who do not have their own Digital Signature Certificate (DSC). OpenCred verifies the issuer's identity (via domain ownership or a business credential) and then signs the issuer's public key with OpenCred's own DSC.
 
 OpenCred signs public keys -- never credentials. The issuer still signs their own credentials locally.
 

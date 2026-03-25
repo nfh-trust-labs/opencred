@@ -25,7 +25,7 @@
 
 OpenCred is a desktop application for issuing and verifying W3C-conformant verifiable credentials. It is designed for any issuer -- from governments to individuals -- to produce verifiable credentials without OpenCred ever persisting private keys, credential data, or personal information. The issuer retains full control over their cryptographic material; all signing happens locally on the issuer's machine. OpenCred validates schemas, builds canonical credential structures, manages revocation indices, and packages output for download (JSON-LD, PDF, QR code). All session data -- credential payloads, built VCs, packaged output, and bulk issuance job results -- is purged within a configurable window (default: 4 hours). Key attestation credentials are the sole exception: they persist as long as the attestation is active. OpenCred computes revocation hashes on request but does not publish them to DeDi -- the issuer publishes hashes to their own DeDi registry. OpenCred does not handle credential delivery to holders; the issuer downloads the issued credential and manages distribution through their own workflows.
 
-OpenCred is available through two interfaces: a **Desktop Client** (the primary product, fully local, offline-capable) and a **Docker Image** (a headless version of the same application for cloud deployment and workflow integration). Both interfaces support **Local Signing** only -- the issuer always signs with their own private key. For issuers without a Document Signer Certificate (DSC), OpenCred can attest the issuer's generated public key by signing it with OpenCred's own DSC, acting as an intermediate CA. This **Key Attestation** mechanism establishes a chain of trust without OpenCred ever signing credentials on behalf of the issuer.
+OpenCred is available through two interfaces: a **Desktop Client** (the primary product, fully local, offline-capable) and a **Docker Image** (a headless version of the same application for cloud deployment and workflow integration). Both interfaces support **Local Signing** only -- the issuer always signs with their own private key. For issuers without a Digital Signature Certificate (DSC), OpenCred can attest the issuer's generated public key by signing it with OpenCred's own DSC, acting as an intermediate CA. This **Key Attestation** mechanism establishes a chain of trust without OpenCred ever signing credentials on behalf of the issuer.
 
 OpenCred ships with a library of commonly used credential schemas (e.g., education certificates, employment credentials, identity documents, health records) so that issuers can begin issuing immediately without defining their own schemas. Issuers may also register custom schemas. Both Desktop Client and Docker Image receive periodic updates including new schemas and security patches.
 
@@ -43,7 +43,7 @@ OpenCred supports three issuer types, differentiated by how they establish trust
 
 #### 2.1.1 Issuer with DSC
 
-The issuer already holds a Document Signer Certificate (DSC) issued by a recognised Certificate Authority (CSCA or equivalent). The issuer imports their DSC into OpenCred and signs credentials locally. Trust chain: VC signature → DSC → CSCA. This is the strongest trust model and typical of government agencies and large institutions.
+The issuer already holds a Digital Signature Certificate (DSC) issued by a recognised Certificate Authority (CSCA or equivalent). The issuer imports their DSC into OpenCred and signs credentials locally. Trust chain: VC signature → DSC → CSCA. This is the strongest trust model and typical of government agencies and large institutions.
 
 #### 2.1.2 Issuer Seeking DSC
 
@@ -953,12 +953,12 @@ curl -X POST http://localhost:3000/credentials/revocation-hash/batch \
 
 | Term | Definition |
 |---|---|
-| **CSCA** | Country Signing Certificate Authority. The root certificate authority in a national PKI hierarchy (e.g., used in ICAO e-passports). The CSCA signs Document Signer Certificates. |
+| **CSCA** | Country Signing Certificate Authority. The root certificate authority in a national PKI hierarchy (e.g., used in ICAO e-passports). The CSCA signs Digital Signature Certificates. |
 | **DeDi** | Decentralized Directory. A verifiable data registry used by OpenCred for DID resolution, public key caching, and revocation status hosting. DeDi does not generate or store any signing keys. |
 | **DID** | Decentralized Identifier. A portable, URL-based identifier (e.g., `did:web:example.com`) associated with an entity and resolvable to a DID document containing public keys and service endpoints. |
 | **did:key** | A DID method that encodes the public key directly in the DID string (e.g., `did:key:z6Mk...`). No registry or network resolution needed. Best for offline use and OpenCred-Attested issuers. |
 | **did:web** | A DID method that resolves to a DID document hosted at `https://<domain>/.well-known/did.json`. Leverages existing web PKI (TLS) for trust anchoring. |
-| **DSC** | Document Signer Certificate. An intermediate certificate issued by a CSCA, used by an organisation to sign documents or credentials. |
+| **DSC** | Digital Signature Certificate. An intermediate certificate issued by a CSCA, used by an organisation to sign documents or credentials. |
 | **Inji Certify** | An open-source credential issuance component from the Inji stack, reused by OpenCred for issuance primitives. |
 | **JCS** | JSON Canonicalization Scheme (RFC 8785). A deterministic serialisation of JSON objects used to produce a consistent byte representation for hashing or signing. |
 | **JWK** | JSON Web Key (RFC 7517). A JSON data structure representing a cryptographic key, commonly used to embed public keys in DID documents and VC proofs. |

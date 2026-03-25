@@ -39,7 +39,7 @@ If no keys are imported, the app opens the **Onboarding Wizard**. Otherwise, it 
 
 Three paths based on your situation:
 
-### Path 1: I have a Document Signer Certificate (DSC)
+### Path 1: I have a Digital Signature Certificate (DSC)
 
 Choose your key source:
 

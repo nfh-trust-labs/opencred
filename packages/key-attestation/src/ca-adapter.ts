@@ -2,7 +2,7 @@
  * Certificate Authority Adapter — extension point interface.
  *
  * Defines the contract for integrating with external Certificate Authorities
- * to request DSCs (Document Signer Certificates) on behalf of issuers.
+ * to request DSCs (Digital Signature Certificates) on behalf of issuers.
  *
  * This is used for User Type 2 (Issuer Seeking DSC): after OpenCred verifies
  * the issuer's identity (via domain ownership or business VC), it can submit
@@ -16,7 +16,7 @@
 import type { PublicKeyJwk, IdentityVerification } from "./types.js";
 import type { BusinessIdentity } from "./business-vc-types.js";
 
-/** A request for a Document Signer Certificate from a CA. */
+/** A request for a Digital Signature Certificate from a CA. */
 export interface DSCRequest {
   /** The DID of the subject (issuer) requesting the DSC. */
   subjectDid: string;
