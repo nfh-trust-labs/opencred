@@ -15,12 +15,12 @@ OpenCred is a local-first platform for issuing and verifying W3C Verifiable Cred
 
 The Docker image is the headless version of the Desktop app for deploying in your own infrastructure. All operations run locally — no data is sent to OpenCred.
 
-- [Getting Started](server/getting-started.md) — Docker build, env setup, first request
-- [Configuration Reference](server/configuration.md) — all environment variables
-- [API Reference](server/api-reference.md) — endpoints exposed by your deployment
-- [CLI Reference](server/cli-reference.md) — `opencred` command-line tool
-- [Cloud HSM](server/cloud-hsm.md) — AWS KMS, Azure Key Vault, GCP Cloud KMS
-- [OID4VCI](server/oid4vci.md) — OpenID for Verifiable Credential Issuance
+- [Getting Started](self-hosted/getting-started.md) — Docker build, env setup, first request
+- [Configuration Reference](self-hosted/configuration.md) — all environment variables
+- [API Reference](self-hosted/api-reference.md) — endpoints exposed by your deployment
+- [CLI Reference](self-hosted/cli-reference.md) — `opencred` command-line tool
+- [Cloud HSM](self-hosted/cloud-hsm.md) — AWS KMS, Azure Key Vault, GCP Cloud KMS
+- [OID4VCI](self-hosted/oid4vci.md) — OpenID for Verifiable Credential Issuance
 
 ## Other Resources
 
