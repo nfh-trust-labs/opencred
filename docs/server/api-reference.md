@@ -2,7 +2,7 @@
 
 These are the HTTP endpoints exposed by **your** OpenCred Docker deployment. All credential operations (issue, verify, batch, package) run entirely in your infrastructure using your signing keys. Nothing is sent to OpenCred.
 
-The only interaction with OpenCred's service is the [Key Attestation API](#key-attestation-opencred-api) for the OpenCred-Attested onboarding flow.
+Key Attestation for the OpenCred-Attested flow is handled through the [OpenCred website](../desktop/attestation.md), not via API calls.
 
 ## Authentication
 
@@ -276,73 +276,3 @@ Package a signed credential into various output formats.
 ```
 
 Binary formats (PDF, QR PNG) are base64-encoded. Text formats (JSON, SVG) are UTF-8.
-
----
-
-## Key Attestation (via OpenCred Website)
-
-These are the **only** endpoints that interact with OpenCred. They are called via the OpenCred website during the OpenCred-Attested onboarding flow, where OpenCred verifies the issuer's identity and signs their public key with a Key Attestation VC. See [Key Attestation](../desktop/attestation.md) for the full flow.
-
-### POST /attestation/challenge
-
-Request a domain verification challenge from OpenCred.
-
-**Request Body**
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `domain` | string | Yes | Domain to verify |
-| `method` | enum | Yes | `dns-txt` or `http` |
-
-**Response** `200`
-```json
-{
-  "challengeId": "uuid",
-  "token": "hex-string",
-  "instructions": "Add a DNS TXT record...",
-  "expiresAt": "2026-03-25T11:00:00.000Z"
-}
-```
-
----
-
-### POST /attestation/challenge/:id/verify
-
-Submit domain verification proof and receive a Key Attestation VC from OpenCred.
-
-**Request Body**
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `publicKeyJwk` | object | Yes | Issuer's public key in JWK format |
-| `issuerDid` | string | Yes | Issuer DID (must start with `did:`) |
-| `keyFingerprint` | string | Yes | SHA-256 fingerprint of the public key |
-| `keyAlgorithm` | string | Yes | Key algorithm (e.g., `P-256`) |
-| `verificationMethodId` | string | Yes | Verification method ID |
-| `organizationName` | string | Yes | Organization name for the attestation |
-
-**Response** `200`
-```json
-{ "credential": { "..." : "..." } }
-```
-
-Challenges are single-use and deleted after verification.
-
----
-
-### POST /attestation/attest-by-vc
-
-Submit a verified business VC to OpenCred for Key Attestation (alternative to domain verification).
-
-**Request Body**
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `businessVc` | string or object | Yes | The business VC (JSON string or object) |
-| `publicKeyJwk` | object | Yes | Issuer's public key in JWK format |
-| `issuerDid` | string | Yes | Issuer DID |
-| `keyFingerprint` | string | Yes | Key fingerprint |
-| `keyAlgorithm` | string | Yes | Key algorithm |
-| `verificationMethodId` | string | Yes | Verification method ID |
-
-**Response** `200`
-```json
-{ "credential": { "..." : "..." } }
-```
