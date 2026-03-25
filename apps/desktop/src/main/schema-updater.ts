@@ -13,9 +13,6 @@
 
 import { app } from "electron";
 import * as path from "node:path";
-import { createLogger } from "./logger.js";
-
-const logger = createLogger("schema-updater");
 import {
   getSchemaManifest,
   checkForSchemaUpdates,
@@ -25,6 +22,9 @@ import {
   validateSchemaChecksum,
 } from "@opencred/schema-engine";
 import type { SchemaDefinition } from "@opencred/schema-engine";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("schema-updater");
 
 /** Default URL for schema manifest. Points to GitHub Releases by default. */
 const DEFAULT_SCHEMA_UPDATE_URL =

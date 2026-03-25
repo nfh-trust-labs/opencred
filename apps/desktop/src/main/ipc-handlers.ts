@@ -78,9 +78,9 @@ import type {
   LogTailResponse,
 } from "../shared/ipc-types.js";
 import { createLogger, getLogFilePath, readRecentLogs } from "./logger.js";
+import { getStore, restrictStoreFilePermissions, CREDENTIAL_HISTORY_CAP } from "./store.js";
 
 const logger = createLogger("ipc");
-import { getStore, restrictStoreFilePermissions, CREDENTIAL_HISTORY_CAP } from "./store.js";
 import type { CredentialHistoryEntry, CustomSchemaEntry } from "./store.js";
 import { createSoftwareSigner, buildSigner } from "../signing/software-signer.js";
 import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local-signing-flow.js";
@@ -1401,7 +1401,6 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.OSCERT_LIST, handleOsCertList);
   ipcMain.handle(IPC_CHANNELS.OSCERT_SIGN, handleOsCertSign);
   ipcMain.handle(IPC_CHANNELS.OSCERT_CONNECT, handleOsCertConnect);
-
 
   // Credential history
   ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_LIST, handleCredentialHistoryList);
