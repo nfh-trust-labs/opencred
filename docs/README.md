@@ -25,6 +25,5 @@ The Docker image is the headless version of the Desktop app for deploying in you
 ## Other Resources
 
 - [Deployment Guide](../deploy/README.md) — GCP Cloud Run, VM deployment, TLS
-- [Demo Walkthrough](../demos/WALKTHROUGH.md) — end-to-end demos
 - [Manual Test Plan](testing/manual-test-plan.md) — manual testing procedures
 - [Standards Proposals](proposals/) — W3C CCG proposals
