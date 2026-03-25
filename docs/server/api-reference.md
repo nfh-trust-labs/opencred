@@ -1,5 +1,9 @@
 # API Reference
 
+These are the HTTP endpoints exposed by **your** OpenCred Docker deployment. All credential operations (issue, verify, batch, package) run entirely in your infrastructure using your signing keys. Nothing is sent to OpenCred.
+
+The only interaction with OpenCred's service is the [Key Attestation API](#key-attestation-opencred-api) for the OpenCred-Attested onboarding flow.
+
 ## Authentication
 
 Protected endpoints require a Bearer token:
@@ -24,7 +28,11 @@ All errors follow this structure:
 }
 ```
 
-## Endpoints
+---
+
+## Local Endpoints (Your Deployment)
+
+These endpoints run in your infrastructure. Your signing key is loaded at startup and never leaves your environment.
 
 ### GET /health
 
@@ -73,7 +81,7 @@ Get a schema definition by ID.
 
 ### POST /credentials/issue
 
-Issue a single Verifiable Credential.
+Issue a single Verifiable Credential. Signing happens locally using your loaded key.
 
 **Request Body**
 | Field | Type | Required | Default | Description |
@@ -112,7 +120,7 @@ Issue a single Verifiable Credential.
 
 ### POST /credentials/verify
 
-Verify a signed Verifiable Credential.
+Verify a signed Verifiable Credential. Runs locally — no network calls.
 
 **Request Body**
 | Field | Type | Required | Description |
@@ -271,9 +279,13 @@ Binary formats (PDF, QR PNG) are base64-encoded. Text formats (JSON, SVG) are UT
 
 ---
 
+## Key Attestation (via OpenCred Website)
+
+These are the **only** endpoints that interact with OpenCred. They are called via the OpenCred website during the OpenCred-Attested onboarding flow, where OpenCred verifies the issuer's identity and signs their public key with a Key Attestation VC. See [Key Attestation](../desktop/attestation.md) for the full flow.
+
 ### POST /attestation/challenge
 
-Create a domain verification challenge.
+Request a domain verification challenge from OpenCred.
 
 **Request Body**
 | Field | Type | Required | Description |
@@ -295,7 +307,7 @@ Create a domain verification challenge.
 
 ### POST /attestation/challenge/:id/verify
 
-Verify domain ownership and receive a Key Attestation VC.
+Submit domain verification proof and receive a Key Attestation VC from OpenCred.
 
 **Request Body**
 | Field | Type | Required | Description |
@@ -318,7 +330,7 @@ Challenges are single-use and deleted after verification.
 
 ### POST /attestation/attest-by-vc
 
-Submit a verified business VC for Key Attestation (alternative to domain verification).
+Submit a verified business VC to OpenCred for Key Attestation (alternative to domain verification).
 
 **Request Body**
 | Field | Type | Required | Description |

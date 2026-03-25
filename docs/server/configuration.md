@@ -1,6 +1,6 @@
 # Configuration Reference
 
-All configuration is via environment variables, validated at startup with Zod. Invalid values cause the server to exit with a descriptive error.
+All configuration for your OpenCred Docker deployment is via environment variables, validated at startup with Zod. Invalid values cause the process to exit with a descriptive error.
 
 ## Core
 

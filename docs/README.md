@@ -11,11 +11,13 @@ OpenCred is a local-first platform for issuing and verifying W3C Verifiable Cred
 - [Key Attestation](desktop/attestation.md) — domain verification, business VC, OpenCred-Attested flow
 - [Settings and Logging](desktop/settings-and-logging.md) — preferences, logging, bug reports, auto-updater
 
-## Server / Docker
+## Docker Image (Self-Hosted)
+
+The Docker image is the headless version of the Desktop app for deploying in your own infrastructure. All credential operations run locally — the only interaction with OpenCred is the [Key Attestation](desktop/attestation.md) flow via the OpenCred website.
 
 - [Getting Started](server/getting-started.md) — Docker build, env setup, first request
 - [Configuration Reference](server/configuration.md) — all environment variables
-- [API Reference](server/api-reference.md) — HTTP endpoints with request/response schemas
+- [API Reference](server/api-reference.md) — endpoints exposed by your deployment
 - [CLI Reference](server/cli-reference.md) — `opencred` command-line tool
 - [Cloud HSM](server/cloud-hsm.md) — AWS KMS, Azure Key Vault, GCP Cloud KMS
 - [OID4VCI](server/oid4vci.md) — OpenID for Verifiable Credential Issuance
