@@ -1,0 +1,17 @@
+# Table of contents
+
+* [OpenCred Documentation](README.md)
+* [OpenCred - Desktop App](desktop/README.md)
+  * [Key Attestation](desktop/attestation.md)
+  * [Getting Started with OpenCred Desktop](desktop/getting-started.md)
+  * [Issuing Credentials](desktop/issuing-credentials.md)
+  * [Key Management](desktop/key-management.md)
+  * [Settings and Diagnostics](desktop/settings-and-logging.md)
+  * [Verifying Credentials](desktop/verifying-credentials.md)
+* [OpenCred - Self-hosted](self-hosted/README.md)
+  * [API Reference](self-hosted/api-reference.md)
+  * [CLI Reference](self-hosted/cli-reference.md)
+  * [Cloud HSM Integration](self-hosted/cloud-hsm.md)
+  * [Configuration Reference](self-hosted/configuration.md)
+  * [Getting Started with the OpenCred Docker Image](self-hosted/getting-started.md)
+  * [OID4VCI (OpenID for Verifiable Credential Issuance)](self-hosted/oid4vci.md)
