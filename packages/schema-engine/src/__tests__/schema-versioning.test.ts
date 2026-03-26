@@ -408,9 +408,12 @@ describe("saveSchemasToCache", () => {
     await saveSchemasToCache(schemas, "/tmp/cache");
 
     expect(mkdir).toHaveBeenCalledWith("/tmp/cache", { recursive: true });
+    const expectedChecksum = createHash("sha256")
+      .update(JSON.stringify(schemas[0].schema))
+      .digest("hex");
     expect(writeFile).toHaveBeenCalledWith(
       join("/tmp/cache", "education.json"),
-      JSON.stringify(schemas[0], null, 2),
+      JSON.stringify({ ...schemas[0], checksum: expectedChecksum }, null, 2),
       "utf-8",
     );
   });

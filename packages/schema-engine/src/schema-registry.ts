@@ -5,6 +5,7 @@ import type { SchemaDefinition, SchemaManifest } from "./types.js";
 export class SchemaRegistry {
   private readonly schemas = new Map<string, SchemaDefinition>();
   private readonly typeToContext = new Map<string, string>();
+  private cachedManifest: SchemaManifest | null = null;
 
   registerSchema(
     id: string,
@@ -18,6 +19,7 @@ export class SchemaRegistry {
     if (contextUrl) {
       this.typeToContext.set(id, contextUrl);
     }
+    this.cachedManifest = null; // invalidate on registration
   }
 
   getSchema(id: string): SchemaDefinition {
@@ -50,11 +52,13 @@ export class SchemaRegistry {
    * and checksums. Used for update-checking against a remote manifest.
    */
   getManifest(): SchemaManifest {
+    if (this.cachedManifest) return this.cachedManifest;
     const schemas = [...this.schemas.values()].map((def) => ({
       id: def.id,
       version: def.version,
       checksum: SchemaRegistry.computeChecksum(def.schema),
     }));
-    return { schemas };
+    this.cachedManifest = { schemas };
+    return this.cachedManifest;
   }
 }

@@ -6,6 +6,8 @@ export interface SchemaDefinition {
   version: string;
   /** ISO 8601 timestamp of when this schema was last updated. */
   lastUpdated: string;
+  /** SHA-256 checksum of JSON.stringify(schema). Set when caching to disk for integrity validation on load. */
+  checksum?: string;
 }
 
 export interface ValidationResult {
