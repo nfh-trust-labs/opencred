@@ -50,9 +50,11 @@ export const CREDENTIAL_HISTORY_CAP = 100;
 /**
  * Non-sensitive DeDi integration metadata persisted in electron-store.
  *
- * SECURITY NOTE: No credentials (API keys, passwords) are stored here.
- * Credentials are stored separately via Electron's safeStorage API
- * (backed by the OS keychain) and accessed at runtime only.
+ * SECURITY NOTE: Credentials (API keys, passwords) are encrypted via
+ * Electron's safeStorage API and stored as an encrypted blob in the
+ * preferences field of this config file. The encryption key is managed
+ * by the OS keychain (macOS Keychain, Windows DPAPI, Linux libsecret).
+ * On systems without a keyring, DeDi credential persistence is unavailable.
  */
 export interface DeDiStoreConfig {
   /** Base URL of the DeDi API (e.g., "https://api.dedi.global"). */
