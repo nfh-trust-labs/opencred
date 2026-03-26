@@ -2,7 +2,7 @@
 
 The OpenCred Docker Image is the headless version of the Desktop app — same credential capabilities, no GUI. You deploy it in **your own infrastructure** and it runs entirely under your control. All signing uses your keys, on your machines. No data is sent to OpenCred.
 
-No data is sent to OpenCred. [Key Attestation](../desktop/attestation.md) for the OpenCred-Attested flow is handled through the OpenCred website, not via API calls from your deployment.
+No data is sent to OpenCred.
 
 ## Quick Start (Docker)
 

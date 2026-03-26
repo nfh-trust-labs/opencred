@@ -23,3 +23,18 @@ export interface DIDRecord {
   document: unknown;
   resolvedAt: string;
 }
+
+export interface SchemaRecord {
+  schemaId: string;
+  version: string;
+  schema: Record<string, unknown>;
+  contextUrl?: string;
+  checksum: string;
+  publishedAt: string;
+}
+
+export interface PublishResult {
+  published: boolean;
+  recordName: string;
+  namespace: string;
+}

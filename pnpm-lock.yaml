@@ -44,9 +44,9 @@ importers:
       '@opencred/dedi-client':
         specifier: workspace:*
         version: link:../../packages/dedi-client
-      '@opencred/key-attestation':
+      '@opencred/did':
         specifier: workspace:*
-        version: link:../../packages/key-attestation
+        version: link:../../packages/did
       '@opencred/schema-engine':
         specifier: workspace:*
         version: link:../../packages/schema-engine
@@ -186,12 +186,6 @@ importers:
       '@opencred/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
-      '@opencred/domain-verification':
-        specifier: workspace:*
-        version: link:../../packages/domain-verification
-      '@opencred/key-attestation':
-        specifier: workspace:*
-        version: link:../../packages/key-attestation
       '@opencred/schema-engine':
         specifier: workspace:*
         version: link:../../packages/schema-engine
@@ -238,28 +232,6 @@ importers:
       typescript:
         specifier: ^5.5.0
         version: 5.9.3
-
-  demos:
-    dependencies:
-      '@opencred/crypto':
-        specifier: workspace:*
-        version: link:../packages/crypto
-      '@opencred/schema-engine':
-        specifier: workspace:*
-        version: link:../packages/schema-engine
-      '@opencred/signing':
-        specifier: workspace:*
-        version: link:../packages/signing
-      '@opencred/vc-core':
-        specifier: workspace:*
-        version: link:../packages/vc-core
-      '@opencred/verification':
-        specifier: workspace:*
-        version: link:../packages/verification
-    devDependencies:
-      tsx:
-        specifier: ^4.0.0
-        version: 4.21.0
 
   packages/ca-adapter:
     dependencies:
@@ -326,38 +298,6 @@ importers:
       '@opencred/shared':
         specifier: workspace:*
         version: link:../shared
-    devDependencies:
-      typescript:
-        specifier: ^5.5.0
-        version: 5.9.3
-
-  packages/domain-verification:
-    dependencies:
-      '@opencred/shared':
-        specifier: workspace:*
-        version: link:../shared
-    devDependencies:
-      typescript:
-        specifier: ^5.5.0
-        version: 5.9.3
-
-  packages/key-attestation:
-    dependencies:
-      '@opencred/crypto':
-        specifier: workspace:*
-        version: link:../crypto
-      '@opencred/did':
-        specifier: workspace:*
-        version: link:../did
-      '@opencred/shared':
-        specifier: workspace:*
-        version: link:../shared
-      '@opencred/vc-core':
-        specifier: workspace:*
-        version: link:../vc-core
-      '@opencred/verification':
-        specifier: workspace:*
-        version: link:../verification
     devDependencies:
       typescript:
         specifier: ^5.5.0

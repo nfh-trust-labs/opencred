@@ -2,9 +2,8 @@
  * SSRF (Server-Side Request Forgery) prevention utilities.
  *
  * Validates that resolved IP addresses are public and not within
- * private, loopback, or link-local ranges. This prevents attackers
- * from using domain verification HTTP challenges to probe internal
- * network resources.
+ * private, loopback, or link-local ranges. Used by the did:web
+ * resolver to prevent fetching DID documents from internal networks.
  */
 
 import { isIP } from "node:net";
@@ -50,11 +49,8 @@ function isPrivateIPv4(ip: string): boolean {
  */
 function isPrivateIPv6(ip: string): boolean {
   const normalized = ip.toLowerCase();
-  // Loopback
   if (normalized === "::1") return true;
-  // Unique local (fc00::/7 covers fc00:: through fdff::)
   if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
-  // Link-local
   if (normalized.startsWith("fe80:")) return true;
   return false;
 }
@@ -63,7 +59,7 @@ function isPrivateIPv6(ip: string): boolean {
  * Check if an IP address is private, loopback, or link-local.
  *
  * Used for SSRF prevention: domains that resolve to non-public IPs
- * must be rejected during HTTP challenge verification.
+ * must be rejected when fetching DID documents or other resources.
  *
  * @param ip - IPv4 or IPv6 address string
  * @returns true if the IP is private/loopback/link-local, false otherwise

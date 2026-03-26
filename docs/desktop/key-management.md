@@ -43,7 +43,7 @@ Platform support: macOS (Security.framework/Keychain), Windows (CNG). Not availa
 3. Click **Generate ECDSA P-256 Key**
 4. The key details (DID, Fingerprint, Algorithm) appear immediately
 
-Generated keys are for the OpenCred-Attested flow. They require [attestation](attestation.md) before credentials signed with them are trusted by verifiers.
+Generated keys are for the Self-Published Keys flow. After generating, publish your public key via did:web at `.well-known/did.json` on your domain so verifiers can resolve it.
 
 ## Supported Algorithms
 
@@ -73,4 +73,6 @@ The config file is restricted to owner-only permissions (0600 on Unix).
 
 ## DID Derivation
 
-Each key produces a `did:key` identifier derived from the public key. This DID is used as the issuer identifier in all credentials signed with that key. The derivation is deterministic -- the same public key always produces the same DID.
+Each key produces a `did:key` identifier derived from the public key, used as the issuer identifier in credentials. The derivation is deterministic — the same public key always produces the same DID.
+
+For the Self-Published Keys flow, you can also use a `did:web` identifier by publishing your public key at `https://yourdomain.com/.well-known/did.json`.

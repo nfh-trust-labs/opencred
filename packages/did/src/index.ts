@@ -12,3 +12,12 @@ export {
   encodeDidJwk,
   didJwkVerificationMethodId,
 } from "./did-jwk.js";
+export type { DIDWebFallbackResolver } from "./did-web.js";
+export {
+  DIDWebResolver,
+  encodeDidWeb,
+  didWebVerificationMethodId,
+  didWebToUrl,
+  generateDidWebDocument,
+} from "./did-web.js";
+export { CompositeDIDResolver } from "./composite-resolver.js";

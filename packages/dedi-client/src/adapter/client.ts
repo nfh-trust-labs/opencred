@@ -7,11 +7,14 @@ import type {
   RevocationHashRecord,
   DelegationRecord,
   DIDRecord,
+  SchemaRecord,
+  PublishResult,
 } from "./types.js";
 import {
   REVOCATION_REGISTRY,
   DELEGATION_REGISTRY,
   PUBLIC_KEY_REGISTRY,
+  SCHEMA_REGISTRY,
 } from "./registry-names.js";
 
 const DELEGATION_DETAIL_KEYS = [
@@ -154,6 +157,52 @@ function assertDIDRecordShape(
   }
 }
 
+const SCHEMA_RECORD_KEYS = [
+  "schemaId",
+  "version",
+  "schema",
+  "checksum",
+  "publishedAt",
+] as const;
+
+function assertSchemaRecordShape(
+  detail: unknown,
+): asserts detail is SchemaRecord {
+  if (detail == null || typeof detail !== "object") {
+    throw new DeDiClientError(
+      "Schema record detail is missing or not an object",
+      502,
+    );
+  }
+  const rec = detail as Record<string, unknown>;
+  for (const key of SCHEMA_RECORD_KEYS) {
+    if (!(key in rec)) {
+      throw new DeDiClientError(
+        `Schema record detail missing required field: ${key}`,
+        502,
+      );
+    }
+  }
+  if (typeof rec["schemaId"] !== "string") {
+    throw new DeDiClientError(
+      "Schema record field 'schemaId' must be a string",
+      502,
+    );
+  }
+  if (typeof rec["version"] !== "string") {
+    throw new DeDiClientError(
+      "Schema record field 'version' must be a string",
+      502,
+    );
+  }
+  if (rec["schema"] == null || typeof rec["schema"] !== "object") {
+    throw new DeDiClientError(
+      "Schema record field 'schema' must be an object",
+      502,
+    );
+  }
+}
+
 export class DeDiClient {
   private readonly api: DeDiApiClient;
   private readonly defaultNamespace?: string;
@@ -204,11 +253,49 @@ export class DeDiClient {
     return detail;
   }
 
+  async publishDID(
+    did: string,
+    document: unknown,
+    namespace?: string,
+  ): Promise<PublishResult> {
+    const ns = this.resolveNamespace(namespace);
+    const recordName = didToRecordName(did);
+    const detail: DIDRecord = {
+      did,
+      document,
+      resolvedAt: new Date().toISOString(),
+    };
+    await this.api.publishRecord(ns, PUBLIC_KEY_REGISTRY, recordName, detail);
+    return { published: true, recordName, namespace: ns };
+  }
+
   async resolveDID(did: string, namespace?: string): Promise<DIDRecord> {
     const ns = this.resolveNamespace(namespace);
     const recordName = didToRecordName(did);
     const record = await this.api.lookupRecord(ns, PUBLIC_KEY_REGISTRY, recordName);
     assertDIDRecordShape(record.detail);
+    return record.detail;
+  }
+
+  async publishSchema(
+    schema: SchemaRecord,
+    namespace?: string,
+  ): Promise<PublishResult> {
+    const ns = this.resolveNamespace(namespace);
+    const recordName = schemaToRecordName(schema.schemaId, schema.version);
+    await this.api.publishRecord(ns, SCHEMA_REGISTRY, recordName, schema);
+    return { published: true, recordName, namespace: ns };
+  }
+
+  async resolveSchema(
+    schemaId: string,
+    version: string,
+    namespace?: string,
+  ): Promise<SchemaRecord> {
+    const ns = this.resolveNamespace(namespace);
+    const recordName = schemaToRecordName(schemaId, version);
+    const record = await this.api.lookupRecord(ns, SCHEMA_REGISTRY, recordName);
+    assertSchemaRecordShape(record.detail);
     return record.detail;
   }
 
@@ -257,6 +344,9 @@ export class DeDiClient {
       ignoreConflict(() =>
         this.api.createRegistry(namespace, PUBLIC_KEY_REGISTRY, {}, "public_key"),
       ),
+      ignoreConflict(() =>
+        this.api.createRegistry(namespace, SCHEMA_REGISTRY, {}, "custom"),
+      ),
     ]);
   }
 
@@ -275,6 +365,10 @@ export class DeDiClient {
 function didToRecordName(did: string): string {
   // Replace characters that aren't safe for DeDi record names
   return did.replace(/:/g, "-");
+}
+
+function schemaToRecordName(schemaId: string, version: string): string {
+  return `${schemaId}-v${version}`;
 }
 
 async function ignoreConflict(fn: () => Promise<unknown>): Promise<void> {

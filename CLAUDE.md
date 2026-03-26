@@ -6,20 +6,17 @@ These rules are non-negotiable. Every agent, every PR, every line of code must r
 
 ### Key Management Model
 
-OpenCred handles **two categories** of private keys differently:
-
 - **Issuer private keys**: OpenCred NEVER receives, handles, or stores issuer private keys. All signing is local — the issuer's key stays on their machine (Desktop Client) or within their controlled environment (Docker Image). No code path should accept, transmit, or hold an issuer's private key.
-- **OpenCred's own DSC**: Used for Key Attestation. Signs issuer public keys (not credentials) with its DSC, producing Key Attestation Credentials. These are OpenCred-managed, long-lived keys (potentially HSM-backed). They ARE persisted and properly managed. Key rotation, access control, and audit logging apply.
 
 ### Rules
 
 1. **Never touch issuer private keys.** No endpoint, no function, no code path should accept an issuer's private key as input. All signing happens locally on the issuer's machine or within the Docker container.
 2. **Never log key material.** No private keys, no signing buffers in `pino` logs, `console.log`, error messages, or stack traces. Log the key *ID* or *fingerprint*, never the key itself.
-3. **Session data is ephemeral.** Credential payloads, built VCs, and packaged output are purged within TTL (default 4 hours). Key attestation credentials are the sole exception — they persist as long as the attestation is active.
+3. **Session data is ephemeral.** Credential payloads, built VCs, and packaged output are purged within TTL (default 4 hours).
 4. **CSPRNG only.** All key generation must use `crypto.randomBytes` or equivalent CSPRNG. Never use `Math.random()` for anything security-related.
 5. **No secrets in error responses.** Error responses must never leak key material, internal paths, or signing buffers. Use the `OpenCredError` hierarchy — it sanitizes by design.
-6. **Key attestation credentials are trust boundaries.** Validate full chain: issuer key → attestation → OpenCred DSC → CSCA. Always validate `validFrom`, `validUntil`, attested key match, and OpenCred DSC signature before accepting an attestation. Never skip validation even in dev/test.
-7. **JSON-LD contexts are bundled.** Never fetch remote contexts at runtime in production — use the bundled document loader. Remote fetch is a supply-chain attack vector.
+6. **JSON-LD contexts are bundled.** Never fetch remote contexts at runtime in production — use the bundled document loader. Remote fetch is a supply-chain attack vector.
+7. **did:web resolution requires SSRF protection.** When fetching DID documents for `did:web` verification, always validate that resolved IPs are public (use `isPrivateIP` from `@opencred/shared`). HTTPS only, no redirects, 10-second timeout.
 
 ## Project Tracking
 
@@ -29,7 +26,7 @@ All implementation issues are on GitHub Issues at https://github.com/nfh-trust-l
 |---|---|
 | `phase-0` | Core Foundation (DONE) |
 | `phase-1` | Desktop — DSC + Local Signing (DONE) |
-| `phase-2` | Desktop — OpenCred-Attested + Attestation (DONE) |
+| `phase-2` | Desktop — Self-Published Keys + did:web (DONE) |
 | `phase-3` | Desktop — Issuer Auth + CA |
 | `phase-4` | Desktop — Hardware Tokens + OS Certs |
 | `phase-5` | Desktop — Bulk + Distribution |

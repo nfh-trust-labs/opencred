@@ -12,8 +12,7 @@ import type { OpenCredDesktopAPI } from "../shared/ipc-types";
 
 /**
  * Mapping from IPC channel constants to the expected method paths on
- * OpenCredDesktopAPI. Top-level methods use simple names; namespaced
- * methods (e.g. attestation) use dot-notation paths.
+ * OpenCredDesktopAPI. Top-level methods use simple names.
  */
 const CHANNEL_TO_METHOD: Record<string, string> = {
   [IPC_CHANNELS.KEY_IMPORT]: "importKey",
@@ -46,24 +45,26 @@ const CHANNEL_TO_METHOD: Record<string, string> = {
   [IPC_CHANNELS.OSCERT_LIST]: "osCertList",
   [IPC_CHANNELS.OSCERT_SIGN]: "osCertSign",
   [IPC_CHANNELS.OSCERT_CONNECT]: "osCertConnect",
-  [IPC_CHANNELS.ATTESTATION_IMPORT]: "attestation.import",
-  [IPC_CHANNELS.ATTESTATION_GET]: "attestation.get",
-  [IPC_CHANNELS.ATTESTATION_LIST]: "attestation.list",
-  [IPC_CHANNELS.ATTESTATION_REMOVE]: "attestation.remove",
-  [IPC_CHANNELS.ATTESTATION_CHECK]: "attestation.check",
+  [IPC_CHANNELS.DID_WEB_EXPORT]: "exportDidDocument",
+  [IPC_CHANNELS.DID_WEB_VERIFY]: "verifyDidWeb",
   [IPC_CHANNELS.CREDENTIAL_HISTORY_LIST]: "credentialHistoryList",
   [IPC_CHANNELS.CREDENTIAL_HISTORY_ADD]: "credentialHistoryAdd",
   [IPC_CHANNELS.CREDENTIAL_HISTORY_DELETE]: "credentialHistoryDelete",
   [IPC_CHANNELS.CUSTOM_SCHEMA_SAVE]: "customSchemaSave",
   [IPC_CHANNELS.CUSTOM_SCHEMA_LIST]: "customSchemaList",
   [IPC_CHANNELS.CUSTOM_SCHEMA_DELETE]: "customSchemaDelete",
+  [IPC_CHANNELS.SYSTEM_INFO]: "getSystemInfo",
+  [IPC_CHANNELS.LOG_TAIL]: "getRecentLogs",
+  [IPC_CHANNELS.DEDI_SET_CONFIG]: "dediSetConfig",
+  [IPC_CHANNELS.DEDI_GET_STATUS]: "dediGetStatus",
+  [IPC_CHANNELS.DEDI_PUBLISH_DID]: "dediPublishDid",
+  [IPC_CHANNELS.DEDI_ENSURE_REGISTRIES]: "dediEnsureRegistries",
   [IPC_CHANNELS.GET_CONFIG]: "getConfig",
   [IPC_CHANNELS.SET_CONFIG]: "setConfig",
 };
 
 /**
  * Resolve a dot-notation path on an object.
- * "attestation.import" → obj.attestation.import
  */
 function resolvePath(obj: Record<string, unknown>, path: string): unknown {
   const parts = path.split(".");
@@ -155,13 +156,8 @@ describe("Preload API completeness", () => {
         downloading: false,
         downloaded: false,
       }),
-      attestation: {
-        import: async () => ({ success: true }),
-        get: async () => ({ found: false }),
-        list: async () => ({ attestations: [] }),
-        remove: async () => ({ success: true }),
-        check: async () => ({ hasAttestation: false }),
-      },
+      exportDidDocument: async () => ({ success: true }),
+      verifyDidWeb: async () => ({ success: true, accessible: true }),
       onUpdateStatus: () => () => {},
       credentialHistoryList: async () => ({ entries: [] }),
       credentialHistoryAdd: async (req: Parameters<OpenCredDesktopAPI["credentialHistoryAdd"]>[0]) => ({ ...req, id: "test", issuedAt: "2025-01-01T00:00:00Z" }),
@@ -169,6 +165,12 @@ describe("Preload API completeness", () => {
       customSchemaList: async () => ({ schemas: [] }),
       customSchemaSave: async () => ({ id: "test", name: "test", schema: {}, createdAt: "2025-01-01T00:00:00Z" }),
       customSchemaDelete: async () => ({ deleted: true }),
+      getSystemInfo: async () => ({ version: "test" }),
+      getRecentLogs: async () => ({ logs: [], logPath: "" }),
+      dediSetConfig: async () => {},
+      dediGetStatus: async () => ({ configured: false }),
+      dediPublishDid: async () => ({ success: true }),
+      dediEnsureRegistries: async () => ({ success: true }),
       getConfig: async () => undefined,
       setConfig: async () => {},
     };
@@ -235,13 +237,8 @@ describe("Preload API completeness", () => {
         downloading: false,
         downloaded: false,
       }),
-      attestation: {
-        import: async () => ({ success: true }),
-        get: async () => ({ found: false }),
-        list: async () => ({ attestations: [] }),
-        remove: async () => ({ success: true }),
-        check: async () => ({ hasAttestation: false }),
-      },
+      exportDidDocument: async () => ({ success: true }),
+      verifyDidWeb: async () => ({ success: true, accessible: true }),
       onUpdateStatus: () => () => {},
       credentialHistoryList: async () => ({ entries: [] }),
       credentialHistoryAdd: async (req: Parameters<OpenCredDesktopAPI["credentialHistoryAdd"]>[0]) => ({ ...req, id: "test", issuedAt: "2025-01-01T00:00:00Z" }),
@@ -249,6 +246,12 @@ describe("Preload API completeness", () => {
       customSchemaList: async () => ({ schemas: [] }),
       customSchemaSave: async () => ({ id: "test", name: "test", schema: {}, createdAt: "2025-01-01T00:00:00Z" }),
       customSchemaDelete: async () => ({ deleted: true }),
+      getSystemInfo: async () => ({ version: "test" }),
+      getRecentLogs: async () => ({ logs: [], logPath: "" }),
+      dediSetConfig: async () => {},
+      dediGetStatus: async () => ({ configured: false }),
+      dediPublishDid: async () => ({ success: true }),
+      dediEnsureRegistries: async () => ({ success: true }),
       getConfig: async () => undefined,
       setConfig: async () => {},
     };

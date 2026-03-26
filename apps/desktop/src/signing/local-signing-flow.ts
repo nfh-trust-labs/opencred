@@ -23,7 +23,6 @@ import { CredentialBuilder } from "@opencred/vc-core";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
 import { createRegistry, Validator } from "@opencred/schema-engine";
 import type { SchemaRegistry, ValidationResult } from "@opencred/schema-engine";
-import { getAttestation } from "../main/attestation-store.js";
 import { signWithFormat } from "./proof-format-router.js";
 import type { UiProofFormat } from "../shared/ipc-types.js";
 import type { Signer } from "./types.js";
@@ -200,12 +199,18 @@ export async function buildAndSign(
   const vct =
     options.additionalTypes?.[0] ?? options.schemaId;
 
+  // For did:web issuers, the verificationMethod in the proof should use the
+  // did:web DID's verification method ID, not the signer's did:key-based ID
+  const verificationMethod = options.issuerDid.startsWith("did:web:")
+    ? `${options.issuerDid}#key-0`
+    : signer.id;
+
   let signedOutput: string;
   let isCompactToken: boolean;
 
   try {
     const result = await signWithFormat(signer, unsignedCredential, format, {
-      verificationMethod: signer.id,
+      verificationMethod,
       selectiveDisclosureClaims: options.selectiveDisclosureClaims,
       vct,
     });
@@ -228,12 +233,6 @@ export async function buildAndSign(
       proof.x5c = signer.metadata.certificateChain.map(pemToBase64Der);
     }
 
-    // Embed attestation VC in proof if the signing key has one
-    const attestation = getAttestation(signer.id);
-    if (attestation) {
-      const proof = signedCredential.proof as Record<string, unknown>;
-      proof.keyAttestationCredential = attestation.credential;
-    }
 
     signedOutput = JSON.stringify(signedCredential);
   }

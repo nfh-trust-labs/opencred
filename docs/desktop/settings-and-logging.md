@@ -9,7 +9,6 @@ Access settings from the **Settings** link in the top bar.
 | Theme | system | `light`, `dark`, or `system` (follows OS preference) |
 | Offline Mode | off | Start in offline-first mode |
 | Persist Key Paths | on | Save imported key file paths for auto-reload on restart |
-| OpenCred API URL | `https://api.opencred.dev` | Server endpoint for attestation and verification |
 
 ## Logging
 
@@ -69,4 +68,4 @@ The top bar shows a connectivity indicator:
 | Green | Online |
 | Amber | Offline |
 
-Connectivity is checked every 30 seconds. Being offline does not affect local operations (signing, verification). It only impacts attestation requests and update checks.
+Connectivity is checked every 30 seconds. Being offline does not affect local operations (signing, verification). It only impacts update checks.

@@ -5,7 +5,6 @@ import { verifyJwsProof } from "./jws-proof.js";
 import { verifyVcJwt, extractVcJwtCredentialFields } from "./vc-jwt.js";
 import { verifySdJwtVc, extractSdJwtVcCredentialFields } from "./sd-jwt-vc.js";
 import { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
-import { checkAttestationChain } from "./attestation-check.js";
 import { checkX509Chain } from "./x509-chain-check.js";
 import type {
   CredentialFormat,
@@ -201,23 +200,6 @@ export async function verifyCredential(
     }
   }
 
-  // Attestation chain check (only runs if credential has an attestation reference)
-  if (format === "data-integrity") {
-    const attestationOpts = {
-      dediClient: config.dediClient,
-      didResolver: config.didResolver,
-      opencredPublicKey: config.opencredPublicKey,
-      opencredDscCertificate: config.opencredDscCertificate,
-    };
-    const attestationCheck = await checkAttestationChain(
-      input as Record<string, unknown>,
-      attestationOpts,
-    );
-    checks.push(attestationCheck);
-    if (!attestationCheck.passed) {
-      return { code: "ATTESTATION_INVALID", verified: false, checks };
-    }
-  }
 
   return { code: "VALID", verified: true, checks };
 }

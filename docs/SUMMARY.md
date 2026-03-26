@@ -2,7 +2,6 @@
 
 * [OpenCred Documentation](README.md)
 * [OpenCred - Desktop App](desktop/README.md)
-  * [Key Attestation](desktop/attestation.md)
   * [Getting Started with OpenCred Desktop](desktop/getting-started.md)
   * [Issuing Credentials](desktop/issuing-credentials.md)
   * [Key Management](desktop/key-management.md)

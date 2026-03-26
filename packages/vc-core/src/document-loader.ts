@@ -10,7 +10,6 @@ import {
   W3C_CREDENTIALS_V2_CONTEXT,
   DATA_INTEGRITY_V1_CONTEXT,
   OPENCRED_DELEGATION_V1_CONTEXT,
-  OPENCRED_KEY_ATTESTATION_V1_CONTEXT,
 } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -18,7 +17,6 @@ const require = createRequire(import.meta.url);
 const credentialsV2 = require("./contexts/credentials-v2.json") as Record<string, unknown>;
 const dataIntegrityV1 = require("./contexts/data-integrity-v1.json") as Record<string, unknown>;
 const delegationV1 = require("./contexts/delegation-v1.json") as Record<string, unknown>;
-const keyAttestationV1 = require("./contexts/key-attestation-v1.json") as Record<string, unknown>;
 
 export interface JsonLdDocument {
   contextUrl: string | null;
@@ -30,7 +28,6 @@ const BUNDLED_CONTEXTS: ReadonlyMap<string, Record<string, unknown>> = new Map([
   [W3C_CREDENTIALS_V2_CONTEXT, credentialsV2],
   [DATA_INTEGRITY_V1_CONTEXT, dataIntegrityV1],
   [OPENCRED_DELEGATION_V1_CONTEXT, delegationV1],
-  [OPENCRED_KEY_ATTESTATION_V1_CONTEXT, keyAttestationV1],
 ]);
 
 /**

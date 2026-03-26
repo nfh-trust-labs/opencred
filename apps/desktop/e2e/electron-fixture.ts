@@ -42,7 +42,6 @@ const IPC_MOCK_SCRIPT = `
 window.opencred = {
   _keys: [],
   _schemas: ['education', 'employment', 'identity', 'health', 'business'],
-  _attestations: new Map(),
   _revocationQueue: [],
   _config: {},
   _signedCredentials: [],
@@ -453,38 +452,6 @@ window.opencred = {
   async updateInstall() {},
   async updateGetStatus() { return { status: 'up-to-date' }; },
   onUpdateStatus(cb) { return () => {}; },
-
-  // Attestation
-  attestation: {
-    _store: new Map(),
-    async import({ keyId, credential }) {
-      const parsed = JSON.parse(credential);
-      const entry = {
-        keyId,
-        credential,
-        organizationName: parsed.credentialSubject?.organizationName || 'Unknown',
-        verifiedDomain: parsed.credentialSubject?.verifiedDomain || 'unknown.com',
-        validFrom: parsed.validFrom || new Date().toISOString(),
-        validUntil: parsed.validUntil || new Date(Date.now() + 365*24*3600*1000).toISOString(),
-        storedAt: new Date().toISOString(),
-      };
-      this._store.set(keyId, entry);
-      return { success: true, attestation: entry };
-    },
-    async get({ keyId }) {
-      const entry = this._store.get(keyId);
-      return { attestation: entry || null };
-    },
-    async list() {
-      return { attestations: Array.from(this._store.values()) };
-    },
-    async remove({ keyId }) {
-      return { removed: this._store.delete(keyId) };
-    },
-    async check({ keyId }) {
-      return { hasAttestation: this._store.has(keyId) };
-    },
-  },
 
   // Config
   async getConfig(key) { return this._config[key]; },

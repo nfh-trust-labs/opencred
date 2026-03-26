@@ -334,11 +334,6 @@ export async function generatePdf(credential: VerifiableCredential): Promise<Buf
         drawLabelValue(doc, "Certificate Chain", `${proof.x5c.length} certificate(s) embedded`);
       }
 
-      // Attestation info (if present)
-      if (proof.keyAttestationCredential) {
-        drawLabelValue(doc, "Key Attestation", "Embedded in proof");
-      }
-
       doc.moveDown(1);
 
       // ---------------------------------------------------------------

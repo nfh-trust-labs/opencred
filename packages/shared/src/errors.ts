@@ -110,13 +110,6 @@ export class DelegationError extends OpenCredError {
   }
 }
 
-export class AttestationError extends OpenCredError {
-  constructor(message: string) {
-    super(message, "ATTESTATION_ERROR", 400);
-    this.name = "AttestationError";
-  }
-}
-
 export class DeDiClientError extends OpenCredError {
   constructor(message: string, statusCode: number = 502) {
     super(message, "DEDI_CLIENT_ERROR", statusCode);

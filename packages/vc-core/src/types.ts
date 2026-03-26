@@ -81,5 +81,3 @@ export const DATA_INTEGRITY_V1_CONTEXT = "https://w3id.org/security/data-integri
 /** The OpenCred Delegation v1 context URI. */
 export const OPENCRED_DELEGATION_V1_CONTEXT = "https://opencred.example/ns/delegation/v1";
 
-/** The OpenCred Key Attestation v1 context URI. */
-export const OPENCRED_KEY_ATTESTATION_V1_CONTEXT = "https://opencred.dev/ns/key-attestation/v1";

@@ -18,7 +18,6 @@ import { health } from "../routes/health.js";
 import { schemas } from "../routes/schemas.js";
 import { credentials } from "../routes/credentials.js";
 import { batch } from "../routes/batch.js";
-import { attestation } from "../routes/attestation.js";
 import { revocation } from "../routes/revocation.js";
 import { computeFingerprint, deriveDidKeyIdFromPublicKey } from "@opencred/signing";
 import type { Signer, SignerMetadata } from "@opencred/signing";
@@ -117,7 +116,6 @@ export function createTestApp(opts?: { apiKey?: string }): Hono {
   app.route("/", schemas);
   app.route("/", credentials);
   app.route("/", batch);
-  app.route("/", attestation);
   app.route("/", revocation);
 
   // Global error handler (same as index.ts)

@@ -47,6 +47,22 @@ export interface CustomSchemaEntry {
 /** Maximum number of credential history entries to retain (FIFO). */
 export const CREDENTIAL_HISTORY_CAP = 100;
 
+/**
+ * Non-sensitive DeDi integration metadata persisted in electron-store.
+ *
+ * SECURITY NOTE: No credentials (API keys, passwords) are stored here.
+ * Credentials are stored separately via Electron's safeStorage API
+ * (backed by the OS keychain) and accessed at runtime only.
+ */
+export interface DeDiStoreConfig {
+  /** Base URL of the DeDi API (e.g., "https://api.dedi.global"). */
+  baseUrl: string;
+  /** The issuer's DeDi namespace (typically their domain). */
+  namespace: string;
+  /** Authentication type (determines which credential to retrieve from safeStorage). */
+  authType: "api-key" | "bearer";
+}
+
 export interface StoreSchema {
   /** ID of the last-used signing key (for convenience, not the key itself). */
   lastKeyId: string | undefined;
@@ -63,14 +79,18 @@ export interface StoreSchema {
    * each session.
    */
   persistKeyPaths: boolean;
-  /** OpenCred attestation API URL. */
-  opencredApiUrl: string;
   /** Custom user preferences — intentionally loosely typed for extensibility. */
   preferences: Record<string, unknown>;
   /** Recently issued credentials (capped at CREDENTIAL_HISTORY_CAP). */
   credentialHistory: CredentialHistoryEntry[];
   /** User-created custom schemas for blank credentials. */
   customSchemas: CustomSchemaEntry[];
+  /** Domain for Self-Published Keys (did:web) workflow. */
+  selfPublishedKeyDomain?: string;
+  /** DeDi integration configuration (optional — absent means DeDi is not configured). */
+  dediConfig?: DeDiStoreConfig;
+  /** Schema IDs that have been published to DeDi (cached to avoid redundant publishes). */
+  dediPublishedSchemas: string[];
 }
 
 const DEFAULTS: StoreSchema = {
@@ -78,11 +98,11 @@ const DEFAULTS: StoreSchema = {
   theme: "system",
   offlineMode: false,
   bugReportFormUrl: "https://forms.gle/f1wFUhzN1VwgR5QD6",
-  opencredApiUrl: "https://api.opencred.dev",
   persistKeyPaths: true,
   preferences: {},
   credentialHistory: [],
   customSchemas: [],
+  dediPublishedSchemas: [],
 };
 
 let store: ElectronStore<StoreSchema> | null = null;
