@@ -21,8 +21,9 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-import { registerIpcHandlers, cleanupIpcHandlers } from "./ipc-handlers.js";
-import { initStore } from "./store.js";
+import { registerIpcHandlers, cleanupIpcHandlers, mergeReloadedSigners } from "./ipc-handlers.js";
+import { initStore, getStore } from "./store.js";
+import { reloadPersistedSigners } from "./persisted-signer-loader.js";
 import { initAutoUpdater, cleanupAutoUpdater } from "./auto-updater.js";
 import { checkForSchemaUpdatesAtStartup } from "./schema-updater.js";
 import { createLogger } from "./logger.js";
@@ -173,6 +174,11 @@ app.whenReady().then(() => {
   logger.info("App ready, initialising");
   initStore();
   registerIpcHandlers();
+
+  // Reload previously imported signing keys from disk.
+  const reloaded = reloadPersistedSigners(getStore());
+  mergeReloadedSigners(reloaded);
+
   buildAppMenu();
   createWindow();
   logger.info("Window created");

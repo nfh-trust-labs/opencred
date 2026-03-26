@@ -79,11 +79,12 @@ import type {
 } from "../shared/ipc-types.js";
 import { createLogger, getLogFilePath, readRecentLogs } from "./logger.js";
 import { getStore, restrictStoreFilePermissions, CREDENTIAL_HISTORY_CAP } from "./store.js";
-
-const logger = createLogger("ipc");
 import type { CredentialHistoryEntry, CustomSchemaEntry } from "./store.js";
 import { createSoftwareSigner, buildSigner } from "../signing/software-signer.js";
+import type { PersistedSignerEntry } from "./persisted-signer-loader.js";
 import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local-signing-flow.js";
+
+const logger = createLogger("ipc");
 import { signWithFormat } from "../signing/proof-format-router.js";
 import type { UiProofFormat } from "../shared/ipc-types.js";
 import { generateKeyPairSync, createPublicKey, randomUUID } from "node:crypto";
@@ -125,6 +126,22 @@ const importedKeys = new Map<string, KeyMetadata>();
 
 /** Maps key ID -> Signer instance (private key stays in memory, never serialized). */
 const loadedSigners = new Map<string, Signer>();
+
+/**
+ * Merge signers reloaded from persisted paths into the in-memory registries.
+ * Called once at startup from index.ts after reloadPersistedSigners().
+ */
+export function mergeReloadedSigners(result: import("./persisted-signer-loader.js").ReloadResult): void {
+  for (const [id, meta] of result.metadata) {
+    importedKeys.set(id, meta);
+  }
+  for (const [id, signer] of result.signers) {
+    loadedSigners.set(id, signer);
+  }
+  if (result.metadata.size > 0) {
+    logger.info("Merged reloaded signers", { count: result.metadata.size });
+  }
+}
 
 /** Mutable batch processing state. */
 const batchState: {
@@ -180,8 +197,8 @@ async function handleKeyImport(
     if (shouldPersist) {
       const prefs =
         (store.get("preferences" as keyof typeof store.store) as Record<string, unknown>) ?? {};
-      const savedPaths = (prefs["importedKeyPaths"] as Record<string, string>) ?? {};
-      savedPaths[signer.id] = request.filePath;
+      const savedPaths = (prefs["importedKeyPaths"] as Record<string, string | PersistedSignerEntry>) ?? {};
+      savedPaths[signer.id] = { path: request.filePath, label: request.label };
       store.set("preferences" as keyof typeof store.store, {
         ...prefs,
         importedKeyPaths: savedPaths,
