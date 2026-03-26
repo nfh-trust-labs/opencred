@@ -438,6 +438,26 @@ async function handleBuildAndSign(
     }
 
     logger.info("Build and sign completed", { keyId: request.keyId, schemaId: request.schemaId, proofFormat });
+
+    // Fire-and-forget: publish schema to DeDi catalog if configured
+    const dediMgr = getDeDiPublishManager();
+    if (dediMgr && request.schemaId && !request.inlineSchema) {
+      try {
+        const def = getSchemaDefinition(request.schemaId);
+        void dediMgr.ensureSchemaPublished({
+          schemaId: def.id, version: "1", schema: def.schema, contextUrl: def.contextUrl,
+          checksum: "", publishedAt: new Date().toISOString(),
+        }).then((r) => {
+          if (r) {
+            const s = getStore();
+            const pub = s.get("dediPublishedSchemas");
+            const k = `${def.id}-v1`;
+            if (!pub.includes(k)) s.set("dediPublishedSchemas", [...pub, k]);
+          }
+        });
+      } catch { /* schema lookup failed — skip */ }
+    }
+
     return response;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Build and sign failed.";
@@ -477,7 +497,7 @@ async function handleVerifyCredential(
     const parsed = JSON.parse(request.credential);
 
     // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
-    const { DIDKeyResolver, DIDJwkResolver, CompositeDIDResolver } = await import("@opencred/did");
+    const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } = await import("@opencred/did");
     const { verifyCredential } = await import("@opencred/verification");
 
     const compositeResolver = new CompositeDIDResolver(
@@ -498,7 +518,7 @@ async function handleVerifyCredential(
       valid: verificationResult.verified,
       message: verificationResult.verified
         ? "Credential signature is valid."
-        : (verificationResult.checks.find((c) => \!c.passed)?.detail ?? "Verification failed."),
+        : (verificationResult.checks.find((c) => !c.passed)?.detail ?? "Verification failed."),
       checks: verificationResult.checks,
     };
   } catch (err) {
@@ -1315,6 +1335,111 @@ async function handleLogTail(
 }
 
 // ---------------------------------------------------------------------------
+// Self-Published Keys (did:web)
+// ---------------------------------------------------------------------------
+
+import { exportDidDocument } from "./did-web-export.js";
+import { DIDWebResolver, encodeDidWeb } from "@opencred/did";
+import type {
+  DidWebExportRequest, DidWebExportResponse, DidWebVerifyRequest, DidWebVerifyResponse,
+  DeDiConfigSetRequest, DeDiConfigSetResponse, DeDiStatusResponse,
+  DeDiPublishDIDRequest, DeDiPublishResponse, DeDiEnsureRegistriesResponse,
+} from "../shared/ipc-types.js";
+
+async function handleDidWebExport(_event: IpcMainInvokeEvent, request: DidWebExportRequest): Promise<DidWebExportResponse> {
+  try {
+    const jwk = loadedPublicKeyJwks.get(request.keyId);
+    if (!jwk) return { success: false, error: "Key not found or not a generated key" };
+    const did = encodeDidWeb(request.domain);
+    const didDocument = exportDidDocument(jwk as import("@opencred/did").JWK, request.domain);
+    return { success: true, didDocument, did };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "DID document export failed." };
+  }
+}
+
+async function handleDidWebVerify(_event: IpcMainInvokeEvent, request: DidWebVerifyRequest): Promise<DidWebVerifyResponse> {
+  try {
+    const resolver = new DIDWebResolver();
+    await resolver.resolve(encodeDidWeb(request.domain));
+    return { success: true, accessible: true };
+  } catch (err) {
+    return { success: true, accessible: false, error: err instanceof Error ? err.message : "DID verification failed." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DeDi integration
+// ---------------------------------------------------------------------------
+
+let publishManager: DeDiPublishManager | null = null;
+
+export function getDeDiPublishManager(): DeDiPublishManager | null {
+  if (publishManager) return publishManager;
+  const store = getStore();
+  const config = store.get("dediConfig");
+  if (!config) return null;
+  const credJson = getDeDiCredentialFromKeychain();
+  if (!credJson) return null;
+  const parsed = JSON.parse(credJson) as { apiKey?: string; email?: string; password?: string };
+  const auth = config.authType === "api-key"
+    ? { type: "api-key" as const, apiKey: parsed.apiKey ?? "" }
+    : { type: "bearer" as const, email: parsed.email ?? "", password: parsed.password ?? "" };
+  publishManager = createPublishManager({ baseUrl: config.baseUrl, defaultNamespace: config.namespace, auth, timeoutMs: 10_000, circuitBreakerThreshold: 5, maxRetries: 3, logger }, store.get("dediPublishedSchemas"), logger);
+  return publishManager;
+}
+
+function getDeDiCredentialFromKeychain(): string | null {
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  const encrypted = getStore().get("preferences")["dediCredentialEncrypted"] as string | undefined;
+  if (!encrypted) return null;
+  try { return safeStorage.decryptString(Buffer.from(encrypted, "base64")); } catch { return null; }
+}
+
+function storeDeDiCredentialInKeychain(json: string): void {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error("OS encryption unavailable");
+  const enc = safeStorage.encryptString(json).toString("base64");
+  const store = getStore();
+  store.set("preferences", { ...store.get("preferences"), dediCredentialEncrypted: enc });
+}
+
+async function handleDeDiSetConfig(_event: IpcMainInvokeEvent, request: DeDiConfigSetRequest): Promise<DeDiConfigSetResponse> {
+  try {
+    const store = getStore();
+    store.set("dediConfig", { baseUrl: request.baseUrl, namespace: request.namespace, authType: request.credentials.type });
+    const cred = request.credentials.type === "api-key" ? { apiKey: request.credentials.apiKey } : { email: request.credentials.email, password: request.credentials.password };
+    storeDeDiCredentialInKeychain(JSON.stringify(cred));
+    publishManager = null;
+    const mgr = getDeDiPublishManager();
+    const registriesReady = mgr ? await mgr.ensureRegistries(request.namespace) : false;
+    return { success: true, registriesReady };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed to configure DeDi" };
+  }
+}
+
+async function handleDeDiGetStatus(_event: IpcMainInvokeEvent): Promise<DeDiStatusResponse> {
+  const store = getStore();
+  const config = store.get("dediConfig");
+  return { configured: config != null, namespace: config?.namespace, publishedSchemas: store.get("dediPublishedSchemas") };
+}
+
+async function handleDeDiPublishDID(_event: IpcMainInvokeEvent, request: DeDiPublishDIDRequest): Promise<DeDiPublishResponse> {
+  const mgr = getDeDiPublishManager();
+  if (!mgr) return { success: false, error: "DeDi not configured" };
+  const result = await mgr.publishDIDDocument(request.did, request.document);
+  return result ? { success: true, recordName: result.recordName } : { success: false, error: "Failed to publish DID to DeDi" };
+}
+
+async function handleDeDiEnsureRegistries(_event: IpcMainInvokeEvent): Promise<DeDiEnsureRegistriesResponse> {
+  const mgr = getDeDiPublishManager();
+  if (!mgr) return { success: false, error: "DeDi not configured" };
+  const ns = getStore().get("dediConfig")?.namespace;
+  if (!ns) return { success: false, error: "DeDi not configured" };
+  return (await mgr.ensureRegistries(ns)) ? { success: true } : { success: false, error: "Failed to create DeDi registries" };
+}
+
+// ---------------------------------------------------------------------------
 // Registration / cleanup
 // ---------------------------------------------------------------------------
 
@@ -1375,6 +1500,16 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.OSCERT_LIST, handleOsCertList);
   ipcMain.handle(IPC_CHANNELS.OSCERT_SIGN, handleOsCertSign);
   ipcMain.handle(IPC_CHANNELS.OSCERT_CONNECT, handleOsCertConnect);
+
+  // Self-Published Keys (did:web)
+  ipcMain.handle(IPC_CHANNELS.DID_WEB_EXPORT, handleDidWebExport);
+  ipcMain.handle(IPC_CHANNELS.DID_WEB_VERIFY, handleDidWebVerify);
+
+  // DeDi integration
+  ipcMain.handle(IPC_CHANNELS.DEDI_SET_CONFIG, handleDeDiSetConfig);
+  ipcMain.handle(IPC_CHANNELS.DEDI_GET_STATUS, handleDeDiGetStatus);
+  ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_DID, handleDeDiPublishDID);
+  ipcMain.handle(IPC_CHANNELS.DEDI_ENSURE_REGISTRIES, handleDeDiEnsureRegistries);
 
   // Credential history
   ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_LIST, handleCredentialHistoryList);
