@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DeDiPublishManager, createPublishManager } from "../publish-manager.js";
 import { DeDiClient } from "../adapter/client.js";
 import type { SchemaRecord, PublishResult } from "../adapter/types.js";
-import { noopLogger } from "../logger.js";
 
 // Mock DeDiClient
 vi.mock("../adapter/client.js", () => {
@@ -168,14 +167,25 @@ describe("createPublishManager", () => {
     expect(result).toBeNull();
   });
 
-  it("returns DeDiPublishManager when config is provided", () => {
+  it("returns DeDiPublishManager when config and logger are provided", () => {
+    const testLogger = { debug() {}, warn() {}, error() {} };
     const result = createPublishManager({
       baseUrl: "https://dedi.example.com",
       timeoutMs: 5000,
       maxRetries: 0,
       circuitBreakerThreshold: 5,
       auth: { type: "api-key", apiKey: "dk_test" },
-    });
+    }, undefined, testLogger);
     expect(result).toBeInstanceOf(DeDiPublishManager);
+  });
+
+  it("throws when config is provided but logger is missing", () => {
+    expect(() => createPublishManager({
+      baseUrl: "https://dedi.example.com",
+      timeoutMs: 5000,
+      maxRetries: 0,
+      circuitBreakerThreshold: 5,
+      auth: { type: "api-key", apiKey: "dk_test" },
+    })).toThrow("requires a logger");
   });
 });

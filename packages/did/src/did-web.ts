@@ -161,12 +161,18 @@ export class DIDWebResolver implements DIDResolver {
     try {
       return await this.resolveViaHttps(did, url);
     } catch (httpError) {
-      // If a fallback is configured, try it before giving up
-      if (this.fallback) {
+      // Never fall back on SSRF violations — these are security boundaries
+      const isSsrf = httpError instanceof DIDResolutionError
+        && httpError.message.includes("SSRF protection");
+      if (isSsrf || !this.fallback) {
+        throw httpError;
+      }
+      // Try DeDi fallback; if it also fails, throw the original HTTP error
+      try {
         const fallbackResult = await this.fallback(did);
-        if (fallbackResult) {
-          return fallbackResult;
-        }
+        if (fallbackResult) return fallbackResult;
+      } catch {
+        // Fallback failed — throw the original, more meaningful error
       }
       throw httpError;
     }

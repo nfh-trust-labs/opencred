@@ -5,7 +5,6 @@ import type {
   PublishResult,
 } from "./adapter/types.js";
 import type { DeDiLogger } from "./logger.js";
-import { noopLogger } from "./logger.js";
 
 export class DeDiPublishManager {
   private readonly client: DeDiClient;
@@ -107,6 +106,9 @@ export function createPublishManager(
   logger?: DeDiLogger,
 ): DeDiPublishManager | null {
   if (!config) return null;
-  const client = new DeDiClient({ ...config, logger: logger ?? noopLogger });
+  if (!logger) {
+    throw new Error("DeDiPublishManager requires a logger — silent error swallowing without logging is unsafe");
+  }
+  const client = new DeDiClient({ ...config, logger });
   return new DeDiPublishManager(client, alreadyPublished);
 }
