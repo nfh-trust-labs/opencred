@@ -213,67 +213,6 @@ test.describe("IPC API — OS Certificate Store", () => {
   });
 });
 
-test.describe("IPC API — Attestation CRUD", () => {
-  test("full attestation lifecycle: import → check → get → list → remove", async ({
-    openCredPage: page,
-  }) => {
-    await waitForAppReady(page);
-
-    const keyId = "did:key:test-attestation-key";
-    const credential = JSON.stringify({
-      "@context": ["https://www.w3.org/ns/credentials/v2"],
-      type: ["VerifiableCredential", "KeyAttestationCredential"],
-      credentialSubject: {
-        id: keyId,
-        organizationName: "E2E Test Corp",
-        verifiedDomain: "e2e-test.example.com",
-      },
-      validFrom: "2024-01-01T00:00:00Z",
-      validUntil: "2025-12-31T23:59:59Z",
-    });
-
-    // Import
-    const importResult = await page.evaluate(
-      async (args: { keyId: string; credential: string }) => {
-        return await window.opencred.attestation.import(args);
-      },
-      { keyId, credential },
-    );
-    expect(importResult.success).toBe(true);
-    expect(importResult.attestation!.organizationName).toBe("E2E Test Corp");
-
-    // Check
-    const checkResult = await page.evaluate(async (id: string) => {
-      return await window.opencred.attestation.check({ keyId: id });
-    }, keyId);
-    expect(checkResult.hasAttestation).toBe(true);
-
-    // Get
-    const getResult = await page.evaluate(async (id: string) => {
-      return await window.opencred.attestation.get({ keyId: id });
-    }, keyId);
-    expect(getResult.attestation!.keyId).toBe(keyId);
-    expect(getResult.attestation!.verifiedDomain).toBe("e2e-test.example.com");
-
-    // List
-    const listResult = await page.evaluate(async () => {
-      return await window.opencred.attestation.list();
-    });
-    expect(listResult.attestations.length).toBeGreaterThan(0);
-
-    // Remove
-    const removeResult = await page.evaluate(async (id: string) => {
-      return await window.opencred.attestation.remove({ keyId: id });
-    }, keyId);
-    expect(removeResult.removed).toBe(true);
-
-    // Verify removal
-    const checkAfter = await page.evaluate(async (id: string) => {
-      return await window.opencred.attestation.check({ keyId: id });
-    }, keyId);
-    expect(checkAfter.hasAttestation).toBe(false);
-  });
-});
 
 test.describe("IPC API — Config", () => {
   test("get/set config round-trip", async ({ openCredPage: page }) => {

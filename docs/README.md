@@ -8,7 +8,6 @@ OpenCred is a local-first platform for issuing and verifying W3C Verifiable Cred
 * [Key Management](desktop/key-management.md) — key sources, algorithms, DID derivation
 * [Issuing Credentials](desktop/issuing-credentials.md) — single and batch issuance, schemas, proof formats, export
 * [Verifying Credentials](desktop/verifying-credentials.md) — verification flow, checks, offline mode
-* [Key Attestation](desktop/attestation.md) — domain verification, business VC, OpenCred-Attested flow
 * [Settings and Logging](desktop/settings-and-logging.md) — preferences, logging, bug reports, auto-updater
 
 ## Docker Image (Self-Hosted)

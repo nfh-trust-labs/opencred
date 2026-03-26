@@ -2,11 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DeDiClientError } from "@opencred/shared";
 import { DeDiClient } from "../adapter/client.js";
 import { DeDiApiClient } from "../api/api-client.js";
-import type { DelegationRecord } from "../adapter/types.js";
+import type { DelegationRecord, SchemaRecord } from "../adapter/types.js";
 import {
   REVOCATION_REGISTRY,
   DELEGATION_REGISTRY,
   PUBLIC_KEY_REGISTRY,
+  SCHEMA_REGISTRY,
 } from "../adapter/registry-names.js";
 
 // Mock the DeDiApiClient
@@ -685,7 +686,7 @@ describe("DeDiClient (adapter)", () => {
   // ── ensureRegistries ─────────────────────────────────────────────
 
   describe("ensureRegistries", () => {
-    it("creates namespace and all three registries", async () => {
+    it("creates namespace and all four registries", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.createNamespace).mockResolvedValue({
@@ -713,7 +714,7 @@ describe("DeDiClient (adapter)", () => {
         "example.com",
         expect.any(String),
       );
-      expect(api.createRegistry).toHaveBeenCalledTimes(3);
+      expect(api.createRegistry).toHaveBeenCalledTimes(4);
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
         REVOCATION_REGISTRY,
@@ -731,6 +732,12 @@ describe("DeDiClient (adapter)", () => {
         PUBLIC_KEY_REGISTRY,
         expect.any(Object),
         "public_key",
+      );
+      expect(api.createRegistry).toHaveBeenCalledWith(
+        "example.com",
+        SCHEMA_REGISTRY,
+        expect.any(Object),
+        "custom",
       );
     });
 
@@ -788,6 +795,131 @@ describe("DeDiClient (adapter)", () => {
           maxRetries: 0,
           circuitBreakerThreshold: 5,
         }),
+      );
+    });
+  });
+
+  // ── publishDID ───────────────────────────────────────────────────
+
+  describe("publishDID", () => {
+    it("publishes a DID document to the public_key_registry", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const didDocument = { id: "did:web:example.com", verificationMethod: [] };
+      vi.mocked(api.publishRecord).mockResolvedValue({
+        name: "did-web-example.com",
+        registry: PUBLIC_KEY_REGISTRY,
+        namespace: "example.com",
+        detail: { did: "did:web:example.com", document: didDocument, resolvedAt: "2026-03-25T00:00:00Z" },
+        state: "live",
+        version: 1,
+        created_at: "",
+        updated_at: "",
+      });
+
+      const result = await client.publishDID("did:web:example.com", didDocument);
+
+      expect(api.publishRecord).toHaveBeenCalledWith(
+        "example.com",
+        PUBLIC_KEY_REGISTRY,
+        "did-web-example.com",
+        expect.objectContaining({ did: "did:web:example.com", document: didDocument }),
+      );
+      expect(result.published).toBe(true);
+      expect(result.recordName).toBe("did-web-example.com");
+      expect(result.namespace).toBe("example.com");
+    });
+  });
+
+  // ── publishSchema ────────────────────────────────────────────────
+
+  describe("publishSchema", () => {
+    const testSchema: SchemaRecord = {
+      schemaId: "education",
+      version: "1",
+      schema: { type: "object", properties: {} },
+      contextUrl: "https://opencred.dev/contexts/education/v1",
+      checksum: "abc123",
+      publishedAt: "2026-03-25T00:00:00Z",
+    };
+
+    it("publishes a schema to the schema_registry", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord).mockResolvedValue({
+        name: "education-v1",
+        registry: SCHEMA_REGISTRY,
+        namespace: "example.com",
+        detail: testSchema,
+        state: "live",
+        version: 1,
+        created_at: "",
+        updated_at: "",
+      });
+
+      const result = await client.publishSchema(testSchema);
+
+      expect(api.publishRecord).toHaveBeenCalledWith(
+        "example.com",
+        SCHEMA_REGISTRY,
+        "education-v1",
+        testSchema,
+      );
+      expect(result.published).toBe(true);
+      expect(result.recordName).toBe("education-v1");
+    });
+  });
+
+  // ── resolveSchema ────────────────────────────────────────────────
+
+  describe("resolveSchema", () => {
+    it("looks up a schema from the schema_registry", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const schemaDetail: SchemaRecord = {
+        schemaId: "education",
+        version: "1",
+        schema: { type: "object" },
+        checksum: "abc",
+        publishedAt: "2026-03-25T00:00:00Z",
+      };
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "education-v1",
+        registry: SCHEMA_REGISTRY,
+        namespace: "example.com",
+        detail: schemaDetail,
+        state: "live",
+        version: 1,
+        created_at: "",
+        updated_at: "",
+      });
+
+      const result = await client.resolveSchema("education", "1");
+
+      expect(api.lookupRecord).toHaveBeenCalledWith(
+        "example.com",
+        SCHEMA_REGISTRY,
+        "education-v1",
+      );
+      expect(result.schemaId).toBe("education");
+    });
+
+    it("throws on malformed schema record", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "bad-v1",
+        registry: SCHEMA_REGISTRY,
+        namespace: "example.com",
+        detail: { schemaId: "bad" },
+        state: "live",
+        version: 1,
+        created_at: "",
+        updated_at: "",
+      });
+
+      await expect(client.resolveSchema("bad", "1")).rejects.toThrow(
+        "Schema record detail missing required field",
       );
     });
   });

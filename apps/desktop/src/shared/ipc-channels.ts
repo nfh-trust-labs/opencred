@@ -92,23 +92,9 @@ export const IPC_CHANNELS = {
   /** Select and connect an OS certificate for signing. Payload: { certificateId, label? }. Response: key metadata. */
   OSCERT_CONNECT: "oscert:connect",
 
-  // --- Attestation (Quick Start / Workflow 3) ---
-  /** Store a received Key Attestation VC. Payload: { keyId, credential }. Response: AttestationImportResponse. */
-  ATTESTATION_IMPORT: "attestation:import",
-  /** Get attestation for a specific key. Payload: { keyId }. Response: AttestationGetResponse. */
-  ATTESTATION_GET: "attestation:get",
-  /** List all stored attestations. Response: AttestationListResponse. */
-  ATTESTATION_LIST: "attestation:list",
-  /** Remove an attestation. Payload: { keyId }. Response: { removed: boolean }. */
-  ATTESTATION_REMOVE: "attestation:remove",
-  /** Check if a key has an attestation. Payload: { keyId }. Response: { hasAttestation: boolean }. */
-  ATTESTATION_CHECK: "attestation:check",
-  /** Request a domain verification challenge from the OpenCred API. */
-  ATTESTATION_REQUEST_CHALLENGE: "attestation:request-challenge",
-  /** Submit domain verification proof and request attestation. */
-  ATTESTATION_SUBMIT_VERIFICATION: "attestation:submit-verification",
-  /** Submit a business VC for attestation (alternative to domain verification). */
-  ATTESTATION_SUBMIT_BUSINESS_VC: "attestation:submit-business-vc",
+  // --- Self-Published Keys (did:web) ---
+  DID_WEB_EXPORT: "keys:export-did-document",
+  DID_WEB_VERIFY: "keys:verify-did-web",
 
   // --- Credential history ---
   /** List credential history entries. Response: history entry array. */
@@ -131,6 +117,16 @@ export const IPC_CHANNELS = {
   GET_CONFIG: "config:get",
   /** Write a config value. Payload: { key, value }. Response: void. */
   SET_CONFIG: "config:set",
+
+  // --- DeDi integration ---
+  /** Save DeDi configuration. Payload: DeDiConfigSetRequest. Response: DeDiConfigSetResponse. */
+  DEDI_SET_CONFIG: "dedi:set-config",
+  /** Get DeDi integration status. Response: DeDiStatusResponse. */
+  DEDI_GET_STATUS: "dedi:get-status",
+  /** Publish a DID document to DeDi. Payload: DeDiPublishDIDRequest. Response: DeDiPublishResponse. */
+  DEDI_PUBLISH_DID: "dedi:publish-did",
+  /** Ensure DeDi registries exist. Response: DeDiEnsureRegistriesResponse. */
+  DEDI_ENSURE_REGISTRIES: "dedi:ensure-registries",
 
   // --- System / diagnostics ---
   /** Get system info (app version, OS, paths). Response: SystemInfoResponse. */

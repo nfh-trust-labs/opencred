@@ -5,12 +5,18 @@ export type {
   RevocationHashRecord,
   DelegationRecord,
   DIDRecord,
+  SchemaRecord,
+  PublishResult,
 } from "./adapter/types.js";
 export {
   REVOCATION_REGISTRY,
   DELEGATION_REGISTRY,
   PUBLIC_KEY_REGISTRY,
+  SCHEMA_REGISTRY,
 } from "./adapter/registry-names.js";
+
+// Publishing orchestrator
+export { DeDiPublishManager, createPublishManager } from "./publish-manager.js";
 
 // Advanced — low-level API access
 export { DeDiApiClient } from "./api/api-client.js";

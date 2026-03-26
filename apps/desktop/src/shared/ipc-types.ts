@@ -583,6 +583,92 @@ export interface OsCertConnectResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Self-Published Keys (did:web)
+// ---------------------------------------------------------------------------
+
+export interface DidWebExportRequest {
+  keyId: string;
+  domain: string;
+}
+
+export interface DidWebExportResponse {
+  success: boolean;
+  didDocument?: string;
+  did?: string;
+  error?: string;
+}
+
+export interface DidWebVerifyRequest {
+  domain: string;
+}
+
+export interface DidWebVerifyResponse {
+  success: boolean;
+  accessible: boolean;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
+// DeDi integration
+// ---------------------------------------------------------------------------
+
+/**
+ * Configuration for DeDi integration. Persisted in electron-store.
+ *
+ * SECURITY NOTE: DeDi credentials are the issuer's own API credentials for
+ * their DeDi namespace. They are persisted encrypted in electron-store and
+ * NEVER logged.
+ */
+export interface DeDiConfig {
+  /** Base URL of the DeDi API (e.g., "https://api.dedi.global"). */
+  baseUrl: string;
+  /** The issuer's DeDi namespace (typically their domain). */
+  namespace: string;
+  /** Authentication credentials. */
+  credentials: DeDiCredentials;
+}
+
+export interface DeDiConfigSetRequest {
+  baseUrl: string;
+  namespace: string;
+  credentials: DeDiCredentials;
+}
+
+export interface DeDiConfigSetResponse {
+  success: boolean;
+  /** Whether registries were successfully created/verified. */
+  registriesReady?: boolean;
+  error?: string;
+}
+
+export interface DeDiStatusResponse {
+  /** Whether DeDi integration is configured. */
+  configured: boolean;
+  /** The configured namespace (if any). */
+  namespace?: string;
+  /** Schema IDs that have been published to DeDi. */
+  publishedSchemas: string[];
+}
+
+export interface DeDiPublishDIDRequest {
+  /** The DID to publish. */
+  did: string;
+  /** The DID document (JSON). */
+  document: unknown;
+}
+
+export interface DeDiPublishResponse {
+  success: boolean;
+  recordName?: string;
+  error?: string;
+}
+
+export interface DeDiEnsureRegistriesResponse {
+  success: boolean;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
@@ -593,113 +679,6 @@ export interface ConfigGetRequest {
 export interface ConfigSetRequest {
   key: string;
   value: unknown;
-}
-
-// ---------------------------------------------------------------------------
-// Attestation (Quick Start / Workflow 3)
-// ---------------------------------------------------------------------------
-
-export interface AttestationImportRequest {
-  keyId: string;
-  credential: Record<string, unknown>;
-}
-
-export interface AttestationImportResponse {
-  success: boolean;
-  attestation?: {
-    keyId: string;
-    organizationName: string;
-    verifiedDomain: string;
-    validFrom: string;
-    validUntil: string;
-    storedAt: string;
-  };
-  error?: string;
-}
-
-export interface AttestationGetRequest {
-  keyId: string;
-}
-
-export interface AttestationGetResponse {
-  attestation: {
-    keyId: string;
-    credential: Record<string, unknown>;
-    organizationName: string;
-    verifiedDomain: string;
-    validFrom: string;
-    validUntil: string;
-    storedAt: string;
-  } | null;
-}
-
-export interface AttestationListResponse {
-  attestations: Array<{
-    keyId: string;
-    organizationName: string;
-    verifiedDomain: string;
-    validFrom: string;
-    validUntil: string;
-    storedAt: string;
-  }>;
-}
-
-export interface AttestationRemoveRequest {
-  keyId: string;
-}
-
-export interface AttestationRemoveResponse {
-  removed: boolean;
-}
-
-export interface AttestationCheckRequest {
-  keyId: string;
-}
-
-export interface AttestationCheckResponse {
-  hasAttestation: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Attestation API (OpenCred-Attested onboarding)
-// ---------------------------------------------------------------------------
-
-export interface AttestationRequestChallengeRequest {
-  domain: string;
-  method: "dns-txt" | "http";
-}
-
-export interface AttestationRequestChallengeResponse {
-  success: boolean;
-  challengeId?: string;
-  token?: string;
-  instructions?: string;
-  expiresAt?: string;
-  error?: string;
-}
-
-export interface AttestationSubmitVerificationRequest {
-  challengeId: string;
-  keyId: string;
-  domain: string;
-  organizationName: string;
-}
-
-export interface AttestationSubmitVerificationResponse {
-  success: boolean;
-  credential?: Record<string, unknown>;
-  error?: string;
-}
-
-export interface AttestationSubmitBusinessVcRequest {
-  businessVc: string | Record<string, unknown>;
-  keyId: string;
-}
-
-export interface AttestationSubmitBusinessVcResponse {
-  success: boolean;
-  credential?: Record<string, unknown>;
-  error?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -862,19 +841,18 @@ export interface OpenCredDesktopAPI {
   getConfig: (key: string) => Promise<unknown>;
   setConfig: (key: string, value: unknown) => Promise<void>;
 
+  // Self-Published Keys (did:web)
+  exportDidDocument: (request: DidWebExportRequest) => Promise<DidWebExportResponse>;
+  verifyDidWeb: (request: DidWebVerifyRequest) => Promise<DidWebVerifyResponse>;
+
+  // DeDi integration
+  dediSetConfig: (request: DeDiConfigSetRequest) => Promise<DeDiConfigSetResponse>;
+  dediGetStatus: () => Promise<DeDiStatusResponse>;
+  dediPublishDID: (request: DeDiPublishDIDRequest) => Promise<DeDiPublishResponse>;
+  dediEnsureRegistries: () => Promise<DeDiEnsureRegistriesResponse>;
+
   // System / diagnostics
   getSystemInfo: () => Promise<SystemInfoResponse>;
   getRecentLogs: (lines?: number) => Promise<LogTailResponse>;
 
-  // Attestation (Quick Start / Workflow 3)
-  attestation: {
-    import: (request: AttestationImportRequest) => Promise<AttestationImportResponse>;
-    get: (request: AttestationGetRequest) => Promise<AttestationGetResponse>;
-    list: () => Promise<AttestationListResponse>;
-    remove: (request: AttestationRemoveRequest) => Promise<AttestationRemoveResponse>;
-    check: (request: AttestationCheckRequest) => Promise<AttestationCheckResponse>;
-    requestChallenge: (request: AttestationRequestChallengeRequest) => Promise<AttestationRequestChallengeResponse>;
-    submitVerification: (request: AttestationSubmitVerificationRequest) => Promise<AttestationSubmitVerificationResponse>;
-    submitBusinessVc: (request: AttestationSubmitBusinessVcRequest) => Promise<AttestationSubmitBusinessVcResponse>;
-  };
 }

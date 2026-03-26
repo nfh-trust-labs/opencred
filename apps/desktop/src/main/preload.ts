@@ -66,21 +66,10 @@ import type {
   OsCertSignResponse,
   OsCertConnectRequest,
   OsCertConnectResponse,
-  AttestationImportRequest,
-  AttestationImportResponse,
-  AttestationGetRequest,
-  AttestationGetResponse,
-  AttestationListResponse,
-  AttestationRemoveRequest,
-  AttestationRemoveResponse,
-  AttestationCheckRequest,
-  AttestationCheckResponse,
-  AttestationRequestChallengeRequest,
-  AttestationRequestChallengeResponse,
-  AttestationSubmitVerificationRequest,
-  AttestationSubmitVerificationResponse,
-  AttestationSubmitBusinessVcRequest,
-  AttestationSubmitBusinessVcResponse,
+  DidWebExportRequest,
+  DidWebExportResponse,
+  DidWebVerifyRequest,
+  DidWebVerifyResponse,
   CredentialHistoryListResponse,
   CredentialHistoryAddRequest,
   CredentialHistoryDeleteRequest,
@@ -90,6 +79,12 @@ import type {
   CustomSchemaSaveResponse,
   CustomSchemaDeleteRequest,
   CustomSchemaDeleteResponse,
+  DeDiConfigSetRequest,
+  DeDiConfigSetResponse,
+  DeDiStatusResponse,
+  DeDiPublishDIDRequest,
+  DeDiPublishResponse,
+  DeDiEnsureRegistriesResponse,
   SystemInfoResponse,
   LogTailResponse,
   OpenCredDesktopAPI,
@@ -199,32 +194,25 @@ const api: OpenCredDesktopAPI = {
   osCertConnect: (request: OsCertConnectRequest): Promise<OsCertConnectResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.OSCERT_CONNECT, request),
 
-  // Attestation (Quick Start / Workflow 3)
-  attestation: {
-    import: (request: AttestationImportRequest): Promise<AttestationImportResponse> =>
-      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_IMPORT, request),
+  // Self-Published Keys (did:web)
+  exportDidDocument: (request: DidWebExportRequest): Promise<DidWebExportResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DID_WEB_EXPORT, request),
 
-    get: (request: AttestationGetRequest): Promise<AttestationGetResponse> =>
-      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_GET, request),
+  verifyDidWeb: (request: DidWebVerifyRequest): Promise<DidWebVerifyResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DID_WEB_VERIFY, request),
 
-    list: (): Promise<AttestationListResponse> =>
-      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_LIST),
+  // DeDi integration
+  dediSetConfig: (request: DeDiConfigSetRequest): Promise<DeDiConfigSetResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEDI_SET_CONFIG, request),
 
-    remove: (request: AttestationRemoveRequest): Promise<AttestationRemoveResponse> =>
-      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_REMOVE, request),
+  dediGetStatus: (): Promise<DeDiStatusResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEDI_GET_STATUS),
 
-    check: (request: AttestationCheckRequest): Promise<AttestationCheckResponse> =>
-      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_CHECK, request),
+  dediPublishDID: (request: DeDiPublishDIDRequest): Promise<DeDiPublishResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEDI_PUBLISH_DID, request),
 
-    requestChallenge: (request: AttestationRequestChallengeRequest): Promise<AttestationRequestChallengeResponse> =>
-      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_REQUEST_CHALLENGE, request),
-
-    submitVerification: (request: AttestationSubmitVerificationRequest): Promise<AttestationSubmitVerificationResponse> =>
-      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_SUBMIT_VERIFICATION, request),
-
-    submitBusinessVc: (request: AttestationSubmitBusinessVcRequest): Promise<AttestationSubmitBusinessVcResponse> =>
-      ipcRenderer.invoke(IPC_CHANNELS.ATTESTATION_SUBMIT_BUSINESS_VC, request),
-  },
+  dediEnsureRegistries: (): Promise<DeDiEnsureRegistriesResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEDI_ENSURE_REGISTRIES),
 
   // Credential history
   credentialHistoryList: (): Promise<CredentialHistoryListResponse> =>

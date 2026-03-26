@@ -40,18 +40,15 @@ describe("IPC_CHANNELS", () => {
     expect(IPC_CHANNELS.OSCERT_LIST).toBe("oscert:list");
     expect(IPC_CHANNELS.OSCERT_SIGN).toBe("oscert:sign");
     expect(IPC_CHANNELS.OSCERT_CONNECT).toBe("oscert:connect");
-    expect(IPC_CHANNELS.ATTESTATION_IMPORT).toBe("attestation:import");
-    expect(IPC_CHANNELS.ATTESTATION_GET).toBe("attestation:get");
-    expect(IPC_CHANNELS.ATTESTATION_LIST).toBe("attestation:list");
-    expect(IPC_CHANNELS.ATTESTATION_REMOVE).toBe("attestation:remove");
-    expect(IPC_CHANNELS.ATTESTATION_CHECK).toBe("attestation:check");
+    expect(IPC_CHANNELS.DID_WEB_EXPORT).toBe("keys:export-did-document");
+    expect(IPC_CHANNELS.DID_WEB_VERIFY).toBe("keys:verify-did-web");
     expect(IPC_CHANNELS.GET_CONFIG).toBe("config:get");
     expect(IPC_CHANNELS.SET_CONFIG).toBe("config:set");
   });
 
   it("should have exactly 37 channels defined", () => {
     const channelCount = Object.keys(IPC_CHANNELS).length;
-    expect(channelCount).toBe(37);
+    expect(channelCount).toBe(46);
   });
 
   it("should have unique channel values (no duplicate channel names)", () => {
@@ -61,7 +58,7 @@ describe("IPC_CHANNELS", () => {
   });
 
   it("should have all channel values follow the namespace:action pattern", () => {
-    const pattern = /^[a-z0-9]+:[a-z]+(-[a-z]+)*$/;
+    const pattern = /^[a-z0-9]+(-[a-z0-9]+)*:[a-z]+(-[a-z]+)*$/;
     for (const channel of Object.values(IPC_CHANNELS)) {
       expect(channel).toMatch(pattern);
     }
@@ -108,13 +105,22 @@ describe("IPC_CHANNELS", () => {
       OSCERT_LIST: "oscert:list",
       OSCERT_SIGN: "oscert:sign",
       OSCERT_CONNECT: "oscert:connect",
-      ATTESTATION_IMPORT: "attestation:import",
-      ATTESTATION_GET: "attestation:get",
-      ATTESTATION_LIST: "attestation:list",
-      ATTESTATION_REMOVE: "attestation:remove",
-      ATTESTATION_CHECK: "attestation:check",
+      DID_WEB_EXPORT: "keys:export-did-document",
+      DID_WEB_VERIFY: "keys:verify-did-web",
+      CREDENTIAL_HISTORY_LIST: "credential-history:list",
+      CREDENTIAL_HISTORY_ADD: "credential-history:add",
+      CREDENTIAL_HISTORY_DELETE: "credential-history:delete",
+      CUSTOM_SCHEMA_SAVE: "custom-schema:save",
+      CUSTOM_SCHEMA_LIST: "custom-schema:list",
+      CUSTOM_SCHEMA_DELETE: "custom-schema:delete",
       GET_CONFIG: "config:get",
       SET_CONFIG: "config:set",
+      SYSTEM_INFO: "system:info",
+      LOG_TAIL: "log:tail",
+      DEDI_SET_CONFIG: "dedi:set-config",
+      DEDI_GET_STATUS: "dedi:get-status",
+      DEDI_PUBLISH_DID: "dedi:publish-did",
+      DEDI_ENSURE_REGISTRIES: "dedi:ensure-registries",
     };
 
     for (const [key, value] of Object.entries(expectedChannels)) {

@@ -27,9 +27,7 @@ import {
   completeEdDsaProof,
   prepareSdJwtVcProof,
   completeSdJwtVcProof,
-  verifyProof,
 } from "@opencred/crypto";
-import { publicKeyFromMultibase } from "@opencred/verification";
 import { ValidationError, CryptoError } from "@opencred/shared";
 import { requireSigner } from "../signing/key-manager.js";
 import { packageCredential } from "../packaging/packager.js";
@@ -225,61 +223,28 @@ credentials.post("/credentials/verify", async (c) => {
 
   const credential = JSON.parse(parsed.credential);
 
-  // Resolve public key from did:key
-  const proof = credential.proof;
-  if (!proof || !proof.verificationMethod) {
-    throw new ValidationError("Credential is missing proof.verificationMethod");
-  }
+  // Verify using composite DID resolver (supports did:key, did:jwk, did:web)
+  const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } = await import("@opencred/did");
+  const { verifyCredential } = await import("@opencred/verification");
 
-  const vm: string = proof.verificationMethod;
-  const fragment = vm.includes("#") ? vm.split("#")[1] : undefined;
-  let publicKey = undefined;
-  if (fragment) {
-    publicKey = publicKeyFromMultibase(fragment) ?? undefined;
-  }
+  const compositeResolver = new CompositeDIDResolver(
+    new Map([
+      ["key", new DIDKeyResolver()],
+      ["jwk", new DIDJwkResolver()],
+      ["web", new DIDWebResolver()],
+    ]),
+  );
 
-  if (!publicKey) {
-    return c.json({
-      valid: false,
-      message: "Unable to resolve public key from verificationMethod. Only did:key is supported.",
-      checks: [{ name: "key-resolution", passed: false, detail: "Could not resolve public key" }],
-    });
-  }
-
-  const result = await verifyProof(credential, { publicKey });
-
-  const checks: Array<{ name: string; passed: boolean; detail?: string }> = [
-    { name: "signature", passed: result.verified, detail: result.error },
-  ];
-
-  // Date checks
-  const now = new Date();
-  if (credential.validFrom) {
-    const validFrom = new Date(credential.validFrom);
-    checks.push(
-      validFrom > now
-        ? { name: "not-before", passed: false, detail: `Not yet valid (validFrom: ${credential.validFrom})` }
-        : { name: "not-before", passed: true },
-    );
-  }
-
-  if (credential.validUntil) {
-    const validUntil = new Date(credential.validUntil);
-    checks.push(
-      validUntil < now
-        ? { name: "expiry", passed: false, detail: `Expired (validUntil: ${credential.validUntil})` }
-        : { name: "expiry", passed: true },
-    );
-  }
-
-  const allPassed = checks.every((check) => check.passed);
+  const verificationResult = await verifyCredential(credential, {
+    didResolver: compositeResolver,
+  });
 
   return c.json({
-    valid: allPassed,
-    message: allPassed
+    valid: verificationResult.verified,
+    message: verificationResult.verified
       ? "Credential is valid."
-      : (checks.find((check) => !check.passed)?.detail ?? "Verification failed."),
-    checks,
+      : (verificationResult.checks.find((check) => !check.passed)?.detail ?? "Verification failed."),
+    checks: verificationResult.checks,
   });
 });
 

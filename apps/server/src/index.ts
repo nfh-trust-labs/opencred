@@ -26,7 +26,6 @@ import { health } from "./routes/health.js";
 import { schemas } from "./routes/schemas.js";
 import { credentials } from "./routes/credentials.js";
 import { batch } from "./routes/batch.js";
-import { attestation } from "./routes/attestation.js";
 import { revocation } from "./routes/revocation.js";
 import { packaging } from "./routes/packaging.js";
 
@@ -59,7 +58,6 @@ app.route("/", health);
 app.route("/", schemas);
 app.route("/", credentials);
 app.route("/", batch);
-app.route("/", attestation);
 app.route("/", revocation);
 app.route("/", packaging);
 

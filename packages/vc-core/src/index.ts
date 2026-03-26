@@ -14,7 +14,6 @@ export {
   W3C_CREDENTIALS_V2_CONTEXT,
   DATA_INTEGRITY_V1_CONTEXT,
   OPENCRED_DELEGATION_V1_CONTEXT,
-  OPENCRED_KEY_ATTESTATION_V1_CONTEXT,
 } from "./types.js";
 
 export { CredentialBuilder } from "./credential-builder.js";

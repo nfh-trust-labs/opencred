@@ -55,9 +55,9 @@ After import, a Key Details card displays: DID, Algorithm, Fingerprint, and Sour
 
 CA integration for DSC acquisition. Coming soon.
 
-### Path 3: Get started without a DSC (OpenCred-Attested)
+### Path 3: Self-Published Keys (did:web)
 
-Generate keys locally, verify your organization (domain or business VC), and receive a Key Attestation from OpenCred. See [Key Attestation](attestation.md) for details.
+Generate keys locally and publish your public key via did:web at `.well-known/did.json` on your domain. See [Key Management](key-management.md) for details.
 
 ## Quick Tutorial: Issue Your First Credential
 
@@ -72,5 +72,4 @@ Generate keys locally, verify your organization (domain or business VC), and rec
 - [Key Management](key-management.md) -- importing, generating, and managing signing keys
 - [Issuing Credentials](issuing-credentials.md) -- single and batch issuance workflows
 - [Verifying Credentials](verifying-credentials.md) -- offline credential verification
-- [Key Attestation](attestation.md) -- OpenCred-Attested trust chain
 - [Settings and Diagnostics](settings-and-logging.md) -- configuration, logging, and bug reports

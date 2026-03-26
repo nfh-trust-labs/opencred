@@ -2,8 +2,6 @@
 
 These are the HTTP endpoints exposed by **your** OpenCred Docker deployment. All credential operations (issue, verify, batch, package) run entirely in your infrastructure using your signing keys. Nothing is sent to OpenCred.
 
-Key Attestation for the OpenCred-Attested flow is handled through the [OpenCred website](../desktop/attestation.md), not via API calls.
-
 ## Authentication
 
 Protected endpoints require a Bearer token:
