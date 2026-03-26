@@ -1363,7 +1363,12 @@ async function handleDidWebExport(_event: IpcMainInvokeEvent, request: DidWebExp
   }
 }
 
+const DOMAIN_PATTERN = /^[a-zA-Z0-9]([a-zA-Z0-9-]*\.)+[a-zA-Z]{2,}(:\d+)?$/;
+
 async function handleDidWebVerify(_event: IpcMainInvokeEvent, request: DidWebVerifyRequest): Promise<DidWebVerifyResponse> {
+  if (!request.domain || !DOMAIN_PATTERN.test(request.domain)) {
+    return { success: true, accessible: false, error: "Invalid domain format" };
+  }
   try {
     const resolver = new DIDWebResolver();
     await resolver.resolve(encodeDidWeb(request.domain));
