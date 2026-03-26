@@ -161,12 +161,18 @@ export class DIDWebResolver implements DIDResolver {
     try {
       return await this.resolveViaHttps(did, url);
     } catch (httpError) {
-      // If a fallback is configured, try it before giving up
-      if (this.fallback) {
+      // Never fall back on SSRF violations — these are security boundaries
+      const isSsrf = httpError instanceof DIDResolutionError
+        && httpError.message.includes("SSRF protection");
+      if (isSsrf || !this.fallback) {
+        throw httpError;
+      }
+      // Try DeDi fallback; if it also fails, throw the original HTTP error
+      try {
         const fallbackResult = await this.fallback(did);
-        if (fallbackResult) {
-          return fallbackResult;
-        }
+        if (fallbackResult) return fallbackResult;
+      } catch {
+        // Fallback failed — throw the original, more meaningful error
       }
       throw httpError;
     }
@@ -178,16 +184,18 @@ export class DIDWebResolver implements DIDResolver {
     const hostname = parsedUrl.hostname;
 
     // DNS resolution + SSRF check: resolve the hostname and verify
-    // all returned IPs are public before making the HTTP request.
-    let addresses: string[];
-    try {
-      addresses = await dns.resolve4(hostname);
-    } catch {
-      throw new DIDResolutionError(`Failed to resolve hostname: ${hostname}`);
-    }
+    // all returned IPs (IPv4 + IPv6) are public before making the HTTP request.
+    const [v4Result, v6Result] = await Promise.allSettled([
+      dns.resolve4(hostname),
+      dns.resolve6(hostname),
+    ]);
+    const addresses = [
+      ...(v4Result.status === "fulfilled" ? v4Result.value : []),
+      ...(v6Result.status === "fulfilled" ? v6Result.value : []),
+    ];
 
     if (addresses.length === 0) {
-      throw new DIDResolutionError(`No DNS records found for: ${hostname}`);
+      throw new DIDResolutionError(`Failed to resolve hostname: ${hostname}`);
     }
 
     for (const ip of addresses) {
