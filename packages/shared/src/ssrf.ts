@@ -53,9 +53,22 @@ function isPrivateIPv6(ip: string): boolean {
   if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
   if (normalized.startsWith("fe80:")) return true;
 
-  // IPv4-mapped IPv6 (::ffff:x.x.x.x) — extract the IPv4 part and check it
-  const mappedMatch = normalized.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-  if (mappedMatch) return isPrivateIPv4(mappedMatch[1]);
+  // IPv4-mapped IPv6 — two forms:
+  // 1. Dotted: ::ffff:192.168.1.1
+  // 2. Hex:    ::ffff:c0a8:0101
+  const dottedMatch = normalized.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (dottedMatch) return isPrivateIPv4(dottedMatch[1]);
+
+  const hexMatch = normalized.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hexMatch) {
+    const hi = parseInt(hexMatch[1], 16);
+    const lo = parseInt(hexMatch[2], 16);
+    const a = (hi >> 8) & 0xff;
+    const b = hi & 0xff;
+    const c = (lo >> 8) & 0xff;
+    const d = lo & 0xff;
+    return isPrivateIPv4(`${a}.${b}.${c}.${d}`);
+  }
 
   return false;
 }
