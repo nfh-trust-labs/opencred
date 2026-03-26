@@ -88,7 +88,6 @@ const logger = createLogger("ipc");
 import { signWithFormat } from "../signing/proof-format-router.js";
 import type { UiProofFormat } from "../shared/ipc-types.js";
 import { generateKeyPairSync, createPublicKey, randomUUID } from "node:crypto";
-import { verifyProof } from "@opencred/crypto";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
@@ -464,10 +463,11 @@ async function handleBuildAndSign(
 // ---------------------------------------------------------------------------
 
 /**
- * VERIFY_CREDENTIAL — verify a signed VC offline.
+ * VERIFY_CREDENTIAL — verify a signed VC.
  *
- * Uses @opencred/crypto verifyProof for offline Data Integrity verification.
- * The public key is extracted from the did:key verification method.
+ * Uses @opencred/verification with a composite DID resolver that supports
+ * did:key, did:jwk, and did:web verification methods. Note: did:web
+ * verification requires network access to fetch the DID document.
  */
 async function handleVerifyCredential(
   _event: IpcMainInvokeEvent,
@@ -475,86 +475,43 @@ async function handleVerifyCredential(
 ): Promise<VerifyCredentialResponse> {
   try {
     const parsed = JSON.parse(request.credential);
-    const credential = parseCredentialJson(JSON.stringify(parsed));
 
-    // Attempt to resolve the public key from did:key
-    const { publicKeyFromMultibase } = await import("@opencred/verification");
-    const vm = credential.proof.verificationMethod;
+    // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
+    const { DIDKeyResolver, DIDJwkResolver, CompositeDIDResolver } = await import("@opencred/did");
+    const { verifyCredential } = await import("@opencred/verification");
 
-    // Extract the multibase key from the did:key fragment
-    const fragment = vm.includes("#") ? vm.split("#")[1] : undefined;
-    let publicKey = undefined;
-    if (fragment) {
-      publicKey = publicKeyFromMultibase(fragment) ?? undefined;
-    }
+    const compositeResolver = new CompositeDIDResolver(
+      new Map([
+        ["key", new DIDKeyResolver()],
+        ["jwk", new DIDJwkResolver()],
+        ["web", new DIDWebResolver()],
+      ]),
+    );
 
-    if (!publicKey) {
-      return {
-        success: true,
-        valid: false,
-        message:
-          "Unable to resolve public key from verificationMethod. Only did:key is supported for offline verification.",
-        checks: [{ name: "key-resolution", passed: false, detail: "Could not resolve public key" }],
-      };
-    }
+    const verificationResult = await verifyCredential(parsed, {
+      didResolver: compositeResolver,
+    });
 
-    const result = await verifyProof(credential, { publicKey });
-
-    const checks = [
-      {
-        name: "signature",
-        passed: result.verified,
-        detail: result.error,
-      },
-    ];
-
-    // Check dates
-    const now = new Date();
-    const validFrom = new Date(credential.validFrom);
-    const dateChecks: Array<{ name: string; passed: boolean; detail?: string }> = [];
-
-    if (validFrom > now) {
-      dateChecks.push({
-        name: "not-before",
-        passed: false,
-        detail: `Credential is not yet valid (validFrom: ${credential.validFrom})`,
-      });
-    } else {
-      dateChecks.push({ name: "not-before", passed: true });
-    }
-
-    if (credential.validUntil) {
-      const validUntil = new Date(credential.validUntil);
-      if (validUntil < now) {
-        dateChecks.push({
-          name: "expiry",
-          passed: false,
-          detail: `Credential has expired (validUntil: ${credential.validUntil})`,
-        });
-      } else {
-        dateChecks.push({ name: "expiry", passed: true });
-      }
-    }
-
-    const allChecks = [...checks, ...dateChecks];
-    const allPassed = allChecks.every((c) => c.passed);
-
-    logger.info("Credential verified", { valid: allPassed });
+    logger.info("Credential verified", { valid: verificationResult.verified, code: verificationResult.code });
     return {
       success: true,
-      valid: allPassed,
-      message: allPassed
+      valid: verificationResult.verified,
+      message: verificationResult.verified
         ? "Credential signature is valid."
-        : (allChecks.find((c) => !c.passed)?.detail ?? "Verification failed."),
-      checks: allChecks,
+        : (verificationResult.checks.find((c) => \!c.passed)?.detail ?? "Verification failed."),
+      checks: verificationResult.checks,
     };
   } catch (err) {
+    // Provide a user-friendly message for did:web offline failures
     const message = err instanceof Error ? err.message : "Verification failed.";
+    const isNetworkError = message.includes("resolve hostname") || message.includes("Timeout fetching");
+    const userMessage = isNetworkError
+      ? "Verification requires network access to resolve the issuer's DID document (did:web). Please check your connection."
+      : message;
     logger.error("Credential verification failed", { error: message });
-    return { success: false, error: message };
+    return { success: false, error: userMessage };
   }
 }
-
 // ---------------------------------------------------------------------------
 // Packaging handler
 // ---------------------------------------------------------------------------
