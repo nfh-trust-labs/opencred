@@ -12,7 +12,7 @@
  *  - All crypto operations happen in the main process.
  */
 
-import { app, ipcMain, dialog, type IpcMainInvokeEvent } from "electron";
+import { app, ipcMain, dialog, safeStorage, type IpcMainInvokeEvent } from "electron";
 import * as os from "node:os";
 import * as fs from "node:fs/promises";
 import { IPC_CHANNELS } from "../shared/ipc-channels.js";
@@ -115,6 +115,7 @@ import {
 
 
 import { BATCH_ROW_LIMIT } from "../shared/constants.js";
+import { DeDiPublishManager, createPublishManager } from "@opencred/dedi-client";
 
 // ---------------------------------------------------------------------------
 // In-memory registries
@@ -125,6 +126,9 @@ const importedKeys = new Map<string, KeyMetadata>();
 
 /** Maps key ID -> Signer instance (private key stays in memory, never serialized). */
 const loadedSigners = new Map<string, Signer>();
+
+/** Maps key ID -> public key JWK (for DID document export in Self-Published Keys flow). */
+const loadedPublicKeyJwks = new Map<string, Record<string, unknown>>();
 
 /**
  * Merge signers reloaded from persisted paths into the in-memory registries.
@@ -249,6 +253,7 @@ async function handleKeyGenerate(
 
     importedKeys.set(signer.id, meta);
     loadedSigners.set(signer.id, signer);
+    loadedPublicKeyJwks.set(signer.id, publicKey.export({ format: "jwk" }));
 
     logger.info("Key generated", { keyId: signer.id, fingerprint: meta.fingerprint });
     return { success: true, key: meta };
@@ -447,14 +452,14 @@ async function handleBuildAndSign(
         void dediMgr.ensureSchemaPublished({
           schemaId: def.id, version: "1", schema: def.schema, contextUrl: def.contextUrl,
           checksum: "", publishedAt: new Date().toISOString(),
-        }).then((r) => {
+        }).then((r: import("@opencred/dedi-client").PublishResult | null) => {
           if (r) {
             const s = getStore();
             const pub = s.get("dediPublishedSchemas");
             const k = `${def.id}-v1`;
             if (!pub.includes(k)) s.set("dediPublishedSchemas", [...pub, k]);
           }
-        });
+        }).catch(() => { /* fire-and-forget — errors logged by publish manager */ });
       } catch { /* schema lookup failed — skip */ }
     }
 
@@ -1381,7 +1386,8 @@ export function getDeDiPublishManager(): DeDiPublishManager | null {
   if (!config) return null;
   const credJson = getDeDiCredentialFromKeychain();
   if (!credJson) return null;
-  const parsed = JSON.parse(credJson) as { apiKey?: string; email?: string; password?: string };
+  let parsed: { apiKey?: string; email?: string; password?: string };
+  try { parsed = JSON.parse(credJson); } catch { return null; }
   const auth = config.authType === "api-key"
     ? { type: "api-key" as const, apiKey: parsed.apiKey ?? "" }
     : { type: "bearer" as const, email: parsed.email ?? "", password: parsed.password ?? "" };
