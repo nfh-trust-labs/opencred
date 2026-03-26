@@ -51,10 +51,10 @@ window.opencred = {
     return { keys: this._keys };
   },
   async generateKey({ label }) {
-    const id = 'did:key:z6Mktest' + Math.random().toString(36).slice(2, 10);
+    const id = 'did:key:z6Mktest' + crypto.randomUUID().slice(0, 8);
     const key = {
       id,
-      fingerprint: 'SHA256:' + Math.random().toString(36).slice(2, 18),
+      fingerprint: 'SHA256:' + crypto.randomUUID().replace(/-/g, '').slice(0, 16),
       algorithm: 'ECDSA P-256',
       importedAt: new Date().toISOString(),
       label: label || 'Generated Key',
@@ -68,10 +68,10 @@ window.opencred = {
     if (filePath && filePath.endsWith('.p12') && !password) {
       return { success: false, error: 'PFX import requires a password' };
     }
-    const id = 'did:key:z6Mkimport' + Math.random().toString(36).slice(2, 10);
+    const id = 'did:key:z6Mkimport' + crypto.randomUUID().slice(0, 8);
     const key = {
       id,
-      fingerprint: 'SHA256:' + Math.random().toString(36).slice(2, 18),
+      fingerprint: 'SHA256:' + crypto.randomUUID().replace(/-/g, '').slice(0, 16),
       algorithm: 'ECDSA P-256',
       importedAt: new Date().toISOString(),
       label: label || 'Imported Key',
@@ -173,7 +173,7 @@ window.opencred = {
       verificationMethod: keyId,
       proofPurpose: 'assertionMethod',
       created: new Date().toISOString(),
-      proofValue: 'z' + Math.random().toString(36).slice(2, 50),
+      proofValue: 'z' + crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, ''),
     };
     return { success: true, signedCredential: JSON.stringify(parsed) };
   },
@@ -191,7 +191,7 @@ window.opencred = {
         verificationMethod: keyId,
         proofPurpose: 'assertionMethod',
         created: new Date().toISOString(),
-        proofValue: 'z' + Math.random().toString(36).slice(2, 50),
+        proofValue: 'z' + crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, ''),
       },
     };
     this._signedCredentials.push(credential);
@@ -241,7 +241,7 @@ window.opencred = {
   // Revocation
   async queueRevocation({ credentialId, registryUrl, reason }) {
     const item = {
-      queueId: 'q-' + Math.random().toString(36).slice(2, 8),
+      queueId: 'q-' + crypto.randomUUID().slice(0, 6),
       credentialId,
       registryUrl,
       reason,
@@ -432,10 +432,10 @@ window.opencred = {
   },
   async osCertSign() { return { success: false, error: 'Not connected' }; },
   async osCertConnect({ certificateId, label }) {
-    const id = 'did:key:z6MkoscertMock' + Math.random().toString(36).slice(2, 8);
+    const id = 'did:key:z6MkoscertMock' + crypto.randomUUID().slice(0, 6);
     const key = {
       id,
-      fingerprint: 'SHA256:oscert' + Math.random().toString(36).slice(2, 12),
+      fingerprint: 'SHA256:oscert' + crypto.randomUUID().slice(0, 10),
       algorithm: 'ECDSA P-256',
       importedAt: new Date().toISOString(),
       label: label || 'OS Cert Key',

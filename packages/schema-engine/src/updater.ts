@@ -139,8 +139,14 @@ export async function loadCachedSchemas(cacheDir: string): Promise<SchemaDefinit
       try {
         const content = await readFile(join(cacheDir, entry), "utf-8");
         const definition = JSON.parse(content) as SchemaDefinition;
-        // Validate required fields
+        // Validate required fields and checksum integrity
         if (definition.id && definition.schema && definition.version) {
+          if (definition.checksum) {
+            const actual = createHash("sha256")
+              .update(JSON.stringify(definition.schema))
+              .digest("hex");
+            if (actual !== definition.checksum) continue; // skip corrupted
+          }
           schemas.push(definition);
         }
       } catch {
@@ -172,7 +178,11 @@ export async function saveSchemasToCache(
     await mkdir(cacheDir, { recursive: true });
     for (const schema of schemas) {
       const filePath = join(cacheDir, `${schema.id}.json`);
-      await writeFile(filePath, JSON.stringify(schema, null, 2), "utf-8");
+      const withChecksum = {
+        ...schema,
+        checksum: createHash("sha256").update(JSON.stringify(schema.schema)).digest("hex"),
+      };
+      await writeFile(filePath, JSON.stringify(withChecksum, null, 2), "utf-8");
     }
   } catch {
     // Cache write failure is non-fatal — bundled schemas remain available

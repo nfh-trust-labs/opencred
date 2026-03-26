@@ -175,10 +175,15 @@ test.describe("Batch Flow", () => {
       await cancelBtn.click();
     }
 
-    // Should eventually complete or show cancelled state
+    // Should show batch complete (cancellation triggers early completion)
     await expect(
-      page.locator("h2:has-text('Batch Complete')").or(page.locator("h2:has-text('Batch Processing')"))
+      page.locator("h2:has-text('Batch Complete')")
     ).toBeVisible({ timeout: 15_000 });
+
+    // Verify cancellation had effect: skipped count should be > 0
+    const skippedLocator = page.locator("text=/Skipped:\\s*[1-9]/");
+    const cancelledLocator = page.locator("text=/Cancelled/i");
+    await expect(skippedLocator.or(cancelledLocator)).toBeVisible({ timeout: 5_000 });
   });
 
   test("export button appears after batch completes", async ({ openCredPage: page }) => {
