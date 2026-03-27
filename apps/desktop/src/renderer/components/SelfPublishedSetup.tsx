@@ -20,7 +20,7 @@ import { Card } from "./ui/Card";
 type SelfPubStep = "generate" | "domain" | "export" | "verify" | "complete";
 
 interface SelfPublishedSetupProps {
-  onComplete: () => void;
+  onComplete: (result?: { key: KeyMetadata; domain: string; didDocument?: string }) => void;
 }
 
 export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
@@ -431,7 +431,7 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
           </div>
 
           <div className="pt-2">
-            <Button onClick={onComplete}>Continue to OpenCred</Button>
+            <Button onClick={() => onComplete({ key: generatedKey!, domain: domain.trim(), didDocument: exportedDoc ?? undefined })}>Continue to OpenCred</Button>
           </div>
         </Card>
       )}

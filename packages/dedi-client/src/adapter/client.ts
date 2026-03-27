@@ -339,9 +339,6 @@ export class DeDiClient {
         this.api.createRegistry(namespace, REVOCATION_REGISTRY, {}, "revoke"),
       ),
       ignoreConflict(() =>
-        this.api.createRegistry(namespace, DELEGATION_REGISTRY, {}, "membership"),
-      ),
-      ignoreConflict(() =>
         this.api.createRegistry(namespace, PUBLIC_KEY_REGISTRY, {}, "public_key"),
       ),
       ignoreConflict(() =>

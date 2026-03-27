@@ -31,10 +31,14 @@ export type View = "home" | "builder" | "verify" | "settings";
 // Component
 // ---------------------------------------------------------------------------
 
+/** Number of days before a key is considered overdue for rotation. */
+const ROTATION_THRESHOLD_DAYS = 90;
+
 export default function App() {
   const [activeView, setActiveView] = useState<View>("home");
   const [isOffline, setIsOffline] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+  const [rotationOverdue, setRotationOverdue] = useState(false);
 
   // Builder state — which schema was selected from the home screen
   const [builderSchemaId, setBuilderSchemaId] = useState<string>("blank");
@@ -62,13 +66,42 @@ export default function App() {
     }
   }, []);
 
+  const checkRotationStatus = useCallback(async () => {
+    try {
+      const response = await window.opencred.listKeys();
+      if (response.keys.length === 0) {
+        setRotationOverdue(false);
+        return;
+      }
+
+      // Check if dismissed
+      const dismissedUntil = await window.opencred.getConfig("keyRotationDismissedUntil") as string | undefined;
+      if (dismissedUntil && new Date(dismissedUntil) > new Date()) {
+        setRotationOverdue(false);
+        return;
+      }
+
+      // Check if any active key is older than the threshold
+      const now = Date.now();
+      const thresholdMs = ROTATION_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
+      const hasOldKey = response.keys.some((key) => {
+        const keyDate = new Date(key.importedAt).getTime();
+        return now - keyDate > thresholdMs;
+      });
+      setRotationOverdue(hasOldKey);
+    } catch {
+      setRotationOverdue(false);
+    }
+  }, []);
+
   useEffect(() => {
     void checkFirstLaunch();
     void checkOfflineStatus();
+    void checkRotationStatus();
 
     const interval = setInterval(() => void checkOfflineStatus(), 30_000);
     return () => clearInterval(interval);
-  }, [checkFirstLaunch, checkOfflineStatus]);
+  }, [checkFirstLaunch, checkOfflineStatus, checkRotationStatus]);
 
   // ------------------------------------------------------------------
   // Navigation helpers
@@ -123,6 +156,7 @@ export default function App() {
         <TopBar
           activeView={activeView}
           isOffline={isOffline}
+          rotationOverdue={rotationOverdue}
           onNavigate={setActiveView}
         />
 
@@ -140,7 +174,7 @@ export default function App() {
               />
             )}
             {activeView === "verify" && <VerifyPage />}
-            {activeView === "settings" && <SettingsPage />}
+            {activeView === "settings" && <SettingsPage onRotationDismissed={checkRotationStatus} />}
           </div>
         </main>
 

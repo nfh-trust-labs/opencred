@@ -686,7 +686,7 @@ describe("DeDiClient (adapter)", () => {
   // ── ensureRegistries ─────────────────────────────────────────────
 
   describe("ensureRegistries", () => {
-    it("creates namespace and all four registries", async () => {
+    it("creates namespace and all three registries", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.createNamespace).mockResolvedValue({
@@ -714,18 +714,12 @@ describe("DeDiClient (adapter)", () => {
         "example.com",
         expect.any(String),
       );
-      expect(api.createRegistry).toHaveBeenCalledTimes(4);
+      expect(api.createRegistry).toHaveBeenCalledTimes(3);
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
         REVOCATION_REGISTRY,
         expect.any(Object),
         "revoke",
-      );
-      expect(api.createRegistry).toHaveBeenCalledWith(
-        "example.com",
-        DELEGATION_REGISTRY,
-        expect.any(Object),
-        "membership",
       );
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
