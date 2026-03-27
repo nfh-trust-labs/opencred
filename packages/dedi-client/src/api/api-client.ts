@@ -73,9 +73,9 @@ export class DeDiApiClient {
   // ── Namespace ────────────────────────────────────────────────────
 
   async createNamespace(name: string, description: string): Promise<DeDiNamespace> {
-    return this.request<DeDiNamespace>("/dedi/namespace", {
+    return this.request<DeDiNamespace>("/dedi/create-namespace", {
       method: "POST",
-      body: JSON.stringify({ name, description }),
+      body: JSON.stringify({ name, description, meta: {} }),
     });
   }
 
@@ -91,9 +91,14 @@ export class DeDiApiClient {
     schema: unknown,
     tag?: DeDiRegistryTag,
   ): Promise<DeDiRegistry> {
-    return this.request<DeDiRegistry>(`/dedi/namespace/${enc(ns)}/registry`, {
+    return this.request<DeDiRegistry>(`/dedi/${enc(ns)}/create-registry`, {
       method: "POST",
-      body: JSON.stringify({ name, schema, ...(tag ? { tag } : {}) }),
+      body: JSON.stringify({
+        registry_name: name,
+        description: `OpenCred ${name} registry`,
+        schema,
+        ...(tag ? { tag } : {}),
+      }),
     });
   }
 
@@ -102,8 +107,8 @@ export class DeDiApiClient {
   }
 
   async revokeRegistry(ns: string, reg: string): Promise<void> {
-    await this.requestVoid(`/dedi/namespace/${enc(ns)}/registry/${enc(reg)}`, {
-      method: "DELETE",
+    await this.requestVoid(`/dedi/${enc(ns)}/${enc(reg)}/revoke-registry`, {
+      method: "POST",
     });
   }
 
@@ -115,13 +120,20 @@ export class DeDiApiClient {
     name: string,
     details: T,
   ): Promise<DeDiRecord<T>> {
-    return this.request<DeDiRecord<T>>(
-      `/dedi/namespace/${enc(ns)}/registry/${enc(reg)}/record`,
+    // Step 1: Save record as draft and publish immediately
+    const record = await this.request<DeDiRecord<T>>(
+      `/dedi/${enc(ns)}/${enc(reg)}/save-record-as-draft?publish=true`,
       {
         method: "POST",
-        body: JSON.stringify({ name, detail: details }),
+        body: JSON.stringify({
+          record_name: name,
+          description: `OpenCred record: ${name}`,
+          details,
+          meta: {},
+        }),
       },
     );
+    return record;
   }
 
   async lookupRecord<T = unknown>(
@@ -144,12 +156,15 @@ export class DeDiApiClient {
     recordName: string,
     state: DeDiRecordState,
   ): Promise<void> {
+    // Map state to DeDi endpoint
+    const action = state === "revoked" ? "revoke-record"
+      : state === "suspended" ? "suspend-record"
+      : state === "live" ? "reinstate-record"
+      : null;
+    if (!action) return;
     await this.requestVoid(
-      `/dedi/namespace/${enc(ns)}/registry/${enc(reg)}/record/${enc(recordName)}/state`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ state }),
-      },
+      `/dedi/${enc(ns)}/${enc(reg)}/${enc(recordName)}/${action}`,
+      { method: "POST" },
     );
   }
 
@@ -162,7 +177,7 @@ export class DeDiApiClient {
   ): Promise<DeDiQueryResult<T>> {
     const qs = params ? toQueryString(params as Record<string, unknown>) : "";
     return this.request<DeDiQueryResult<T>>(
-      `/dedi/namespace/${enc(ns)}/registry/${enc(reg)}/records${qs}`,
+      `/dedi/query/${enc(ns)}/${enc(reg)}${qs}`,
     );
   }
 
@@ -176,32 +191,31 @@ export class DeDiApiClient {
 
   // ── Domain verification ──────────────────────────────────────────
 
-  async generateTxt(ns: string): Promise<DeDiTxtRecord> {
+  async generateTxt(ns: string, domain: string): Promise<DeDiTxtRecord> {
     return this.request<DeDiTxtRecord>(
-      `/dedi/namespace/${enc(ns)}/verify/generate`,
-      { method: "POST" },
+      `/dedi/generate-dns-txt/${enc(ns)}/${enc(domain)}`,
     );
   }
 
-  async verifyDomain(ns: string, domain: string): Promise<void> {
-    await this.requestVoid(`/dedi/namespace/${enc(ns)}/verify`, {
+  async verifyDomain(ns: string): Promise<void> {
+    await this.requestVoid(`/dedi/verify-domain`, {
       method: "POST",
-      body: JSON.stringify({ domain }),
+      body: JSON.stringify({ namespace_id: ns }),
     });
   }
 
   async checkVerification(ns: string): Promise<DeDiVerificationStatus> {
     return this.request<DeDiVerificationStatus>(
-      `/dedi/namespace/${enc(ns)}/verify/status`,
+      `/dedi/check-verification/${enc(ns)}`,
     );
   }
 
   // ── Verification ─────────────────────────────────────────────────
 
   async verifyRecordLookup(response: unknown): Promise<void> {
-    await this.requestVoid("/dedi/verify", {
+    await this.requestVoid("/dedi/verify-record-lookup", {
       method: "POST",
-      body: JSON.stringify(response),
+      body: JSON.stringify({ record_lookup_response: response }),
     });
   }
 
@@ -209,7 +223,7 @@ export class DeDiApiClient {
 
   async addDelegate(ns: string, reg: string, email: string): Promise<void> {
     await this.requestVoid(
-      `/dedi/namespace/${enc(ns)}/registry/${enc(reg)}/delegate`,
+      `/dedi/${enc(ns)}/${enc(reg)}/add-delegate`,
       {
         method: "POST",
         body: JSON.stringify({ email }),
@@ -219,8 +233,11 @@ export class DeDiApiClient {
 
   async removeDelegate(ns: string, reg: string, email: string): Promise<void> {
     await this.requestVoid(
-      `/dedi/namespace/${enc(ns)}/registry/${enc(reg)}/delegate/${encodeURIComponent(email)}`,
-      { method: "DELETE" },
+      `/dedi/${enc(ns)}/${enc(reg)}/remove-registry-delegate`,
+      {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      },
     );
   }
 
@@ -238,7 +255,7 @@ export class DeDiApiClient {
           formData.append("file", file);
           const token = await this.tokenManager.getToken();
 
-          const url = `${this.config.baseUrl}/dedi/namespace/${enc(ns)}/registry/${enc(reg)}/bulk`;
+          const url = `${this.config.baseUrl}/dedi/bulk-upload`;
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
@@ -280,24 +297,27 @@ export class DeDiApiClient {
   }
 
   async getJobStatus(jobId: string): Promise<DeDiJobStatus> {
-    return this.request<DeDiJobStatus>(`/dedi/jobs/${enc(jobId)}`);
+    return this.request<DeDiJobStatus>(`/dedi/bulk-upload/status/${enc(jobId)}`);
   }
 
   // ── Watch ────────────────────────────────────────────────────────
 
   async createWatch(params: DeDiWatchParams): Promise<DeDiWatchSubscription> {
-    return this.request<DeDiWatchSubscription>("/dedi/watch", {
+    return this.request<DeDiWatchSubscription>("/dedi/subscribe", {
       method: "POST",
       body: JSON.stringify(params),
     });
   }
 
   async deleteWatch(subId: string): Promise<void> {
-    await this.requestVoid(`/dedi/watch/${enc(subId)}`, { method: "DELETE" });
+    await this.requestVoid("/dedi/unsubscribe", {
+      method: "POST",
+      body: JSON.stringify({ id: subId }),
+    });
   }
 
   async listWatchSubscriptions(): Promise<DeDiWatchSubscription[]> {
-    return this.request<DeDiWatchSubscription[]>("/dedi/watch");
+    return this.request<DeDiWatchSubscription[]>("/dedi/subscriptions");
   }
 
   // ── Stats (public) ──────────────────────────────────────────────

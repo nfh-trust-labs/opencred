@@ -20,7 +20,7 @@ import { KeyManagement } from "./KeyManagement";
 import { BugReportDialog } from "./BugReportDialog";
 import type { UpdateStatusResponse, DeDiStatusResponse } from "../../shared/ipc-types";
 
-const DEDI_BASE_URL = "https://api-production-dc6c.up.railway.app";
+const DEDI_BASE_URL = "https://api.dedi.global";
 
 // ---------------------------------------------------------------------------
 // DeDiCard — configure / manage DeDi integration from Settings
