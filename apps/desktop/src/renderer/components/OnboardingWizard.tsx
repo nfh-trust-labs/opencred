@@ -22,6 +22,7 @@ import { KeyImport } from "./KeyImport";
 import { HardwareToken } from "./HardwareToken";
 import { OsCertStore } from "./OsCertStore";
 import { SelfPublishedSetup } from "./SelfPublishedSetup";
+import { DeDiSetup } from "./DeDiSetup";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,7 +37,8 @@ type Step =
   | "dsc-os-cert"
   | "profile"
   | "get-dsc-soon"
-  | "self-pub-setup";
+  | "self-pub-setup"
+  | "dedi-setup";
 
 interface OnboardingWizardProps {
   onComplete: () => void;
@@ -49,6 +51,8 @@ interface OnboardingWizardProps {
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [step, setStep] = useState<Step>("welcome");
   const [importedKey, setImportedKey] = useState<KeyMetadata | null>(null);
+  const [selfPubDomain, setSelfPubDomain] = useState<string | null>(null);
+  const [selfPubDidDoc, setSelfPubDidDoc] = useState<string | null>(null);
 
   // ------------------------------------------------------------------
   // Key connected handler (shared by all DSC sources)
@@ -362,7 +366,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               </div>
 
               <div className="pt-2">
-                <Button onClick={onComplete}>Continue to OpenCred</Button>
+                <Button onClick={() => setStep("dedi-setup")}>Continue</Button>
               </div>
             </Card>
           )}
@@ -403,7 +407,26 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               Self-Published Keys Setup
               ============================================================ */}
           {step === "self-pub-setup" && (
-            <SelfPublishedSetup onComplete={onComplete} />
+            <SelfPublishedSetup onComplete={(result) => {
+              if (result) {
+                setImportedKey(result.key);
+                setSelfPubDomain(result.domain);
+                setSelfPubDidDoc(result.didDocument ?? null);
+              }
+              setStep("dedi-setup");
+            }} />
+          )}
+
+          {/* ============================================================
+              DeDi Setup (optional)
+              ============================================================ */}
+          {step === "dedi-setup" && importedKey && (
+            <DeDiSetup
+              did={importedKey.id}
+              didDocument={selfPubDidDoc ?? undefined}
+              domain={selfPubDomain ?? undefined}
+              onComplete={onComplete}
+            />
           )}
 
         </div>

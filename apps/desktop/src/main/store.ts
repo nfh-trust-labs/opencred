@@ -110,6 +110,8 @@ export interface StoreSchema {
   dediConfig?: DeDiStoreConfig;
   /** Schema IDs that have been published to DeDi (cached to avoid redundant publishes). */
   dediPublishedSchemas: string[];
+  /** ISO 8601 date until which the key rotation reminder is snoozed. */
+  keyRotationDismissedUntil?: string;
 }
 
 const DEFAULTS: StoreSchema = {

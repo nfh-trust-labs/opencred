@@ -15,6 +15,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Card } from "./ui/Card";
+import { Button } from "./ui/Button";
 import { KeyManagement } from "./KeyManagement";
 import { BugReportDialog } from "./BugReportDialog";
 import type { UpdateStatusResponse } from "../../shared/ipc-types";
@@ -176,9 +177,19 @@ function UpdateCard() {
 // Component
 // ---------------------------------------------------------------------------
 
-export function SettingsPage() {
+/** Number of days before a key is considered overdue for rotation. */
+const ROTATION_THRESHOLD_DAYS = 90;
+/** Number of days the rotation reminder is snoozed after dismissal. */
+const ROTATION_SNOOZE_DAYS = 30;
+
+interface SettingsPageProps {
+  onRotationDismissed?: () => void;
+}
+
+export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
   const [isOffline, setIsOffline] = useState(false);
   const [bugReportOpen, setBugReportOpen] = useState(false);
+  const [rotationInfo, setRotationInfo] = useState<{ overdue: boolean; ageDays: number }>({ overdue: false, ageDays: 0 });
 
   const checkOffline = useCallback(async () => {
     try {
@@ -189,14 +200,82 @@ export function SettingsPage() {
     }
   }, []);
 
+  const checkRotation = useCallback(async () => {
+    try {
+      const response = await window.opencred.listKeys();
+      if (response.keys.length === 0) return;
+
+      const dismissedUntil = await window.opencred.getConfig("keyRotationDismissedUntil") as string | undefined;
+      if (dismissedUntil && new Date(dismissedUntil) > new Date()) return;
+
+      const now = Date.now();
+      const thresholdMs = ROTATION_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
+      let oldestAge = 0;
+      for (const key of response.keys) {
+        const age = now - new Date(key.importedAt).getTime();
+        if (age > oldestAge) oldestAge = age;
+      }
+      if (oldestAge > thresholdMs) {
+        setRotationInfo({ overdue: true, ageDays: Math.floor(oldestAge / (24 * 60 * 60 * 1000)) });
+      }
+    } catch {
+      // Non-fatal
+    }
+  }, []);
+
+  async function handleDismissRotation() {
+    const snoozeUntil = new Date();
+    snoozeUntil.setDate(snoozeUntil.getDate() + ROTATION_SNOOZE_DAYS);
+    await window.opencred.setConfig("keyRotationDismissedUntil", snoozeUntil.toISOString());
+    setRotationInfo({ overdue: false, ageDays: 0 });
+    onRotationDismissed?.();
+  }
+
   useEffect(() => {
     void checkOffline();
-  }, [checkOffline]);
+    void checkRotation();
+  }, [checkOffline, checkRotation]);
 
   return (
     <div className="space-y-6">
+      {/* Key rotation warning */}
+      {rotationInfo.overdue && (
+        <div
+          className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 px-4 py-3"
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-200">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#92400e" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+            </span>
+            <p className="text-sm text-amber-800">
+              Your signing key is <strong>{rotationInfo.ageDays} days</strong> old. Consider rotating for security best practices.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => void handleDismissRotation()}
+              className="text-xs font-medium text-amber-700 hover:text-amber-900 px-2 py-1"
+            >
+              Dismiss
+            </button>
+            <Button
+              onClick={() => {
+                const el = document.getElementById("key-management-section");
+                if (el) el.scrollIntoView({ behavior: "smooth" });
+              }}
+            >
+              Rotate Key
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Key management — all 4 sources */}
-      <KeyManagement />
+      <div id="key-management-section">
+        <KeyManagement />
+      </div>
 
       {/* Software updates */}
       <UpdateCard />

@@ -729,6 +729,9 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
   // Blank credential inline schema
   const [inlineSchema, setInlineSchema] = useState<Record<string, unknown> | null>(null);
 
+  // did:web publication warning
+  const [showDidWebWarning, setShowDidWebWarning] = useState(false);
+
   // ------------------------------------------------------------------
   // Data loading
   // ------------------------------------------------------------------
@@ -777,10 +780,28 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
     }
   }, [schemaId, isBlank]);
 
+  const checkDidWebWarning = useCallback(async () => {
+    try {
+      const selectedKey = keys.find((k) => k.id === selectedKeyId);
+      if (!selectedKey || selectedKey.source !== "generated") {
+        setShowDidWebWarning(false);
+        return;
+      }
+      const status = await window.opencred.dediGetStatus();
+      setShowDidWebWarning(!status.configured);
+    } catch {
+      setShowDidWebWarning(false);
+    }
+  }, [keys, selectedKeyId]);
+
   useEffect(() => {
     void loadKeys();
     void loadSchema();
   }, [loadKeys, loadSchema]);
+
+  useEffect(() => {
+    void checkDidWebWarning();
+  }, [checkDidWebWarning]);
 
   // Auto-revert proof format when key changes to RSA while "data-integrity" is selected
   const selectedKeyAlgorithm = keys.find((k) => k.id === selectedKeyId)?.algorithm;
@@ -1040,6 +1061,20 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
           Batch
         </button>
       </div>
+
+      {/* did:web publication warning */}
+      {showDidWebWarning && (
+        <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+          <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-amber-200">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#92400e" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+          </span>
+          <p className="text-sm text-amber-800">
+            Your DID document hasn't been published yet. Verifiers won't be able to discover your public key.
+          </p>
+        </div>
+      )}
 
       {/* Single issuance mode */}
       {mode === "single" && (

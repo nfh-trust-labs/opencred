@@ -28,7 +28,7 @@ import {
   prepareSdJwtVcProof,
   completeSdJwtVcProof,
 } from "@opencred/crypto";
-import { ValidationError, CryptoError } from "@opencred/shared";
+import { CryptoError } from "@opencred/shared";
 import { requireSigner } from "../signing/key-manager.js";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";

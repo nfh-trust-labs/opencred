@@ -22,8 +22,8 @@ describe("Auth middleware — with API key configured", () => {
     const res = await app.request("/schemas");
     expect(res.status).toBe(401);
 
-    const body = await res.json();
-    expect(body.error.code).toBe("AUTHENTICATION_ERROR");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect((body as { error: { code: string } }).error.code).toBe("AUTHENTICATION_ERROR");
   });
 
   it("rejects requests with wrong Bearer token with 401", async () => {
@@ -32,8 +32,8 @@ describe("Auth middleware — with API key configured", () => {
     });
     expect(res.status).toBe(401);
 
-    const body = await res.json();
-    expect(body.error.code).toBe("AUTHENTICATION_ERROR");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect((body as { error: { code: string } }).error.code).toBe("AUTHENTICATION_ERROR");
   });
 
   it("rejects requests with invalid Authorization format with 401", async () => {
@@ -54,7 +54,7 @@ describe("Auth middleware — with API key configured", () => {
     const res = await app.request("/health");
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.status).toBe("ok");
   });
 });
