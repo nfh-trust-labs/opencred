@@ -18,6 +18,7 @@ import { HomeScreen } from "./components/HomeScreen";
 import { CredentialBuilderPage } from "./components/CredentialBuilderPage";
 import { VerifyPage } from "./components/VerifyPage";
 import { SettingsPage } from "./components/SettingsPage";
+import { HistoryPage } from "./components/HistoryPage";
 import { UpdateNotification } from "./components/UpdateNotification";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
@@ -25,7 +26,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 // Types
 // ---------------------------------------------------------------------------
 
-export type View = "home" | "builder" | "verify" | "settings";
+export type View = "home" | "builder" | "verify" | "history" | "settings";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -174,6 +175,9 @@ export default function App() {
               />
             )}
             {activeView === "verify" && <VerifyPage />}
+            {activeView === "history" && (
+              <HistoryPage onReissue={handleSelectTemplate} />
+            )}
             {activeView === "settings" && <SettingsPage onRotationDismissed={checkRotationStatus} />}
           </div>
         </main>

@@ -96,12 +96,15 @@ export const IPC_CHANNELS = {
   DID_WEB_EXPORT: "keys:export-did-document",
   DID_WEB_VERIFY: "keys:verify-did-web",
 
-  // --- Credential history ---
-  /** List credential history entries. Response: history entry array. */
+  // --- Recent templates ---
+  /** List recently used templates. Response: RecentTemplatesListResponse. */
+  RECENT_TEMPLATES_LIST: "recent-templates:list",
+  /** Record a template usage. Payload: { schemaId, schemaName }. Response: void. */
+  RECENT_TEMPLATES_RECORD: "recent-templates:record",
+
+  // --- Credential history (deprecated) ---
   CREDENTIAL_HISTORY_LIST: "credential-history:list",
-  /** Add a credential to history. Payload: credential entry. Response: void. */
   CREDENTIAL_HISTORY_ADD: "credential-history:add",
-  /** Delete a credential from history. Payload: { id }. Response: void. */
   CREDENTIAL_HISTORY_DELETE: "credential-history:delete",
 
   // --- Custom schemas ---

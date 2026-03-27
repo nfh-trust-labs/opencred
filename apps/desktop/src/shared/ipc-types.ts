@@ -682,7 +682,25 @@ export interface ConfigSetRequest {
 }
 
 // ---------------------------------------------------------------------------
-// Credential history
+// Recent templates
+// ---------------------------------------------------------------------------
+
+export interface RecentTemplatesListResponse {
+  templates: Array<{
+    schemaId: string;
+    schemaName: string;
+    lastUsedAt: string;
+    useCount: number;
+  }>;
+}
+
+export interface RecentTemplateRecordRequest {
+  schemaId: string;
+  schemaName: string;
+}
+
+// ---------------------------------------------------------------------------
+// Credential history (deprecated — replaced by recent templates)
 // ---------------------------------------------------------------------------
 
 export interface CredentialHistoryAddRequest {
@@ -827,7 +845,11 @@ export interface OpenCredDesktopAPI {
   osCertSign: (request: OsCertSignRequest) => Promise<OsCertSignResponse>;
   osCertConnect: (request: OsCertConnectRequest) => Promise<OsCertConnectResponse>;
 
-  // Credential history
+  // Recent templates
+  recentTemplatesList: () => Promise<RecentTemplatesListResponse>;
+  recentTemplatesRecord: (request: RecentTemplateRecordRequest) => Promise<void>;
+
+  // Credential history (deprecated)
   credentialHistoryList: () => Promise<CredentialHistoryListResponse>;
   credentialHistoryAdd: (request: CredentialHistoryAddRequest) => Promise<CredentialHistoryAddRequest & { id: string; issuedAt: string }>;
   credentialHistoryDelete: (request: CredentialHistoryDeleteRequest) => Promise<CredentialHistoryDeleteResponse>;

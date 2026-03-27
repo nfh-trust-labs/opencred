@@ -548,42 +548,7 @@ export function HomeScreen({ onSelectTemplate }: Props) {
         </div>
       </section>
 
-      {/* Section: Recent credentials */}
-      <section>
-        <h2 className="oc-page-title" style={{ marginBottom: "16px" }}>
-          Recent credentials
-        </h2>
-        {history.length === 0 ? (
-          <p className="text-sm text-gray-400 italic">No credentials issued yet.</p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {history.map((entry) => (
-              <CredentialHistoryCard
-                key={entry.id}
-                schemaId={entry.schemaId}
-                schemaName={entry.schemaName}
-                subjectSummary={entry.subjectSummary}
-                issuedAt={entry.issuedAt}
-                onView={() => setViewingEntry(entry)}
-                onReissue={() => void handleReissue(entry)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Credential detail modal */}
-      {viewingEntry && (
-        <CredentialDetailModal
-          entry={viewingEntry}
-          onClose={() => setViewingEntry(null)}
-          onDelete={() => void handleDeleteHistory(viewingEntry.id)}
-          onReissue={() => {
-            setViewingEntry(null);
-            void handleReissue(viewingEntry);
-          }}
-        />
-      )}
+      {/* Credential history moved to History tab */}
     </div>
   );
 }
