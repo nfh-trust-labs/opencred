@@ -26,7 +26,7 @@ interface DeDiSetupProps {
   onComplete: () => void;
 }
 
-const DEDI_BASE_URL = "https://api-production-dc6c.up.railway.app";
+const DEDI_BASE_URL = "https://api.dedi.global";
 
 export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupProps) {
   const [state, setState] = useState<DeDiSetupState>("choice");

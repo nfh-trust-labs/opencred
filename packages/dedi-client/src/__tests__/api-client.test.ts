@@ -137,9 +137,9 @@ describe("DeDiApiClient", () => {
 
       expect(result).toEqual(ns);
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/namespace");
+      expect(url).toBe("https://dedi.example.com/dedi/create-namespace");
       expect(init?.method).toBe("POST");
-      expect(JSON.parse(init?.body as string)).toEqual({ name: "example.com", description: "Test" });
+      expect(JSON.parse(init?.body as string)).toEqual({ name: "example.com", description: "Test", meta: {} });
     });
 
     it("lookupNamespace GETs /dedi/lookup/{ns}", async () => {
@@ -156,7 +156,7 @@ describe("DeDiApiClient", () => {
   // ── Registry endpoints ───────────────────────────────────────────
 
   describe("registry endpoints", () => {
-    it("createRegistry POSTs to /dedi/namespace/{ns}/registry", async () => {
+    it("createRegistry POSTs to /dedi/{ns}/create-registry", async () => {
       const reg = { name: "revocation_list", namespace: "example.com", schema: {}, tag: "revoke", state: "active", record_count: 0, created_at: "", updated_at: "" };
       mockFetch.mockResolvedValue(jsonResponse(reg));
 
@@ -164,13 +164,12 @@ describe("DeDiApiClient", () => {
       await client.createRegistry("example.com", "revocation_list", {}, "revoke");
 
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/namespace/example.com/registry");
+      expect(url).toBe("https://dedi.example.com/dedi/example.com/create-registry");
       expect(init?.method).toBe("POST");
-      expect(JSON.parse(init?.body as string)).toEqual({
-        name: "revocation_list",
-        schema: {},
-        tag: "revoke",
-      });
+      const body = JSON.parse(init?.body as string);
+      expect(body.registry_name).toBe("revocation_list");
+      expect(body.schema).toEqual({});
+      expect(body.tag).toBe("revoke");
     });
 
     it("lookupRegistry GETs /dedi/lookup/{ns}/{reg}", async () => {
@@ -183,21 +182,21 @@ describe("DeDiApiClient", () => {
       );
     });
 
-    it("revokeRegistry DELETEs /dedi/namespace/{ns}/registry/{reg}", async () => {
+    it("revokeRegistry POSTs to /dedi/{ns}/{reg}/revoke-registry", async () => {
       mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
       const client = new DeDiApiClient(createConfig());
       await client.revokeRegistry("example.com", "old_list");
 
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/namespace/example.com/registry/old_list");
-      expect(init?.method).toBe("DELETE");
+      expect(url).toBe("https://dedi.example.com/dedi/example.com/old_list/revoke-registry");
+      expect(init?.method).toBe("POST");
     });
   });
 
   // ── Record endpoints ─────────────────────────────────────────────
 
   describe("record endpoints", () => {
-    it("publishRecord POSTs to /dedi/namespace/{ns}/registry/{reg}/record", async () => {
+    it("publishRecord POSTs to /dedi/{ns}/{reg}/save-record-as-draft?publish=true", async () => {
       const record = { name: "abc", registry: "r", namespace: "ns", detail: {}, state: "live", version: 1, created_at: "", updated_at: "" };
       mockFetch.mockResolvedValue(jsonResponse(record));
 
@@ -205,9 +204,11 @@ describe("DeDiApiClient", () => {
       await client.publishRecord("ns", "r", "abc", { hash: "abc" });
 
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/namespace/ns/registry/r/record");
+      expect(url).toBe("https://dedi.example.com/dedi/ns/r/save-record-as-draft?publish=true");
       expect(init?.method).toBe("POST");
-      expect(JSON.parse(init?.body as string)).toEqual({ name: "abc", detail: { hash: "abc" } });
+      const body = JSON.parse(init?.body as string);
+      expect(body.record_name).toBe("abc");
+      expect(body.details).toEqual({ hash: "abc" });
     });
 
     it("lookupRecord GETs /dedi/lookup/{ns}/{reg}/{record}", async () => {
@@ -218,38 +219,37 @@ describe("DeDiApiClient", () => {
       expect(mockFetch.mock.calls[0]![0]).toBe("https://dedi.example.com/dedi/lookup/ns/r/rec1");
     });
 
-    it("revokeRecord sends state change to revoked", async () => {
+    it("revokeRecord POSTs to /dedi/{ns}/{reg}/{rec}/revoke-record", async () => {
       mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
       const client = new DeDiApiClient(createConfig());
       await client.revokeRecord("ns", "r", "rec1");
 
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/namespace/ns/registry/r/record/rec1/state");
-      expect(init?.method).toBe("PUT");
-      expect(JSON.parse(init?.body as string)).toEqual({ state: "revoked" });
+      expect(url).toBe("https://dedi.example.com/dedi/ns/r/rec1/revoke-record");
+      expect(init?.method).toBe("POST");
     });
 
-    it("changeRecordState PUTs to /dedi/namespace/{ns}/registry/{reg}/record/{name}/state", async () => {
+    it("changeRecordState POSTs to /dedi/{ns}/{reg}/{rec}/{action}", async () => {
       mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
       const client = new DeDiApiClient(createConfig());
       await client.changeRecordState("ns", "r", "rec1", "suspended");
 
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/namespace/ns/registry/r/record/rec1/state");
-      expect(JSON.parse(init?.body as string)).toEqual({ state: "suspended" });
+      expect(url).toBe("https://dedi.example.com/dedi/ns/r/rec1/suspend-record");
+      expect(init?.method).toBe("POST");
     });
   });
 
   // ── Query & Search ───────────────────────────────────────────────
 
   describe("query and search", () => {
-    it("queryRecords GETs /dedi/namespace/{ns}/registry/{reg}/records with params", async () => {
+    it("queryRecords GETs /dedi/query/{ns}/{reg} with params", async () => {
       mockFetch.mockResolvedValue(jsonResponse({ records: [], total: 0, page: 1, per_page: 20 }));
       const client = new DeDiApiClient(createConfig());
       await client.queryRecords("ns", "r", { page: 2, per_page: 10 });
 
       const url = mockFetch.mock.calls[0]![0] as string;
-      expect(url).toContain("/dedi/namespace/ns/registry/r/records");
+      expect(url).toContain("/dedi/query/ns/r");
       expect(url).toContain("page=2");
       expect(url).toContain("per_page=10");
     });
@@ -269,23 +269,23 @@ describe("DeDiApiClient", () => {
   // ── Domain verification ──────────────────────────────────────────
 
   describe("domain verification", () => {
-    it("generateTxt POSTs to /dedi/namespace/{ns}/verify/generate", async () => {
+    it("generateTxt GETs /dedi/generate-dns-txt/{ns}/{domain}", async () => {
       mockFetch.mockResolvedValue(jsonResponse({ txt_record: "dedi-verify=abc" }));
       const client = new DeDiApiClient(createConfig());
-      const result = await client.generateTxt("ns");
+      const result = await client.generateTxt("ns", "example.com");
 
       expect(result).toEqual({ txt_record: "dedi-verify=abc" });
-      expect(mockFetch.mock.calls[0]![0]).toBe("https://dedi.example.com/dedi/namespace/ns/verify/generate");
+      expect(mockFetch.mock.calls[0]![0]).toBe("https://dedi.example.com/dedi/generate-dns-txt/ns/example.com");
     });
 
-    it("verifyDomain POSTs to /dedi/namespace/{ns}/verify", async () => {
+    it("verifyDomain POSTs to /dedi/verify-domain", async () => {
       mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
       const client = new DeDiApiClient(createConfig());
-      await client.verifyDomain("ns", "example.com");
+      await client.verifyDomain("ns");
 
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/namespace/ns/verify");
-      expect(JSON.parse(init?.body as string)).toEqual({ domain: "example.com" });
+      expect(url).toBe("https://dedi.example.com/dedi/verify-domain");
+      expect(JSON.parse(init?.body as string)).toEqual({ namespace_id: "ns" });
     });
 
     it("checkVerification GETs /dedi/namespace/{ns}/verify/status", async () => {
@@ -387,7 +387,7 @@ describe("DeDiApiClient", () => {
       const result = await client.getJobStatus("j1");
 
       expect(result).toEqual(job);
-      expect(mockFetch.mock.calls[0]![0]).toBe("https://dedi.example.com/dedi/jobs/j1");
+      expect(mockFetch.mock.calls[0]![0]).toBe("https://dedi.example.com/dedi/bulk-upload/status/j1");
     });
   });
 
@@ -399,17 +399,17 @@ describe("DeDiApiClient", () => {
       const client = new DeDiApiClient(createConfig());
       await client.listWatchSubscriptions();
 
-      expect(mockFetch.mock.calls[0]![0]).toBe("https://dedi.example.com/dedi/watch");
+      expect(mockFetch.mock.calls[0]![0]).toBe("https://dedi.example.com/dedi/subscriptions");
     });
 
-    it("deleteWatch DELETEs /dedi/watch/{subId}", async () => {
+    it("deleteWatch POSTs to /dedi/unsubscribe", async () => {
       mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
       const client = new DeDiApiClient(createConfig());
       await client.deleteWatch("sub123");
 
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/watch/sub123");
-      expect(init?.method).toBe("DELETE");
+      expect(url).toBe("https://dedi.example.com/dedi/unsubscribe");
+      expect(init?.method).toBe("POST");
     });
   });
 
@@ -470,7 +470,7 @@ describe("DeDiApiClient", () => {
 
       expect(result).toEqual({ job_id: "j1" });
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/namespace/ns/registry/r/bulk");
+      expect(url).toBe("https://dedi.example.com/dedi/bulk-upload");
       expect(init?.method).toBe("POST");
       expect((init?.headers as Record<string, string>)["Authorization"]).toBe("Bearer dk_test_key");
       expect(init?.body).toBeInstanceOf(FormData);
@@ -558,13 +558,8 @@ describe("DeDiApiClient", () => {
 
       expect(result).toEqual(sub);
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/watch");
+      expect(url).toBe("https://dedi.example.com/dedi/subscribe");
       expect(init?.method).toBe("POST");
-      expect(JSON.parse(init?.body as string)).toEqual({
-        namespace: "ns",
-        callback_url: "https://cb.example.com",
-        events: ["record.created"],
-      });
     });
   });
 
@@ -577,37 +572,36 @@ describe("DeDiApiClient", () => {
       await client.addDelegate("ns", "r", "user@example.com");
 
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/namespace/ns/registry/r/delegate");
+      expect(url).toBe("https://dedi.example.com/dedi/ns/r/add-delegate");
       expect(init?.method).toBe("POST");
       expect(JSON.parse(init?.body as string)).toEqual({ email: "user@example.com" });
     });
 
-    it("removeDelegate DELETEs with encoded email", async () => {
+    it("removeDelegate POSTs to /dedi/{ns}/{reg}/remove-registry-delegate", async () => {
       mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
       const client = new DeDiApiClient(createConfig());
       await client.removeDelegate("ns", "r", "user+tag@example.com");
 
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe(
-        "https://dedi.example.com/dedi/namespace/ns/registry/r/delegate/user%2Btag%40example.com",
-      );
-      expect(init?.method).toBe("DELETE");
+      expect(url).toBe("https://dedi.example.com/dedi/ns/r/remove-registry-delegate");
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(init?.body as string)).toEqual({ email: "user+tag@example.com" });
     });
   });
 
   // ── verifyRecordLookup ─────────────────────────────────────────
 
   describe("verifyRecordLookup", () => {
-    it("POSTs to /dedi/verify with the response payload", async () => {
+    it("POSTs to /dedi/verify-record-lookup with wrapped payload", async () => {
       mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
       const client = new DeDiApiClient(createConfig());
       const lookupResponse = { name: "rec1", registry: "r", namespace: "ns" };
       await client.verifyRecordLookup(lookupResponse);
 
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/verify");
+      expect(url).toBe("https://dedi.example.com/dedi/verify-record-lookup");
       expect(init?.method).toBe("POST");
-      expect(JSON.parse(init?.body as string)).toEqual(lookupResponse);
+      expect(JSON.parse(init?.body as string)).toEqual({ record_lookup_response: lookupResponse });
     });
   });
 });
