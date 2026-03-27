@@ -168,7 +168,8 @@ describe("DeDiApiClient", () => {
       expect(init?.method).toBe("POST");
       const body = JSON.parse(init?.body as string);
       expect(body.registry_name).toBe("revocation_list");
-      expect(body.schema).toEqual({});
+      // When tag is provided, schema is omitted (DeDi API: either/or)
+      expect(body.schema).toBeUndefined();
       expect(body.tag).toBe("revoke");
     });
 

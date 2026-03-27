@@ -96,8 +96,15 @@ export class DeDiApiClient {
       body: JSON.stringify({
         registry_name: name,
         description: `OpenCred ${name} registry`,
-        schema,
-        ...(tag ? { tag } : {}),
+        // DeDi API: either schema OR tag, not both
+        ...(tag ? { tag } : {
+          schema: Object.keys(schema as Record<string, unknown>).length > 0 ? schema : {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {},
+          },
+        }),
+        meta: {},
       }),
     });
   }
@@ -244,8 +251,8 @@ export class DeDiApiClient {
   // ── Bulk ─────────────────────────────────────────────────────────
 
   async bulkUpload(
-    ns: string,
-    reg: string,
+    _ns: string,
+    _reg: string,
     file: Blob,
   ): Promise<{ job_id: string }> {
     return this.circuitBreaker.execute(() =>
@@ -350,6 +357,9 @@ export class DeDiApiClient {
     const response = await this.doFetch(path, init);
 
     if (!response.ok) {
+      let body = "";
+      try { body = await response.text(); } catch { /* ignore */ }
+      this.logger.error(`DeDi API ${response.status} ${path}`, { body: body.slice(0, 500) });
       throw new DeDiClientError(
         `DeDi API error: ${response.status}`,
         response.status >= 500 ? 502 : response.status,
@@ -367,6 +377,9 @@ export class DeDiApiClient {
     const response = await this.doFetch(path, init);
 
     if (!response.ok) {
+      let body = "";
+      try { body = await response.text(); } catch { /* ignore */ }
+      this.logger.error(`DeDi API ${response.status} ${path}`, { body: body.slice(0, 500) });
       throw new DeDiClientError(
         `DeDi API error: ${response.status}`,
         response.status >= 500 ? 502 : response.status,
