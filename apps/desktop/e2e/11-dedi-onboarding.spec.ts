@@ -188,10 +188,11 @@ test.describe("DeDi Onboarding", () => {
   test("skip DeDi goes directly to home", async ({ openCredPage: page }) => {
     await skipOnboardingToDeDi(page);
 
-    const publicDir = page.locator("text=Public Directory");
-    if (await publicDir.isVisible().catch(() => false)) {
-      await page.click('button:has-text("Skip")');
-    }
+    // Assert the DeDi step is visible — skipOnboardingToDeDi should navigate here
+    await expect(page.locator("text=Public Directory")).toBeVisible({
+      timeout: 5_000,
+    });
+    await page.click('button:has-text("Skip")');
 
     // Verify lands on home page
     await expect(page.locator('role=tab[name="Issue"]')).toBeVisible({
@@ -204,26 +205,24 @@ test.describe("DeDi Onboarding", () => {
   }) => {
     await skipOnboardingToDeDi(page);
 
-    const publicDir = page.locator("text=Public Directory");
-    if (await publicDir.isVisible().catch(() => false)) {
-      // Click "Not yet"
-      await page.click('button:has-text("Not yet")');
+    // Assert the DeDi step is visible
+    await expect(page.locator("text=Public Directory")).toBeVisible({
+      timeout: 5_000,
+    });
 
-      // Should show info card with link to publish.dedi.global
-      await expect(
-        page.locator("text=publish.dedi.global").or(page.locator("text=dedi")),
-      )
-        .toBeVisible({ timeout: 3_000 })
-        .catch(() => {
-          /* info card may have different text */
-        });
+    // Click "Not yet"
+    await page.click('button:has-text("Not yet")');
 
-      // Click "Skip for now"
-      const skipBtn = page
-        .locator('button:has-text("Skip for now")')
-        .or(page.locator('button:has-text("Skip")'));
-      await skipBtn.first().click();
-    }
+    // Should show info card with link to publish.dedi.global
+    await expect(
+      page.locator("text=publish.dedi.global").or(page.locator("text=dedi")),
+    ).toBeVisible({ timeout: 3_000 });
+
+    // Click "Skip for now"
+    const skipBtn = page
+      .locator('button:has-text("Skip for now")')
+      .or(page.locator('button:has-text("Skip")'));
+    await skipBtn.first().click();
 
     // Verify lands on home page
     await expect(page.locator('role=tab[name="Issue"]')).toBeVisible({

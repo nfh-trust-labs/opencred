@@ -54,21 +54,15 @@ test.describe("Key Rotation Reminder", () => {
         /* may show onboarding */
       });
 
-    // Check for the amber rotation badge on Settings button
+    // Assert the amber rotation badge appears on Settings button
     const badge = page.locator('span[aria-label="Key rotation overdue"]');
-    const hasBadge = await badge.isVisible().catch(() => false);
+    await expect(badge).toBeVisible({ timeout: 5_000 });
 
-    if (hasBadge) {
-      await expect(badge).toBeVisible();
-
-      // Navigate to Settings and verify the rotation warning banner
-      await page.click('button:has-text("Settings"), [aria-label="Settings"]');
-      await expect(
-        page.locator("text=days old").or(page.locator("text=Consider rotating")),
-      ).toBeVisible({ timeout: 5_000 });
-    }
-    // If the UI doesn't show the badge yet (component not wired),
-    // the test passes — it verifies the structure exists when rendered
+    // Navigate to Settings and verify the rotation warning banner
+    await page.click('button:has-text("Settings"), [aria-label="Settings"]');
+    await expect(
+      page.locator("text=days old").or(page.locator("text=Consider rotating")),
+    ).toBeVisible({ timeout: 5_000 });
   });
 
   test("dismiss rotation reminder", async ({ openCredPage: page }) => {
@@ -104,32 +98,31 @@ test.describe("Key Rotation Reminder", () => {
         /* may show onboarding */
       });
 
+    // Assert the badge is visible after injecting an old key
     const badge = page.locator('span[aria-label="Key rotation overdue"]');
-    const hasBadge = await badge.isVisible().catch(() => false);
+    await expect(badge).toBeVisible({ timeout: 5_000 });
 
-    if (hasBadge) {
-      // Navigate to Settings
-      await page.click('button:has-text("Settings"), [aria-label="Settings"]');
-      await expect(page.locator("text=Consider rotating")).toBeVisible({
-        timeout: 5_000,
-      });
+    // Navigate to Settings
+    await page.click('button:has-text("Settings"), [aria-label="Settings"]');
+    await expect(page.locator("text=Consider rotating")).toBeVisible({
+      timeout: 5_000,
+    });
 
-      // Click Dismiss
-      await page.click('button:has-text("Dismiss")');
+    // Click Dismiss
+    await page.click('button:has-text("Dismiss")');
 
-      // Verify badge disappears from TopBar
-      await expect(badge).not.toBeVisible({ timeout: 3_000 });
+    // Verify badge disappears from TopBar
+    await expect(badge).not.toBeVisible({ timeout: 3_000 });
 
-      // Reload and verify badge stays dismissed
-      await page.reload();
-      await page.waitForLoadState("domcontentloaded");
-      await page
-        .locator('role=tab[name="Issue"]')
-        .waitFor({ timeout: 10_000 })
-        .catch(() => {});
+    // Reload and verify badge stays dismissed
+    await page.reload();
+    await page.waitForLoadState("domcontentloaded");
+    await page
+      .locator('role=tab[name="Issue"]')
+      .waitFor({ timeout: 10_000 })
+      .catch(() => {});
 
-      await expect(badge).not.toBeVisible();
-    }
+    await expect(badge).not.toBeVisible();
   });
 
   test("did:web warning in credential builder", async ({

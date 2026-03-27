@@ -174,7 +174,7 @@ export default function App() {
               />
             )}
             {activeView === "verify" && <VerifyPage />}
-            {activeView === "settings" && <SettingsPage />}
+            {activeView === "settings" && <SettingsPage onRotationDismissed={checkRotationStatus} />}
           </div>
         </main>
 

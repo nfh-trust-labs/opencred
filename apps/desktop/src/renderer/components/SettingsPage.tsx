@@ -182,7 +182,11 @@ const ROTATION_THRESHOLD_DAYS = 90;
 /** Number of days the rotation reminder is snoozed after dismissal. */
 const ROTATION_SNOOZE_DAYS = 30;
 
-export function SettingsPage() {
+interface SettingsPageProps {
+  onRotationDismissed?: () => void;
+}
+
+export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
   const [isOffline, setIsOffline] = useState(false);
   const [bugReportOpen, setBugReportOpen] = useState(false);
   const [rotationInfo, setRotationInfo] = useState<{ overdue: boolean; ageDays: number }>({ overdue: false, ageDays: 0 });
@@ -224,6 +228,7 @@ export function SettingsPage() {
     snoozeUntil.setDate(snoozeUntil.getDate() + ROTATION_SNOOZE_DAYS);
     await window.opencred.setConfig("keyRotationDismissedUntil", snoozeUntil.toISOString());
     setRotationInfo({ overdue: false, ageDays: 0 });
+    onRotationDismissed?.();
   }
 
   useEffect(() => {

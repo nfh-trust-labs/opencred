@@ -17,7 +17,7 @@ import { useState } from "react";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
 
-type DeDiSetupState = "choice" | "configure" | "connecting" | "success";
+type DeDiSetupState = "choice" | "not-yet" | "configure" | "connecting" | "success";
 
 interface DeDiSetupProps {
   did: string;
@@ -116,7 +116,7 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
 
             {/* Option 2: Not yet */}
             <button
-              onClick={() => setState("not-yet" as DeDiSetupState)}
+              onClick={() => setState("not-yet")}
               className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-border-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
             >
               <span className="block text-body-sm font-semibold text-txt-primary">
@@ -146,7 +146,7 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
       {/* ================================================================
           Not Yet: Info card
           ================================================================ */}
-      {state === ("not-yet" as DeDiSetupState) && (
+      {state === "not-yet" && (
         <Card variant="neutral" className="space-y-6">
           <div className="space-y-2">
             <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
