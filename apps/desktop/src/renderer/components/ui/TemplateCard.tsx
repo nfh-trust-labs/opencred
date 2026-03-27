@@ -7,6 +7,7 @@ interface Props {
   name: string;
   schemaId?: string;
   isBlank?: boolean;
+  subtitle?: string;
   onClick: () => void;
 }
 
@@ -169,7 +170,7 @@ function getVisual(schemaId?: string, isBlank?: boolean): SchemaVisual {
 // Component
 // ---------------------------------------------------------------------------
 
-export function TemplateCard({ name, schemaId, isBlank, onClick }: Props) {
+export function TemplateCard({ name, schemaId, isBlank, subtitle, onClick }: Props) {
   const v = getVisual(schemaId, isBlank);
 
   return (
@@ -185,6 +186,16 @@ export function TemplateCard({ name, schemaId, isBlank, onClick }: Props) {
         {v.icon}
       </div>
       <span className="oc-template-card-name">{name}</span>
+      {subtitle && (
+        <span style={{
+          fontFamily: "var(--oc-font-mono)",
+          fontSize: "0.6rem",
+          color: "var(--oc-text-muted)",
+          letterSpacing: "0.02em",
+        }}>
+          {subtitle}
+        </span>
+      )}
     </button>
   );
 }

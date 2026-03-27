@@ -444,6 +444,17 @@ async function handleBuildAndSign(
 
     logger.info("Build and sign completed", { keyId: request.keyId, schemaId: request.schemaId, proofFormat });
 
+    // Record template usage for the "Recently used" list
+    if (request.schemaId) {
+      const schemaLabel = request.schemaId.startsWith("custom:") ? request.schemaId : request.schemaId;
+      try {
+        const def = getSchemaDefinition(request.schemaId);
+        void handleRecentTemplatesRecord(null as unknown as IpcMainInvokeEvent, { schemaId: request.schemaId, schemaName: def.id });
+      } catch {
+        void handleRecentTemplatesRecord(null as unknown as IpcMainInvokeEvent, { schemaId: request.schemaId, schemaName: schemaLabel });
+      }
+    }
+
     // Fire-and-forget: publish schema to DeDi catalog if configured
     const dediMgr = getDeDiPublishManager();
     if (dediMgr && request.schemaId && !request.inlineSchema) {
@@ -1451,6 +1462,46 @@ async function handleDeDiEnsureRegistries(_event: IpcMainInvokeEvent): Promise<D
 }
 
 // ---------------------------------------------------------------------------
+// Recent templates
+// ---------------------------------------------------------------------------
+
+import type { RecentTemplatesListResponse, RecentTemplateRecordRequest } from "../shared/ipc-types.js";
+import { RECENT_TEMPLATES_CAP } from "./store.js";
+import type { RecentTemplateEntry } from "./store.js";
+
+async function handleRecentTemplatesList(_event: IpcMainInvokeEvent): Promise<RecentTemplatesListResponse> {
+  const store = getStore();
+  const templates = store.get("recentTemplates");
+  return { templates };
+}
+
+async function handleRecentTemplatesRecord(
+  _event: IpcMainInvokeEvent,
+  request: RecentTemplateRecordRequest,
+): Promise<void> {
+  const store = getStore();
+  const templates = store.get("recentTemplates");
+  const existing = templates.find((t: RecentTemplateEntry) => t.schemaId === request.schemaId);
+  if (existing) {
+    existing.lastUsedAt = new Date().toISOString();
+    existing.useCount += 1;
+    existing.schemaName = request.schemaName;
+  } else {
+    templates.unshift({
+      schemaId: request.schemaId,
+      schemaName: request.schemaName,
+      lastUsedAt: new Date().toISOString(),
+      useCount: 1,
+    });
+  }
+  // Sort by lastUsedAt descending, cap at limit
+  templates.sort((a: RecentTemplateEntry, b: RecentTemplateEntry) =>
+    b.lastUsedAt.localeCompare(a.lastUsedAt),
+  );
+  store.set("recentTemplates", templates.slice(0, RECENT_TEMPLATES_CAP));
+}
+
+// ---------------------------------------------------------------------------
 // Registration / cleanup
 // ---------------------------------------------------------------------------
 
@@ -1522,7 +1573,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_DID, handleDeDiPublishDID);
   ipcMain.handle(IPC_CHANNELS.DEDI_ENSURE_REGISTRIES, handleDeDiEnsureRegistries);
 
-  // Credential history
+  // Recent templates
+  ipcMain.handle(IPC_CHANNELS.RECENT_TEMPLATES_LIST, handleRecentTemplatesList);
+  ipcMain.handle(IPC_CHANNELS.RECENT_TEMPLATES_RECORD, handleRecentTemplatesRecord);
+
+  // Credential history (deprecated)
   ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_LIST, handleCredentialHistoryList);
   ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_ADD, handleCredentialHistoryAdd);
   ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_DELETE, handleCredentialHistoryDelete);

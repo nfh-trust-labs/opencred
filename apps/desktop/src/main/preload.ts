@@ -214,7 +214,14 @@ const api: OpenCredDesktopAPI = {
   dediEnsureRegistries: (): Promise<DeDiEnsureRegistriesResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.DEDI_ENSURE_REGISTRIES),
 
-  // Credential history
+  // Recent templates
+  recentTemplatesList: (): Promise<import("../shared/ipc-types.js").RecentTemplatesListResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.RECENT_TEMPLATES_LIST),
+
+  recentTemplatesRecord: (request: import("../shared/ipc-types.js").RecentTemplateRecordRequest): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.RECENT_TEMPLATES_RECORD, request),
+
+  // Credential history (deprecated)
   credentialHistoryList: (): Promise<CredentialHistoryListResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.CREDENTIAL_HISTORY_LIST),
 

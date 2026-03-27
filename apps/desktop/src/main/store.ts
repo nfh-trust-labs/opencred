@@ -44,7 +44,22 @@ export interface CustomSchemaEntry {
   createdAt: string;
 }
 
-/** Maximum number of credential history entries to retain (FIFO). */
+/** A recently used credential template (no credential data stored). */
+export interface RecentTemplateEntry {
+  /** Schema ID used (e.g. "education") or "custom:<uuid>". */
+  schemaId: string;
+  /** Human-readable schema name for display. */
+  schemaName: string;
+  /** ISO 8601 timestamp of the most recent use. */
+  lastUsedAt: string;
+  /** Number of times this template has been used. */
+  useCount: number;
+}
+
+/** Maximum number of recent templates to retain. */
+export const RECENT_TEMPLATES_CAP = 20;
+
+/** @deprecated Kept for backward compat. */
 export const CREDENTIAL_HISTORY_CAP = 100;
 
 /**
@@ -83,7 +98,9 @@ export interface StoreSchema {
   persistKeyPaths: boolean;
   /** Custom user preferences — intentionally loosely typed for extensibility. */
   preferences: Record<string, unknown>;
-  /** Recently issued credentials (capped at CREDENTIAL_HISTORY_CAP). */
+  /** Recently used templates — schema metadata only, no credential data. */
+  recentTemplates: RecentTemplateEntry[];
+  /** @deprecated Credential history with full payloads. Migrated to recentTemplates on startup. */
   credentialHistory: CredentialHistoryEntry[];
   /** User-created custom schemas for blank credentials. */
   customSchemas: CustomSchemaEntry[];
@@ -102,6 +119,7 @@ const DEFAULTS: StoreSchema = {
   bugReportFormUrl: "https://forms.gle/f1wFUhzN1VwgR5QD6",
   persistKeyPaths: true,
   preferences: {},
+  recentTemplates: [],
   credentialHistory: [],
   customSchemas: [],
   dediPublishedSchemas: [],
