@@ -1433,7 +1433,16 @@ async function handleDeDiSetConfig(_event: IpcMainInvokeEvent, request: DeDiConf
     storeDeDiCredentialInKeychain(JSON.stringify(cred));
     publishManager = null;
     const mgr = getDeDiPublishManager();
-    const registriesReady = mgr ? await mgr.ensureRegistries(request.namespace) : false;
+    if (!mgr) {
+      logger.error("DeDi publish manager could not be created");
+      return { success: true, registriesReady: false };
+    }
+    let registriesReady = false;
+    try {
+      registriesReady = await mgr.ensureRegistries(request.namespace);
+    } catch (regErr) {
+      logger.error("DeDi ensureRegistries failed", { error: regErr instanceof Error ? regErr.message : String(regErr) });
+    }
     store.set("dediRegistriesReady", registriesReady);
     return { success: true, registriesReady };
   } catch (err) {
