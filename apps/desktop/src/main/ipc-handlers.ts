@@ -1461,6 +1461,26 @@ async function handleDeDiEnsureRegistries(_event: IpcMainInvokeEvent): Promise<D
   return (await mgr.ensureRegistries(ns)) ? { success: true } : { success: false, error: "Failed to create DeDi registries" };
 }
 
+/**
+ * Disconnect DeDi integration — clears stored config, removes the encrypted
+ * credential from preferences, and resets the publish manager.
+ *
+ * SECURITY NOTE: This is an intentional credential deletion operation invoked
+ * by the user via the Settings UI to disconnect their DeDi account.
+ */
+async function handleDeDiDisconnect(_event: IpcMainInvokeEvent): Promise<import("../shared/ipc-types.js").DeDiDisconnectResponse> {
+  const store = getStore();
+  store.delete("dediConfig" as never);
+  store.set("dediPublishedSchemas", []);
+  const prefs = store.get("preferences");
+  if (prefs && typeof prefs === "object" && "dediCredentialEncrypted" in prefs) {
+    const { dediCredentialEncrypted: _, ...rest } = prefs as Record<string, unknown>;
+    store.set("preferences", rest as never);
+  }
+  publishManager = null;
+  return { success: true };
+}
+
 // ---------------------------------------------------------------------------
 // Recent templates
 // ---------------------------------------------------------------------------
@@ -1572,6 +1592,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.DEDI_GET_STATUS, handleDeDiGetStatus);
   ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_DID, handleDeDiPublishDID);
   ipcMain.handle(IPC_CHANNELS.DEDI_ENSURE_REGISTRIES, handleDeDiEnsureRegistries);
+  ipcMain.handle(IPC_CHANNELS.DEDI_DISCONNECT, handleDeDiDisconnect);
 
   // Recent templates
   ipcMain.handle(IPC_CHANNELS.RECENT_TEMPLATES_LIST, handleRecentTemplatesList);

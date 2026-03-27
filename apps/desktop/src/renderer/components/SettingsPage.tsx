@@ -18,7 +18,275 @@ import { Card } from "./ui/Card";
 import { Button } from "./ui/Button";
 import { KeyManagement } from "./KeyManagement";
 import { BugReportDialog } from "./BugReportDialog";
-import type { UpdateStatusResponse } from "../../shared/ipc-types";
+import type { UpdateStatusResponse, DeDiStatusResponse } from "../../shared/ipc-types";
+
+const DEDI_BASE_URL = "https://api-production-dc6c.up.railway.app";
+
+// ---------------------------------------------------------------------------
+// DeDiCard — configure / manage DeDi integration from Settings
+// ---------------------------------------------------------------------------
+
+type DeDiCardState = "idle" | "form" | "saving" | "publishing" | "ensuring";
+
+function DeDiCard() {
+  const [status, setStatus] = useState<DeDiStatusResponse | null>(null);
+  const [state, setState] = useState<DeDiCardState>("idle");
+  const [namespace, setNamespace] = useState("");
+  // Transient form state only — sent to main process via IPC for encrypted
+  // storage (safeStorage) and cleared immediately after submission.
+  // Same pattern as DeDiSetup.tsx.
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [actionResult, setActionResult] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const s = await window.opencred.dediGetStatus();
+      setStatus(s);
+      if (s.configured && s.namespace) setNamespace(s.namespace);
+    } catch {
+      setStatus({ configured: false, publishedSchemas: [] });
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadStatus();
+  }, [loadStatus]);
+
+  async function handleSave() {
+    if (!namespace.trim()) { setError("Please enter a namespace."); return; }
+    if (!apiKey) { setError("Please enter your API key."); return; }
+
+    setError(null);
+    setActionResult(null);
+    setState("saving");
+
+    try {
+      const result = await window.opencred.dediSetConfig({
+        baseUrl: DEDI_BASE_URL,
+        namespace: namespace.trim(),
+        credentials: { type: "api-key", apiKey },
+      });
+
+      if (!result.success) { setError(result.error ?? "Failed to configure DeDi."); setState("form"); return; }
+
+      setApiKey("");
+      setState("idle");
+      await loadStatus();
+      setActionResult({ type: "success", message: "DeDi configured successfully." });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to configure DeDi.");
+      setState("form");
+    }
+  }
+
+  async function handleDisconnect() {
+    setError(null);
+    setActionResult(null);
+    try {
+      await window.opencred.dediDisconnect();
+      setNamespace("");
+      setApiKey("");
+      setState("idle");
+      await loadStatus();
+      setActionResult({ type: "success", message: "Disconnected from DeDi." });
+    } catch (err) {
+      setActionResult({ type: "error", message: err instanceof Error ? err.message : "Failed to disconnect." });
+    }
+  }
+
+  async function handlePublishDID() {
+    setError(null);
+    setActionResult(null);
+    setState("publishing");
+
+    try {
+      const { keys } = await window.opencred.listKeys();
+      if (keys.length === 0) {
+        setActionResult({ type: "error", message: "No signing keys available. Import or generate a key first." });
+        setState("idle");
+        return;
+      }
+
+      if (!status?.namespace) {
+        setActionResult({ type: "error", message: "No namespace configured." });
+        setState("idle");
+        return;
+      }
+
+      const activeKey = keys[0];
+      const exportResult = await window.opencred.exportDidDocument({
+        keyId: activeKey.id,
+        domain: status.namespace,
+      });
+
+      if (!exportResult.success || !exportResult.didDocument || !exportResult.did) {
+        setActionResult({ type: "error", message: exportResult.error ?? "Failed to export DID document." });
+        setState("idle");
+        return;
+      }
+
+      const pubResult = await window.opencred.dediPublishDID({
+        did: exportResult.did,
+        document: JSON.parse(exportResult.didDocument),
+      });
+
+      setActionResult(pubResult.success
+        ? { type: "success", message: "DID published successfully." }
+        : { type: "error", message: pubResult.error ?? "Failed to publish DID." });
+    } catch (err) {
+      setActionResult({ type: "error", message: err instanceof Error ? err.message : "Failed to publish DID." });
+    }
+
+    setState("idle");
+  }
+
+  async function handleEnsureRegistries() {
+    setError(null);
+    setActionResult(null);
+    setState("ensuring");
+
+    try {
+      const result = await window.opencred.dediEnsureRegistries();
+      setActionResult(result.success
+        ? { type: "success", message: "Registries verified and ready." }
+        : { type: "error", message: result.error ?? "Failed to ensure registries." });
+    } catch (err) {
+      setActionResult({ type: "error", message: err instanceof Error ? err.message : "Failed to ensure registries." });
+    }
+
+    setState("idle");
+  }
+
+  if (!status) return null;
+
+  const isConfigured = status.configured;
+
+  return (
+    <Card className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium text-gray-700">DeDi Integration</h2>
+        {isConfigured ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+            <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+            Connected
+          </span>
+        ) : (
+          <span className="text-xs text-gray-400">Not configured</span>
+        )}
+      </div>
+
+      {/* Action result feedback */}
+      {actionResult && (
+        <div className={`rounded-md px-3 py-2 text-xs ${
+          actionResult.type === "success"
+            ? "bg-green-50 text-green-700 border border-green-200"
+            : "bg-red-50 text-red-700 border border-red-200"
+        }`}>
+          {actionResult.message}
+        </div>
+      )}
+
+      {/* Not configured — idle */}
+      {!isConfigured && state === "idle" && (
+        <>
+          <p className="text-xs text-gray-500">
+            Connect to DeDi to publish your DID, schemas, and revocation lists.
+          </p>
+          <Button onClick={() => { setState("form"); setActionResult(null); }}>Configure</Button>
+        </>
+      )}
+
+      {/* Configured — idle */}
+      {isConfigured && state === "idle" && (
+        <>
+          <dl className="text-xs text-gray-600 space-y-1">
+            <div className="flex gap-2">
+              <dt className="font-medium text-gray-500 w-32 flex-shrink-0">Namespace:</dt>
+              <dd>{status.namespace}</dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="font-medium text-gray-500 w-32 flex-shrink-0">Published schemas:</dt>
+              <dd>{status.publishedSchemas.length}</dd>
+            </div>
+          </dl>
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button onClick={() => { setState("form"); setApiKey(""); setActionResult(null); }}>Reconfigure</Button>
+            <Button variant="secondary" onClick={() => void handlePublishDID()}>Publish DID</Button>
+            <Button variant="secondary" onClick={() => void handleEnsureRegistries()}>Ensure Registries</Button>
+            <button
+              onClick={() => void handleDisconnect()}
+              className="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
+            >
+              Disconnect
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Inline configure / reconfigure form */}
+      {(state === "form" || state === "saving") && (
+        <div className="space-y-3 pt-1">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Namespace</label>
+            <input
+              type="text"
+              value={namespace}
+              onChange={(e) => { setNamespace(e.target.value); setError(null); }}
+              placeholder="your-domain.example"
+              disabled={state === "saving"}
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">API Key</label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => { setApiKey(e.target.value); setError(null); }}
+              placeholder="Enter your DeDi API key"
+              disabled={state === "saving"}
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-50"
+            />
+          </div>
+
+          {error && <p className="text-xs text-red-600">{error}</p>}
+
+          <div className="flex gap-2">
+            <Button onClick={() => void handleSave()} disabled={state === "saving"}>
+              {state === "saving" ? "Saving..." : "Save"}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => { setState("idle"); setError(null); setActionResult(null); }}
+              disabled={state === "saving"}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Busy states */}
+      {state === "publishing" && (
+        <div className="flex items-center gap-2">
+          <div className="h-3 w-3 border-2 border-brand-blue border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs text-gray-500">Publishing DID...</span>
+        </div>
+      )}
+      {state === "ensuring" && (
+        <div className="flex items-center gap-2">
+          <div className="h-3 w-3 border-2 border-brand-blue border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs text-gray-500">Verifying registries...</span>
+        </div>
+      )}
+    </Card>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // UpdateCard — in-app update UI
@@ -276,6 +544,9 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
       <div id="key-management-section">
         <KeyManagement />
       </div>
+
+      {/* DeDi integration */}
+      <DeDiCard />
 
       {/* Software updates */}
       <UpdateCard />

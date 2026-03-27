@@ -130,6 +130,8 @@ export const IPC_CHANNELS = {
   DEDI_PUBLISH_DID: "dedi:publish-did",
   /** Ensure DeDi registries exist. Response: DeDiEnsureRegistriesResponse. */
   DEDI_ENSURE_REGISTRIES: "dedi:ensure-registries",
+  /** Disconnect DeDi integration (clear config + credentials). Response: DeDiDisconnectResponse. */
+  DEDI_DISCONNECT: "dedi:disconnect",
 
   // --- System / diagnostics ---
   /** Get system info (app version, OS, paths). Response: SystemInfoResponse. */

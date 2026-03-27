@@ -497,6 +497,10 @@ window.opencred = {
   async dediEnsureRegistries() {
     return { success: true };
   },
+  async dediDisconnect() {
+    this._dediConfig = null;
+    return { success: true };
+  },
 };
 `;
 

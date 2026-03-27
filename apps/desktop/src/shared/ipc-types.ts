@@ -668,6 +668,10 @@ export interface DeDiEnsureRegistriesResponse {
   error?: string;
 }
 
+export interface DeDiDisconnectResponse {
+  success: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -872,6 +876,7 @@ export interface OpenCredDesktopAPI {
   dediGetStatus: () => Promise<DeDiStatusResponse>;
   dediPublishDID: (request: DeDiPublishDIDRequest) => Promise<DeDiPublishResponse>;
   dediEnsureRegistries: () => Promise<DeDiEnsureRegistriesResponse>;
+  dediDisconnect: () => Promise<DeDiDisconnectResponse>;
 
   // System / diagnostics
   getSystemInfo: () => Promise<SystemInfoResponse>;
