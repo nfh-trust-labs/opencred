@@ -578,23 +578,23 @@ export function HomeScreen({ onSelectTemplate }: Props) {
                       onClick={() => setViewingEntry(entry)}
                     >
                       <td style={{ padding: "10px 16px" }}>
-                        <span style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.68rem", fontWeight: 600, color: v.fg, letterSpacing: "0.04em" }}>
+                        <span style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.68rem", fontWeight: 600, color: "var(--oc-text-primary)", letterSpacing: "0.04em" }}>
                           {entry.schemaName}
                         </span>
                       </td>
                       <td style={{ padding: "10px 16px", color: "var(--oc-text-primary)", fontWeight: 500 }}>
                         {entry.subjectSummary}
                       </td>
-                      <td style={{ padding: "10px 16px", fontFamily: "var(--oc-font-mono)", fontSize: "0.72rem", color: "var(--oc-text-muted)" }}>
+                      <td style={{ padding: "10px 16px", fontFamily: "var(--oc-font-mono)", fontSize: "0.72rem", color: "var(--oc-text-secondary)" }}>
                         {new Date(entry.issuedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                       </td>
                       <td style={{ padding: "10px 16px", textAlign: "right" }}>
                         <button
                           onClick={(e) => { e.stopPropagation(); void handleReissue(entry); }}
                           style={{
-                            padding: "4px 12px", borderRadius: 5, border: "none",
-                            background: v.fg, color: "#fff", fontFamily: "var(--oc-font-body)",
-                            fontSize: "0.7rem", fontWeight: 600, cursor: "pointer",
+                            padding: "4px 12px", borderRadius: 5, border: "1px solid var(--oc-border)",
+                            background: "transparent", color: "var(--oc-text-primary)", fontFamily: "var(--oc-font-body)",
+                            fontSize: "0.7rem", fontWeight: 500, cursor: "pointer",
                           }}
                         >
                           Reissue
