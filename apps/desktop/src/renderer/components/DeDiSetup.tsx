@@ -34,6 +34,8 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [didPublishFailed, setDidPublishFailed] = useState(false);
+  const [registriesFailed, setRegistriesFailed] = useState(false);
+  const [retryingRegistries, setRetryingRegistries] = useState(false);
 
   async function handleConnect() {
     if (!namespace.trim()) {
@@ -61,6 +63,10 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
         return;
       }
 
+      if (result.registriesReady === false) {
+        setRegistriesFailed(true);
+      }
+
       // Fire-and-forget DID publish if we have a DID document (self-pub path)
       if (didDocument) {
         try {
@@ -80,6 +86,20 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to configure DeDi.");
       setState("configure");
+    }
+  }
+
+  async function handleRetryRegistries() {
+    setRetryingRegistries(true);
+    try {
+      const result = await window.opencred.dediEnsureRegistries();
+      if (result.success) {
+        setRegistriesFailed(false);
+      }
+    } catch {
+      // Keep registriesFailed true
+    } finally {
+      setRetryingRegistries(false);
     }
   }
 
@@ -267,10 +287,12 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
                 <dt className="font-medium w-28 flex-shrink-0">Namespace:</dt>
                 <dd>{namespace.trim()}</dd>
               </div>
-              <div className="flex gap-2">
-                <dt className="font-medium w-28 flex-shrink-0">Registries:</dt>
-                <dd>3 registries created</dd>
-              </div>
+              {!registriesFailed && (
+                <div className="flex gap-2">
+                  <dt className="font-medium w-28 flex-shrink-0">Registries:</dt>
+                  <dd>3 registries created</dd>
+                </div>
+              )}
               {didDocument && (
                 <div className="flex gap-2">
                   <dt className="font-medium w-28 flex-shrink-0">DID:</dt>
@@ -281,6 +303,25 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
               )}
             </dl>
           </div>
+
+          {registriesFailed && (
+            <div className="rounded-oc border border-amber-200 bg-amber-50 p-3 space-y-2">
+              <p className="text-[0.78rem] text-amber-800 font-medium">
+                Registries could not be created
+              </p>
+              <p className="text-[0.72rem] text-amber-700">
+                Config saved but registries could not be created. Check your API key
+                and network connection.
+              </p>
+              <button
+                onClick={() => void handleRetryRegistries()}
+                disabled={retryingRegistries}
+                className="text-[0.78rem] font-medium text-amber-800 underline hover:text-amber-900 disabled:opacity-50"
+              >
+                {retryingRegistries ? "Retrying..." : "Retry"}
+              </button>
+            </div>
+          )}
 
           {didPublishFailed && (
             <div className="rounded-oc border border-amber-200 bg-amber-50 p-3">

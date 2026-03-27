@@ -646,6 +646,8 @@ export interface DeDiStatusResponse {
   configured: boolean;
   /** The configured namespace (if any). */
   namespace?: string;
+  /** Whether the 3 DeDi registries have been created. */
+  registriesReady: boolean;
   /** Schema IDs that have been published to DeDi. */
   publishedSchemas: string[];
 }
@@ -666,6 +668,10 @@ export interface DeDiPublishResponse {
 export interface DeDiEnsureRegistriesResponse {
   success: boolean;
   error?: string;
+}
+
+export interface DeDiDisconnectResponse {
+  success: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -872,6 +878,7 @@ export interface OpenCredDesktopAPI {
   dediGetStatus: () => Promise<DeDiStatusResponse>;
   dediPublishDID: (request: DeDiPublishDIDRequest) => Promise<DeDiPublishResponse>;
   dediEnsureRegistries: () => Promise<DeDiEnsureRegistriesResponse>;
+  dediDisconnect: () => Promise<DeDiDisconnectResponse>;
 
   // System / diagnostics
   getSystemInfo: () => Promise<SystemInfoResponse>;

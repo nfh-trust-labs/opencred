@@ -85,6 +85,7 @@ import type {
   DeDiPublishDIDRequest,
   DeDiPublishResponse,
   DeDiEnsureRegistriesResponse,
+  DeDiDisconnectResponse,
   SystemInfoResponse,
   LogTailResponse,
   OpenCredDesktopAPI,
@@ -213,6 +214,9 @@ const api: OpenCredDesktopAPI = {
 
   dediEnsureRegistries: (): Promise<DeDiEnsureRegistriesResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.DEDI_ENSURE_REGISTRIES),
+
+  dediDisconnect: (): Promise<DeDiDisconnectResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEDI_DISCONNECT),
 
   // Recent templates
   recentTemplatesList: (): Promise<import("../shared/ipc-types.js").RecentTemplatesListResponse> =>

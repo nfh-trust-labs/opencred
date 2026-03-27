@@ -488,6 +488,7 @@ window.opencred = {
     return {
       configured: !!this._dediConfig,
       namespace: this._dediConfig?.namespace,
+      registriesReady: !!this._dediConfig,
       publishedSchemas: [],
     };
   },
@@ -495,6 +496,10 @@ window.opencred = {
     return { success: true, recordName: did.replace(/:/g, '-') };
   },
   async dediEnsureRegistries() {
+    return { success: true };
+  },
+  async dediDisconnect() {
+    this._dediConfig = null;
     return { success: true };
   },
 };
