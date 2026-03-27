@@ -26,7 +26,40 @@ const DEDI_BASE_URL = "https://api-production-dc6c.up.railway.app";
 // DeDiCard — configure / manage DeDi integration from Settings
 // ---------------------------------------------------------------------------
 
-type DeDiCardState = "idle" | "form" | "saving" | "publishing" | "ensuring";
+type DeDiCardState = "idle" | "form" | "saving" | "publishing";
+
+function StatusRow({ label, active, description, action, onAction, disabled }: {
+  label: string;
+  active: boolean;
+  description: string;
+  action?: string;
+  onAction?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span className={`h-2 w-2 rounded-full flex-shrink-0 ${active ? "bg-green-500" : "bg-gray-300"}`} />
+        <span className="text-xs font-medium text-gray-700">{label}</span>
+        <span className="text-xs text-gray-400">{description}</span>
+      </div>
+      {action && onAction && (
+        <button
+          onClick={onAction}
+          disabled={disabled}
+          className="text-xs font-medium text-brand-blue hover:underline disabled:opacity-50"
+        >
+          {disabled ? "..." : action}
+        </button>
+      )}
+      {!action && (
+        <span className={`text-xs font-medium ${active ? "text-green-600" : "text-gray-400"}`}>
+          {active ? "Live" : "Inactive"}
+        </span>
+      )}
+    </div>
+  );
+}
 
 function DeDiCard() {
   const [status, setStatus] = useState<DeDiStatusResponse | null>(null);
@@ -144,22 +177,6 @@ function DeDiCard() {
     setState("idle");
   }
 
-  async function handleEnsureRegistries() {
-    setError(null);
-    setActionResult(null);
-    setState("ensuring");
-
-    try {
-      const result = await window.opencred.dediEnsureRegistries();
-      setActionResult(result.success
-        ? { type: "success", message: "Registries verified and ready." }
-        : { type: "error", message: result.error ?? "Failed to ensure registries." });
-    } catch (err) {
-      setActionResult({ type: "error", message: err instanceof Error ? err.message : "Failed to ensure registries." });
-    }
-
-    setState("idle");
-  }
 
   if (!status) return null;
 
@@ -203,21 +220,19 @@ function DeDiCard() {
       {/* Configured — idle */}
       {isConfigured && state === "idle" && (
         <>
-          <dl className="text-xs text-gray-600 space-y-1">
-            <div className="flex gap-2">
-              <dt className="font-medium text-gray-500 w-32 flex-shrink-0">Namespace:</dt>
-              <dd>{status.namespace}</dd>
-            </div>
-            <div className="flex gap-2">
-              <dt className="font-medium text-gray-500 w-32 flex-shrink-0">Published schemas:</dt>
-              <dd>{status.publishedSchemas.length}</dd>
-            </div>
-          </dl>
+          <div className="text-xs text-gray-500 mb-1">
+            Namespace: <span className="font-medium text-gray-700">{status.namespace}</span>
+          </div>
 
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button onClick={() => { setState("form"); setApiKey(""); setActionResult(null); }}>Reconfigure</Button>
-            <Button variant="secondary" onClick={() => void handlePublishDID()}>Publish DID</Button>
-            <Button variant="secondary" onClick={() => void handleEnsureRegistries()}>Ensure Registries</Button>
+          {/* Status indicators */}
+          <div className="rounded-md border border-gray-200 divide-y divide-gray-100">
+            <StatusRow label="Registries" active description="Schema, Public Key, Revocation" />
+            <StatusRow label="Public Key" active={false} description="Publish your DID document" action="Publish" onAction={() => void handlePublishDID()} />
+            <StatusRow label="Schemas" active={status.publishedSchemas.length > 0} description={status.publishedSchemas.length > 0 ? `${status.publishedSchemas.length} published` : "Published on first issuance"} />
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <Button onClick={() => { setState("form"); setApiKey(""); setActionResult(null); }} size="sm">Reconfigure</Button>
             <button
               onClick={() => void handleDisconnect()}
               className="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
@@ -276,12 +291,6 @@ function DeDiCard() {
         <div className="flex items-center gap-2">
           <div className="h-3 w-3 border-2 border-brand-blue border-t-transparent rounded-full animate-spin" />
           <span className="text-xs text-gray-500">Publishing DID...</span>
-        </div>
-      )}
-      {state === "ensuring" && (
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 border-2 border-brand-blue border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs text-gray-500">Verifying registries...</span>
         </div>
       )}
     </Card>
