@@ -488,6 +488,7 @@ window.opencred = {
     return {
       configured: !!this._dediConfig,
       namespace: this._dediConfig?.namespace,
+      registriesReady: !!this._dediConfig,
       publishedSchemas: [],
     };
   },

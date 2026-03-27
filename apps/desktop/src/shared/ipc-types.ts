@@ -646,6 +646,8 @@ export interface DeDiStatusResponse {
   configured: boolean;
   /** The configured namespace (if any). */
   namespace?: string;
+  /** Whether the 3 DeDi registries have been created. */
+  registriesReady: boolean;
   /** Schema IDs that have been published to DeDi. */
   publishedSchemas: string[];
 }

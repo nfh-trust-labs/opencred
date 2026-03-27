@@ -1434,6 +1434,7 @@ async function handleDeDiSetConfig(_event: IpcMainInvokeEvent, request: DeDiConf
     publishManager = null;
     const mgr = getDeDiPublishManager();
     const registriesReady = mgr ? await mgr.ensureRegistries(request.namespace) : false;
+    store.set("dediRegistriesReady", registriesReady);
     return { success: true, registriesReady };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : "Failed to configure DeDi" };
@@ -1443,7 +1444,7 @@ async function handleDeDiSetConfig(_event: IpcMainInvokeEvent, request: DeDiConf
 async function handleDeDiGetStatus(_event: IpcMainInvokeEvent): Promise<DeDiStatusResponse> {
   const store = getStore();
   const config = store.get("dediConfig");
-  return { configured: config != null, namespace: config?.namespace, publishedSchemas: store.get("dediPublishedSchemas") };
+  return { configured: config != null, namespace: config?.namespace, registriesReady: store.get("dediRegistriesReady") === true, publishedSchemas: store.get("dediPublishedSchemas") };
 }
 
 async function handleDeDiPublishDID(_event: IpcMainInvokeEvent, request: DeDiPublishDIDRequest): Promise<DeDiPublishResponse> {
@@ -1456,9 +1457,12 @@ async function handleDeDiPublishDID(_event: IpcMainInvokeEvent, request: DeDiPub
 async function handleDeDiEnsureRegistries(_event: IpcMainInvokeEvent): Promise<DeDiEnsureRegistriesResponse> {
   const mgr = getDeDiPublishManager();
   if (!mgr) return { success: false, error: "DeDi not configured" };
-  const ns = getStore().get("dediConfig")?.namespace;
+  const store = getStore();
+  const ns = store.get("dediConfig")?.namespace;
   if (!ns) return { success: false, error: "DeDi not configured" };
-  return (await mgr.ensureRegistries(ns)) ? { success: true } : { success: false, error: "Failed to create DeDi registries" };
+  const ok = await mgr.ensureRegistries(ns);
+  store.set("dediRegistriesReady", ok);
+  return ok ? { success: true } : { success: false, error: "Failed to create DeDi registries" };
 }
 
 /**
@@ -1472,6 +1476,7 @@ async function handleDeDiDisconnect(_event: IpcMainInvokeEvent): Promise<import(
   const store = getStore();
   store.delete("dediConfig" as never);
   store.set("dediPublishedSchemas", []);
+  store.delete("dediRegistriesReady" as never);
   const prefs = store.get("preferences");
   if (prefs && typeof prefs === "object" && "dediCredentialEncrypted" in prefs) {
     const { dediCredentialEncrypted: _, ...rest } = prefs as Record<string, unknown>;

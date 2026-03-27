@@ -81,7 +81,7 @@ function DeDiCard() {
       setStatus(s);
       if (s.configured && s.namespace) setNamespace(s.namespace);
     } catch {
-      setStatus({ configured: false, publishedSchemas: [] });
+      setStatus({ configured: false, registriesReady: false, publishedSchemas: [] });
     }
   }, []);
 
@@ -178,6 +178,21 @@ function DeDiCard() {
   }
 
 
+  async function handleCreateRegistries() {
+    setActionResult(null);
+    try {
+      const result = await window.opencred.dediEnsureRegistries();
+      if (result.success) {
+        setActionResult({ type: "success", message: "Registries created." });
+        await loadStatus();
+      } else {
+        setActionResult({ type: "error", message: result.error ?? "Failed to create registries." });
+      }
+    } catch (err) {
+      setActionResult({ type: "error", message: err instanceof Error ? err.message : "Failed to create registries." });
+    }
+  }
+
   if (!status) return null;
 
   const isConfigured = status.configured;
@@ -226,7 +241,7 @@ function DeDiCard() {
 
           {/* Status indicators */}
           <div className="rounded-md border border-gray-200 divide-y divide-gray-100">
-            <StatusRow label="Registries" active description="Schema, Public Key, Revocation" />
+            <StatusRow label="Registries" active={status.registriesReady} description="Schema, Public Key, Revocation" action={status.registriesReady ? undefined : "Create"} onAction={status.registriesReady ? undefined : () => { void handleCreateRegistries(); }} />
             <StatusRow label="Public Key" active={false} description="Publish your DID document" action="Publish" onAction={() => void handlePublishDID()} />
             <StatusRow label="Schemas" active={status.publishedSchemas.length > 0} description={status.publishedSchemas.length > 0 ? `${status.publishedSchemas.length} published` : "Published on first issuance"} />
           </div>
