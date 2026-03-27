@@ -701,7 +701,7 @@ describe("DeDiClient (adapter)", () => {
         name: "test",
         namespace: "example.com",
         schema: {},
-        tag: "revoke",
+        tag: "Revoke",
         state: "active",
         record_count: 0,
         created_at: "",
@@ -718,20 +718,17 @@ describe("DeDiClient (adapter)", () => {
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
         REVOCATION_REGISTRY,
-        expect.any(Object),
-        "revoke",
+        expect.objectContaining({ properties: expect.objectContaining({ hash: { type: "string" } }) }),
       );
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
         PUBLIC_KEY_REGISTRY,
-        expect.any(Object),
-        "public_key",
+        expect.objectContaining({ properties: expect.objectContaining({ did: { type: "string" } }) }),
       );
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
         SCHEMA_REGISTRY,
-        expect.any(Object),
-        "custom",
+        expect.objectContaining({ properties: expect.objectContaining({ schemaId: { type: "string" } }) }),
       );
     });
 
