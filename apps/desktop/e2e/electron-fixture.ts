@@ -265,6 +265,27 @@ window.opencred = {
     return { results };
   },
 
+  // Credential history
+  _credentialHistory: [],
+  async credentialHistoryList() {
+    return { entries: this._credentialHistory };
+  },
+  async credentialHistoryAdd({ schemaId, schemaName, subjectSummary, credentialJson, keyFingerprint, proofFormat }) {
+    const entry = {
+      id: crypto.randomUUID(),
+      schemaId, schemaName, subjectSummary, credentialJson, keyFingerprint,
+      proofFormat: proofFormat || 'vc-jwt',
+      issuedAt: new Date().toISOString(),
+    };
+    this._credentialHistory.unshift(entry);
+    if (this._credentialHistory.length > 100) this._credentialHistory.pop();
+    return entry;
+  },
+  async credentialHistoryDelete({ id }) {
+    this._credentialHistory = this._credentialHistory.filter(e => e.id !== id);
+    return { deleted: true };
+  },
+
   // Batch — realistic mock with CSV parsing and progress simulation
   _batch: null,
   _batchPollCount: 0,
