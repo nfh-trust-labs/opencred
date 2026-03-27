@@ -186,6 +186,9 @@ importers:
       '@opencred/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
+      '@opencred/did':
+        specifier: workspace:*
+        version: link:../../packages/did
       '@opencred/schema-engine':
         specifier: workspace:*
         version: link:../../packages/schema-engine

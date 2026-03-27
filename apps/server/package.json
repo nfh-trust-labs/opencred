@@ -23,6 +23,7 @@
   "dependencies": {
     "@hono/node-server": "^1.13.8",
     "@opencred/crypto": "workspace:*",
+    "@opencred/did": "workspace:*",
     "@opencred/schema-engine": "workspace:*",
     "@opencred/shared": "workspace:*",
     "@opencred/signing": "workspace:*",
