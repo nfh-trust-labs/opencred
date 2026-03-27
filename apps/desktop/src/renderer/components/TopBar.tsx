@@ -47,6 +47,17 @@ export function TopBar({ activeView, isOffline, onNavigate }: Props) {
       {/* Right: nav buttons */}
       <div className="oc-topbar-actions">
         <button
+          onClick={() => onNavigate("history")}
+          className={`oc-topbar-nav-btn ${activeView === "history" ? "active" : ""}`}
+          aria-label="Credential history"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          History
+        </button>
+
+        <button
           onClick={() => onNavigate("verify")}
           className={`oc-topbar-nav-btn ${activeView === "verify" ? "active" : ""}`}
           aria-label="Verify credential"
