@@ -456,6 +456,26 @@ window.opencred = {
   // Config
   async getConfig(key) { return this._config[key]; },
   async setConfig(key, value) { this._config[key] = value; },
+
+  // DeDi
+  _dediConfig: null,
+  async dediSetConfig({ baseUrl, namespace, credentials }) {
+    this._dediConfig = { baseUrl, namespace, authType: credentials.type };
+    return { success: true, registriesReady: true };
+  },
+  async dediGetStatus() {
+    return {
+      configured: !!this._dediConfig,
+      namespace: this._dediConfig?.namespace,
+      publishedSchemas: [],
+    };
+  },
+  async dediPublishDID({ did }) {
+    return { success: true, recordName: did.replace(/:/g, '-') };
+  },
+  async dediEnsureRegistries() {
+    return { success: true };
+  },
 };
 `;
 
@@ -542,4 +562,66 @@ export async function generateKeyViaIpc(
     if (!resp.success || !resp.key) throw new Error(resp.error ?? "Key gen failed");
     return { id: resp.key.id, fingerprint: resp.key.fingerprint };
   }, label);
+}
+
+/**
+ * Skip onboarding up to the DeDi setup step.
+ * Pre-populates a signing key so the wizard advances past signing identity,
+ * then stops at the DeDi setup step.
+ */
+export async function skipOnboardingToDeDi(page: Page): Promise<void> {
+  await waitForAppReady(page);
+
+  // Navigate: Welcome → Get Started
+  await page.click("button:has-text('Get Started')");
+  await page.waitForSelector("text=How would you like to get started", { timeout: 5_000 });
+
+  // Choose Quick Start (self-published path)
+  await page.click("text=Quick Start");
+  await page.waitForSelector("h2:has-text('Generate Signing Key')", { timeout: 5_000 });
+
+  // Generate a key via the UI button
+  const generateBtn = page.locator("button:has-text('Generate Key')");
+  if (await generateBtn.isVisible()) {
+    await generateBtn.click();
+    // Wait for key generation to complete — success text or next step
+    await page
+      .locator("text=Key generated")
+      .or(page.locator("text=Enter your domain"))
+      .or(page.locator("button:has-text('Continue')"))
+      .first()
+      .waitFor({ timeout: 5_000 });
+  }
+
+  // Fill domain if required
+  const domainInput = page.locator('input[placeholder*="domain"], input[name="domain"]');
+  if (await domainInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await domainInput.fill("example.com");
+  }
+
+  // Click through Continue buttons until we reach the DeDi setup step
+  for (let i = 0; i < 5; i++) {
+    const dediVisible = await page
+      .locator("text=Public Directory")
+      .or(page.locator("text=DeDi"))
+      .or(page.locator("text=directory service"))
+      .first()
+      .isVisible()
+      .catch(() => false);
+
+    if (dediVisible) break;
+
+    const continueBtn = page
+      .locator("button:has-text('Continue')")
+      .or(page.locator("button:has-text('Next')"))
+      .or(page.locator("button:has-text('Complete')"))
+      .first();
+
+    if (await continueBtn.isVisible().catch(() => false)) {
+      await continueBtn.click();
+      await page.waitForTimeout(500);
+    } else {
+      break;
+    }
+  }
 }
