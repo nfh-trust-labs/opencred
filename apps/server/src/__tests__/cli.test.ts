@@ -16,10 +16,8 @@ import { createRegistry, Validator } from "@opencred/schema-engine";
 import {
   prepareVcJwtProof,
   completeVcJwtProof,
-  verifyProof,
   sha256Hex,
 } from "@opencred/crypto";
-import { publicKeyFromMultibase } from "@opencred/verification";
 import { generateTestKey } from "./helpers.js";
 import type { TestKeyPair } from "./helpers.js";
 import { parseCsv } from "../batch/csv-parser.js";

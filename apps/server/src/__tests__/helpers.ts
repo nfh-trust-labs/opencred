@@ -13,7 +13,6 @@ import { loadConfig, resetConfig } from "../config.js";
 import { createLogger, resetLogger } from "../logger.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error-handler.js";
-import { setActiveSigner } from "../signing/key-manager.js";
 import { health } from "../routes/health.js";
 import { schemas } from "../routes/schemas.js";
 import { credentials } from "../routes/credentials.js";

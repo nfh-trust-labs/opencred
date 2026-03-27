@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { generateKeyPairSync, createPublicKey } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import { loadConfig, resetConfig } from "../config.js";
 import { createLogger, resetLogger } from "../logger.js";
 

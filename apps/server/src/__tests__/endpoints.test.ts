@@ -2,7 +2,7 @@
  * Endpoint round-trip tests using Hono's app.request().
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { createTestApp, generateTestKey, VALID_ISSUE_REQUEST, EDUCATION_SUBJECT } from "./helpers.js";
 import { setActiveSigner } from "../signing/key-manager.js";
 import type { Hono } from "hono";
@@ -29,7 +29,7 @@ describe("GET /health", () => {
     const res = await app.request("/health");
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.status).toBe("ok");
     expect(body.signingKeyLoaded).toBe(true);
     expect(body).toHaveProperty("timestamp");
@@ -45,12 +45,12 @@ describe("GET /schemas", () => {
     const res = await app.request("/schemas");
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body = (await res.json()) as { schemas: { id: string }[] };
     expect(body).toHaveProperty("schemas");
     expect(Array.isArray(body.schemas)).toBe(true);
     expect(body.schemas.length).toBeGreaterThan(0);
 
-    const ids = body.schemas.map((s: { id: string }) => s.id);
+    const ids = body.schemas.map((s) => s.id);
     expect(ids).toContain("education");
     expect(ids).toContain("employment");
     expect(ids).toContain("identity");
@@ -60,7 +60,7 @@ describe("GET /schemas", () => {
     const res = await app.request("/schemas/education");
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.id).toBe("education");
     expect(body).toHaveProperty("schema");
     expect(body).toHaveProperty("contextUrl");
@@ -86,12 +86,12 @@ describe("POST /credentials/issue", () => {
 
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.proofFormat).toBe("vc-jwt");
     expect(body.isCompactToken).toBe(false);
     expect(body.credential).toHaveProperty("proof");
-    expect(body.credential.proof).toHaveProperty("jwt");
-    expect(body.credential.issuer).toBe("did:key:test-issuer");
+    expect((body.credential as Record<string, unknown>).proof).toHaveProperty("jwt");
+    expect((body.credential as Record<string, unknown>).issuer).toBe("did:key:test-issuer");
   });
 
   it("returns 400 for invalid schema subject", async () => {
@@ -136,7 +136,7 @@ describe("POST /credentials/verify", () => {
     });
 
     expect(issueRes.status).toBe(200);
-    const issued = await issueRes.json();
+    const issued = (await issueRes.json()) as { credential: Record<string, unknown> };
 
     // Now verify it
     const verifyRes = await app.request("/credentials/verify", {
@@ -148,7 +148,7 @@ describe("POST /credentials/verify", () => {
     });
 
     expect(verifyRes.status).toBe(200);
-    const result = await verifyRes.json();
+    const result = (await verifyRes.json()) as Record<string, unknown>;
     expect(result.valid).toBe(true);
     expect(result.checks).toEqual(
       expect.arrayContaining([
@@ -169,7 +169,7 @@ describe("POST /credentials/verify", () => {
       }),
     });
 
-    const issued = await issueRes.json();
+    const issued = (await issueRes.json()) as { credential: Record<string, unknown> & { credentialSubject: Record<string, unknown> } };
 
     // Tamper with it
     const tampered = { ...issued.credential };
@@ -184,7 +184,7 @@ describe("POST /credentials/verify", () => {
     });
 
     expect(verifyRes.status).toBe(200);
-    const result = await verifyRes.json();
+    const result = (await verifyRes.json()) as Record<string, unknown>;
     expect(result.valid).toBe(false);
   });
 });
@@ -210,10 +210,10 @@ describe("POST /credentials/revocation-hash", () => {
 
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body).toHaveProperty("hash");
     expect(typeof body.hash).toBe("string");
-    expect(body.hash.length).toBeGreaterThan(0);
+    expect((body.hash as string).length).toBeGreaterThan(0);
   });
 });
 
@@ -243,7 +243,7 @@ describe("POST /credentials/batch", () => {
 
     expect(res.status).toBe(202);
 
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body).toHaveProperty("jobId");
     expect(body.validCount).toBe(2);
     expect(body.totalCount).toBe(2);
@@ -264,7 +264,7 @@ describe("POST /credentials/batch", () => {
       }),
     });
 
-    const { jobId } = await startRes.json();
+    const { jobId } = (await startRes.json()) as { jobId: string };
 
     // Wait briefly for background processing
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -272,7 +272,7 @@ describe("POST /credentials/batch", () => {
     const progressRes = await app.request(`/credentials/batch/${jobId}`);
     expect(progressRes.status).toBe(200);
 
-    const progress = await progressRes.json();
+    const progress = (await progressRes.json()) as Record<string, unknown>;
     expect(progress.jobId).toBe(jobId);
     expect(progress.total).toBe(1);
     expect(typeof progress.completed).toBe("number");
@@ -293,7 +293,7 @@ describe("404 handler", () => {
     const res = await app.request("/nonexistent");
     expect(res.status).toBe(404);
 
-    const body = await res.json();
+    const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("NOT_FOUND");
   });
 });
