@@ -224,6 +224,22 @@ export async function publishPendingRevocations(
     return results;
   }
 
+  // Resolve the DeDi namespace from stored config — this is the actual
+  // namespace name (e.g., "issuers.opencred.world"), NOT a URL.
+  const store = getStore();
+  const dediConfig = store.get("dediConfig") as { namespace?: string } | undefined;
+  const namespace = dediConfig?.namespace;
+  if (!namespace) {
+    for (const item of toPublish) {
+      results.push({
+        queueId: item.queueId,
+        success: false,
+        error: "DeDi namespace not configured — set up DeDi in Settings first",
+      });
+    }
+    return results;
+  }
+
   // Check connectivity before creating the client
   try {
     const dns = await import("node:dns/promises");
@@ -240,6 +256,10 @@ export async function publishPendingRevocations(
     return results;
   }
 
+  // Create a single DeDi client for the publish cycle using the configured
+  // namespace. The client is ephemeral — discarded after this batch.
+  const client = createDeDiClient(dediBaseUrl, dediCredentials, namespace);
+
   for (const item of toPublish) {
     updateQueueItemStatus(item.queueId, "publishing");
 
@@ -248,10 +268,6 @@ export async function publishPendingRevocations(
         throw new Error("Revocation hash is missing");
       }
 
-      // Create a temporary DeDi client per-item — the registryUrl serves as
-      // the DeDi namespace so each item publishes to its correct registry.
-      // The client is discarded after use; credentials are never persisted.
-      const client = createDeDiClient(dediBaseUrl, dediCredentials, item.registryUrl);
       await client.publishRevocationHash(item.revocationHash);
       updateQueueItemStatus(item.queueId, "published");
       results.push({ queueId: item.queueId, success: true });

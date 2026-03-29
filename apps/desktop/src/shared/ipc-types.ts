@@ -659,6 +659,11 @@ export interface DeDiPublishDIDRequest {
   document: unknown;
 }
 
+export interface DeDiPublishSchemaRequest {
+  /** The schema ID to publish (from schema-engine registry). */
+  schemaId: string;
+}
+
 export interface DeDiPublishResponse {
   success: boolean;
   recordName?: string;
@@ -877,6 +882,7 @@ export interface OpenCredDesktopAPI {
   dediSetConfig: (request: DeDiConfigSetRequest) => Promise<DeDiConfigSetResponse>;
   dediGetStatus: () => Promise<DeDiStatusResponse>;
   dediPublishDID: (request: DeDiPublishDIDRequest) => Promise<DeDiPublishResponse>;
+  dediPublishSchema: (request: DeDiPublishSchemaRequest) => Promise<DeDiPublishResponse>;
   dediEnsureRegistries: () => Promise<DeDiEnsureRegistriesResponse>;
   dediDisconnect: () => Promise<DeDiDisconnectResponse>;
 

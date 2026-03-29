@@ -308,8 +308,16 @@ async function handleSignCredential(
     const { prepareProof, completeProof } = await import("@opencred/crypto");
     const unsignedCredential = JSON.parse(request.unsignedCredential);
 
+    // Extract issuer DID to determine the correct verificationMethod.
+    // For did:web issuers, use the did:web verification method ID.
+    const issuer = unsignedCredential.issuer;
+    const issuerDid = typeof issuer === "string" ? issuer : issuer?.id;
+    const verificationMethod = issuerDid?.startsWith("did:web:")
+      ? `${issuerDid}#key-0`
+      : signer.id;
+
     const { dataToSign, proofConfig } = await prepareProof(unsignedCredential, {
-      verificationMethod: signer.id,
+      verificationMethod,
       proofPurpose: "assertionMethod",
     });
 
@@ -396,8 +404,15 @@ async function handleBuildAndSign(
       const unsigned = builder.build();
 
       const vct = request.additionalTypes?.[0] ?? request.schemaId;
+
+      // For did:web issuers, the verificationMethod must reference the
+      // did:web DID's key, not the signer's internal did:key-based ID.
+      const verificationMethod = request.issuerDid.startsWith("did:web:")
+        ? `${request.issuerDid}#key-0`
+        : signer.id;
+
       const result = await signWithFormat(signer, unsigned, proofFormat, {
-        verificationMethod: signer.id,
+        verificationMethod,
         selectiveDisclosureClaims: request.selectiveDisclosureClaims,
         vct,
       });
@@ -1359,7 +1374,7 @@ import { DIDWebResolver, encodeDidWeb } from "@opencred/did";
 import type {
   DidWebExportRequest, DidWebExportResponse, DidWebVerifyRequest, DidWebVerifyResponse,
   DeDiConfigSetRequest, DeDiConfigSetResponse, DeDiStatusResponse,
-  DeDiPublishDIDRequest, DeDiPublishResponse, DeDiEnsureRegistriesResponse,
+  DeDiPublishDIDRequest, DeDiPublishSchemaRequest, DeDiPublishResponse, DeDiEnsureRegistriesResponse,
 } from "../shared/ipc-types.js";
 
 async function handleDidWebExport(_event: IpcMainInvokeEvent, request: DidWebExportRequest): Promise<DidWebExportResponse> {
@@ -1461,6 +1476,37 @@ async function handleDeDiPublishDID(_event: IpcMainInvokeEvent, request: DeDiPub
   if (!mgr) return { success: false, error: "DeDi not configured" };
   const result = await mgr.publishDIDDocument(request.did, request.document);
   return result ? { success: true, recordName: result.recordName } : { success: false, error: "Failed to publish DID to DeDi" };
+}
+
+async function handleDeDiPublishSchema(_event: IpcMainInvokeEvent, request: DeDiPublishSchemaRequest): Promise<DeDiPublishResponse> {
+  const mgr = getDeDiPublishManager();
+  if (!mgr) return { success: false, error: "DeDi not configured" };
+
+  try {
+    const def = getSchemaDefinition(request.schemaId);
+    const result = await mgr.ensureSchemaPublished({
+      schemaId: def.id,
+      version: "1",
+      schema: def.schema,
+      contextUrl: def.contextUrl,
+      checksum: "",
+      publishedAt: new Date().toISOString(),
+    });
+
+    if (result) {
+      const s = getStore();
+      const pub = s.get("dediPublishedSchemas");
+      const k = `${def.id}-v1`;
+      if (!pub.includes(k)) s.set("dediPublishedSchemas", [...pub, k]);
+      return { success: true, recordName: result.recordName };
+    }
+    // Already published (idempotent)
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Schema publication failed";
+    logger.error("DeDi schema publication failed", { schemaId: request.schemaId, error: message });
+    return { success: false, error: message };
+  }
 }
 
 async function handleDeDiEnsureRegistries(_event: IpcMainInvokeEvent): Promise<DeDiEnsureRegistriesResponse> {
@@ -1605,6 +1651,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.DEDI_SET_CONFIG, handleDeDiSetConfig);
   ipcMain.handle(IPC_CHANNELS.DEDI_GET_STATUS, handleDeDiGetStatus);
   ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_DID, handleDeDiPublishDID);
+  ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_SCHEMA, handleDeDiPublishSchema);
   ipcMain.handle(IPC_CHANNELS.DEDI_ENSURE_REGISTRIES, handleDeDiEnsureRegistries);
   ipcMain.handle(IPC_CHANNELS.DEDI_DISCONNECT, handleDeDiDisconnect);
 

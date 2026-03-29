@@ -212,6 +212,9 @@ const api: OpenCredDesktopAPI = {
   dediPublishDID: (request: DeDiPublishDIDRequest): Promise<DeDiPublishResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.DEDI_PUBLISH_DID, request),
 
+  dediPublishSchema: (request: import("../shared/ipc-types.js").DeDiPublishSchemaRequest): Promise<DeDiPublishResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEDI_PUBLISH_SCHEMA, request),
+
   dediEnsureRegistries: (): Promise<DeDiEnsureRegistriesResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.DEDI_ENSURE_REGISTRIES),
 

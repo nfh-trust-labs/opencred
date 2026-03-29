@@ -48,7 +48,7 @@ describe("IPC_CHANNELS", () => {
 
   it("should have exactly 37 channels defined", () => {
     const channelCount = Object.keys(IPC_CHANNELS).length;
-    expect(channelCount).toBe(46);
+    expect(channelCount).toBe(50);
   });
 
   it("should have unique channel values (no duplicate channel names)", () => {
@@ -120,6 +120,7 @@ describe("IPC_CHANNELS", () => {
       DEDI_SET_CONFIG: "dedi:set-config",
       DEDI_GET_STATUS: "dedi:get-status",
       DEDI_PUBLISH_DID: "dedi:publish-did",
+      DEDI_PUBLISH_SCHEMA: "dedi:publish-schema",
       DEDI_ENSURE_REGISTRIES: "dedi:ensure-registries",
     };
 
