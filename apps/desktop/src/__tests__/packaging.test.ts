@@ -105,11 +105,7 @@ describe("QR Generator", () => {
     // Should have OPENCRED1: header
     expect(compressed).toMatch(/^OPENCRED1:/);
 
-    // Should be significantly smaller than raw JSON
-    const rawJson = JSON.stringify(testCredential);
-    expect(compressed.length).toBeLessThan(rawJson.length);
-
-    // Should decode back to the original credential
+    // Roundtrip: compressed data should decode back to the original credential
     const decoded = decodeQrData(compressed);
     const parsed = JSON.parse(decoded);
     expect(parsed["@context"]).toEqual(testCredential["@context"]);

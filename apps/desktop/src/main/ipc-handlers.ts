@@ -527,6 +527,21 @@ async function handleVerifyCredential(
   try {
     const parsed = JSON.parse(request.credential);
 
+    // VC-JWT envelope detection: when the signed output is a JSON object with
+    // { proof: { type: "JsonWebSignature2020", jwt: "eyJ..." } }, extract the
+    // raw JWT string — the verification package expects the compact JWT, not
+    // the JSON envelope.
+    let verificationInput: unknown = parsed;
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      parsed.proof &&
+      typeof parsed.proof === "object" &&
+      typeof parsed.proof.jwt === "string"
+    ) {
+      verificationInput = parsed.proof.jwt;
+    }
+
     // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
     const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } = await import("@opencred/did");
     const { verifyCredential } = await import("@opencred/verification");
@@ -539,7 +554,7 @@ async function handleVerifyCredential(
       ]),
     );
 
-    const verificationResult = await verifyCredential(parsed, {
+    const verificationResult = await verifyCredential(verificationInput, {
       didResolver: compositeResolver,
     });
 

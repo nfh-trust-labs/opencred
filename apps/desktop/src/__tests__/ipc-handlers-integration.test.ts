@@ -598,7 +598,7 @@ describe("IPC Handler Integration Tests", () => {
   // Full round-trip: sign → verify
   // -----------------------------------------------------------------------
   describe("Sign → Verify round-trip", () => {
-    it("vc-jwt: signed credential should be verifiable (handler returns result)", async () => {
+    it("vc-jwt: signed credential should verify as valid", async () => {
       const { keyId } = await importTestKey();
 
       const signResult = await buildAndSign({
@@ -617,12 +617,9 @@ describe("IPC Handler Integration Tests", () => {
 
       expect(signResult.success).toBe(true);
 
-      // VC-JWT verification returns a result — the handler doesn't throw
       const verifyResult = await verifyCredential(signResult.signedCredential!);
       expect(verifyResult.success).toBe(true);
-      // Note: VC-JWT wraps the JWT in { proof: { jwt: "..." } } JSON — the
-      // verification package may not fully support this envelope format yet.
-      // Data Integrity verification is the authoritative round-trip test.
+      expect(verifyResult.valid).toBe(true);
     });
 
     it("data-integrity: signed credential should verify", async () => {
