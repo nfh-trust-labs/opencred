@@ -1,6 +1,5 @@
 {
   "@context": {
-    "name": "https://schema.nfh.global/vocab/employment#name",
     "employer": "https://schema.nfh.global/vocab/employment#employer",
     "position": "https://schema.nfh.global/vocab/employment#position",
     "startDate": {
