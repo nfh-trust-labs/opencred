@@ -128,6 +128,8 @@ export const IPC_CHANNELS = {
   DEDI_GET_STATUS: "dedi:get-status",
   /** Publish a DID document to DeDi. Payload: DeDiPublishDIDRequest. Response: DeDiPublishResponse. */
   DEDI_PUBLISH_DID: "dedi:publish-did",
+  /** Publish a schema to DeDi. Payload: DeDiPublishSchemaRequest. Response: DeDiPublishResponse. */
+  DEDI_PUBLISH_SCHEMA: "dedi:publish-schema",
   /** Ensure DeDi registries exist. Response: DeDiEnsureRegistriesResponse. */
   DEDI_ENSURE_REGISTRIES: "dedi:ensure-registries",
   /** Disconnect DeDi integration (clear config + credentials). Response: DeDiDisconnectResponse. */

@@ -58,6 +58,9 @@ describe("Revocation Queue", () => {
     }
     vi.clearAllMocks();
 
+    // Default: DeDi is configured with a namespace
+    storeData["dediConfig"] = { baseUrl: "https://dedi.example", namespace: "test.opencred.world", authType: "api-key" };
+
     // Default: network is available and publish succeeds
     mockDnsLookup.mockResolvedValue({ address: "8.8.8.8", family: 4 });
     mockPublishRevocationHash.mockResolvedValue({

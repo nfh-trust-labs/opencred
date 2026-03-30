@@ -96,6 +96,7 @@ import {
   packageCredential as packageCredentialWithTemplates,
 } from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
+import { deriveVerificationMethod } from "../signing/types.js";
 import type { Signer } from "../signing/types.js";
 import { parseCsv } from "../batch/csv-parser.js";
 import type { CsvParseResult, Delimiter } from "../batch/csv-parser.js";
@@ -308,8 +309,14 @@ async function handleSignCredential(
     const { prepareProof, completeProof } = await import("@opencred/crypto");
     const unsignedCredential = JSON.parse(request.unsignedCredential);
 
+    // Extract issuer DID to determine the correct verificationMethod.
+    // For did:web issuers, use the did:web verification method ID.
+    const issuer = unsignedCredential.issuer;
+    const issuerDid = typeof issuer === "string" ? issuer : issuer?.id;
+    const verificationMethod = deriveVerificationMethod(issuerDid, signer.id);
+
     const { dataToSign, proofConfig } = await prepareProof(unsignedCredential, {
-      verificationMethod: signer.id,
+      verificationMethod,
       proofPurpose: "assertionMethod",
     });
 
@@ -396,8 +403,13 @@ async function handleBuildAndSign(
       const unsigned = builder.build();
 
       const vct = request.additionalTypes?.[0] ?? request.schemaId;
+
+      // For did:web issuers, the verificationMethod must reference the
+      // did:web DID's key, not the signer's internal did:key-based ID.
+      const verificationMethod = deriveVerificationMethod(request.issuerDid, signer.id);
+
       const result = await signWithFormat(signer, unsigned, proofFormat, {
-        verificationMethod: signer.id,
+        verificationMethod,
         selectiveDisclosureClaims: request.selectiveDisclosureClaims,
         vct,
       });
@@ -512,6 +524,21 @@ async function handleVerifyCredential(
   try {
     const parsed = JSON.parse(request.credential);
 
+    // VC-JWT envelope detection: when the signed output is a JSON object with
+    // { proof: { type: "JsonWebSignature2020", jwt: "eyJ..." } }, extract the
+    // raw JWT string — the verification package expects the compact JWT, not
+    // the JSON envelope.
+    let verificationInput: unknown = parsed;
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      parsed.proof &&
+      typeof parsed.proof === "object" &&
+      typeof parsed.proof.jwt === "string"
+    ) {
+      verificationInput = parsed.proof.jwt;
+    }
+
     // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
     const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } = await import("@opencred/did");
     const { verifyCredential } = await import("@opencred/verification");
@@ -524,7 +551,7 @@ async function handleVerifyCredential(
       ]),
     );
 
-    const verificationResult = await verifyCredential(parsed, {
+    const verificationResult = await verifyCredential(verificationInput, {
       didResolver: compositeResolver,
     });
 
@@ -1359,7 +1386,7 @@ import { DIDWebResolver, encodeDidWeb } from "@opencred/did";
 import type {
   DidWebExportRequest, DidWebExportResponse, DidWebVerifyRequest, DidWebVerifyResponse,
   DeDiConfigSetRequest, DeDiConfigSetResponse, DeDiStatusResponse,
-  DeDiPublishDIDRequest, DeDiPublishResponse, DeDiEnsureRegistriesResponse,
+  DeDiPublishDIDRequest, DeDiPublishSchemaRequest, DeDiPublishResponse, DeDiEnsureRegistriesResponse,
 } from "../shared/ipc-types.js";
 
 async function handleDidWebExport(_event: IpcMainInvokeEvent, request: DidWebExportRequest): Promise<DidWebExportResponse> {
@@ -1461,6 +1488,37 @@ async function handleDeDiPublishDID(_event: IpcMainInvokeEvent, request: DeDiPub
   if (!mgr) return { success: false, error: "DeDi not configured" };
   const result = await mgr.publishDIDDocument(request.did, request.document);
   return result ? { success: true, recordName: result.recordName } : { success: false, error: "Failed to publish DID to DeDi" };
+}
+
+async function handleDeDiPublishSchema(_event: IpcMainInvokeEvent, request: DeDiPublishSchemaRequest): Promise<DeDiPublishResponse> {
+  const mgr = getDeDiPublishManager();
+  if (!mgr) return { success: false, error: "DeDi not configured" };
+
+  try {
+    const def = getSchemaDefinition(request.schemaId);
+    const result = await mgr.ensureSchemaPublished({
+      schemaId: def.id,
+      version: "1",
+      schema: def.schema,
+      contextUrl: def.contextUrl,
+      checksum: "",
+      publishedAt: new Date().toISOString(),
+    });
+
+    if (result) {
+      const s = getStore();
+      const pub = s.get("dediPublishedSchemas");
+      const k = `${def.id}-v1`;
+      if (!pub.includes(k)) s.set("dediPublishedSchemas", [...pub, k]);
+      return { success: true, recordName: result.recordName };
+    }
+    // Already published (idempotent)
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Schema publication failed";
+    logger.error("DeDi schema publication failed", { schemaId: request.schemaId, error: message });
+    return { success: false, error: message };
+  }
 }
 
 async function handleDeDiEnsureRegistries(_event: IpcMainInvokeEvent): Promise<DeDiEnsureRegistriesResponse> {
@@ -1605,6 +1663,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.DEDI_SET_CONFIG, handleDeDiSetConfig);
   ipcMain.handle(IPC_CHANNELS.DEDI_GET_STATUS, handleDeDiGetStatus);
   ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_DID, handleDeDiPublishDID);
+  ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_SCHEMA, handleDeDiPublishSchema);
   ipcMain.handle(IPC_CHANNELS.DEDI_ENSURE_REGISTRIES, handleDeDiEnsureRegistries);
   ipcMain.handle(IPC_CHANNELS.DEDI_DISCONNECT, handleDeDiDisconnect);
 
