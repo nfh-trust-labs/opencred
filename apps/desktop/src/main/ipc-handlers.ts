@@ -96,6 +96,7 @@ import {
   packageCredential as packageCredentialWithTemplates,
 } from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
+import { deriveVerificationMethod } from "../signing/types.js";
 import type { Signer } from "../signing/types.js";
 import { parseCsv } from "../batch/csv-parser.js";
 import type { CsvParseResult, Delimiter } from "../batch/csv-parser.js";
@@ -312,9 +313,7 @@ async function handleSignCredential(
     // For did:web issuers, use the did:web verification method ID.
     const issuer = unsignedCredential.issuer;
     const issuerDid = typeof issuer === "string" ? issuer : issuer?.id;
-    const verificationMethod = issuerDid?.startsWith("did:web:")
-      ? `${issuerDid}#key-0`
-      : signer.id;
+    const verificationMethod = deriveVerificationMethod(issuerDid, signer.id);
 
     const { dataToSign, proofConfig } = await prepareProof(unsignedCredential, {
       verificationMethod,
@@ -407,9 +406,7 @@ async function handleBuildAndSign(
 
       // For did:web issuers, the verificationMethod must reference the
       // did:web DID's key, not the signer's internal did:key-based ID.
-      const verificationMethod = request.issuerDid.startsWith("did:web:")
-        ? `${request.issuerDid}#key-0`
-        : signer.id;
+      const verificationMethod = deriveVerificationMethod(request.issuerDid, signer.id);
 
       const result = await signWithFormat(signer, unsigned, proofFormat, {
         verificationMethod,

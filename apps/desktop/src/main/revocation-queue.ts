@@ -227,7 +227,7 @@ export async function publishPendingRevocations(
   // Resolve the DeDi namespace from stored config — this is the actual
   // namespace name (e.g., "issuers.opencred.world"), NOT a URL.
   const store = getStore();
-  const dediConfig = store.get("dediConfig") as { namespace?: string } | undefined;
+  const dediConfig = store.get("dediConfig");
   const namespace = dediConfig?.namespace;
   if (!namespace) {
     for (const item of toPublish) {

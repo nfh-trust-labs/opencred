@@ -119,8 +119,6 @@ initStore();
 const { registerIpcHandlers } = await import("../main/ipc-handlers");
 registerIpcHandlers();
 
-// Import signing utilities for key setup
-const { createSoftwareSigner } = await import("../signing/software-signer");
 const { IPC_CHANNELS } = await import("../shared/ipc-channels");
 
 // ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ import { createRegistry, Validator } from "@opencred/schema-engine";
 import type { SchemaRegistry, ValidationResult } from "@opencred/schema-engine";
 import { signWithFormat } from "./proof-format-router.js";
 import type { UiProofFormat } from "../shared/ipc-types.js";
+import { deriveVerificationMethod } from "./types.js";
 import type { Signer } from "./types.js";
 
 /**
@@ -201,9 +202,7 @@ export async function buildAndSign(
 
   // For did:web issuers, the verificationMethod in the proof should use the
   // did:web DID's verification method ID, not the signer's did:key-based ID
-  const verificationMethod = options.issuerDid.startsWith("did:web:")
-    ? `${options.issuerDid}#key-0`
-    : signer.id;
+  const verificationMethod = deriveVerificationMethod(options.issuerDid, signer.id);
 
   let signedOutput: string;
   let isCompactToken: boolean;
