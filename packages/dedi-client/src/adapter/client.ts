@@ -354,19 +354,56 @@ export class DeDiClient {
   }
 
   async ensureRegistries(namespace: string): Promise<void> {
-    await ignoreConflict(() =>
-      this.api.createNamespace(namespace, "OpenCred namespace"),
-    );
+    try {
+      const nsResult = await this.api.createNamespace(namespace, "OpenCred namespace");
+      this.logger.debug("Namespace created", { namespace, result: JSON.stringify(nsResult).slice(0, 200) });
+    } catch (nsErr) {
+      const code = nsErr instanceof DeDiClientError ? nsErr.statusCode : 0;
+      this.logger.error("Namespace creation failed", { namespace, code, error: nsErr instanceof Error ? nsErr.message : String(nsErr) });
+      if (code !== 409) throw nsErr; // Only ignore "already exists"
+    }
 
     await Promise.all([
       ignoreConflict(() =>
-        this.api.createRegistry(namespace, REVOCATION_REGISTRY, {}, "revoke"),
+        this.api.createRegistry(namespace, REVOCATION_REGISTRY, {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "description": "OpenCred revocation list",
+          "properties": {
+            "hash": { "type": "string" },
+            "revoked": { "type": "boolean" },
+            "revokedAt": { "type": "string" },
+          },
+          "required": ["hash", "revoked"],
+        }),
       ),
       ignoreConflict(() =>
-        this.api.createRegistry(namespace, PUBLIC_KEY_REGISTRY, {}, "public_key"),
+        this.api.createRegistry(namespace, PUBLIC_KEY_REGISTRY, {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "description": "OpenCred public key registry",
+          "properties": {
+            "did": { "type": "string" },
+            "document": { "type": "object" },
+            "resolvedAt": { "type": "string" },
+          },
+          "required": ["did", "document"],
+        }),
       ),
       ignoreConflict(() =>
-        this.api.createRegistry(namespace, SCHEMA_REGISTRY, {}, "custom"),
+        this.api.createRegistry(namespace, SCHEMA_REGISTRY, {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "description": "OpenCred credential schema catalog",
+          "properties": {
+            "schemaId": { "type": "string" },
+            "version": { "type": "string" },
+            "schema": { "type": "object" },
+            "checksum": { "type": "string" },
+            "publishedAt": { "type": "string" },
+          },
+          "required": ["schemaId", "version", "schema"],
+        }),
       ),
       ignoreConflict(() =>
         this.api.createRegistry(namespace, CONTEXT_REGISTRY, {}, "custom"),

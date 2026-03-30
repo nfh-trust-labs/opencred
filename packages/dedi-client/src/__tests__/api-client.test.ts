@@ -157,20 +157,20 @@ describe("DeDiApiClient", () => {
 
   describe("registry endpoints", () => {
     it("createRegistry POSTs to /dedi/{ns}/create-registry", async () => {
-      const reg = { name: "revocation_list", namespace: "example.com", schema: {}, tag: "revoke", state: "active", record_count: 0, created_at: "", updated_at: "" };
+      const reg = { name: "revocation_list", namespace: "example.com", schema: {}, tag: "custom", state: "active", record_count: 0, created_at: "", updated_at: "" };
       mockFetch.mockResolvedValue(jsonResponse(reg));
 
+      const schema = { "$schema": "http://json-schema.org/draft-07/schema#", "type": "object", "properties": {} };
       const client = new DeDiApiClient(createConfig());
-      await client.createRegistry("example.com", "revocation_list", {}, "revoke");
+      await client.createRegistry("example.com", "revocation_list", schema);
 
       const [url, init] = mockFetch.mock.calls[0]!;
       expect(url).toBe("https://dedi.example.com/dedi/example.com/create-registry");
       expect(init?.method).toBe("POST");
       const body = JSON.parse(init?.body as string);
       expect(body.registry_name).toBe("revocation_list");
-      // When tag is provided, schema is omitted (DeDi API: either/or)
-      expect(body.schema).toBeUndefined();
-      expect(body.tag).toBe("revoke");
+      expect(body.schema).toEqual(schema);
+      expect(body.tag).toBeUndefined();
     });
 
     it("lookupRegistry GETs /dedi/lookup/{ns}/{reg}", async () => {
