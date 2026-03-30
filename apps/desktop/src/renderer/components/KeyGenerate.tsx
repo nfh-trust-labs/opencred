@@ -44,8 +44,8 @@ export function KeyGenerate({ onKeyGenerated }: KeyGenerateProps) {
   return (
     <div className="space-y-4">
       <p className="text-xs text-gray-500">
-        Generate a fresh ECDSA P-256 keypair. The private key stays in memory and never
-        leaves this application. Suitable for testing or ephemeral signing.
+        Generate a new signing key (ECDSA P-256). The private key is stored securely on your
+        computer and never leaves this application.
       </p>
       <div className="flex gap-2 items-end">
         <div className="flex-1">
@@ -66,9 +66,10 @@ export function KeyGenerate({ onKeyGenerated }: KeyGenerateProps) {
           disabled={generating}
           className="rounded-md bg-gray-700 px-4 py-1.5 text-sm text-white hover:bg-gray-800 disabled:opacity-40"
         >
-          {generating ? "Generating..." : "Generate P-256 Key"}
+          {generating ? "Generating..." : "Generate Signing Key"}
         </button>
       </div>
+      <p className="text-xs text-gray-400">Creates an ECDSA P-256 keypair for credential signing</p>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 

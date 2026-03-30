@@ -40,6 +40,18 @@ export function TopBar({ activeView, isOffline, rotationOverdue, onNavigate }: P
         >
           OpenCred
         </button>
+        <button
+          onClick={() => onNavigate("home")}
+          className="oc-topbar-nav-btn"
+          aria-label="New credential"
+          title="New credential"
+          style={{ marginLeft: 4 }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          New
+        </button>
       </div>
 
       {/* Spacer (drag region) */}

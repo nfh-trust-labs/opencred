@@ -28,6 +28,12 @@ const PROOF_FORMAT_LABELS: Record<UiProofFormat, string> = {
   "sd-jwt-vc": "SD-JWT-VC",
 };
 
+const PROOF_FORMAT_HINTS: Record<UiProofFormat, string> = {
+  "vc-jwt": "Most widely supported format. Works with standard JWT libraries.",
+  "data-integrity": "Uses JSON-LD canonicalization. Required for linked data ecosystems.",
+  "sd-jwt-vc": "Allows holders to selectively disclose individual fields.",
+};
+
 function isRsa(algorithm: string | undefined): boolean {
   return !!algorithm && algorithm.startsWith("RSA");
 }
@@ -133,6 +139,7 @@ export function MoreOptions({
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-gray-500">{PROOF_FORMAT_HINTS[proofFormat]}</p>
           </div>
 
           {/* SD-JWT-VC selective disclosure toggles */}

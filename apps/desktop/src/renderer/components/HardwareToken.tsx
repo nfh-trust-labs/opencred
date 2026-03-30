@@ -55,6 +55,9 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
   const [connectedKey, setConnectedKey] = useState<ConnectedKey | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showConnectPin, setShowConnectPin] = useState(false);
+  const [connectPin, setConnectPin] = useState("");
+  const [pendingConnectKeyId, setPendingConnectKeyId] = useState<string | undefined>(undefined);
 
   async function handleBrowseLibrary() {
     setError(null);
@@ -164,23 +167,30 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
     }
   }
 
-  async function handleConnect(keyId?: string) {
+  function handleRequestConnect(keyId?: string) {
     setError(null);
-    setLoading(true);
+    setPendingConnectKeyId(keyId);
+    setConnectPin("");
+    setShowConnectPin(true);
+  }
 
-    // Re-prompt for PIN since we cleared it
-    const connectPin = prompt("Enter your token PIN to connect:");
-    if (!connectPin) {
-      setLoading(false);
+  async function handleConnectWithPin() {
+    if (!connectPin.trim()) {
+      setError("Please enter your token PIN.");
       return;
     }
+    setShowConnectPin(false);
+    setLoading(true);
+
+    const pinValue = connectPin;
+    setConnectPin("");
 
     try {
       const result = await window.opencred.pkcs11Connect({
         libraryPath,
         slotIndex: selectedSlot,
-        pin: connectPin,
-        keyId,
+        pin: pinValue,
+        keyId: pendingConnectKeyId,
       });
 
       if (!result.success || !result.key) {
@@ -201,6 +211,7 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
       setError(err instanceof Error ? err.message : "Failed to connect.");
     } finally {
       setLoading(false);
+      setPendingConnectKeyId(undefined);
     }
   }
 
@@ -213,12 +224,18 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
     setKeys([]);
     setConnectedKey(null);
     setError(null);
+    setShowConnectPin(false);
+    setConnectPin("");
+    setPendingConnectKeyId(undefined);
   }
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-gray-700">Hardware Token (PKCS#11)</h2>
+        <div>
+          <h2 className="text-sm font-medium text-gray-700">Hardware Token</h2>
+          <p className="text-xs text-gray-400 mt-0.5">PKCS#11</p>
+        </div>
         {step !== "library" && (
           <button
             onClick={handleReset}
@@ -240,6 +257,9 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
       {step === "library" && (
         <div className="space-y-3">
           <label className="block text-xs text-gray-600">PKCS#11 Library Path</label>
+          <p className="text-xs text-gray-400 mb-2">
+            The path to your hardware token's PKCS#11 driver library. Common locations are auto-filled below.
+          </p>
           <div className="flex gap-2">
             <input
               type="text"
@@ -255,6 +275,9 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
               Browse
             </button>
           </div>
+          <p className="text-xs text-gray-400">
+            Common paths: YubiKey (/usr/lib/libykcs11.so), OpenSC (/usr/lib/opensc-pkcs11.so), SafeNet (/usr/lib/libeTPkcs11.so)
+          </p>
           <button
             onClick={() => void handleDetectAndListSlots()}
             disabled={loading}
@@ -359,7 +382,7 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
                   </p>
                 </div>
                 <button
-                  onClick={() => void handleConnect(key.id)}
+                  onClick={() => handleRequestConnect(key.id)}
                   disabled={loading || !key.hasPublicKey}
                   className="rounded-md bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-40"
                   title={
@@ -372,6 +395,39 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
                 </button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Inline PIN dialog for connection */}
+      {showConnectPin && (
+        <div className="rounded-md border border-blue-200 bg-blue-50 p-4 space-y-3">
+          <p className="text-xs font-medium text-blue-800">Enter your token PIN to connect this key:</p>
+          <p className="text-xs text-blue-600">Your PIN is used only for this session and is never stored.</p>
+          <div className="flex items-center gap-2">
+            <input
+              type="password"
+              value={connectPin}
+              onChange={(e) => setConnectPin(e.target.value)}
+              placeholder="Token PIN"
+              autoFocus
+              className="flex-1 rounded-md border border-blue-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleConnectWithPin();
+              }}
+            />
+            <button
+              onClick={() => void handleConnectWithPin()}
+              className="rounded-md bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700"
+            >
+              Submit
+            </button>
+            <button
+              onClick={() => { setShowConnectPin(false); setConnectPin(""); setPendingConnectKeyId(undefined); }}
+              className="rounded-md bg-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-300"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}

@@ -43,6 +43,11 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
     null,
   );
 
+  // Export step: collapsible state
+  const [showDidDoc, setShowDidDoc] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
+  const [showNoWebsite, setShowNoWebsite] = useState(false);
+
   // ------------------------------------------------------------------
   // Step 1: Generate key
   // ------------------------------------------------------------------
@@ -283,28 +288,102 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
 
           {exportedDoc && (
             <div className="space-y-4">
-              <div className="rounded-oc border border-border bg-surface-warm p-3">
-                <p className="oc-label mb-2">DID Document</p>
-                <pre className="text-[0.68rem] text-txt-secondary overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap">
-                  {exportedDoc}
-                </pre>
+              {/* Simplified summary */}
+              <div className="rounded-oc border border-green-200 bg-green-50 p-4 space-y-2">
+                <p className="text-[0.82rem] font-medium text-green-800">
+                  Your verification file is ready to publish
+                </p>
+                <p className="text-[0.72rem] text-green-700">
+                  Domain: <span className="font-mono">{domain.trim()}</span>
+                </p>
               </div>
 
-              <div className="rounded-oc border border-blue-200 bg-blue-50 p-3 space-y-1">
-                <p className="text-[0.78rem] font-medium text-blue-800">Publishing Instructions</p>
-                <ol className="text-[0.72rem] text-blue-700 list-decimal list-inside space-y-0.5">
-                  <li>Save the DID document as <code className="bg-blue-100 px-1 rounded">did.json</code></li>
-                  <li>Upload it to <code className="bg-blue-100 px-1 rounded">https://{domain.trim()}/.well-known/did.json</code></li>
-                  <li>Ensure the file is served with <code className="bg-blue-100 px-1 rounded">Content-Type: application/json</code></li>
-                </ol>
-              </div>
-
-              <div className="flex gap-3">
+              {/* Save button */}
+              <div className="flex gap-3 items-center">
                 <Button onClick={() => void handleSaveToFile()}>
                   Save to File
                 </Button>
                 {saved && (
-                  <span className="text-[0.78rem] text-green-700 self-center">Saved</span>
+                  <span className="text-[0.78rem] text-green-700">Saved</span>
+                )}
+              </div>
+
+              {/* Collapsible: View DID Document (Advanced) */}
+              <div>
+                <button
+                  onClick={() => setShowDidDoc(!showDidDoc)}
+                  className="text-[0.78rem] text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    className={`transition-transform duration-200 ${showDidDoc ? "rotate-180" : ""}`}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                  View DID Document (Advanced)
+                </button>
+                {showDidDoc && (
+                  <div className="mt-2 rounded-oc border border-border bg-surface-warm p-3">
+                    <pre className="text-[0.68rem] text-txt-secondary overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap">
+                      {exportedDoc}
+                    </pre>
+                  </div>
+                )}
+              </div>
+
+              {/* Collapsible: Publishing Instructions */}
+              <div>
+                <button
+                  onClick={() => setShowInstructions(!showInstructions)}
+                  className="text-[0.78rem] text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    className={`transition-transform duration-200 ${showInstructions ? "rotate-180" : ""}`}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                  Publishing Instructions
+                </button>
+                {showInstructions && (
+                  <div className="mt-2 rounded-oc border border-blue-200 bg-blue-50 p-3 space-y-2">
+                    <p className="text-[0.72rem] text-blue-600 italic">
+                      You will need access to your organization&apos;s website hosting. Your IT administrator or web developer can help with this step.
+                    </p>
+                    <ol className="text-[0.72rem] text-blue-700 list-decimal list-inside space-y-0.5">
+                      <li>Save the DID document as <code className="bg-blue-100 px-1 rounded">did.json</code></li>
+                      <li>Upload it to <code className="bg-blue-100 px-1 rounded">https://{domain.trim()}/.well-known/did.json</code></li>
+                      <li>Ensure the file is served with <code className="bg-blue-100 px-1 rounded">Content-Type: application/json</code></li>
+                    </ol>
+                  </div>
+                )}
+              </div>
+
+              {/* "I don't have a website" link */}
+              <div>
+                <button
+                  onClick={() => setShowNoWebsite(!showNoWebsite)}
+                  className="text-[0.72rem] text-txt-muted hover:text-txt-secondary hover:underline focus:outline-none"
+                >
+                  I don&apos;t have a website
+                </button>
+                {showNoWebsite && (
+                  <div className="mt-2 rounded-oc border border-border-light bg-surface-warm p-3">
+                    <p className="text-[0.72rem] text-txt-secondary">
+                      You can still issue credentials. Verifiers will need your public key shared directly.
+                      You can also set up DeDi later from Settings to publish your key to a public directory.
+                    </p>
+                  </div>
                 )}
               </div>
             </div>
@@ -431,7 +510,7 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
           </div>
 
           <div className="pt-2">
-            <Button onClick={() => onComplete({ key: generatedKey!, domain: domain.trim(), didDocument: exportedDoc ?? undefined })}>Continue to OpenCred</Button>
+            <Button onClick={() => onComplete({ key: generatedKey!, domain: domain.trim(), didDocument: exportedDoc ?? undefined })}>Start Issuing Credentials</Button>
           </div>
         </Card>
       )}

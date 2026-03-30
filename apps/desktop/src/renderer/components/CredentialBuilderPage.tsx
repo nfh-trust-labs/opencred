@@ -16,6 +16,7 @@ import { getVisual } from "./ui/TemplateCard";
 import { BatchIssuance } from "./BatchIssuance";
 import { BlankCredentialBuilder } from "./BlankCredentialBuilder";
 import { MoreOptions } from "./MoreOptions";
+import { formatKeyDate } from "../utils/format";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,6 +35,7 @@ interface Props {
   schemaId: string;
   isBlank: boolean;
   onBack: () => void;
+  onNavigate?: (view: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +89,8 @@ function oneYearFromNow(): string {
   d.setFullYear(d.getFullYear() + 1);
   return d.toISOString().split("T")[0];
 }
+
+// formatKeyDate is imported from ../utils/format
 
 /** Parse a VC JSON string into display-friendly fields. */
 function parseCredential(raw: string): {
@@ -215,7 +219,7 @@ function CredentialResult({ signedCredential, schemaId, schemaName, onExportJson
             backgroundColor: "#10B98115",
           }}
         >
-          Verified
+          Signed
         </span>
       </div>
 
@@ -696,7 +700,7 @@ function SdJwtResult({ signedCredential, onExport }: SdJwtResultProps) {
 // Component
 // ---------------------------------------------------------------------------
 
-export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
+export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }: Props) {
   const [mode, setMode] = useState<BuilderMode>("single");
 
   // Schema
@@ -732,6 +736,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
 
   // did:web publication warning
   const [showDidWebWarning, setShowDidWebWarning] = useState(false);
+  const [didWarningDismissed, setDidWarningDismissed] = useState(false);
 
   // ------------------------------------------------------------------
   // Data loading
@@ -1014,6 +1019,12 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
           Home
         </button>
         <span className="text-gray-300">/</span>
+        {showDidWebWarning && didWarningDismissed && (
+          <span
+            className="inline-block w-2 h-2 rounded-full bg-amber-400 flex-shrink-0"
+            title="DID document not yet published"
+          />
+        )}
         {editingName ? (
           <input
             type="text"
@@ -1066,16 +1077,33 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
       </div>
 
       {/* did:web publication warning */}
-      {showDidWebWarning && (
+      {showDidWebWarning && !didWarningDismissed && (
         <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
           <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-amber-200">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#92400e" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
             </svg>
           </span>
-          <p className="text-sm text-amber-800">
+          <p className="text-sm text-amber-800 flex-1">
             Your DID document hasn't been published yet. Verifiers won't be able to discover your public key.
+            {onNavigate && (
+              <button
+                onClick={() => onNavigate("settings")}
+                className="ml-2 text-amber-900 underline hover:text-amber-700 text-sm font-medium bg-transparent border-none cursor-pointer p-0"
+              >
+                Set Up in Settings
+              </button>
+            )}
           </p>
+          <button
+            onClick={() => setDidWarningDismissed(true)}
+            className="flex-shrink-0 p-1 rounded hover:bg-amber-200 transition-colors"
+            aria-label="Dismiss warning"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#92400e" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       )}
 
@@ -1100,6 +1128,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
                     >
                       {labelForField(field.name)}
                       {field.required && <span className="text-red-500 ml-0.5">*</span>}
+                      {!field.required && <span className="text-gray-400 ml-1 font-normal">(optional)</span>}
                     </label>
                     <input
                       id={`field-${field.name}`}
@@ -1142,8 +1171,8 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
                   className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
                 >
                   {keys.map((key) => (
-                    <option key={key.id} value={key.id}>
-                      {key.label ?? key.algorithm} -- {key.fingerprint.slice(0, 16)}...
+                    <option key={key.id} value={key.id} title={key.fingerprint}>
+                      {key.label ?? key.algorithm} ({formatKeyDate(key.importedAt)})
                     </option>
                   ))}
                 </select>

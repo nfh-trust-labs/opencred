@@ -157,7 +157,7 @@ function CredentialDetailModal({
           >
             Remove from history
           </button>
-          <Button size="sm" onClick={onReissue}>Reissue</Button>
+          <Button size="sm" onClick={onReissue} title="Create a new credential using the same template and details. Does not revoke the original.">Issue Again</Button>
         </div>
       </div>
     </div>
@@ -208,8 +208,23 @@ export function HistoryPage({ onReissue }: Props) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--oc-font-body)", fontSize: "0.82rem" }}>
             <thead>
               <tr style={{ backgroundColor: "var(--oc-bg)", borderBottom: "1px solid var(--oc-border)" }}>
-                {["Type", "Subject", "Issued", ""].map((h) => (
-                  <th key={h} style={{ padding: "10px 16px", textAlign: h ? "left" : "right", fontFamily: "var(--oc-font-mono)", fontSize: "0.6rem", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--oc-text-muted)", fontWeight: 600 }}>{h}</th>
+                {["Type", "Subject", "Issued", "Actions", "Details"].map((h) => (
+                  <th
+                    key={h}
+                    style={{
+                      padding: "10px 16px",
+                      textAlign: ["Actions", "Details"].includes(h) ? "right" : "left",
+                      fontFamily: "var(--oc-font-mono)",
+                      fontSize: "0.6rem",
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      color: "var(--oc-text-muted)",
+                      fontWeight: 600
+                    }}
+                    aria-label={h}
+                  >
+                    {["Actions", "Details"].includes(h) ? "" : h}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -217,10 +232,14 @@ export function HistoryPage({ onReissue }: Props) {
               {history.map((entry) => (
                 <tr
                   key={entry.id}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`View ${entry.schemaName} credential for ${entry.subjectSummary}`}
                   style={{ borderBottom: "1px solid var(--oc-border-light)", cursor: "pointer", transition: "background-color 0.1s" }}
                   onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--oc-bg)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                   onClick={() => setViewingEntry(entry)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingEntry(entry); } }}
                 >
                   <td style={{ padding: "10px 16px", fontFamily: "var(--oc-font-mono)", fontSize: "0.68rem", fontWeight: 600, color: "var(--oc-text-primary)", letterSpacing: "0.04em" }}>{entry.schemaName}</td>
                   <td style={{ padding: "10px 16px", color: "var(--oc-text-primary)", fontWeight: 500 }}>{entry.subjectSummary}</td>
@@ -228,10 +247,18 @@ export function HistoryPage({ onReissue }: Props) {
                   <td style={{ padding: "10px 16px", textAlign: "right" }}>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleReissue(entry); }}
+                      title="Create a new credential using the same template and details. Does not revoke the original."
                       style={{ padding: "4px 12px", borderRadius: 5, border: "1px solid var(--oc-border)", background: "transparent", color: "var(--oc-text-primary)", fontFamily: "var(--oc-font-body)", fontSize: "0.7rem", fontWeight: 500, cursor: "pointer" }}
                     >
-                      Reissue
+                      Issue Again
                     </button>
+                  </td>
+                  <td style={{ padding: "10px 16px", textAlign: "right" }}>
+                    <span
+                      style={{ fontFamily: "var(--oc-font-body)", fontSize: "0.72rem", fontWeight: 500, color: "var(--oc-text-secondary)", cursor: "pointer" }}
+                    >
+                      View &#8250;
+                    </span>
                   </td>
                 </tr>
               ))}

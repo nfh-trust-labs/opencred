@@ -177,7 +177,10 @@ export function TemplateCard({ name, schemaId, isBlank, subtitle, onClick }: Pro
     <button
       onClick={onClick}
       className="oc-template-card"
-      style={{ "--tc-border": v.border } as React.CSSProperties}
+      style={{
+        "--tc-border": v.border,
+        ...(isBlank ? { borderStyle: "dashed" } : {}),
+      } as React.CSSProperties}
     >
       <div
         className="oc-template-card-icon"

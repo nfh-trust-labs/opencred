@@ -518,9 +518,13 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
   async function handleDismissRotation() {
     const snoozeUntil = new Date();
     snoozeUntil.setDate(snoozeUntil.getDate() + ROTATION_SNOOZE_DAYS);
-    await window.opencred.setConfig("keyRotationDismissedUntil", snoozeUntil.toISOString());
-    setRotationInfo({ overdue: false, ageDays: 0 });
-    onRotationDismissed?.();
+    try {
+      await window.opencred.setConfig("keyRotationDismissedUntil", snoozeUntil.toISOString());
+      setRotationInfo({ overdue: false, ageDays: 0 });
+      onRotationDismissed?.();
+    } catch {
+      // Non-fatal: banner stays visible if preference fails to persist
+    }
   }
 
   useEffect(() => {
@@ -564,20 +568,21 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
         </div>
       )}
 
-      {/* Key management — all 4 sources */}
+      {/* 1. Key management — all 4 sources (most important) */}
       <div id="key-management-section">
         <KeyManagement />
       </div>
 
-      {/* DeDi integration */}
-      <DeDiCard />
-
-      {/* Software updates */}
+      {/* 2. Software updates */}
       <UpdateCard />
 
-      {/* Offline status */}
+      {/* 3. DeDi integration */}
+      <DeDiCard />
+
+      {/* 4. Network status */}
       <Card className="space-y-2">
         <h2 className="text-sm font-medium text-gray-700">Network Status</h2>
+        <p className="text-xs text-gray-400 -mt-1">Check your connectivity for online features like revocation and DeDi sync.</p>
         <div className="flex items-center gap-2">
           <span
             className={`h-2.5 w-2.5 rounded-full ${
@@ -597,7 +602,7 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
         </p>
       </Card>
 
-      {/* Help & Support */}
+      {/* 5. Help & Support */}
       <Card className="space-y-2">
         <h2 className="text-sm font-medium text-gray-700">Help & Support</h2>
         <p className="text-xs text-gray-500">
@@ -611,9 +616,10 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
         </button>
       </Card>
 
-      {/* App info */}
+      {/* 6. About */}
       <Card className="space-y-1">
         <h2 className="text-sm font-medium text-gray-700">About</h2>
+        <p className="text-xs text-gray-400">Version and security info for this installation.</p>
         <p className="text-xs text-gray-500">OpenCred Desktop v0.1.0</p>
         <p className="text-xs text-gray-400">
           All signing happens locally. Private keys never leave this machine.

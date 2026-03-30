@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { KeyMetadata } from "../../shared/ipc-types";
 import { SchemaSelector } from "./SchemaSelector";
 import { CredentialForm } from "./CredentialForm";
+import { formatKeyDate } from "../utils/format";
 
 interface SchemaField {
   name: string;
@@ -221,8 +222,8 @@ export function CredentialBuilder() {
               className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
             >
               {keys.map((key) => (
-                <option key={key.id} value={key.id}>
-                  {key.label ?? key.algorithm} — {key.fingerprint.slice(0, 16)}...
+                <option key={key.id} value={key.id} title={key.fingerprint}>
+                  {key.label ?? key.algorithm} ({formatKeyDate(key.importedAt)})
                 </option>
               ))}
             </select>

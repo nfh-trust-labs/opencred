@@ -55,6 +55,37 @@ function deriveStatus(valid: boolean, checks: VerificationCheck[]): Verification
   return "INVALID";
 }
 
+const CHECK_HINTS: Record<string, string> = {
+  'signature': 'Confirms the credential was digitally sealed by the issuer',
+  'not-before': 'The credential\'s start date has passed',
+  'expiry': 'The credential has not expired',
+  'revocation': 'The credential has not been revoked',
+  'context': 'The credential\'s context is valid and resolvable',
+};
+
+function getCheckHint(checkName: string): string | undefined {
+  const lower = checkName.toLowerCase();
+  for (const [key, hint] of Object.entries(CHECK_HINTS)) {
+    if (lower.includes(key)) return hint;
+  }
+  return undefined;
+}
+
+function getErrorHint(message: string): string | null {
+  if (!message) return null;
+  const lower = message.toLowerCase();
+  if (lower.includes("no proof found") || lower.includes("missing a proof") || lower.includes("proof is missing")) {
+    return "This document is missing a digital seal. Make sure you received the complete credential file.";
+  }
+  if (lower.includes("context") && (lower.includes("missing") || lower.includes("not found") || lower.includes("could not"))) {
+    return "The credential references a context that could not be found. This may mean the issuer's context is not published.";
+  }
+  if (lower.includes("failed") || lower.includes("invalid") || lower.includes("error")) {
+    return "If you copied the text, make sure you copied the entire content including all brackets.";
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -169,6 +200,12 @@ export function VerifyPage() {
           </div>
         </div>
 
+        {!credential && (
+          <p className="text-xs text-gray-500">
+            You can get this from the person or organization that issued the credential.
+          </p>
+        )}
+
         <textarea
           rows={8}
           value={credential}
@@ -178,7 +215,7 @@ export function VerifyPage() {
             setMessage(null);
             setChecks([]);
           }}
-          placeholder="Paste a signed Verifiable Credential (JSON)..."
+          placeholder="Paste credential text here, or use 'Upload File' to load a .json file"
           className="block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
         />
 
@@ -230,6 +267,11 @@ export function VerifyPage() {
           >
             {message}
           </p>
+          {status !== "VALID" && message && getErrorHint(message) && (
+            <p className="mt-1 text-xs text-gray-500">
+              {getErrorHint(message)}
+            </p>
+          )}
         </Card>
       )}
 
@@ -238,32 +280,38 @@ export function VerifyPage() {
         <Card className="space-y-3">
           <h3 className="oc-card-label">Verification Checks</h3>
           <div className="space-y-2">
-            {checks.map((check, i) => (
-              <div
-                key={i}
-                className={`flex items-start gap-3 rounded-md border px-3 py-2.5 ${
-                  check.passed
-                    ? "border-green-200 bg-green-50"
-                    : "border-red-200 bg-red-50"
-                }`}
-              >
-                <span
-                  className={`flex-shrink-0 mt-0.5 text-xs font-semibold ${
-                    check.passed ? "text-green-600" : "text-red-600"
+            {checks.map((check, i) => {
+              const hint = getCheckHint(check.name);
+              return (
+                <div
+                  key={i}
+                  className={`flex items-start gap-3 rounded-md border px-3 py-2.5 ${
+                    check.passed
+                      ? "border-green-200 bg-green-50"
+                      : "border-red-200 bg-red-50"
                   }`}
                 >
-                  {check.passed ? "PASS" : "FAIL"}
-                </span>
-                <div className="min-w-0">
-                  <span className="text-xs font-medium text-gray-700">
-                    {check.name}
+                  <span
+                    className={`flex-shrink-0 mt-0.5 text-xs font-semibold ${
+                      check.passed ? "text-green-600" : "text-red-600"
+                    }`}
+                  >
+                    {check.passed ? "PASS" : "FAIL"}
                   </span>
-                  {check.detail && (
-                    <p className="mt-0.5 text-xs text-gray-500">{check.detail}</p>
-                  )}
+                  <div className="min-w-0">
+                    <span className="text-xs font-medium text-gray-700">
+                      {check.name}
+                    </span>
+                    {hint && (
+                      <p className="mt-0.5 text-xs text-gray-400">{hint}</p>
+                    )}
+                    {check.detail && (
+                      <p className="mt-0.5 text-xs text-gray-500">{check.detail}</p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
       )}

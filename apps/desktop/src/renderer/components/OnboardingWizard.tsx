@@ -45,6 +45,129 @@ interface OnboardingWizardProps {
 }
 
 // ---------------------------------------------------------------------------
+// Progress Indicator — maps internal steps to 6 user-visible steps
+// ---------------------------------------------------------------------------
+
+const DISPLAY_STEPS = [
+  "Welcome",
+  "Choose Path",
+  "Set Up Key",
+  "Publish Identity",
+  "Public Directory",
+  "Done",
+] as const;
+
+function getDisplayStepIndex(step: Step): number {
+  switch (step) {
+    case "welcome":
+      return 0;
+    case "choose-path":
+    case "get-dsc-soon":
+      return 1;
+    case "dsc-source":
+    case "dsc-upload":
+    case "dsc-hardware":
+    case "dsc-os-cert":
+    case "self-pub-setup":
+      return 2;
+    case "profile":
+      return 3;
+    case "dedi-setup":
+      return 4;
+    default:
+      return 0;
+  }
+}
+
+function StepIndicator({ step }: { step: Step }) {
+  const currentIndex = getDisplayStepIndex(step);
+
+  return (
+    <div className="w-full max-w-xl mb-8">
+      <div className="flex items-center justify-between relative">
+        {/* Background line */}
+        <div className="absolute top-3 left-0 right-0 h-0.5 bg-gray-200" />
+        {/* Progress line */}
+        <div
+          className="absolute top-3 left-0 h-0.5 bg-brand-blue transition-all duration-300"
+          style={{ width: `${(currentIndex / (DISPLAY_STEPS.length - 1)) * 100}%` }}
+        />
+
+        {DISPLAY_STEPS.map((label, i) => {
+          const isActive = i === currentIndex;
+          const isCompleted = i < currentIndex;
+          return (
+            <div key={label} className="flex flex-col items-center relative z-10">
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-[0.6rem] font-semibold transition-colors ${
+                  isActive
+                    ? "bg-brand-blue text-white"
+                    : isCompleted
+                      ? "bg-brand-blue text-white"
+                      : "bg-gray-200 text-txt-muted"
+                }`}
+              >
+                {isCompleted ? "\u2713" : i + 1}
+              </div>
+              <span
+                className={`mt-1.5 text-[0.6rem] font-medium whitespace-nowrap ${
+                  isActive ? "text-brand-blue" : isCompleted ? "text-txt-secondary" : "text-txt-muted"
+                }`}
+              >
+                {label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// "Which should I choose?" guidance
+// ---------------------------------------------------------------------------
+
+function PathGuidance() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="pt-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-[0.78rem] text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
+      >
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+        Which should I choose?
+      </button>
+      {open && (
+        <div className="mt-3 rounded-oc border border-border-light bg-surface-warm p-4 space-y-3 text-[0.78rem] text-txt-secondary">
+          <p>
+            <span className="font-semibold text-txt-primary">I have a Digital Signature Certificate</span>: Choose this if you already have a DSC from a government certificate authority (e.g., NIC, eMudhra).
+          </p>
+          <p>
+            <span className="font-semibold text-txt-primary">Self-Published Keys</span> (Recommended): Choose this if your organization has a website. You&apos;ll generate a signing key and publish your identity on your domain.
+          </p>
+          <p>
+            <span className="font-semibold text-txt-primary">I want to get a DSC</span>: Coming soon. Choose Self-Published Keys for now.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -73,15 +196,18 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         <span style={{ flex: 1, textAlign: "center" }}>OpenCred</span>
       </div>
 
-      <main className="flex-1 flex items-start justify-center pt-12 px-4">
+      <main className="flex-1 flex flex-col items-center justify-center px-4">
+        {/* Step indicator — shown on all steps */}
+        <StepIndicator step={step} />
+
         <div className="w-full max-w-xl">
 
           {/* ============================================================
               Step: Welcome
               ============================================================ */}
           {step === "welcome" && (
-            <Card className="space-y-6 text-center">
-              <div className="space-y-3">
+            <Card className="space-y-6 text-center py-10 px-8">
+              <div className="space-y-4">
                 <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
                   Welcome to OpenCred
                 </h2>
@@ -89,12 +215,18 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   Let&apos;s set up your signing identity. This will allow you to issue
                   and sign Verifiable Credentials from your desktop.
                 </p>
+                <p className="text-body-sm text-txt-primary font-medium">
+                  Issue tamper-proof digital certificates that anyone can verify — from your desktop.
+                </p>
               </div>
               <p className="oc-label">
                 Your private keys never leave this machine. All signing happens locally.
               </p>
-              <div className="pt-2">
+              <div className="pt-2 space-y-3">
                 <Button onClick={() => setStep("choose-path")}>Get Started</Button>
+                <p className="text-[0.72rem] text-txt-muted">
+                  Setup takes about 5 minutes
+                </p>
               </div>
             </Card>
           )}
@@ -152,15 +284,25 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   onClick={() => setStep("self-pub-setup")}
                   className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
-                  <span className="block text-body-sm font-semibold text-txt-primary">
-                    Self-Published Keys
-                  </span>
-                  <span className="block text-[0.78rem] text-txt-muted mt-1">
-                    Generate a key pair and publish your public key on your website
-                  </span>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="block text-body-sm font-semibold text-txt-primary">
+                        Self-Published Keys
+                      </span>
+                      <span className="block text-[0.78rem] text-txt-muted mt-1">
+                        Generate a key pair and publish your public key on your website
+                      </span>
+                    </div>
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium flex-shrink-0 ml-3 mt-0.5">
+                      Recommended
+                    </span>
+                  </div>
                 </button>
 
               </div>
+
+              {/* "Which should I choose?" collapsible guidance */}
+              <PathGuidance />
 
               <div className="pt-2">
                 <Button variant="secondary" onClick={() => setStep("welcome")}>
@@ -420,6 +562,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           {/* ============================================================
               DeDi Setup (optional)
               ============================================================ */}
+          {step === "dedi-setup" && !importedKey && (
+            <Card className="space-y-4 text-center">
+              <p className="text-body-sm text-txt-muted">Something went wrong during key setup.</p>
+              <Button onClick={() => setStep("choose-path")}>Go Back</Button>
+            </Card>
+          )}
           {step === "dedi-setup" && importedKey && (
             <DeDiSetup
               did={importedKey.id}
