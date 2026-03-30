@@ -41,6 +41,15 @@ const SCHEMA_LABELS: Record<string, string> = {
   "energy-prosumer": "Energy Prosumer",
 };
 
+const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
+  education: "Degree, institution, GPA, date conferred",
+  employment: "Employee name, employer, position, dates",
+  identity: "Full name, date of birth, nationality, document number",
+  health: "Patient name, condition, diagnosis date, provider",
+  business: "Business name, registration number, jurisdiction",
+  blank: "Define your own credential fields",
+};
+
 // ---------------------------------------------------------------------------
 // Credential Detail Modal
 // ---------------------------------------------------------------------------
@@ -470,16 +479,12 @@ export function HomeScreen({ onSelectTemplate }: Props) {
           Issue a new credential
         </h2>
         <div className="oc-template-grid">
-          <TemplateCard
-            name="Blank credential"
-            isBlank
-            onClick={() => onSelectTemplate("blank", true)}
-          />
           {schemas.map((id) => (
             <TemplateCard
               key={id}
               schemaId={id}
               name={SCHEMA_LABELS[id] ?? id}
+              subtitle={TEMPLATE_DESCRIPTIONS[id]}
               onClick={() => onSelectTemplate(id, false)}
             />
           ))}
@@ -545,7 +550,16 @@ export function HomeScreen({ onSelectTemplate }: Props) {
               )}
             </div>
           ))}
+          <TemplateCard
+            name="Blank Credential"
+            isBlank
+            subtitle={TEMPLATE_DESCRIPTIONS["blank"]}
+            onClick={() => onSelectTemplate("blank", true)}
+          />
         </div>
+        <p className="mt-3 text-xs text-gray-500">
+          Don't see what you need? Use the <button className="text-blue-600 hover:text-blue-800 underline bg-transparent border-none cursor-pointer text-xs p-0" onClick={() => onSelectTemplate("blank", true)}>Blank Credential</button> template to define custom fields.
+        </p>
       </section>
 
       {/* Credential history moved to History tab */}

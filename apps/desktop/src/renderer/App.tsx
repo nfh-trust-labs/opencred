@@ -172,6 +172,7 @@ export default function App() {
                 schemaId={builderSchemaId}
                 isBlank={builderIsBlank}
                 onBack={handleBackToHome}
+                onNavigate={(view) => setActiveView(view as View)}
               />
             )}
             {activeView === "verify" && <VerifyPage />}
