@@ -98,8 +98,8 @@ export function KeyImport({ onKeyImported }: KeyImportProps) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-xs text-gray-500">
-          Supports PEM, JWK, PKCS#8 DER, and PFX/P12 formats. Format is auto-detected. Private keys
-          are stored locally and never leave this machine.
+          Import a signing key from a file. Supports PEM, JWK, PKCS#8 DER, and PFX/P12 formats — we'll
+          auto-detect the type. If your IT department gave you a key file, use this option.
         </p>
         <button
           onClick={() => void handleImport()}

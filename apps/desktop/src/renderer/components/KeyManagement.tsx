@@ -11,7 +11,7 @@
  * all sources, pulling from window.opencred.listKeys().
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { KeyMetadata } from "../../shared/ipc-types";
 import { KeyImport } from "./KeyImport";
 import { HardwareToken } from "./HardwareToken";
@@ -38,6 +38,8 @@ export function KeyManagement() {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>("import");
   const [keys, setKeys] = useState<KeyMetadata[]>([]);
   const [keysError, setKeysError] = useState<string | null>(null);
+  const [guidanceOpen, setGuidanceOpen] = useState(false);
+  const guidanceRef = useRef<HTMLDivElement>(null);
 
   const loadKeys = useCallback(async () => {
     try {
@@ -62,6 +64,45 @@ export function KeyManagement() {
       {/* Header */}
       <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
         <h2 className="text-sm font-medium text-gray-700">Key Management</h2>
+        <p className="text-xs text-gray-500">
+          Your signing key proves that credentials came from you. You set this up during onboarding.
+        </p>
+
+        {/* Collapsible tab guidance */}
+        <div className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setGuidanceOpen((prev) => !prev)}
+            className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            <span>Which option should I choose?</span>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              className={`transition-transform duration-200 ${guidanceOpen ? "rotate-180" : ""}`}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <div
+            ref={guidanceRef}
+            className="transition-all duration-200 ease-in-out overflow-hidden"
+            style={{
+              maxHeight: guidanceOpen ? (guidanceRef.current?.scrollHeight ?? 200) + "px" : "0px",
+              opacity: guidanceOpen ? 1 : 0,
+            }}
+          >
+            <ul className="px-3 pb-3 space-y-1.5 text-xs text-gray-500">
+              <li><span className="font-medium text-gray-700">Import File</span> — You have a key file from your IT department</li>
+              <li><span className="font-medium text-gray-700">Hardware Token</span> — You use a USB security key (YubiKey, SafeNet) or smart card</li>
+              <li><span className="font-medium text-gray-700">OS Cert Store</span> — You have signing certificates installed on this computer</li>
+              <li><span className="font-medium text-gray-700">Generate Key</span> — You are getting started and need a new key (recommended for testing)</li>
+            </ul>
+          </div>
+        </div>
 
         {/* Sub-tab navigation */}
         <div className="flex gap-1 border-b border-gray-200">
