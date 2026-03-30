@@ -1,6 +1,5 @@
 {
   "@context": {
-    "name": "https://schema.nfh.global/vocab/education#name",
     "degree": "https://schema.nfh.global/vocab/education#degree",
     "institution": "https://schema.nfh.global/vocab/education#institution",
     "dateConferred": {

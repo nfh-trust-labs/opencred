@@ -63,6 +63,7 @@ const CHANNEL_TO_METHOD: Record<string, string> = {
   [IPC_CHANNELS.DEDI_DISCONNECT]: "dediDisconnect",
   [IPC_CHANNELS.RECENT_TEMPLATES_LIST]: "recentTemplatesList",
   [IPC_CHANNELS.RECENT_TEMPLATES_RECORD]: "recentTemplatesRecord",
+  [IPC_CHANNELS.SCHEMA_FETCH_URL]: "schemaFetchUrl",
   [IPC_CHANNELS.GET_CONFIG]: "getConfig",
   [IPC_CHANNELS.SET_CONFIG]: "setConfig",
 };
@@ -166,6 +167,7 @@ describe("Preload API completeness", () => {
       credentialHistoryList: async () => ({ entries: [] }),
       credentialHistoryAdd: async (req: Parameters<OpenCredDesktopAPI["credentialHistoryAdd"]>[0]) => ({ ...req, id: "test", issuedAt: "2025-01-01T00:00:00Z" }),
       credentialHistoryDelete: async () => ({ deleted: true }),
+      schemaFetchUrl: async () => ({ success: true }),
       customSchemaList: async () => ({ schemas: [] }),
       customSchemaSave: async () => ({ id: "test", name: "test", schema: {}, createdAt: "2025-01-01T00:00:00Z" }),
       customSchemaDelete: async () => ({ deleted: true }),
@@ -251,6 +253,7 @@ describe("Preload API completeness", () => {
       credentialHistoryList: async () => ({ entries: [] }),
       credentialHistoryAdd: async (req: Parameters<OpenCredDesktopAPI["credentialHistoryAdd"]>[0]) => ({ ...req, id: "test", issuedAt: "2025-01-01T00:00:00Z" }),
       credentialHistoryDelete: async () => ({ deleted: true }),
+      schemaFetchUrl: async () => ({ success: true }),
       customSchemaList: async () => ({ schemas: [] }),
       customSchemaSave: async () => ({ id: "test", name: "test", schema: {}, createdAt: "2025-01-01T00:00:00Z" }),
       customSchemaDelete: async () => ({ deleted: true }),

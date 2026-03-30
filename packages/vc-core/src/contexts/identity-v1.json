@@ -1,6 +1,5 @@
 {
   "@context": {
-    "name": "https://schema.nfh.global/vocab/identity#name",
     "dateOfBirth": {
       "@id": "https://schema.nfh.global/vocab/identity#dateOfBirth",
       "@type": "http://www.w3.org/2001/XMLSchema#date"

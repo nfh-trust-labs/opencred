@@ -417,7 +417,7 @@ async function handleBuildAndSign(
           builder.addContext(request.contextUrl);
         } else if (request.inlineContext) {
           builder.addContext(request.inlineContext);
-        } else if (request.schemaId.startsWith("custom:")) {
+        } else if (request.schemaId?.startsWith("custom:")) {
           const store = getStore();
           const customSchemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
           const customSchema = customSchemas.find((s) => s.id === request.schemaId);
@@ -573,7 +573,7 @@ async function handleVerifyCredential(
     // { proof: { type: "JsonWebSignature2020", jwt: "eyJ..." } }, extract the
     // raw JWT string — the verification package expects the compact JWT, not
     // the JSON envelope.
-    let verificationInput: unknown = parsed;
+    let verificationInput: Record<string, unknown> | string = parsed as Record<string, unknown>;
     if (
       typeof parsed === "object" &&
       parsed !== null &&

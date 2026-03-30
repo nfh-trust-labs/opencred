@@ -1,11 +1,6 @@
 {
   "@context": {
-    "name": "https://schema.nfh.global/vocab/health#name",
     "certification": "https://schema.nfh.global/vocab/health#certification",
-    "issuingBody": "https://schema.nfh.global/vocab/health#issuingBody",
-    "validUntil": {
-      "@id": "https://schema.nfh.global/vocab/health#validUntil",
-      "@type": "http://www.w3.org/2001/XMLSchema#date"
-    }
+    "issuingBody": "https://schema.nfh.global/vocab/health#issuingBody"
   }
 }

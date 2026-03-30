@@ -406,7 +406,17 @@ export class DeDiClient {
         }),
       ),
       ignoreConflict(() =>
-        this.api.createRegistry(namespace, CONTEXT_REGISTRY, {}, "custom"),
+        this.api.createRegistry(namespace, CONTEXT_REGISTRY, {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "description": "OpenCred JSON-LD context registry",
+          "properties": {
+            "schemaId": { "type": "string" },
+            "version": { "type": "string" },
+            "context": { "type": "object" },
+          },
+          "required": ["schemaId", "version", "context"],
+        }),
       ),
     ]);
   }

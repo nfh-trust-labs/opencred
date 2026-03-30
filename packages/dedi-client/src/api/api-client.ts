@@ -8,6 +8,7 @@ import type { DeDiAuthConfig } from "./auth.js";
 import type {
   DeDiNamespace,
   DeDiRegistry,
+  DeDiRegistryTag,
   DeDiRecord,
   DeDiRecordState,
   DeDiQueryParams,
@@ -87,14 +88,22 @@ export class DeDiApiClient {
   async createRegistry(
     ns: string,
     name: string,
-    schema: Record<string, unknown>,
+    schema: unknown,
+    tag?: DeDiRegistryTag,
   ): Promise<DeDiRegistry> {
     return this.request<DeDiRegistry>(`/dedi/${enc(ns)}/create-registry`, {
       method: "POST",
       body: JSON.stringify({
         registry_name: name,
         description: `OpenCred ${name} registry`,
-        schema,
+        // DeDi API: either schema OR tag, not both
+        ...(tag ? { tag } : {
+          schema: Object.keys(schema as Record<string, unknown>).length > 0 ? schema : {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {},
+          },
+        }),
         meta: {},
       }),
     });

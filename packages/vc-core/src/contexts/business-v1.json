@@ -1,6 +1,5 @@
 {
   "@context": {
-    "name": "https://schema.nfh.global/vocab/business#name",
     "registrationNumber": "https://schema.nfh.global/vocab/business#registrationNumber",
     "jurisdiction": "https://schema.nfh.global/vocab/business#jurisdiction",
     "incorporationDate": {
