@@ -1,0 +1,11 @@
+{
+  "@context": {
+    "name": "https://schema.nfh.global/vocab/education#name",
+    "degree": "https://schema.nfh.global/vocab/education#degree",
+    "institution": "https://schema.nfh.global/vocab/education#institution",
+    "dateConferred": {
+      "@id": "https://schema.nfh.global/vocab/education#dateConferred",
+      "@type": "http://www.w3.org/2001/XMLSchema#date"
+    }
+  }
+}

@@ -9,7 +9,8 @@ export type VerificationResultCode =
   | "REVOKED"
   | "EXPIRED"
   | "INVALID"
-  | "UNRESOLVABLE";
+  | "UNRESOLVABLE"
+  | "CONTEXT_MISSING";
 
 /**
  * A single check performed during verification.

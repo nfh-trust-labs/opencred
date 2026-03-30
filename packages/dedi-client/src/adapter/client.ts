@@ -8,6 +8,7 @@ import type {
   DelegationRecord,
   DIDRecord,
   SchemaRecord,
+  ContextRecord,
   PublishResult,
 } from "./types.js";
 import {
@@ -15,6 +16,7 @@ import {
   DELEGATION_REGISTRY,
   PUBLIC_KEY_REGISTRY,
   SCHEMA_REGISTRY,
+  CONTEXT_REGISTRY,
 } from "./registry-names.js";
 
 const DELEGATION_DETAIL_KEYS = [
@@ -299,6 +301,28 @@ export class DeDiClient {
     return record.detail;
   }
 
+  async publishContext(
+    record: ContextRecord,
+    namespace?: string,
+  ): Promise<PublishResult> {
+    const ns = this.resolveNamespace(namespace);
+    const recordName = contextToRecordName(record.schemaId, record.version);
+    await this.api.publishRecord(ns, CONTEXT_REGISTRY, recordName, record);
+    return { published: true, recordName, namespace: ns };
+  }
+
+  async resolveContext(
+    schemaId: string,
+    version: string,
+    namespace?: string,
+  ): Promise<ContextRecord> {
+    const ns = this.resolveNamespace(namespace);
+    const recordName = contextToRecordName(schemaId, version);
+    const record = await this.api.lookupRecord(ns, CONTEXT_REGISTRY, recordName);
+    assertContextRecordShape(record.detail);
+    return record.detail;
+  }
+
   async registerDelegation(
     delegation: DelegationRecord,
     namespace?: string,
@@ -344,6 +368,9 @@ export class DeDiClient {
       ignoreConflict(() =>
         this.api.createRegistry(namespace, SCHEMA_REGISTRY, {}, "custom"),
       ),
+      ignoreConflict(() =>
+        this.api.createRegistry(namespace, CONTEXT_REGISTRY, {}, "custom"),
+      ),
     ]);
   }
 
@@ -366,6 +393,55 @@ function didToRecordName(did: string): string {
 
 function schemaToRecordName(schemaId: string, version: string): string {
   return `${schemaId}-v${version}`;
+}
+
+function contextToRecordName(schemaId: string, version: string): string {
+  return `${schemaId}-ctx-v${version}`;
+}
+
+const CONTEXT_RECORD_KEYS = [
+  "schemaId",
+  "version",
+  "context",
+  "publishedAt",
+] as const;
+
+function assertContextRecordShape(
+  detail: unknown,
+): asserts detail is ContextRecord {
+  if (detail == null || typeof detail !== "object") {
+    throw new DeDiClientError(
+      "Context record detail is missing or not an object",
+      502,
+    );
+  }
+  const rec = detail as Record<string, unknown>;
+  for (const key of CONTEXT_RECORD_KEYS) {
+    if (!(key in rec)) {
+      throw new DeDiClientError(
+        `Context record detail missing required field: ${key}`,
+        502,
+      );
+    }
+  }
+  if (typeof rec["schemaId"] !== "string") {
+    throw new DeDiClientError(
+      "Context record field 'schemaId' must be a string",
+      502,
+    );
+  }
+  if (typeof rec["version"] !== "string") {
+    throw new DeDiClientError(
+      "Context record field 'version' must be a string",
+      502,
+    );
+  }
+  if (rec["context"] == null || typeof rec["context"] !== "object") {
+    throw new DeDiClientError(
+      "Context record field 'context' must be an object",
+      502,
+    );
+  }
 }
 
 async function ignoreConflict(fn: () => Promise<unknown>): Promise<void> {

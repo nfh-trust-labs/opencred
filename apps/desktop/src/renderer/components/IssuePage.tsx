@@ -361,8 +361,8 @@ export function IssuePage() {
         schemaId,
         issuerDid,
         credentialSubject: subjectValues,
-        validFrom: new Date(validFrom).toISOString(),
-        validUntil: validUntil ? new Date(validUntil).toISOString() : undefined,
+        validFrom: new Date(validFrom + "T00:00:00").toISOString(),
+        validUntil: validUntil ? new Date(validUntil + "T23:59:59").toISOString() : undefined,
         keyId: selectedKeyId,
         packageFormats: ["json-ld"],
       });

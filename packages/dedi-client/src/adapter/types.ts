@@ -33,6 +33,13 @@ export interface SchemaRecord {
   publishedAt: string;
 }
 
+export interface ContextRecord {
+  schemaId: string;
+  version: string;
+  context: Record<string, unknown>;
+  publishedAt: string;
+}
+
 export interface PublishResult {
   published: boolean;
   recordName: string;

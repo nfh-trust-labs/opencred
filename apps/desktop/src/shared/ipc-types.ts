@@ -131,6 +131,10 @@ export interface BuildAndSignRequest {
   selectiveDisclosureClaims?: string[];
   /** Optional credential schema URL (JSON Schema link). */
   credentialSchemaUrl?: string;
+  /** Context URL for custom schemas (e.g., DeDi-published context). */
+  contextUrl?: string;
+  /** Inline JSON-LD context for custom schemas (auto-generated). */
+  inlineContext?: Record<string, unknown>;
 }
 
 export interface BuildAndSignResponse {
@@ -745,6 +749,21 @@ export interface CredentialHistoryDeleteResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Schema URL fetch
+// ---------------------------------------------------------------------------
+
+export interface SchemaFetchUrlRequest {
+  url: string;
+}
+
+export interface SchemaFetchUrlResponse {
+  success: boolean;
+  schema?: Record<string, unknown>;
+  title?: string;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Custom schemas
 // ---------------------------------------------------------------------------
 
@@ -753,6 +772,8 @@ export interface CustomSchemaSaveRequest {
   schema: Record<string, unknown>;
   /** If provided, updates an existing custom schema; otherwise creates new. */
   id?: string;
+  /** Source URL if the schema was imported from a URL. */
+  sourceUrl?: string;
 }
 
 export interface CustomSchemaSaveResponse {
@@ -760,6 +781,7 @@ export interface CustomSchemaSaveResponse {
   name: string;
   schema: Record<string, unknown>;
   createdAt: string;
+  sourceUrl?: string;
 }
 
 export interface CustomSchemaListResponse {
@@ -864,6 +886,9 @@ export interface OpenCredDesktopAPI {
   credentialHistoryList: () => Promise<CredentialHistoryListResponse>;
   credentialHistoryAdd: (request: CredentialHistoryAddRequest) => Promise<CredentialHistoryAddRequest & { id: string; issuedAt: string }>;
   credentialHistoryDelete: (request: CredentialHistoryDeleteRequest) => Promise<CredentialHistoryDeleteResponse>;
+
+  // Schema URL fetch
+  schemaFetchUrl: (request: SchemaFetchUrlRequest) => Promise<SchemaFetchUrlResponse>;
 
   // Custom schemas
   customSchemaList: () => Promise<CustomSchemaListResponse>;

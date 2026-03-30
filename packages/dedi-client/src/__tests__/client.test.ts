@@ -8,6 +8,7 @@ import {
   DELEGATION_REGISTRY,
   PUBLIC_KEY_REGISTRY,
   SCHEMA_REGISTRY,
+  CONTEXT_REGISTRY,
 } from "../adapter/registry-names.js";
 
 // Mock the DeDiApiClient
@@ -714,7 +715,7 @@ describe("DeDiClient (adapter)", () => {
         "example.com",
         expect.any(String),
       );
-      expect(api.createRegistry).toHaveBeenCalledTimes(3);
+      expect(api.createRegistry).toHaveBeenCalledTimes(4);
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
         REVOCATION_REGISTRY,
@@ -730,6 +731,12 @@ describe("DeDiClient (adapter)", () => {
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
         SCHEMA_REGISTRY,
+        expect.any(Object),
+        "custom",
+      );
+      expect(api.createRegistry).toHaveBeenCalledWith(
+        "example.com",
+        CONTEXT_REGISTRY,
         expect.any(Object),
         "custom",
       );

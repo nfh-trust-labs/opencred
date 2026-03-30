@@ -1,0 +1,11 @@
+{
+  "@context": {
+    "name": "https://schema.nfh.global/vocab/business#name",
+    "registrationNumber": "https://schema.nfh.global/vocab/business#registrationNumber",
+    "jurisdiction": "https://schema.nfh.global/vocab/business#jurisdiction",
+    "incorporationDate": {
+      "@id": "https://schema.nfh.global/vocab/business#incorporationDate",
+      "@type": "http://www.w3.org/2001/XMLSchema#date"
+    }
+  }
+}

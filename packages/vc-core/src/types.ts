@@ -81,3 +81,10 @@ export const DATA_INTEGRITY_V1_CONTEXT = "https://w3id.org/security/data-integri
 /** The OpenCred Delegation v1 context URI. */
 export const OPENCRED_DELEGATION_V1_CONTEXT = "https://opencred.example/ns/delegation/v1";
 
+/** NFH built-in schema context URIs. */
+export const NFH_EDUCATION_V1_CONTEXT = "https://schema.nfh.global/contexts/education/v1";
+export const NFH_EMPLOYMENT_V1_CONTEXT = "https://schema.nfh.global/contexts/employment/v1";
+export const NFH_IDENTITY_V1_CONTEXT = "https://schema.nfh.global/contexts/identity/v1";
+export const NFH_HEALTH_V1_CONTEXT = "https://schema.nfh.global/contexts/health/v1";
+export const NFH_BUSINESS_V1_CONTEXT = "https://schema.nfh.global/contexts/business/v1";
+

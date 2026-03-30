@@ -107,6 +107,10 @@ export const IPC_CHANNELS = {
   CREDENTIAL_HISTORY_ADD: "credential-history:add",
   CREDENTIAL_HISTORY_DELETE: "credential-history:delete",
 
+  // --- Schema URL fetch ---
+  /** Fetch a JSON Schema from a URL. Payload: { url }. Response: { success, schema?, title?, error? }. */
+  SCHEMA_FETCH_URL: "schema:fetch-url",
+
   // --- Custom schemas ---
   /** Save a custom schema. Payload: schema definition. Response: void. */
   CUSTOM_SCHEMA_SAVE: "custom-schema:save",

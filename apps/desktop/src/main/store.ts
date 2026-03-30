@@ -42,6 +42,14 @@ export interface CustomSchemaEntry {
   schema: Record<string, unknown>;
   /** ISO 8601 timestamp when this schema was created. */
   createdAt: string;
+  /** Source URL if the schema was imported from a URL. */
+  sourceUrl?: string;
+  /** DeDi lookup URL for the published schema. */
+  dediSchemaUrl?: string;
+  /** DeDi lookup URL for the published context. */
+  dediContextUrl?: string;
+  /** Auto-generated JSON-LD context for this schema. */
+  generatedContext?: Record<string, unknown>;
 }
 
 /** A recently used credential template (no credential data stored). */

@@ -65,6 +65,10 @@ export interface LocalSigningOptions {
   selectiveDisclosureClaims?: string[];
   /** Optional credential schema URL (JSON Schema link in the VC). */
   credentialSchemaUrl?: string;
+  /** Context URL for custom schemas (e.g., DeDi-published context). */
+  contextUrl?: string;
+  /** Inline JSON-LD context for custom schemas (auto-generated). */
+  inlineContext?: Record<string, unknown>;
 }
 
 /**
@@ -157,13 +161,20 @@ export async function buildAndSign(
   }
   builder.setCredentialSubject(subject);
 
-  // NOTE: Schema context URLs (e.g., https://opencred.dev/contexts/education/v1)
-  // are NOT added to the credential's @context because they are not bundled
-  // in the document loader. The bundled loader only supports W3C standard
-  // contexts (credentials/v2, data-integrity/v1, delegation/v1). Adding
-  // unbundled context URLs would cause JSON-LD canonicalization to fail
-  // at signing time. The credential subject properties are still valid —
-  // they just aren't mapped to a custom JSON-LD vocabulary.
+  // Add JSON-LD context for Data Integrity proofs (required for RDFC-1.0 canonicalization).
+  // VC-JWT and SD-JWT-VC don't need this — fields are preserved as-is in the JWT payload.
+  const proofFormat = options.proofFormat ?? "vc-jwt";
+  if (proofFormat === "data-integrity") {
+    // Priority: built-in schema URL > DeDi URL > inline context
+    const builtInContextUrl = getRegistry().getContextForType(options.schemaId);
+    if (builtInContextUrl) {
+      builder.addContext(builtInContextUrl);
+    } else if (options.contextUrl) {
+      builder.addContext(options.contextUrl);
+    } else if (options.inlineContext) {
+      builder.addContext(options.inlineContext);
+    }
+  }
 
   // Add additional types
   if (options.additionalTypes) {
@@ -194,7 +205,7 @@ export async function buildAndSign(
   const unsignedCredential = builder.build();
 
   // Step 3–5: Sign using the proof format router
-  const format = options.proofFormat ?? "vc-jwt";
+  const format = proofFormat;
 
   // Derive vct for SD-JWT-VC from additional types or schema ID
   const vct =

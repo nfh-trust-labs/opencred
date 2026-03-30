@@ -6,6 +6,7 @@ export type {
   DelegationRecord,
   DIDRecord,
   SchemaRecord,
+  ContextRecord,
   PublishResult,
 } from "./adapter/types.js";
 export {
@@ -13,6 +14,7 @@ export {
   DELEGATION_REGISTRY,
   PUBLIC_KEY_REGISTRY,
   SCHEMA_REGISTRY,
+  CONTEXT_REGISTRY,
 } from "./adapter/registry-names.js";
 
 // Publishing orchestrator
