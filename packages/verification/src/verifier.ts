@@ -209,8 +209,9 @@ function buildResult(
   failedCheck: VerificationCheck,
 ): CredentialVerificationResult {
   const isUnresolvable = failedCheck.detail?.includes("Unable to resolve");
+  const isContextMissing = failedCheck.detail?.includes("Missing JSON-LD context");
   return {
-    code: isUnresolvable ? "UNRESOLVABLE" : "INVALID",
+    code: isContextMissing ? "CONTEXT_MISSING" : isUnresolvable ? "UNRESOLVABLE" : "INVALID",
     verified: false,
     checks,
   };

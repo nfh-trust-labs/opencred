@@ -40,35 +40,35 @@ export function createRegistry(): SchemaRegistry {
   registry.registerSchema(
     "education",
     educationSchema,
-    "https://opencred.dev/contexts/education/v1",
+    "https://schema.nfh.global/contexts/education/v1",
     "1.0.0",
     "2025-05-01T00:00:00Z",
   );
   registry.registerSchema(
     "employment",
     employmentSchema,
-    "https://opencred.dev/contexts/employment/v1",
+    "https://schema.nfh.global/contexts/employment/v1",
     "1.0.0",
     "2025-05-01T00:00:00Z",
   );
   registry.registerSchema(
     "identity",
     identitySchema,
-    "https://opencred.dev/contexts/identity/v1",
+    "https://schema.nfh.global/contexts/identity/v1",
     "1.0.0",
     "2025-05-01T00:00:00Z",
   );
   registry.registerSchema(
     "health",
     healthSchema,
-    "https://opencred.dev/contexts/health/v1",
+    "https://schema.nfh.global/contexts/health/v1",
     "1.0.0",
     "2025-05-01T00:00:00Z",
   );
   registry.registerSchema(
     "business",
     businessSchema,
-    "https://opencred.dev/contexts/business/v1",
+    "https://schema.nfh.global/contexts/business/v1",
     "1.0.0",
     "2025-05-01T00:00:00Z",
   );

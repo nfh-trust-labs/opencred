@@ -69,6 +69,8 @@ import type {
   CredentialHistoryListResponse,
   CredentialHistoryDeleteRequest,
   CredentialHistoryDeleteResponse,
+  SchemaFetchUrlRequest,
+  SchemaFetchUrlResponse,
   CustomSchemaSaveRequest,
   CustomSchemaSaveResponse,
   CustomSchemaListResponse,
@@ -87,11 +89,12 @@ import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local
 const logger = createLogger("ipc");
 import { signWithFormat } from "../signing/proof-format-router.js";
 import type { UiProofFormat } from "../shared/ipc-types.js";
-import { generateKeyPairSync, createPublicKey, randomUUID } from "node:crypto";
+import { generateKeyPairSync, createPublicKey, randomUUID, createHash } from "node:crypto";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
-import { CryptoError, ValidationError, SchemaValidationError } from "@opencred/shared";
+import { CryptoError, ValidationError, SchemaValidationError, isPrivateIP } from "@opencred/shared";
+import { SchemaRegistry } from "@opencred/schema-engine";
 import {
   packageCredential as packageCredentialWithTemplates,
 } from "./credential-export.js";
@@ -116,7 +119,9 @@ import {
 
 
 import { BATCH_ROW_LIMIT } from "../shared/constants.js";
-import { DeDiPublishManager, createPublishManager } from "@opencred/dedi-client";
+import { DeDiPublishManager, createPublishManager, CONTEXT_REGISTRY, SCHEMA_REGISTRY } from "@opencred/dedi-client";
+import type { ContextRecord } from "@opencred/dedi-client";
+import { generateInlineContext } from "@opencred/vc-core";
 
 // ---------------------------------------------------------------------------
 // In-memory registries
@@ -390,14 +395,38 @@ async function handleBuildAndSign(
         builder.setValidUntil(request.validUntil);
       }
       if (request.revocationRegistryUrl) {
+        const credentialUuid = randomUUID();
+        builder.setId(`urn:uuid:${credentialUuid}`);
+        const revocationHash = createHash("sha256").update(credentialUuid).digest("hex");
+        const statusListCredential = request.revocationRegistryUrl;
+        const lookupUrl = statusListCredential.replace("/dedi/query/", "/dedi/lookup/");
         builder.setCredentialStatus({
-          id: request.revocationRegistryUrl,
-          type: "DeDiRevocationListStatusV1",
+          id: `${lookupUrl}/${revocationHash}`,
+          type: "dedi",
           statusPurpose: "revocation",
+          statusListCredential,
         });
       }
       if (request.credentialSchemaUrl) {
         builder.setSchema({ id: request.credentialSchemaUrl, type: "JsonSchema" });
+      }
+
+      // Add JSON-LD context for Data Integrity proofs on inline/custom schemas
+      if (proofFormat === "data-integrity") {
+        if (request.contextUrl) {
+          builder.addContext(request.contextUrl);
+        } else if (request.inlineContext) {
+          builder.addContext(request.inlineContext);
+        } else if (request.schemaId.startsWith("custom:")) {
+          const store = getStore();
+          const customSchemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+          const customSchema = customSchemas.find((s) => s.id === request.schemaId);
+          if (customSchema?.dediContextUrl) {
+            builder.addContext(customSchema.dediContextUrl);
+          } else if (customSchema?.generatedContext) {
+            builder.addContext(customSchema.generatedContext);
+          }
+        }
       }
 
       const unsigned = builder.build();
@@ -416,6 +445,20 @@ async function handleBuildAndSign(
       signedCredentialJson = result.signedOutput;
       isCompactToken = result.isCompactToken;
     } else {
+      // Look up custom schema context for Data Integrity proofs
+      let contextUrl = request.contextUrl;
+      let inlineContext = request.inlineContext;
+      if (!contextUrl && !inlineContext && request.schemaId.startsWith("custom:")) {
+        const store = getStore();
+        const customSchemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+        const customSchema = customSchemas.find((s) => s.id === request.schemaId);
+        if (customSchema?.dediContextUrl) {
+          contextUrl = customSchema.dediContextUrl;
+        } else if (customSchema?.generatedContext) {
+          inlineContext = customSchema.generatedContext;
+        }
+      }
+
       const result = await buildAndSign(signer, {
         schemaId: request.schemaId,
         issuerDid: request.issuerDid,
@@ -428,6 +471,8 @@ async function handleBuildAndSign(
         proofFormat,
         selectiveDisclosureClaims: request.selectiveDisclosureClaims,
         credentialSchemaUrl: request.credentialSchemaUrl,
+        contextUrl,
+        inlineContext,
       });
       signedCredentialJson = typeof result.credential === "string"
         ? result.credential
@@ -474,7 +519,7 @@ async function handleBuildAndSign(
         const def = getSchemaDefinition(request.schemaId);
         void dediMgr.ensureSchemaPublished({
           schemaId: def.id, version: "1", schema: def.schema, contextUrl: def.contextUrl,
-          checksum: "", publishedAt: new Date().toISOString(),
+          checksum: SchemaRegistry.computeChecksum(def.schema), publishedAt: new Date().toISOString(),
         }).then((r: import("@opencred/dedi-client").PublishResult | null) => {
           if (r) {
             const s = getStore();
@@ -1302,6 +1347,71 @@ async function handleCredentialHistoryDelete(
 // ---------------------------------------------------------------------------
 
 /** CUSTOM_SCHEMA_LIST — return all custom schemas. */
+// ---------------------------------------------------------------------------
+// Schema URL fetch handler
+// ---------------------------------------------------------------------------
+
+/** SCHEMA_FETCH_URL — fetch a JSON Schema from a remote URL. */
+async function handleSchemaFetchUrl(
+  _event: IpcMainInvokeEvent,
+  request: SchemaFetchUrlRequest,
+): Promise<SchemaFetchUrlResponse> {
+  try {
+    const { url } = request;
+    if (!url.startsWith("https://")) {
+      return { success: false, error: "URL must use HTTPS" };
+    }
+
+    // SSRF protection: resolve hostname and reject private IPs
+    const { hostname } = new URL(url);
+    const { promises: dnsPromises } = await import("node:dns");
+    const { address } = await dnsPromises.lookup(hostname);
+    if (isPrivateIP(address)) {
+      return { success: false, error: "URL resolves to a private IP address" };
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+        redirect: "error",
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+    }
+
+    const body: unknown = await response.json();
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return { success: false, error: "Response is not a JSON object" };
+    }
+
+    const schema = body as Record<string, unknown>;
+    if (!schema.properties || typeof schema.properties !== "object" || Array.isArray(schema.properties)) {
+      return { success: false, error: "Response does not appear to be a JSON Schema (missing 'properties' object)" };
+    }
+
+    const title = typeof schema.title === "string" ? schema.title : undefined;
+    logger.info("Schema fetched from URL", { url, title, fieldCount: Object.keys(schema.properties as object).length });
+    return { success: true, schema, title };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    logger.warn("Schema fetch failed", { url: request.url, error: message });
+    return { success: false, error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Custom schema handlers
+// ---------------------------------------------------------------------------
+
 async function handleCustomSchemaList(): Promise<CustomSchemaListResponse> {
   const store = getStore();
   const schemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
@@ -1332,7 +1442,55 @@ async function handleCustomSchemaSave(
     name: request.name,
     schema: request.schema,
     createdAt: new Date().toISOString(),
+    ...(request.sourceUrl ? { sourceUrl: request.sourceUrl } : {}),
   };
+
+  // Auto-generate JSON-LD context from schema
+  const namespaceUri = `urn:opencred:vocab:${entry.id}:`;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- JsonSchema is not exported; schema shape is validated at input
+    entry.generatedContext = generateInlineContext(request.schema as any, namespaceUri);
+  } catch (err) {
+    logger.warn("Failed to generate inline context for custom schema (non-fatal)", {
+      schemaId: entry.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Publish to DeDi if configured
+  const dediConfig = store.get("dediConfig");
+  if (dediConfig) {
+    const mgr = getDeDiPublishManager();
+    if (mgr) {
+      const version = "1.0.0";
+      const schemaRecordName = `${entry.id}-v${version}`;
+      const contextRecordName = `${entry.id}-ctx-v${version}`;
+
+      // Publish schema (fire-and-forget)
+      mgr.ensureSchemaPublished({
+        schemaId: entry.id,
+        version,
+        schema: request.schema,
+        checksum: SchemaRegistry.computeChecksum(request.schema),
+        publishedAt: new Date().toISOString(),
+      }).catch(() => { /* logged internally */ });
+
+      // Publish context (fire-and-forget)
+      if (entry.generatedContext) {
+        const contextRecord: ContextRecord = {
+          schemaId: entry.id,
+          version,
+          context: entry.generatedContext,
+          publishedAt: new Date().toISOString(),
+        };
+        mgr.publishContext(contextRecord).catch(() => { /* logged internally */ });
+      }
+
+      entry.dediSchemaUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${SCHEMA_REGISTRY}/${schemaRecordName}`;
+      entry.dediContextUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${CONTEXT_REGISTRY}/${contextRecordName}`;
+    }
+  }
+
   store.set("customSchemas" as keyof typeof store.store, [...schemas, entry]);
   return entry;
 }
@@ -1501,7 +1659,7 @@ async function handleDeDiPublishSchema(_event: IpcMainInvokeEvent, request: DeDi
       version: "1",
       schema: def.schema,
       contextUrl: def.contextUrl,
-      checksum: "",
+      checksum: SchemaRegistry.computeChecksum(def.schema),
       publishedAt: new Date().toISOString(),
     });
 
@@ -1675,6 +1833,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_LIST, handleCredentialHistoryList);
   ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_ADD, handleCredentialHistoryAdd);
   ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HISTORY_DELETE, handleCredentialHistoryDelete);
+
+  // Schema URL fetch
+  ipcMain.handle(IPC_CHANNELS.SCHEMA_FETCH_URL, handleSchemaFetchUrl);
 
   // Custom schemas
   ipcMain.handle(IPC_CHANNELS.CUSTOM_SCHEMA_SAVE, handleCustomSchemaSave);

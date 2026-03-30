@@ -9,6 +9,7 @@
  *  - Key material is NEVER logged.
  */
 
+import { randomUUID, createHash } from "node:crypto";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import { createRegistry, Validator } from "@opencred/schema-engine";
@@ -121,10 +122,16 @@ export function createBatchEngine(signer: Signer, parsedRows: ParsedRow[], confi
       }
       if (config.validUntil) builder.setValidUntil(config.validUntil);
       if (config.revocationRegistryUrl) {
+        const credentialUuid = randomUUID();
+        builder.setId(`urn:uuid:${credentialUuid}`);
+        const revocationHash = createHash("sha256").update(credentialUuid).digest("hex");
+        const statusListCredential = config.revocationRegistryUrl;
+        const lookupUrl = statusListCredential.replace("/dedi/query/", "/dedi/lookup/");
         builder.setCredentialStatus({
-          id: config.revocationRegistryUrl,
-          type: "DeDiRevocationListStatusV1",
+          id: `${lookupUrl}/${revocationHash}`,
+          type: "dedi",
           statusPurpose: "revocation",
+          statusListCredential,
         });
       }
       if (config.credentialSchemaUrl) {

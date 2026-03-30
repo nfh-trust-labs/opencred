@@ -106,3 +106,61 @@ export function jsonToFields(json: Record<string, unknown>): FieldDefinition[] {
       required: true,
     }));
 }
+
+// ---------------------------------------------------------------------------
+// jsonSchemaToFields
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a JSON Schema object to field definitions.
+ *
+ * Inverse of `fieldsToJsonSchema`. Maps JSON Schema types back to
+ * FieldDefinition types.
+ */
+export function jsonSchemaToFields(schema: Record<string, unknown>): FieldDefinition[] {
+  const properties = schema.properties as Record<string, Record<string, unknown>> | undefined;
+  if (!properties || typeof properties !== "object") return [];
+
+  const requiredArr = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+
+  return Object.entries(properties).map(([name, prop]) => {
+    let type: FieldDefinition["type"] = "string";
+
+    if (prop.type === "number" || prop.type === "integer") {
+      type = "number";
+    } else if (prop.type === "string") {
+      const format = prop.format as string | undefined;
+      if (format === "date" || format === "date-time") {
+        type = "date";
+      } else if (format === "email") {
+        type = "email";
+      } else if (format === "uri" || format === "url") {
+        type = "url";
+      }
+    }
+
+    return { name, type, required: requiredArr.includes(name) };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// detectJsonType
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect whether a JSON object is a JSON Schema or a sample data object.
+ *
+ * Returns `"schema"` if the object has a `properties` field that is a
+ * non-array object, otherwise `"sample"`.
+ */
+export function detectJsonType(json: Record<string, unknown>): "schema" | "sample" {
+  const props = json.properties;
+  const hasProperties = props && typeof props === "object" && !Array.isArray(props);
+  const hasTypeObject = json.type === "object";
+  const has$Schema = typeof json.$schema === "string";
+
+  if (hasProperties && (hasTypeObject || has$Schema)) {
+    return "schema";
+  }
+  return "sample";
+}

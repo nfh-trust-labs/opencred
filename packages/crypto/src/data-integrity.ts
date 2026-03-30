@@ -44,20 +44,23 @@ function createJsonLdDocumentLoader(): _jsonldNs.Options.DocLoader["documentLoad
 /**
  * Canonicalize a JSON-LD document using RDFC-1.0 (URDNA2015).
  */
-export async function canonicalize(document: Record<string, unknown>): Promise<string> {
+export async function canonicalize(
+  document: Record<string, unknown>,
+  options?: { strict?: boolean },
+): Promise<string> {
   // Cast to JsonLdDocument since our documents are valid JSON-LD NodeObjects.
   // The `safe` option is supported by jsonld 8.x at runtime but not yet in
-  // @types/jsonld, so we cast the options to include it.  Disabling safe mode
-  // prevents "Safe mode validation error" when the document contains terms
-  // (e.g. custom credentialSubject properties) not defined in the loaded
-  // JSON-LD contexts — this is expected for VCs with application-specific claims.
+  // @types/jsonld, so we cast the options to include it.  When strict mode is
+  // enabled (`safe: true`), canonicalization will reject documents containing
+  // terms not defined in the loaded JSON-LD contexts.  When disabled (the
+  // default), application-specific claims in credentialSubject are tolerated.
   const result = await jsonld.canonize(
     document as _jsonldNs.JsonLdDocument,
     {
       algorithm: "URDNA2015",
       format: "application/n-quads",
       documentLoader: createJsonLdDocumentLoader(),
-      safe: false,
+      safe: options?.strict ?? false,
     } as _jsonldNs.Options.Normalize & { safe: boolean },
   );
   return result as string;

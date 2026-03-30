@@ -701,6 +701,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
 
   // Schema
   const [schemaName, setSchemaName] = useState("");
+  const [schemaSourceUrl, setSchemaSourceUrl] = useState<string | undefined>(undefined);
   const [schemaFields, setSchemaFields] = useState<SchemaField[]>([]);
 
   // Form state
@@ -840,8 +841,8 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
         schemaId: effectiveSchemaId,
         issuerDid,
         credentialSubject: subjectValues,
-        validFrom: new Date(validFrom).toISOString(),
-        validUntil: validUntil ? new Date(validUntil).toISOString() : undefined,
+        validFrom: new Date(validFrom + "T00:00:00Z").toISOString(),
+        validUntil: validUntil ? new Date(validUntil + "T23:59:59Z").toISOString() : undefined,
         keyId: selectedKeyId,
         packageFormats: proofFormat === "sd-jwt-vc" ? [] : ["json-ld"],
         inlineSchema: inlineSchema ?? undefined,
@@ -862,6 +863,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
             const saved = await window.opencred.customSchemaSave({
               name: schemaName || "Custom Credential",
               schema: inlineSchema,
+              sourceUrl: schemaSourceUrl,
             });
             savedSchemaId = saved.id;
           } catch {
@@ -963,10 +965,11 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack }: Props) {
   }
 
   // Callback when blank builder produces fields/schema
-  function handleBlankSchemaReady(fields: SchemaField[], schema: Record<string, unknown>, credentialName: string) {
+  function handleBlankSchemaReady(fields: SchemaField[], schema: Record<string, unknown>, credentialName: string, sourceUrl?: string) {
     setSchemaFields(fields);
     setInlineSchema(schema);
     setSchemaName(credentialName);
+    setSchemaSourceUrl(sourceUrl);
   }
 
   // ------------------------------------------------------------------

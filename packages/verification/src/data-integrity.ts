@@ -1,5 +1,6 @@
 import { createPublicKey, type KeyObject } from "node:crypto";
 import { verifyProof, verifyEdDsaProof } from "@opencred/crypto";
+import { ContextNotFoundError } from "@opencred/vc-core";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import type { DIDResolver } from "@opencred/did";
 import { publicKeyFromMultibase } from "./key-utils.js";
@@ -48,15 +49,26 @@ export async function verifyDataIntegrity(
 
   // Route to appropriate verifier based on cryptosuite
   const verifyFn = cryptosuite === "eddsa-rdfc-2022" ? verifyEdDsaProof : verifyProof;
-  const result = await verifyFn(credential, { publicKey });
-  if (result.verified) {
-    return { name: "signature", passed: true };
+  try {
+    const result = await verifyFn(credential, { publicKey });
+    if (result.verified) {
+      return { name: "signature", passed: true };
+    }
+    return {
+      name: "signature",
+      passed: false,
+      detail: result.error ?? "Signature verification failed",
+    };
+  } catch (error) {
+    if (error instanceof ContextNotFoundError) {
+      return {
+        name: "signature",
+        passed: false,
+        detail: `Missing JSON-LD context: ${error.contextUrl}. Import this context before verifying, or ask the issuer to use VC-JWT format.`,
+      };
+    }
+    throw error;
   }
-  return {
-    name: "signature",
-    passed: false,
-    detail: result.error ?? "Signature verification failed",
-  };
 }
 
 async function resolvePublicKeyFromVerificationMethod(

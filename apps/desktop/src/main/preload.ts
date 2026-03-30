@@ -74,6 +74,8 @@ import type {
   CredentialHistoryAddRequest,
   CredentialHistoryDeleteRequest,
   CredentialHistoryDeleteResponse,
+  SchemaFetchUrlRequest,
+  SchemaFetchUrlResponse,
   CustomSchemaListResponse,
   CustomSchemaSaveRequest,
   CustomSchemaSaveResponse,
@@ -237,6 +239,10 @@ const api: OpenCredDesktopAPI = {
 
   credentialHistoryDelete: (request: CredentialHistoryDeleteRequest): Promise<CredentialHistoryDeleteResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.CREDENTIAL_HISTORY_DELETE, request),
+
+  // Schema URL fetch
+  schemaFetchUrl: (request: SchemaFetchUrlRequest): Promise<SchemaFetchUrlResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SCHEMA_FETCH_URL, request),
 
   // Custom schemas
   customSchemaList: (): Promise<CustomSchemaListResponse> =>

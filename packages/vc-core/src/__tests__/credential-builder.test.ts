@@ -22,9 +22,10 @@ describe("CredentialBuilder", () => {
   const validFrom = "2026-02-09T00:00:00Z";
   const validUntil = "2027-02-09T00:00:00Z";
   const validStatus = {
-    id: "https://dedi.example/revocations/university.example/revocation-registry",
-    type: "DeDiRevocationListStatusV1",
+    id: "https://dedi.global/dedi/lookup/university.example/vc-revocation-registry/abc123",
+    type: "dedi",
     statusPurpose: "revocation",
+    statusListCredential: "https://dedi.global/dedi/query/university.example/vc-revocation-registry",
   };
 
   function buildMinimalCredential() {
@@ -292,7 +293,7 @@ describe("CredentialBuilder", () => {
           .setValidFrom(validFrom)
           .setCredentialStatus({
             id: "http://dedi.example/revocations/university.example/revocation-registry",
-            type: "DeDiRevocationListStatusV1",
+            type: "dedi",
             statusPurpose: "revocation",
           })
           .build(),
@@ -307,7 +308,7 @@ describe("CredentialBuilder", () => {
           .setValidFrom(validFrom)
           .setCredentialStatus({
             id: "http://insecure.example/registry",
-            type: "DeDiRevocationListStatusV1",
+            type: "dedi",
             statusPurpose: "revocation",
           })
           .build(),
@@ -322,7 +323,7 @@ describe("CredentialBuilder", () => {
           .setValidFrom(validFrom)
           .setCredentialStatus({
             id: "not-a-valid-url",
-            type: "DeDiRevocationListStatusV1",
+            type: "dedi",
             statusPurpose: "revocation",
           })
           .build(),
@@ -337,7 +338,7 @@ describe("CredentialBuilder", () => {
           .setValidFrom(validFrom)
           .setCredentialStatus({
             id: ":::invalid",
-            type: "DeDiRevocationListStatusV1",
+            type: "dedi",
             statusPurpose: "revocation",
           })
           .build(),
@@ -684,9 +685,10 @@ describe("CredentialBuilder", () => {
         .setValidFrom("2026-02-09T00:00:00Z")
         .setValidUntil("2027-02-09T00:00:00Z")
         .setCredentialStatus({
-          id: "https://dedi.example/revocations/university.example/revocation-registry",
-          type: "DeDiRevocationListStatusV1",
+          id: "https://dedi.global/dedi/lookup/university.example/vc-revocation-registry/abc123",
+          type: "dedi",
           statusPurpose: "revocation",
+          statusListCredential: "https://dedi.global/dedi/query/university.example/vc-revocation-registry",
         })
         .addContext(OPENCRED_DELEGATION_V1_CONTEXT)
         .build();
@@ -711,9 +713,10 @@ describe("CredentialBuilder", () => {
         },
       });
       expect(vc.credentialStatus).toEqual({
-        id: "https://dedi.example/revocations/university.example/revocation-registry",
-        type: "DeDiRevocationListStatusV1",
+        id: "https://dedi.global/dedi/lookup/university.example/vc-revocation-registry/abc123",
+        type: "dedi",
         statusPurpose: "revocation",
+        statusListCredential: "https://dedi.global/dedi/query/university.example/vc-revocation-registry",
       });
       // Unsigned — no proof
       expect(vc).not.toHaveProperty("proof");
@@ -743,7 +746,7 @@ describe("Document Loader", () => {
     const loader = createDocumentLoader();
 
     expect(() => loader("https://malicious.example/context")).toThrow(
-      /Refusing to fetch remote JSON-LD context/,
+      /JSON-LD context not found/,
     );
   });
 
@@ -752,6 +755,6 @@ describe("Document Loader", () => {
 
     expect(urls).toContain(W3C_CREDENTIALS_V2_CONTEXT);
     expect(urls).toContain(DATA_INTEGRITY_V1_CONTEXT);
-    expect(urls.size).toBe(3);
+    expect(urls.size).toBe(8);
   });
 });

@@ -2,6 +2,7 @@ import { DeDiClient } from "./adapter/client.js";
 import type {
   DeDiClientConfig,
   SchemaRecord,
+  ContextRecord,
   PublishResult,
 } from "./adapter/types.js";
 import type { DeDiLogger } from "./logger.js";
@@ -42,6 +43,31 @@ export class DeDiPublishManager {
     } catch (error) {
       this.logger.error("Failed to publish schema to DeDi (non-fatal)", {
         schemaId: schema.schemaId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Publish a JSON-LD context to DeDi.
+   * Fire-and-forget: errors are logged, never thrown.
+   */
+  async publishContext(
+    record: ContextRecord,
+    namespace?: string,
+  ): Promise<PublishResult | null> {
+    try {
+      const result = await this.client.publishContext(record, namespace);
+      this.logger.debug("Context published to DeDi", {
+        schemaId: record.schemaId,
+        version: record.version,
+        recordName: result.recordName,
+      });
+      return result;
+    } catch (error) {
+      this.logger.error("Failed to publish context to DeDi (non-fatal)", {
+        schemaId: record.schemaId,
         error: error instanceof Error ? error.message : String(error),
       });
       return null;

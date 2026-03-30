@@ -12,6 +12,7 @@
  *  - JSON-LD contexts are bundled — no remote fetching.
  */
 
+import { randomUUID, createHash } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
 import { CredentialBuilder } from "@opencred/vc-core";
@@ -104,10 +105,16 @@ credentials.post("/credentials/issue", async (c) => {
     builder.setValidUntil(parsed.validUntil);
   }
   if (parsed.revocationRegistryUrl) {
+    const credentialUuid = randomUUID();
+    builder.setId(`urn:uuid:${credentialUuid}`);
+    const revocationHash = createHash("sha256").update(credentialUuid).digest("hex");
+    const statusListCredential = parsed.revocationRegistryUrl;
+    const lookupUrl = statusListCredential.replace("/dedi/query/", "/dedi/lookup/");
     builder.setCredentialStatus({
-      id: parsed.revocationRegistryUrl,
-      type: "DeDiRevocationListStatusV1",
+      id: `${lookupUrl}/${revocationHash}`,
+      type: "dedi",
       statusPurpose: "revocation",
+      statusListCredential,
     });
   }
   if (parsed.credentialSchemaUrl) {
