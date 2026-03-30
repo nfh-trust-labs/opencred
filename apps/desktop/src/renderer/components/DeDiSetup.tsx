@@ -336,7 +336,7 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
           )}
 
           <div className="pt-2">
-            <Button onClick={onComplete}>Continue to OpenCred</Button>
+            <Button onClick={onComplete}>Start Issuing Credentials</Button>
           </div>
         </Card>
       )}
