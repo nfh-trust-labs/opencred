@@ -518,9 +518,13 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
   async function handleDismissRotation() {
     const snoozeUntil = new Date();
     snoozeUntil.setDate(snoozeUntil.getDate() + ROTATION_SNOOZE_DAYS);
-    await window.opencred.setConfig("keyRotationDismissedUntil", snoozeUntil.toISOString());
-    setRotationInfo({ overdue: false, ageDays: 0 });
-    onRotationDismissed?.();
+    try {
+      await window.opencred.setConfig("keyRotationDismissedUntil", snoozeUntil.toISOString());
+      setRotationInfo({ overdue: false, ageDays: 0 });
+      onRotationDismissed?.();
+    } catch {
+      // Non-fatal: banner stays visible if preference fails to persist
+    }
   }
 
   useEffect(() => {

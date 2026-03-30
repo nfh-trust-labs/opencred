@@ -562,6 +562,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           {/* ============================================================
               DeDi Setup (optional)
               ============================================================ */}
+          {step === "dedi-setup" && !importedKey && (
+            <Card className="space-y-4 text-center">
+              <p className="text-body-sm text-txt-muted">Something went wrong during key setup.</p>
+              <Button onClick={() => setStep("choose-path")}>Go Back</Button>
+            </Card>
+          )}
           {step === "dedi-setup" && importedKey && (
             <DeDiSetup
               did={importedKey.id}

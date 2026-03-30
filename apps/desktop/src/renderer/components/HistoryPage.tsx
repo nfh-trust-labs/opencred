@@ -232,10 +232,14 @@ export function HistoryPage({ onReissue }: Props) {
               {history.map((entry) => (
                 <tr
                   key={entry.id}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`View ${entry.schemaName} credential for ${entry.subjectSummary}`}
                   style={{ borderBottom: "1px solid var(--oc-border-light)", cursor: "pointer", transition: "background-color 0.1s" }}
                   onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--oc-bg)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                   onClick={() => setViewingEntry(entry)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingEntry(entry); } }}
                 >
                   <td style={{ padding: "10px 16px", fontFamily: "var(--oc-font-mono)", fontSize: "0.68rem", fontWeight: 600, color: "var(--oc-text-primary)", letterSpacing: "0.04em" }}>{entry.schemaName}</td>
                   <td style={{ padding: "10px 16px", color: "var(--oc-text-primary)", fontWeight: 500 }}>{entry.subjectSummary}</td>
