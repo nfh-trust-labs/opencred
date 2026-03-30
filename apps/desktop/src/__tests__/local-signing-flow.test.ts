@@ -188,7 +188,7 @@ describe("buildAndSign — full offline round-trip", () => {
       validUntil: "2030-06-15T00:00:00Z",
       subjectDid: "did:example:holder123",
       additionalTypes: ["EducationCredential"],
-      revocationRegistryUrl: "https://dedi.example/revocations/test",
+      revocationRegistryUrl: "https://dedi.global/dedi/query/test-ns/vc-revocation-registry",
     });
 
     const { credential } = result;
@@ -196,7 +196,14 @@ describe("buildAndSign — full offline round-trip", () => {
     expect(credential.credentialSubject.id).toBe("did:example:holder123");
     expect(credential.type).toContain("EducationCredential");
     expect(credential.credentialStatus).toBeDefined();
-    expect(credential.credentialStatus?.id).toBe("https://dedi.example/revocations/test");
+    expect(credential.credentialStatus?.type).toBe("dedi");
+    expect(credential.credentialStatus?.statusPurpose).toBe("revocation");
+    expect(credential.credentialStatus?.statusListCredential).toBe(
+      "https://dedi.global/dedi/query/test-ns/vc-revocation-registry",
+    );
+    expect(credential.credentialStatus?.id).toMatch(
+      /^https:\/\/dedi\.global\/dedi\/lookup\/test-ns\/vc-revocation-registry\/[a-f0-9]{64}$/,
+    );
   });
 
   it("should reject invalid subject data", async () => {

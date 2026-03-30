@@ -106,7 +106,7 @@ describe("IPC type contracts", () => {
     const resp: SchemaGetResponse = {
       id: "education",
       schema: { type: "object" },
-      contextUrl: "https://opencred.dev/contexts/education/v1",
+      contextUrl: "https://schema.nfh.global/contexts/education/v1",
     };
     expect(resp.id).toBe("education");
     expect(resp.schema).toBeDefined();

@@ -32,7 +32,7 @@ interface SchemaField {
 }
 
 interface Props {
-  onSchemaReady: (fields: SchemaField[], schema: Record<string, unknown>, credentialName: string) => void;
+  onSchemaReady: (fields: SchemaField[], schema: Record<string, unknown>, credentialName: string, sourceUrl?: string) => void;
 }
 
 type FieldType = FieldDefinition["type"];
@@ -67,8 +67,6 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
   const [schemaUrl, setSchemaUrl] = useState("");
   const [urlFetching, setUrlFetching] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
-  const [urlSourceUrl, setUrlSourceUrl] = useState<string | undefined>(undefined);
-
   // Paste mode state
   const [jsonText, setJsonText] = useState("");
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -98,12 +96,7 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
                 : undefined,
       }));
 
-      // Store sourceUrl for later use when saving the custom schema
-      if (sourceUrl) {
-        setUrlSourceUrl(sourceUrl);
-      }
-
-      onSchemaReady(schemaFields, schema, name || credentialName || "Custom Credential");
+      onSchemaReady(schemaFields, schema, name || credentialName || "Custom Credential", sourceUrl);
     },
     [onSchemaReady, credentialName],
   );
@@ -222,7 +215,6 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
   // ------------------------------------------------------------------
 
   const validFieldCount = fields.filter((f) => f.name.trim().length > 0).length;
-  void urlSourceUrl; // stored for future use when saving schema
 
   return (
     <Card className="space-y-4">

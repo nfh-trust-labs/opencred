@@ -23,12 +23,13 @@ export interface CredentialSubject {
 
 /**
  * Credential status for revocation checking.
- * OpenCred uses DeDiRevocationListStatusV1 by default.
+ * OpenCred uses type "dedi" with DeDi revocation registries.
  */
 export interface CredentialStatus {
   id: string;
   type: string;
   statusPurpose: string;
+  statusListCredential?: string;
   [key: string]: unknown;
 }
 

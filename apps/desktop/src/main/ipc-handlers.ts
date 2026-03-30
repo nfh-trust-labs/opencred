@@ -89,11 +89,12 @@ import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local
 const logger = createLogger("ipc");
 import { signWithFormat } from "../signing/proof-format-router.js";
 import type { UiProofFormat } from "../shared/ipc-types.js";
-import { generateKeyPairSync, createPublicKey, randomUUID } from "node:crypto";
+import { generateKeyPairSync, createPublicKey, randomUUID, createHash } from "node:crypto";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
-import { CryptoError, ValidationError, SchemaValidationError } from "@opencred/shared";
+import { CryptoError, ValidationError, SchemaValidationError, isPrivateIP } from "@opencred/shared";
+import { SchemaRegistry } from "@opencred/schema-engine";
 import {
   packageCredential as packageCredentialWithTemplates,
 } from "./credential-export.js";
@@ -394,10 +395,16 @@ async function handleBuildAndSign(
         builder.setValidUntil(request.validUntil);
       }
       if (request.revocationRegistryUrl) {
+        const credentialUuid = randomUUID();
+        builder.setId(`urn:uuid:${credentialUuid}`);
+        const revocationHash = createHash("sha256").update(credentialUuid).digest("hex");
+        const statusListCredential = request.revocationRegistryUrl;
+        const lookupUrl = statusListCredential.replace("/dedi/query/", "/dedi/lookup/");
         builder.setCredentialStatus({
-          id: request.revocationRegistryUrl,
-          type: "DeDiRevocationListStatusV1",
+          id: `${lookupUrl}/${revocationHash}`,
+          type: "dedi",
           statusPurpose: "revocation",
+          statusListCredential,
         });
       }
       if (request.credentialSchemaUrl) {
@@ -512,7 +519,7 @@ async function handleBuildAndSign(
         const def = getSchemaDefinition(request.schemaId);
         void dediMgr.ensureSchemaPublished({
           schemaId: def.id, version: "1", schema: def.schema, contextUrl: def.contextUrl,
-          checksum: "", publishedAt: new Date().toISOString(),
+          checksum: SchemaRegistry.computeChecksum(def.schema), publishedAt: new Date().toISOString(),
         }).then((r: import("@opencred/dedi-client").PublishResult | null) => {
           if (r) {
             const s = getStore();
@@ -1351,8 +1358,16 @@ async function handleSchemaFetchUrl(
 ): Promise<SchemaFetchUrlResponse> {
   try {
     const { url } = request;
-    if (!url.startsWith("https://") && !url.startsWith("http://")) {
-      return { success: false, error: "URL must start with https:// or http://" };
+    if (!url.startsWith("https://")) {
+      return { success: false, error: "URL must use HTTPS" };
+    }
+
+    // SSRF protection: resolve hostname and reject private IPs
+    const { hostname } = new URL(url);
+    const { promises: dnsPromises } = await import("node:dns");
+    const { address } = await dnsPromises.lookup(hostname);
+    if (isPrivateIP(address)) {
+      return { success: false, error: "URL resolves to a private IP address" };
     }
 
     const controller = new AbortController();
@@ -1456,7 +1471,7 @@ async function handleCustomSchemaSave(
         schemaId: entry.id,
         version,
         schema: request.schema,
-        checksum: "",
+        checksum: SchemaRegistry.computeChecksum(request.schema),
         publishedAt: new Date().toISOString(),
       }).catch(() => { /* logged internally */ });
 
@@ -1644,7 +1659,7 @@ async function handleDeDiPublishSchema(_event: IpcMainInvokeEvent, request: DeDi
       version: "1",
       schema: def.schema,
       contextUrl: def.contextUrl,
-      checksum: "",
+      checksum: SchemaRegistry.computeChecksum(def.schema),
       publishedAt: new Date().toISOString(),
     });
 

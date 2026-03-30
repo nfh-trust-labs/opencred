@@ -467,7 +467,7 @@ describe("IPC Handler Integration Tests", () => {
         issuerDid: "did:web:issuer.example",
         inlineSchema: true,
         credentialSubject: { name: "Test" },
-        revocationRegistryUrl: "https://dedi.global/revocations/test",
+        revocationRegistryUrl: "https://dedi.global/dedi/query/test-ns/vc-revocation-registry",
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "vc-jwt",
       });
@@ -475,8 +475,14 @@ describe("IPC Handler Integration Tests", () => {
       expect(result.success).toBe(true);
       const signed = JSON.parse(result.signedCredential!);
       expect(signed.credentialStatus).toBeDefined();
-      expect(signed.credentialStatus.type).toBe("DeDiRevocationListStatusV1");
-      expect(signed.credentialStatus.id).toBe("https://dedi.global/revocations/test");
+      expect(signed.credentialStatus.type).toBe("dedi");
+      expect(signed.credentialStatus.statusPurpose).toBe("revocation");
+      expect(signed.credentialStatus.statusListCredential).toBe(
+        "https://dedi.global/dedi/query/test-ns/vc-revocation-registry",
+      );
+      expect(signed.credentialStatus.id).toMatch(
+        /^https:\/\/dedi\.global\/dedi\/lookup\/test-ns\/vc-revocation-registry\/[a-f0-9]{64}$/,
+      );
     });
 
     it("should include subjectDid as id in credentialSubject", async () => {

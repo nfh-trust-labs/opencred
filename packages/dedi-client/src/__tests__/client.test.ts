@@ -99,7 +99,7 @@ describe("DeDiClient (adapter)", () => {
   // ── publishRevocationHash ────────────────────────────────────────
 
   describe("publishRevocationHash", () => {
-    it("publishes a record to the revocation_list registry", async () => {
+    it("publishes a record to the vc-revocation-registry", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord).mockResolvedValue({
@@ -153,7 +153,7 @@ describe("DeDiClient (adapter)", () => {
   // ── queryRevocationHash ──────────────────────────────────────────
 
   describe("queryRevocationHash", () => {
-    it("searches for hash in revocation_list and returns found record", async () => {
+    it("searches for hash in vc-revocation-registry and returns found record", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.search).mockResolvedValue({
@@ -839,7 +839,7 @@ describe("DeDiClient (adapter)", () => {
       schemaId: "education",
       version: "1",
       schema: { type: "object", properties: {} },
-      contextUrl: "https://opencred.dev/contexts/education/v1",
+      contextUrl: "https://schema.nfh.global/contexts/education/v1",
       checksum: "abc123",
       publishedAt: "2026-03-25T00:00:00Z",
     };

@@ -155,7 +155,11 @@ export function jsonSchemaToFields(schema: Record<string, unknown>): FieldDefini
  */
 export function detectJsonType(json: Record<string, unknown>): "schema" | "sample" {
   const props = json.properties;
-  if (props && typeof props === "object" && !Array.isArray(props)) {
+  const hasProperties = props && typeof props === "object" && !Array.isArray(props);
+  const hasTypeObject = json.type === "object";
+  const has$Schema = typeof json.$schema === "string";
+
+  if (hasProperties && (hasTypeObject || has$Schema)) {
     return "schema";
   }
   return "sample";

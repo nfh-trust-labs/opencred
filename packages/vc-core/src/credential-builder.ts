@@ -43,9 +43,10 @@ function isValidCredentialUri(id: string): boolean {
  *   .setValidFrom("2026-02-09T00:00:00Z")
  *   .setValidUntil("2027-02-09T00:00:00Z")
  *   .setCredentialStatus({
- *     id: "https://dedi.example/revocations/university.example/revocation-registry",
- *     type: "DeDiRevocationListStatusV1",
+ *     id: "https://dedi.global/dedi/lookup/university.example/vc-revocation-registry/<hash>",
+ *     type: "dedi",
  *     statusPurpose: "revocation",
+ *     statusListCredential: "https://dedi.global/dedi/query/university.example/vc-revocation-registry",
  *   })
  *   .build();
  * ```

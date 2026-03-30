@@ -18,6 +18,7 @@
  *  - No network requests are made during signing.
  */
 
+import * as crypto from "node:crypto";
 import { CryptoError } from "@opencred/shared";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
@@ -188,12 +189,24 @@ export async function buildAndSign(
     builder.setValidUntil(options.validUntil);
   }
 
-  // Set revocation status
+  // Set revocation status — pre-generate credential UUID so the hashed ID
+  // can be embedded in the credentialStatus lookup URL.
   if (options.revocationRegistryUrl) {
+    const credentialUuid = crypto.randomUUID();
+    const credentialId = `urn:uuid:${credentialUuid}`;
+    builder.setId(credentialId);
+
+    const revocationHash = crypto
+      .createHash("sha256")
+      .update(credentialUuid)
+      .digest("hex");
+    const statusListCredential = options.revocationRegistryUrl;
+    const lookupUrl = statusListCredential.replace("/dedi/query/", "/dedi/lookup/");
     builder.setCredentialStatus({
-      id: options.revocationRegistryUrl,
-      type: "DeDiRevocationListStatusV1",
+      id: `${lookupUrl}/${revocationHash}`,
+      type: "dedi",
       statusPurpose: "revocation",
+      statusListCredential,
     });
   }
 
