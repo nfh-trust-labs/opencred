@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { KeyMetadata } from "../../shared/ipc-types";
 import { SchemaSelector } from "./SchemaSelector";
 import { CredentialForm } from "./CredentialForm";
+import { formatKeyDate } from "../utils/format";
 
 interface SchemaField {
   name: string;
@@ -220,24 +221,11 @@ export function CredentialBuilder() {
               disabled={signing}
               className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
             >
-              {keys.map((key) => {
-                const dateFormatted = (() => {
-                  try {
-                    return new Date(key.importedAt).toLocaleDateString("en-US", {
-                      year: "numeric",
-                      month: "short",
-                      day: "numeric",
-                    });
-                  } catch {
-                    return key.importedAt;
-                  }
-                })();
-                return (
-                  <option key={key.id} value={key.id} title={key.fingerprint}>
-                    {key.label ?? key.algorithm} ({dateFormatted})
-                  </option>
-                );
-              })}
+              {keys.map((key) => (
+                <option key={key.id} value={key.id} title={key.fingerprint}>
+                  {key.label ?? key.algorithm} ({formatKeyDate(key.importedAt)})
+                </option>
+              ))}
             </select>
           )}
         </div>

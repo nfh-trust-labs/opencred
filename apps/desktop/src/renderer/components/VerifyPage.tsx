@@ -280,35 +280,38 @@ export function VerifyPage() {
         <Card className="space-y-3">
           <h3 className="oc-card-label">Verification Checks</h3>
           <div className="space-y-2">
-            {checks.map((check, i) => (
-              <div
-                key={i}
-                className={`flex items-start gap-3 rounded-md border px-3 py-2.5 ${
-                  check.passed
-                    ? "border-green-200 bg-green-50"
-                    : "border-red-200 bg-red-50"
-                }`}
-              >
-                <span
-                  className={`flex-shrink-0 mt-0.5 text-xs font-semibold ${
-                    check.passed ? "text-green-600" : "text-red-600"
+            {checks.map((check, i) => {
+              const hint = getCheckHint(check.name);
+              return (
+                <div
+                  key={i}
+                  className={`flex items-start gap-3 rounded-md border px-3 py-2.5 ${
+                    check.passed
+                      ? "border-green-200 bg-green-50"
+                      : "border-red-200 bg-red-50"
                   }`}
                 >
-                  {check.passed ? "PASS" : "FAIL"}
-                </span>
-                <div className="min-w-0">
-                  <span className="text-xs font-medium text-gray-700">
-                    {check.name}
+                  <span
+                    className={`flex-shrink-0 mt-0.5 text-xs font-semibold ${
+                      check.passed ? "text-green-600" : "text-red-600"
+                    }`}
+                  >
+                    {check.passed ? "PASS" : "FAIL"}
                   </span>
-                  {getCheckHint(check.name) && (
-                    <p className="mt-0.5 text-xs text-gray-400">{getCheckHint(check.name)}</p>
-                  )}
-                  {check.detail && (
-                    <p className="mt-0.5 text-xs text-gray-500">{check.detail}</p>
-                  )}
+                  <div className="min-w-0">
+                    <span className="text-xs font-medium text-gray-700">
+                      {check.name}
+                    </span>
+                    {hint && (
+                      <p className="mt-0.5 text-xs text-gray-400">{hint}</p>
+                    )}
+                    {check.detail && (
+                      <p className="mt-0.5 text-xs text-gray-500">{check.detail}</p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
       )}

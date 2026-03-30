@@ -16,6 +16,7 @@ import { getVisual } from "./ui/TemplateCard";
 import { BatchIssuance } from "./BatchIssuance";
 import { BlankCredentialBuilder } from "./BlankCredentialBuilder";
 import { MoreOptions } from "./MoreOptions";
+import { formatKeyDate } from "../utils/format";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,17 +90,7 @@ function oneYearFromNow(): string {
   return d.toISOString().split("T")[0];
 }
 
-function formatKeyDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return iso;
-  }
-}
+// formatKeyDate is imported from ../utils/format
 
 /** Parse a VC JSON string into display-friendly fields. */
 function parseCredential(raw: string): {
