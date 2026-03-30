@@ -208,8 +208,23 @@ export function HistoryPage({ onReissue }: Props) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--oc-font-body)", fontSize: "0.82rem" }}>
             <thead>
               <tr style={{ backgroundColor: "var(--oc-bg)", borderBottom: "1px solid var(--oc-border)" }}>
-                {["Type", "Subject", "Issued", "", ""].map((h, i) => (
-                  <th key={`${h}-${i}`} style={{ padding: "10px 16px", textAlign: h ? "left" : "right", fontFamily: "var(--oc-font-mono)", fontSize: "0.6rem", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--oc-text-muted)", fontWeight: 600 }}>{h}</th>
+                {["Type", "Subject", "Issued", "Actions", "Details"].map((h) => (
+                  <th
+                    key={h}
+                    style={{
+                      padding: "10px 16px",
+                      textAlign: ["Actions", "Details"].includes(h) ? "right" : "left",
+                      fontFamily: "var(--oc-font-mono)",
+                      fontSize: "0.6rem",
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      color: "var(--oc-text-muted)",
+                      fontWeight: 600
+                    }}
+                    aria-label={h}
+                  >
+                    {["Actions", "Details"].includes(h) ? "" : h}
+                  </th>
                 ))}
               </tr>
             </thead>

@@ -314,7 +314,17 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
                   onClick={() => setShowDidDoc(!showDidDoc)}
                   className="text-[0.78rem] text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
                 >
-                  <span className="text-[0.6rem]">{showDidDoc ? "\u25B2" : "\u25BC"}</span>
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    className={`transition-transform duration-200 ${showDidDoc ? "rotate-180" : ""}`}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
                   View DID Document (Advanced)
                 </button>
                 {showDidDoc && (
@@ -332,7 +342,17 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
                   onClick={() => setShowInstructions(!showInstructions)}
                   className="text-[0.78rem] text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
                 >
-                  <span className="text-[0.6rem]">{showInstructions ? "\u25B2" : "\u25BC"}</span>
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    className={`transition-transform duration-200 ${showInstructions ? "rotate-180" : ""}`}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
                   Publishing Instructions
                 </button>
                 {showInstructions && (

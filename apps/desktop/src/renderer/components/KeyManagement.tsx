@@ -11,7 +11,7 @@
  * all sources, pulling from window.opencred.listKeys().
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { KeyMetadata } from "../../shared/ipc-types";
 import { KeyImport } from "./KeyImport";
 import { HardwareToken } from "./HardwareToken";
@@ -39,7 +39,6 @@ export function KeyManagement() {
   const [keys, setKeys] = useState<KeyMetadata[]>([]);
   const [keysError, setKeysError] = useState<string | null>(null);
   const [guidanceOpen, setGuidanceOpen] = useState(false);
-  const guidanceRef = useRef<HTMLDivElement>(null);
 
   const loadKeys = useCallback(async () => {
     try {
@@ -88,19 +87,20 @@ export function KeyManagement() {
             </svg>
           </button>
           <div
-            ref={guidanceRef}
             className="transition-all duration-200 ease-in-out overflow-hidden"
             style={{
-              maxHeight: guidanceOpen ? (guidanceRef.current?.scrollHeight ?? 200) + "px" : "0px",
-              opacity: guidanceOpen ? 1 : 0,
+              display: "grid",
+              gridTemplateRows: guidanceOpen ? "1fr" : "0fr",
             }}
           >
+            <div className="min-h-0">
             <ul className="px-3 pb-3 space-y-1.5 text-xs text-gray-500">
               <li><span className="font-medium text-gray-700">Import File</span> — You have a key file from your IT department</li>
               <li><span className="font-medium text-gray-700">Hardware Token</span> — You use a USB security key (YubiKey, SafeNet) or smart card</li>
               <li><span className="font-medium text-gray-700">OS Cert Store</span> — You have signing certificates installed on this computer</li>
               <li><span className="font-medium text-gray-700">Generate Key</span> — You are getting started and need a new key (recommended for testing)</li>
             </ul>
+            </div>
           </div>
         </div>
 
