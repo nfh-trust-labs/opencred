@@ -1,10 +1,9 @@
 {
-  "targets": [],
-  "conditions": [
-    ["OS=='mac'", {
-      "targets": [
-        {
-          "target_name": "macos-keychain",
+  "targets": [
+    {
+      "target_name": "macos-keychain",
+      "conditions": [
+        ["OS=='mac'", {
           "sources": ["macos/macos-keychain.mm"],
           "include_dirs": ["<!@(node -p \"require('node-addon-api').include\")"],
           "cflags!": ["-fno-exceptions"],
@@ -14,19 +13,23 @@
             "GCC_ENABLE_CPP_EXCEPTIONS": "YES"
           },
           "defines": ["NAPI_DISABLE_CPP_EXCEPTIONS"]
-        }
+        }, {
+          "type": "none"
+        }]
       ]
-    }],
-    ["OS=='win'", {
-      "targets": [
-        {
-          "target_name": "windows-cng",
+    },
+    {
+      "target_name": "windows-cng",
+      "conditions": [
+        ["OS=='win'", {
           "sources": ["windows/windows-cng.cpp"],
           "include_dirs": ["<!@(node -p \"require('node-addon-api').include\")"],
           "libraries": ["-lncrypt", "-lcrypt32"],
-          "defines": ["NAPI_DISABLE_CPP_EXCEPTIONS"]
-        }
+          "defines": ["NAPI_DISABLE_CPP_EXCEPTIONS", "NTDDI_VERSION=0x0A000000", "_WIN32_WINNT=0x0A00"]
+        }, {
+          "type": "none"
+        }]
       ]
-    }]
+    }
   ]
 }
