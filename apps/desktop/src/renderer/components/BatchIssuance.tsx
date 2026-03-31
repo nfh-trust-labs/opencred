@@ -41,6 +41,18 @@ interface RowResult {
 type BatchPhase = "upload" | "mapping" | "config" | "processing" | "complete";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Escape a CSV value by quoting it if it contains commas, quotes, or newlines. */
+function csvEscape(value: string): string {
+  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
+    return '"' + value.replace(/"/g, '""') + '"';
+  }
+  return value;
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -259,7 +271,7 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
       }
 
       const fieldNames = Object.keys(properties);
-      const headerRow = fieldNames.join(",");
+      const headerRow = fieldNames.map(csvEscape).join(",");
 
       // Generate placeholder example rows based on field types
       const exampleRows: string[] = [];
@@ -278,7 +290,7 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
           // Default: string placeholder based on field name
           return `Example ${name} ${rowNum}`;
         });
-        exampleRows.push(row.join(","));
+        exampleRows.push(row.map(csvEscape).join(","));
       }
 
       const csvContent = [headerRow, ...exampleRows].join("\n");

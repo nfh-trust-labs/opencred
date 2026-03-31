@@ -557,7 +557,7 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
       {/* Organization name */}
       <Card className="space-y-3">
         <h2 className="text-sm font-medium text-gray-700">Your Organization</h2>
-        <p className="text-xs text-gray-400 -mt-1">This name appears on credentials you issue.</p>
+        <p className="text-xs text-gray-500 -mt-1">This name appears on credentials you issue.</p>
         <div className="flex items-center gap-2">
           <input
             type="text"

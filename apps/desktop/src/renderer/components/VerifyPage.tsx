@@ -158,8 +158,14 @@ function buildReport(
   verificationChecks: VerificationCheck[],
   verifiedAt: Date,
 ): string {
-  const issuer = extractIssuerDid(credential);
-  const subject = extractSubjectSummary(credential);
+  // Parse once and derive issuer + subject from the parsed object
+  let parsed: Record<string, unknown> | null = null;
+  try { parsed = JSON.parse(credential) as Record<string, unknown>; } catch { /* ignore */ }
+
+  const issuer = parsed
+    ? (typeof parsed.issuer === "string" ? parsed.issuer : (parsed.issuer as Record<string, unknown> | undefined)?.id as string ?? "Unknown")
+    : "Unknown";
+  const subject = parsed?.credentialSubject as Record<string, unknown> | null ?? null;
 
   const lines: string[] = [];
   lines.push("===============================================");

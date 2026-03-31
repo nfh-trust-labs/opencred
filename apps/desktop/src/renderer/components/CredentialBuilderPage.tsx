@@ -149,12 +149,13 @@ interface CredentialResultProps {
   signedCredential: string;
   schemaId?: string;
   schemaName?: string;
+  organizationName?: string;
   onExportJson: () => void;
   onExportPdf: () => void;
   onShowQr: () => void;
 }
 
-function CredentialResult({ signedCredential, schemaId, schemaName, onExportJson, onExportPdf, onShowQr }: CredentialResultProps) {
+function CredentialResult({ signedCredential, schemaId, schemaName, organizationName, onExportJson, onExportPdf, onShowQr }: CredentialResultProps) {
   const [showRaw, setShowRaw] = useState(false);
   const vc = parseCredential(signedCredential);
   const typeFromVc = vc.types.find((t) => t !== "VerifiableCredential");
@@ -364,9 +365,20 @@ function CredentialResult({ signedCredential, schemaId, schemaName, onExportJson
               <dt style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "var(--oc-text-muted)" }}>
                 Issuer
               </dt>
-              <dd style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.72rem", color: "var(--oc-text-secondary)", marginTop: 2, margin: 0 }} title={vc.issuer}>
-                {truncateDid(vc.issuer)}
-              </dd>
+              {organizationName ? (
+                <dd style={{ margin: 0, marginTop: 2 }}>
+                  <div style={{ fontFamily: "var(--oc-font-body)", fontSize: "0.82rem", fontWeight: 500, color: "var(--oc-text-primary)" }}>
+                    {organizationName}
+                  </div>
+                  <div style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.62rem", color: "var(--oc-text-muted)", marginTop: 1 }} title={vc.issuer}>
+                    {truncateDid(vc.issuer)}
+                  </div>
+                </dd>
+              ) : (
+                <dd style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.72rem", color: "var(--oc-text-secondary)", marginTop: 2, margin: 0 }} title={vc.issuer}>
+                  {truncateDid(vc.issuer)}
+                </dd>
+              )}
             </div>
             {vc.proofType && (
               <div>
@@ -740,6 +752,9 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
   // Auto-scroll ref for credential result
   const resultRef = useRef<HTMLDivElement>(null);
 
+  // Organization name for issuer display
+  const [organizationName, setOrganizationName] = useState<string | undefined>(undefined);
+
   // did:web publication warning
   const [showDidWebWarning, setShowDidWebWarning] = useState(false);
   const [didWarningDismissed, setDidWarningDismissed] = useState(false);
@@ -809,6 +824,12 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
   useEffect(() => {
     void loadKeys();
     void loadSchema();
+    void (async () => {
+      try {
+        const saved = await window.opencred.getConfig("organizationName") as string | undefined;
+        if (saved) setOrganizationName(saved);
+      } catch { /* non-fatal */ }
+    })();
   }, [loadKeys, loadSchema]);
 
   useEffect(() => {
@@ -1318,6 +1339,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
                   signedCredential={signedCredential}
                   schemaId={isBlank ? undefined : schemaId}
                   schemaName={schemaName}
+                  organizationName={organizationName}
                   onExportJson={() => void handleExportJson()}
                   onExportPdf={() => void handleExportPdf()}
                   onShowQr={() => void handleShowQr()}
