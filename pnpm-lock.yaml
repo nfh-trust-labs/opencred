@@ -68,6 +68,9 @@ importers:
       archiver:
         specifier: ^7.0.1
         version: 7.0.1
+      conf:
+        specifier: ^14.0.0
+        version: 14.0.0
       electron-log:
         specifier: ^5.2.0
         version: 5.4.3
