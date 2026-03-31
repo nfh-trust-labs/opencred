@@ -227,6 +227,74 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
   }
 
   // ---------------------------------------------------------------------------
+  // CSV Template Download
+  // ---------------------------------------------------------------------------
+
+  async function handleDownloadTemplate() {
+    if (!schemaId) return;
+
+    try {
+      let schema: Record<string, unknown> | undefined;
+
+      if (schemaId.startsWith("custom:")) {
+        const customRes = await window.opencred.customSchemaList();
+        const match = customRes.schemas.find((s) => s.id === schemaId);
+        schema = match?.schema as Record<string, unknown> | undefined;
+      } else {
+        const response = await window.opencred.getSchema({ schemaId });
+        schema = response.schema;
+      }
+
+      if (!schema) {
+        setBatchError("Could not load schema for template generation.");
+        return;
+      }
+
+      const properties = schema["properties"] as
+        | Record<string, Record<string, unknown>>
+        | undefined;
+      if (!properties) {
+        setBatchError("Schema has no properties defined.");
+        return;
+      }
+
+      const fieldNames = Object.keys(properties);
+      const headerRow = fieldNames.join(",");
+
+      // Generate placeholder example rows based on field types
+      const exampleRows: string[] = [];
+      for (let rowNum = 1; rowNum <= 3; rowNum++) {
+        const row = fieldNames.map((name) => {
+          const prop = properties[name];
+          const type = String(prop["type"] ?? "string");
+          const format = prop["format"] as string | undefined;
+
+          if (format === "date") return `2025-0${rowNum}-15`;
+          if (format === "date-time") return `2025-0${rowNum}-15T09:00:00Z`;
+          if (format === "email") return `person${rowNum}@example.com`;
+          if (format === "uri") return `https://example.com/resource/${rowNum}`;
+          if (type === "number" || type === "integer") return String(rowNum * 100);
+          if (type === "boolean") return rowNum % 2 === 1 ? "true" : "false";
+          // Default: string placeholder based on field name
+          return `Example ${name} ${rowNum}`;
+        });
+        exampleRows.push(row.join(","));
+      }
+
+      const csvContent = [headerRow, ...exampleRows].join("\n");
+      const safeName = schemaId.replace(/[^a-zA-Z0-9-_]/g, "-");
+
+      await window.opencred.saveFile({
+        defaultName: `template-${safeName}.csv`,
+        content: csvContent,
+        filters: [{ name: "CSV", extensions: ["csv"] }],
+      });
+    } catch {
+      setBatchError("Failed to generate CSV template.");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Schema selection
   // ---------------------------------------------------------------------------
 
@@ -479,15 +547,31 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
         <div className="rounded-lg border border-gray-200 bg-white p-6 space-y-4">
           <h2 className="text-sm font-medium text-gray-700">Batch Credential Issuance</h2>
           <p className="text-sm text-gray-500">
-            Issue multiple credentials at once from a CSV file. All processing happens locally -- no
+            Issue multiple credentials at once from a CSV file. Maximum{" "}
+            {BATCH_ROW_LIMIT.toLocaleString()} rows per batch. All processing happens locally -- no
             network required.
           </p>
-          <button
-            onClick={() => void handleImportCsv()}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-          >
-            Import CSV File
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => void handleImportCsv()}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+            >
+              Import CSV File
+            </button>
+            <button
+              onClick={() => void handleDownloadTemplate()}
+              disabled={!schemaId}
+              className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              title={schemaId ? "Download a CSV template for the selected schema" : "Select a schema first"}
+            >
+              Download Template CSV
+            </button>
+          </div>
+          {!schemaId && (
+            <p className="text-xs text-gray-400">
+              Select a schema on the home screen to enable the CSV template download.
+            </p>
+          )}
           {batchError && <p className="text-sm text-red-600">{batchError}</p>}
         </div>
       )}

@@ -57,12 +57,13 @@ function labelForField(name: string): string {
 // ---------------------------------------------------------------------------
 
 function CredentialDetailModal({
-  entry, onClose, onDelete, onReissue,
+  entry, onClose, onDelete, onReissue, organizationName,
 }: {
   entry: HistoryEntry;
   onClose: () => void;
   onDelete: () => void;
   onReissue: () => void;
+  organizationName?: string;
 }) {
   const v = getVisual(entry.schemaId);
   let vc: Record<string, unknown>;
@@ -121,7 +122,18 @@ function CredentialDetailModal({
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 28px" }}>
             <div>
               <dt style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.54rem", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--oc-text-muted)" }}>Issuer</dt>
-              <dd style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.7rem", color: "var(--oc-text-secondary)", margin: 0, marginTop: 2 }} title={String(issuer)}>{truncateDid(String(issuer))}</dd>
+              {organizationName ? (
+                <dd style={{ margin: 0, marginTop: 2 }}>
+                  <div style={{ fontFamily: "var(--oc-font-body)", fontSize: "0.78rem", fontWeight: 500, color: "var(--oc-text-primary)" }}>
+                    {organizationName}
+                  </div>
+                  <div style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.6rem", color: "var(--oc-text-muted)", marginTop: 1 }} title={String(issuer)}>
+                    {truncateDid(String(issuer))}
+                  </div>
+                </dd>
+              ) : (
+                <dd style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.7rem", color: "var(--oc-text-secondary)", margin: 0, marginTop: 2 }} title={String(issuer)}>{truncateDid(String(issuer))}</dd>
+              )}
             </div>
             {proofType && (
               <div>
@@ -172,6 +184,7 @@ export function HistoryPage({ onReissue }: Props) {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewingEntry, setViewingEntry] = useState<HistoryEntry | null>(null);
+  const [organizationName, setOrganizationName] = useState<string | undefined>(undefined);
 
   const loadData = useCallback(async () => {
     try {
@@ -181,7 +194,15 @@ export function HistoryPage({ onReissue }: Props) {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { void loadData(); }, [loadData]);
+  useEffect(() => {
+    void loadData();
+    void (async () => {
+      try {
+        const saved = await window.opencred.getConfig("organizationName") as string | undefined;
+        if (saved) setOrganizationName(saved);
+      } catch { /* non-fatal */ }
+    })();
+  }, [loadData]);
 
   async function handleDelete(id: string) {
     try {
@@ -273,6 +294,7 @@ export function HistoryPage({ onReissue }: Props) {
           onClose={() => setViewingEntry(null)}
           onDelete={() => void handleDelete(viewingEntry.id)}
           onReissue={() => { setViewingEntry(null); handleReissue(viewingEntry); }}
+          organizationName={organizationName}
         />
       )}
     </div>

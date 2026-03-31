@@ -482,6 +482,9 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
   const [isOffline, setIsOffline] = useState(false);
   const [bugReportOpen, setBugReportOpen] = useState(false);
   const [rotationInfo, setRotationInfo] = useState<{ overdue: boolean; ageDays: number }>({ overdue: false, ageDays: 0 });
+  const [orgName, setOrgName] = useState("");
+  const [orgNameSaved, setOrgNameSaved] = useState(false);
+  const [orgNameSaving, setOrgNameSaving] = useState(false);
 
   const checkOffline = useCallback(async () => {
     try {
@@ -530,10 +533,57 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
   useEffect(() => {
     void checkOffline();
     void checkRotation();
+    void (async () => {
+      try {
+        const saved = await window.opencred.getConfig("organizationName") as string | undefined;
+        if (saved) setOrgName(saved);
+      } catch { /* non-fatal */ }
+    })();
   }, [checkOffline, checkRotation]);
+
+  async function handleSaveOrgName() {
+    const trimmed = orgName.trim();
+    setOrgNameSaving(true);
+    try {
+      await window.opencred.setConfig("organizationName", trimmed || undefined);
+      setOrgNameSaved(true);
+      setTimeout(() => setOrgNameSaved(false), 2000);
+    } catch { /* non-fatal */ }
+    finally { setOrgNameSaving(false); }
+  }
 
   return (
     <div className="space-y-6">
+      {/* Organization name */}
+      <Card className="space-y-3">
+        <h2 className="text-sm font-medium text-gray-700">Your Organization</h2>
+        <p className="text-xs text-gray-400 -mt-1">This name appears on credentials you issue.</p>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={orgName}
+            onChange={(e) => { setOrgName(e.target.value); setOrgNameSaved(false); }}
+            placeholder="e.g. Ministry of Agriculture, Govt of India"
+            className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue"
+          />
+          <Button
+            onClick={() => void handleSaveOrgName()}
+            disabled={orgNameSaving}
+            size="sm"
+          >
+            {orgNameSaving ? "Saving..." : "Save"}
+          </Button>
+          {orgNameSaved && (
+            <span className="flex items-center gap-1 text-xs text-green-600">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              Saved
+            </span>
+          )}
+        </div>
+      </Card>
+
       {/* Key rotation warning */}
       {rotationInfo.overdue && (
         <div
