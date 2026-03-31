@@ -96,13 +96,20 @@ jobs:
         continue-on-error: true
         working-directory: packages/signing
 
+      # Create output dirs that electron-builder expects (scoped package names)
+      - name: Prepare output directories
+        shell: bash
+        working-directory: apps/desktop
+        run: mkdir -p out/@opencred
+
       - name: Build distributable
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           EB_ARGS: ${{ matrix.electron_builder_args }}
         shell: bash
+        working-directory: apps/desktop
         run: |
-          pnpm --filter @opencred/desktop exec electron-builder $EB_ARGS --publish never
+          npx electron-builder $EB_ARGS --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
