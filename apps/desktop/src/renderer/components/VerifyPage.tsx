@@ -4,14 +4,17 @@
  * Supports:
  *  - Pasting credential JSON directly into a textarea
  *  - Loading a credential from a file via native dialog
+ *  - Drag-and-drop of .json files onto the input area
  *  - Verifying the credential and displaying per-check results
+ *  - Downloading a verification report (plain-text)
+ *  - Session-scoped recent verification history (last 5)
  *
  * Verification happens in the main process via IPC. When offline,
  * only signature and date checks are possible. Revocation checks
  * require connectivity and show appropriate messaging.
  */
 
-import { useState } from "react";
+import { useState, useCallback, type DragEvent } from "react";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
 import { Badge } from "./ui/Badge";
@@ -27,6 +30,16 @@ interface VerificationCheck {
 }
 
 type VerificationStatus = "VALID" | "INVALID" | "EXPIRED" | "ERROR";
+
+interface VerificationHistoryEntry {
+  id: string;
+  credential: string;
+  status: VerificationStatus;
+  issuer: string;
+  timestamp: string;
+  checks: VerificationCheck[];
+  message: string;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -86,6 +99,153 @@ function getErrorHint(message: string): string | null {
   return null;
 }
 
+/** Extract the issuer DID from a credential JSON string. */
+function extractIssuerDid(credentialJson: string): string {
+  try {
+    const parsed = JSON.parse(credentialJson);
+    if (typeof parsed.issuer === "string") return parsed.issuer;
+    if (typeof parsed.issuer === "object" && parsed.issuer?.id) return parsed.issuer.id;
+  } catch {
+    // not valid JSON
+  }
+  return "Unknown";
+}
+
+/** Extract a summary of the credential subject for display. */
+function extractSubjectSummary(credentialJson: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(credentialJson);
+    const subject = parsed.credentialSubject;
+    if (subject && typeof subject === "object") return subject as Record<string, unknown>;
+  } catch {
+    // not valid JSON
+  }
+  return null;
+}
+
+/** Generate a unique ID for history entries. */
+let historyCounter = 0;
+function nextHistoryId(): string {
+  historyCounter += 1;
+  return `vh-${Date.now()}-${historyCounter}`;
+}
+
+/** Format a date as YYYY-MM-DD for filename. */
+function formatDateForFilename(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** Format a date/time for display in reports. */
+function formatDateTime(date: Date): string {
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+/** Build a plain-text verification report. */
+function buildReport(
+  credential: string,
+  status: VerificationStatus,
+  resultMessage: string,
+  verificationChecks: VerificationCheck[],
+  verifiedAt: Date,
+): string {
+  // Parse once and derive issuer + subject from the parsed object
+  let parsed: Record<string, unknown> | null = null;
+  try { parsed = JSON.parse(credential) as Record<string, unknown>; } catch { /* ignore */ }
+
+  const issuer = parsed
+    ? (typeof parsed.issuer === "string" ? parsed.issuer : (parsed.issuer as Record<string, unknown> | undefined)?.id as string ?? "Unknown")
+    : "Unknown";
+  const subject = parsed?.credentialSubject as Record<string, unknown> | null ?? null;
+
+  const lines: string[] = [];
+  lines.push("===============================================");
+  lines.push("       OPENCRED VERIFICATION REPORT");
+  lines.push("===============================================");
+  lines.push("");
+  lines.push(`Date/Time:  ${formatDateTime(verifiedAt)}`);
+  lines.push(`Result:     ${status}`);
+  lines.push(`Summary:    ${resultMessage}`);
+  lines.push("");
+  lines.push("-----------------------------------------------");
+  lines.push("ISSUER");
+  lines.push("-----------------------------------------------");
+  lines.push(`DID: ${issuer}`);
+  lines.push("");
+
+  if (subject) {
+    lines.push("-----------------------------------------------");
+    lines.push("CREDENTIAL SUBJECT");
+    lines.push("-----------------------------------------------");
+    for (const [key, value] of Object.entries(subject)) {
+      if (key === "id") {
+        lines.push(`  ${key}: ${String(value)}`);
+      } else if (typeof value === "object" && value !== null) {
+        lines.push(`  ${key}: ${JSON.stringify(value)}`);
+      } else {
+        lines.push(`  ${key}: ${String(value)}`);
+      }
+    }
+    lines.push("");
+  }
+
+  if (verificationChecks.length > 0) {
+    lines.push("-----------------------------------------------");
+    lines.push("VERIFICATION CHECKS");
+    lines.push("-----------------------------------------------");
+    for (const check of verificationChecks) {
+      const icon = check.passed ? "[PASS]" : "[FAIL]";
+      lines.push(`  ${icon} ${check.name}`);
+      if (check.detail) {
+        lines.push(`         ${check.detail}`);
+      }
+    }
+    lines.push("");
+  }
+
+  lines.push("-----------------------------------------------");
+  lines.push("RAW CREDENTIAL (abbreviated)");
+  lines.push("-----------------------------------------------");
+  try {
+    const parsed = JSON.parse(credential);
+    const pretty = JSON.stringify(parsed, null, 2);
+    // Truncate very long credentials in the report
+    if (pretty.length > 3000) {
+      lines.push(pretty.slice(0, 3000));
+      lines.push(`... (${pretty.length - 3000} characters omitted)`);
+    } else {
+      lines.push(pretty);
+    }
+  } catch {
+    const truncated = credential.length > 3000
+      ? credential.slice(0, 3000) + `\n... (${credential.length - 3000} characters omitted)`
+      : credential;
+    lines.push(truncated);
+  }
+
+  lines.push("");
+  lines.push("===============================================");
+  lines.push("Generated by OpenCred Desktop");
+  lines.push("===============================================");
+
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const MAX_HISTORY = 5;
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -97,6 +257,73 @@ export function VerifyPage() {
   const [checks, setChecks] = useState<VerificationCheck[]>([]);
   const [loading, setLoading] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [history, setHistory] = useState<VerificationHistoryEntry[]>([]);
+  const [verifiedAt, setVerifiedAt] = useState<Date | null>(null);
+
+  // ------------------------------------------------------------------
+  // Drag-and-drop handlers
+  // ------------------------------------------------------------------
+
+  const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDragEnter = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only set false when leaving the drop zone (not entering a child)
+    const rect = e.currentTarget.getBoundingClientRect();
+    const { clientX, clientY } = e;
+    if (
+      clientX <= rect.left ||
+      clientX >= rect.right ||
+      clientY <= rect.top ||
+      clientY >= rect.bottom
+    ) {
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    // Accept .json, .jsonld, or any file that looks like JSON
+    const validExtensions = [".json", ".jsonld"];
+    const hasValidExt = validExtensions.some((ext) =>
+      file.name.toLowerCase().endsWith(ext),
+    );
+
+    if (!hasValidExt) {
+      // Silently ignore non-JSON files
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const content = evt.target?.result;
+      if (typeof content === "string" && content.trim()) {
+        setCredential(content);
+        setValid(null);
+        setMessage(null);
+        setChecks([]);
+      }
+    };
+    reader.readAsText(file);
+  }, []);
 
   // ------------------------------------------------------------------
   // Handlers
@@ -110,6 +337,9 @@ export function VerifyPage() {
     setMessage(null);
     setChecks([]);
 
+    const now = new Date();
+    setVerifiedAt(now);
+
     try {
       // Check connectivity for user messaging
       try {
@@ -122,16 +352,49 @@ export function VerifyPage() {
       const response = await window.opencred.verifyCredential({ credential });
 
       if (response.success) {
-        setValid(response.valid ?? false);
-        setMessage(response.message ?? (response.valid ? "Valid." : "Invalid."));
-        setChecks(response.checks ?? []);
+        const isValid = response.valid ?? false;
+        const msg = response.message ?? (isValid ? "Valid." : "Invalid.");
+        const responseChecks = response.checks ?? [];
+
+        setValid(isValid);
+        setMessage(msg);
+        setChecks(responseChecks);
+
+        // Add to history
+        const derivedStatus = deriveStatus(isValid, responseChecks);
+        const issuer = extractIssuerDid(credential);
+        const entry: VerificationHistoryEntry = {
+          id: nextHistoryId(),
+          credential,
+          status: derivedStatus,
+          issuer,
+          timestamp: now.toISOString(),
+          checks: responseChecks,
+          message: msg,
+        };
+        setHistory((prev) => [entry, ...prev].slice(0, MAX_HISTORY));
       } else {
+        const errMsg = response.error ?? "Verification failed.";
         setValid(false);
-        setMessage(response.error ?? "Verification failed.");
+        setMessage(errMsg);
+
+        // Add failed verification to history
+        const issuer = extractIssuerDid(credential);
+        const entry: VerificationHistoryEntry = {
+          id: nextHistoryId(),
+          credential,
+          status: "ERROR",
+          issuer,
+          timestamp: now.toISOString(),
+          checks: [],
+          message: errMsg,
+        };
+        setHistory((prev) => [entry, ...prev].slice(0, MAX_HISTORY));
       }
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Verification failed.";
       setValid(false);
-      setMessage(err instanceof Error ? err.message : "Verification failed.");
+      setMessage(errMsg);
     } finally {
       setLoading(false);
     }
@@ -163,6 +426,35 @@ export function VerifyPage() {
     setValid(null);
     setMessage(null);
     setChecks([]);
+    setVerifiedAt(null);
+  }
+
+  async function handleDownloadReport() {
+    if (status === null || !message || !verifiedAt) return;
+
+    const report = buildReport(credential, status, message, checks, verifiedAt);
+    const filename = `verification-report-${formatDateForFilename(verifiedAt)}.txt`;
+
+    try {
+      await window.opencred.saveFile({
+        defaultName: filename,
+        content: report,
+        filters: [
+          { name: "Text", extensions: ["txt"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
+      });
+    } catch {
+      // User cancelled the save dialog
+    }
+  }
+
+  function handleLoadFromHistory(entry: VerificationHistoryEntry) {
+    setCredential(entry.credential);
+    setValid(null);
+    setMessage(null);
+    setChecks([]);
+    setVerifiedAt(null);
   }
 
   // ------------------------------------------------------------------
@@ -178,7 +470,7 @@ export function VerifyPage() {
 
   return (
     <div className="space-y-4">
-      {/* Input */}
+      {/* Input with drag-and-drop */}
       <Card className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="oc-card-label">Input</h2>
@@ -206,18 +498,37 @@ export function VerifyPage() {
           </p>
         )}
 
-        <textarea
-          rows={8}
-          value={credential}
-          onChange={(e) => {
-            setCredential(e.target.value);
-            setValid(null);
-            setMessage(null);
-            setChecks([]);
-          }}
-          placeholder="Paste credential text here, or use 'Upload File' to load a .json file"
-          className="block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-        />
+        <div
+          className="relative"
+          onDragOver={handleDragOver}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <textarea
+            rows={8}
+            value={credential}
+            onChange={(e) => {
+              setCredential(e.target.value);
+              setValid(null);
+              setMessage(null);
+              setChecks([]);
+            }}
+            placeholder="Paste credential text here, drag a .json file, or use 'Upload File'"
+            className={`block w-full rounded-md border px-3 py-2 font-mono text-xs shadow-sm transition-colors duration-150 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
+              isDragOver
+                ? "border-2 border-dashed border-blue-400 bg-blue-50"
+                : "border-gray-300"
+            }`}
+          />
+          {isDragOver && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-blue-50/80">
+              <p className="text-sm font-medium text-blue-600">
+                Drop credential file here
+              </p>
+            </div>
+          )}
+        </div>
 
         <Button
           onClick={() => void handleVerify()}
@@ -238,23 +549,31 @@ export function VerifyPage() {
                 : "border-red-200 bg-red-50"
           }`}
         >
-          <div className="flex items-center gap-3">
-            <Badge variant={statusToBadgeVariant(status)}>{status}</Badge>
-            <p
-              className={`text-sm font-medium ${
-                status === "VALID"
-                  ? "text-green-800"
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Badge variant={statusToBadgeVariant(status)}>{status}</Badge>
+              <p
+                className={`text-sm font-medium ${
+                  status === "VALID"
+                    ? "text-green-800"
+                    : status === "EXPIRED"
+                      ? "text-amber-800"
+                      : "text-red-800"
+                }`}
+              >
+                {status === "VALID"
+                  ? "Valid Credential"
                   : status === "EXPIRED"
-                    ? "text-amber-800"
-                    : "text-red-800"
-              }`}
+                    ? "Expired Credential"
+                    : "Invalid Credential"}
+              </p>
+            </div>
+            <button
+              onClick={() => void handleDownloadReport()}
+              className="rounded-md bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-white hover:ring-gray-300 transition-colors"
             >
-              {status === "VALID"
-                ? "Valid Credential"
-                : status === "EXPIRED"
-                  ? "Expired Credential"
-                  : "Invalid Credential"}
-            </p>
+              Download Report
+            </button>
           </div>
           <p
             className={`text-sm ${
@@ -322,6 +641,50 @@ export function VerifyPage() {
           <p className="text-xs text-amber-700">
             You are offline. Only signature and date checks were performed. Revocation
             status could not be verified.
+          </p>
+        </Card>
+      )}
+
+      {/* Recent verifications (session-only) */}
+      {history.length > 0 && (
+        <Card variant="neutral" className="space-y-3">
+          <h3 className="oc-card-label">Recent Verifications</h3>
+          <div className="space-y-1.5">
+            {history.map((entry) => (
+              <button
+                key={entry.id}
+                onClick={() => handleLoadFromHistory(entry)}
+                className="flex w-full items-center gap-3 rounded-md border border-gray-100 px-3 py-2 text-left transition-colors hover:bg-gray-50"
+              >
+                <span
+                  className={`flex-shrink-0 text-[0.6rem] font-mono font-semibold uppercase ${
+                    entry.status === "VALID"
+                      ? "text-green-600"
+                      : entry.status === "EXPIRED"
+                        ? "text-amber-600"
+                        : "text-red-600"
+                  }`}
+                >
+                  {entry.status === "VALID"
+                    ? "VALID"
+                    : entry.status === "EXPIRED"
+                      ? "EXPD"
+                      : "INVLD"}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-xs text-gray-700">
+                  {entry.issuer}
+                </span>
+                <span className="flex-shrink-0 text-[0.6rem] text-gray-400">
+                  {new Date(entry.timestamp).toLocaleTimeString(undefined, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="text-[0.6rem] text-gray-400">
+            Click to reload a credential. History is session-only and not persisted.
           </p>
         </Card>
       )}

@@ -8,7 +8,7 @@
  * After successful issuance, auto-saves to credential history.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { KeyMetadata, UiProofFormat } from "../../shared/ipc-types";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
@@ -149,12 +149,13 @@ interface CredentialResultProps {
   signedCredential: string;
   schemaId?: string;
   schemaName?: string;
+  organizationName?: string;
   onExportJson: () => void;
   onExportPdf: () => void;
   onShowQr: () => void;
 }
 
-function CredentialResult({ signedCredential, schemaId, schemaName, onExportJson, onExportPdf, onShowQr }: CredentialResultProps) {
+function CredentialResult({ signedCredential, schemaId, schemaName, organizationName, onExportJson, onExportPdf, onShowQr }: CredentialResultProps) {
   const [showRaw, setShowRaw] = useState(false);
   const vc = parseCredential(signedCredential);
   const typeFromVc = vc.types.find((t) => t !== "VerifiableCredential");
@@ -364,9 +365,20 @@ function CredentialResult({ signedCredential, schemaId, schemaName, onExportJson
               <dt style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "var(--oc-text-muted)" }}>
                 Issuer
               </dt>
-              <dd style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.72rem", color: "var(--oc-text-secondary)", marginTop: 2, margin: 0 }} title={vc.issuer}>
-                {truncateDid(vc.issuer)}
-              </dd>
+              {organizationName ? (
+                <dd style={{ margin: 0, marginTop: 2 }}>
+                  <div style={{ fontFamily: "var(--oc-font-body)", fontSize: "0.82rem", fontWeight: 500, color: "var(--oc-text-primary)" }}>
+                    {organizationName}
+                  </div>
+                  <div style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.62rem", color: "var(--oc-text-muted)", marginTop: 1 }} title={vc.issuer}>
+                    {truncateDid(vc.issuer)}
+                  </div>
+                </dd>
+              ) : (
+                <dd style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.72rem", color: "var(--oc-text-secondary)", marginTop: 2, margin: 0 }} title={vc.issuer}>
+                  {truncateDid(vc.issuer)}
+                </dd>
+              )}
             </div>
             {vc.proofType && (
               <div>
@@ -734,6 +746,15 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
   // Blank credential inline schema
   const [inlineSchema, setInlineSchema] = useState<Record<string, unknown> | null>(null);
 
+  // Confirmation dialog
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+
+  // Auto-scroll ref for credential result
+  const resultRef = useRef<HTMLDivElement>(null);
+
+  // Organization name for issuer display
+  const [organizationName, setOrganizationName] = useState<string | undefined>(undefined);
+
   // did:web publication warning
   const [showDidWebWarning, setShowDidWebWarning] = useState(false);
   const [didWarningDismissed, setDidWarningDismissed] = useState(false);
@@ -803,11 +824,28 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
   useEffect(() => {
     void loadKeys();
     void loadSchema();
+    void (async () => {
+      try {
+        const saved = await window.opencred.getConfig("organizationName") as string | undefined;
+        if (saved) setOrganizationName(saved);
+      } catch { /* non-fatal */ }
+    })();
   }, [loadKeys, loadSchema]);
 
   useEffect(() => {
     void checkDidWebWarning();
   }, [checkDidWebWarning]);
+
+  // Auto-scroll to credential result after successful issuance
+  useEffect(() => {
+    if (signedCredential && resultRef.current) {
+      // Small delay to let the result card render before scrolling
+      const timer = setTimeout(() => {
+        resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [signedCredential]);
 
   // Auto-revert proof format when key changes to RSA while "data-integrity" is selected
   const selectedKeyAlgorithm = keys.find((k) => k.id === selectedKeyId)?.algorithm;
@@ -1233,7 +1271,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
                 </p>
               </div>
               <Button
-                onClick={() => void handleBuildAndSign()}
+                onClick={() => setShowConfirmDialog(true)}
                 disabled={signing || !selectedKeyId || (schemaFields.length === 0 && !isBlank)}
               >
                 {signing ? "Signing..." : "Issue Credential"}
@@ -1242,23 +1280,72 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
 
             {error && <p className="text-sm text-red-600">{error}</p>}
 
-            {signedCredential && resultProofFormat === "sd-jwt-vc" && (
-              <SdJwtResult
-                signedCredential={signedCredential}
-                onExport={() => void handleExportJson()}
-              />
+            {/* Confirmation dialog overlay */}
+            {showConfirmDialog && (
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+                onClick={() => setShowConfirmDialog(false)}
+              >
+                <div
+                  className="mx-4 w-full max-w-md rounded-lg border border-gray-200 bg-white p-6 shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <h3 className="text-sm font-semibold text-gray-800 mb-3">
+                    Confirm Credential Issuance
+                  </h3>
+                  <p className="text-sm text-gray-600 mb-5">
+                    You are about to issue a{" "}
+                    <span className="font-medium text-gray-800">{schemaName || "Credential"}</span>
+                    {(() => {
+                      const firstValue = Object.values(subjectValues).find((v) => v.trim());
+                      return firstValue
+                        ? <> for <span className="font-medium text-gray-800">{firstValue}</span></>
+                        : null;
+                    })()}.
+                    This creates a digitally signed document. Continue?
+                  </p>
+                  <div className="flex justify-end gap-3">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setShowConfirmDialog(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setShowConfirmDialog(false);
+                        void handleBuildAndSign();
+                      }}
+                    >
+                      Issue
+                    </Button>
+                  </div>
+                </div>
+              </div>
             )}
 
-            {signedCredential && resultProofFormat !== "sd-jwt-vc" && (
-              <CredentialResult
-                signedCredential={signedCredential}
-                schemaId={isBlank ? undefined : schemaId}
-                schemaName={schemaName}
-                onExportJson={() => void handleExportJson()}
-                onExportPdf={() => void handleExportPdf()}
-                onShowQr={() => void handleShowQr()}
-              />
-            )}
+            <div ref={resultRef}>
+              {signedCredential && resultProofFormat === "sd-jwt-vc" && (
+                <SdJwtResult
+                  signedCredential={signedCredential}
+                  onExport={() => void handleExportJson()}
+                />
+              )}
+
+              {signedCredential && resultProofFormat !== "sd-jwt-vc" && (
+                <CredentialResult
+                  signedCredential={signedCredential}
+                  schemaId={isBlank ? undefined : schemaId}
+                  schemaName={schemaName}
+                  organizationName={organizationName}
+                  onExportJson={() => void handleExportJson()}
+                  onExportPdf={() => void handleExportPdf()}
+                  onShowQr={() => void handleShowQr()}
+                />
+              )}
+            </div>
           </Card>
         </div>
       )}
