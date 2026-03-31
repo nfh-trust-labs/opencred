@@ -49,6 +49,10 @@
     "./p11-kit-discovery": {
       "types": "./dist/p11-kit-discovery.d.ts",
       "import": "./dist/p11-kit-discovery.js"
+    },
+    "./pkcs11-loader": {
+      "types": "./dist/pkcs11-loader.d.ts",
+      "import": "./dist/pkcs11-loader.js"
     }
   },
   "scripts": {

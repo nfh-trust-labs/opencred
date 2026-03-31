@@ -99,9 +99,9 @@ vi.mock("../signing/os-cert-provider", () => ({
   signWithOsCert: vi.fn(),
 }));
 
-// Mock PKCS#11 (native addon)
-vi.mock("pkcs11js", () => ({
-  default: vi.fn(),
+// Mock PKCS#11 (native addon) via the lazy loader
+vi.mock("@opencred/signing/pkcs11-loader", () => ({
+  loadPkcs11js: () => ({ PKCS11: class {} }),
 }));
 
 // Mock keytar (native keychain)

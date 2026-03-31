@@ -1,55 +1,115 @@
 name: Desktop Build
 
 on:
+  workflow_dispatch:
   push:
-    branches: [new-opencred-dev]
-  pull_request:
-    branches: [new-opencred-dev]
+    tags: ['v*']
+
+permissions:
+  contents: read
 
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        include:
+          # macOS — both architectures
+          - os: macos-latest
+            platform: mac
+            arch: x64
+            electron_builder_args: "--mac --x64"
+            artifact_suffix: mac-x64
+          - os: macos-latest
+            platform: mac
+            arch: arm64
+            electron_builder_args: "--mac --arm64"
+            artifact_suffix: mac-arm64
+          # Linux — x64 only (no GitHub-hosted arm64 runners)
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            electron_builder_args: "--linux --x64"
+            artifact_suffix: linux-x64
+          # Windows — x64 only (no GitHub-hosted arm64 runners)
+          - os: windows-latest
+            platform: win
+            arch: x64
+            electron_builder_args: "--win --x64"
+            artifact_suffix: win-x64
+
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version-file: ".nvmrc"
+          node-version: 20
           cache: pnpm
 
-      - uses: actions/setup-python@v5
+      # Python is required by node-gyp for native addon compilation
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      # Linux needs additional packages for electron-builder (AppImage, deb)
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm libarchive-tools
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build workspace dependencies
+      - name: Build workspace packages
         run: pnpm --filter @opencred/desktop... build
 
+      - name: Run tests
+        run: pnpm --filter @opencred/desktop test
+
+      # Flatten pnpm workspace symlinks so electron-builder can pack them
+      - name: Flatten dependencies
+        working-directory: apps/desktop
+        run: node scripts/flatten-deps.cjs
+
+      # Rebuild native addons (pkcs11js, macos-keychain, windows-cng) for the
+      # Electron ABI on this platform. The binding.gyp conditionally compiles
+      # only the platform-appropriate addon (macos-keychain on mac, windows-cng
+      # on win, neither on linux).
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
-        continue-on-error: true
 
       - name: Verify native addons
         run: node scripts/verify-native-addons.cjs
         working-directory: packages/signing
 
-      - name: Run tests
-        run: pnpm --filter @opencred/desktop test
-
-      # Smoke test -- build distributable without code signing.
-      # Uses continue-on-error because platform-specific packaging
-      # may fail in CI without signing certs, icons, etc.
-      - name: Build distributable (smoke test)
-        continue-on-error: true
-        run: pnpm --filter @opencred/desktop exec electron-builder --publish never
+      - name: Build distributable
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          EB_ARGS: ${{ matrix.electron_builder_args }}
+        shell: bash
+        run: |
+          pnpm --filter @opencred/desktop exec electron-builder $EB_ARGS --publish never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencred-${{ matrix.artifact_suffix }}
+          path: |
+            apps/desktop/out/*.dmg
+            apps/desktop/out/*.zip
+            apps/desktop/out/*.exe
+            apps/desktop/out/*.msi
+            apps/desktop/out/*.AppImage
+            apps/desktop/out/*.deb
+            apps/desktop/out/*.rpm
+          if-no-files-found: warn
+          retention-days: 30

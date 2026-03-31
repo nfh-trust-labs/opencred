@@ -13,8 +13,25 @@
  *  - No key material is logged — only key labels and fingerprints.
  */
 
-import * as pkcs11js from "pkcs11js";
 import { CryptoError } from "@opencred/shared";
+import type * as Pkcs11Types from "pkcs11js";
+import { loadPkcs11js } from "./pkcs11-loader.js";
+
+/**
+ * Lazy accessor for the pkcs11js module.
+ *
+ * Uses a Proxy so that any property access (constants, classes, etc.)
+ * triggers loading of the native addon on first use. This means importing
+ * pkcs11-session.ts never crashes — the native addon is only loaded when
+ * a PKCS#11 function is actually called.
+ *
+ * See pkcs11-loader.ts for the full rationale.
+ */
+const pkcs11js: typeof Pkcs11Types = new Proxy({} as typeof Pkcs11Types, {
+  get(_target, prop: string) {
+    return (loadPkcs11js() as Record<string, unknown>)[prop];
+  },
+});
 
 /**
  * CKF_TOKEN_PRESENT is 0x01 per the PKCS#11 spec but is not exported
@@ -91,7 +108,7 @@ export interface Pkcs11SlotInfo {
  */
 export interface Pkcs11Session {
   /** The pkcs11js PKCS11 instance. */
-  pkcs11: pkcs11js.PKCS11;
+  pkcs11: Pkcs11Types.PKCS11;
   /** The session handle. */
   handle: Buffer;
   /** The slot index. */
@@ -107,7 +124,7 @@ export interface Pkcs11Session {
  * @returns Initialized PKCS11 instance.
  * @throws {CryptoError} if the library cannot be loaded.
  */
-export function initializePkcs11(libraryPath: string): pkcs11js.PKCS11 {
+export function initializePkcs11(libraryPath: string): Pkcs11Types.PKCS11 {
   try {
     const p11 = new pkcs11js.PKCS11();
     p11.load(libraryPath);
@@ -125,7 +142,7 @@ export function initializePkcs11(libraryPath: string): pkcs11js.PKCS11 {
  *
  * @param pkcs11 - The PKCS11 instance to finalize.
  */
-export function finalizePkcs11(pkcs11: pkcs11js.PKCS11): void {
+export function finalizePkcs11(pkcs11: Pkcs11Types.PKCS11): void {
   try {
     pkcs11.C_Finalize();
   } catch {
@@ -139,7 +156,7 @@ export function finalizePkcs11(pkcs11: pkcs11js.PKCS11): void {
  * @param pkcs11 - An initialized PKCS11 instance.
  * @returns Array of slot information.
  */
-export function listSlots(pkcs11: pkcs11js.PKCS11): Pkcs11SlotInfo[] {
+export function listSlots(pkcs11: Pkcs11Types.PKCS11): Pkcs11SlotInfo[] {
   try {
     // Get all slots (including those without tokens)
     const slots = pkcs11.C_GetSlotList(false);
@@ -186,7 +203,7 @@ export function listSlots(pkcs11: pkcs11js.PKCS11): Pkcs11SlotInfo[] {
  * @throws {CryptoError} if the session cannot be opened or PIN is wrong.
  */
 export function openSession(
-  pkcs11: pkcs11js.PKCS11,
+  pkcs11: Pkcs11Types.PKCS11,
   slotIndex: number,
   pin: string,
 ): Pkcs11Session {

@@ -119,7 +119,13 @@ const fakeRsaExponent = new Uint8Array([0x01, 0x00, 0x01]);
 // Fake DER certificate
 const fakeDerCert = new Uint8Array([0x30, 0x82, 0x01, 0x00]);
 
-vi.mock("pkcs11js", () => {
+vi.mock("../pkcs11-loader.js", () => {
+  return {
+    loadPkcs11js: () => mockPkcs11Module,
+  };
+});
+
+const mockPkcs11Module = (() => {
   class MockPKCS11 {
     load(_path: string) {
       // Accept any path
@@ -283,7 +289,7 @@ vi.mock("pkcs11js", () => {
     PKCS11: MockPKCS11,
     ...CONSTS,
   };
-});
+})();
 
 // ---------------------------------------------------------------------------
 // Import modules under test (AFTER mock is set up)

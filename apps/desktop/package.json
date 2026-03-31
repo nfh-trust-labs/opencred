@@ -14,7 +14,7 @@
     "dev": "concurrently -n vite,electron \"vite\" \"wait-on http://localhost:5174 && electron .\"",
     "rebuild:native": "electron-rebuild -f -m ../../packages/signing/native -o pkcs11js",
     "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs && vite build",
-    "build:dist": "npm run rebuild:native && tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs && vite build && electron-builder",
+    "build:dist": "npm run rebuild:native && tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs && vite build && node scripts/flatten-deps.cjs && electron-builder",
     "build:renderer": "vite build",
     "build:main": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
@@ -80,10 +80,17 @@
     },
     "files": [
       "dist/**/*",
-      "package.json"
+      "package.json",
+      "!**/node_modules/**/__tests__/**",
+      "!**/node_modules/**/*.test.*",
+      "!**/node_modules/**/*.spec.*",
+      "!**/*.test.d.ts",
+      "!**/*.test.d.ts.map",
+      "!**/*.test.js.map"
     ],
     "asarUnpack": [
-      "**/*.node"
+      "dist/**/*.node",
+      "node_modules/**/*.node"
     ],
     "mac": {
       "target": [
@@ -116,7 +123,11 @@
         "AppImage",
         "deb"
       ],
-      "category": "Development"
+      "category": "Development",
+      "executableName": "opencred"
+    },
+    "deb": {
+      "packageName": "opencred-desktop"
     },
     "nsis": {
       "oneClick": false,

@@ -18,9 +18,21 @@
  *  - RSA signature format: CKM_RSA_PKCS_PSS returns RSASSA-PSS signature.
  */
 
-import * as pkcs11js from "pkcs11js";
 import { createHash } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
+import type * as Pkcs11Types from "pkcs11js";
+import { loadPkcs11js } from "./pkcs11-loader.js";
+
+/**
+ * Lazy accessor for the pkcs11js module.
+ * See pkcs11-loader.ts for rationale.
+ */
+const pkcs11js: typeof Pkcs11Types = new Proxy({} as typeof Pkcs11Types, {
+  get(_target, prop: string) {
+    return (loadPkcs11js() as Record<string, unknown>)[prop];
+  },
+});
+
 import { encodeDidJwk, didJwkVerificationMethodId } from "@opencred/did";
 import type { SigningAlgorithm } from "@opencred/crypto";
 import type { Signer, SignerMetadata } from "./types.js";
@@ -69,7 +81,7 @@ export interface Pkcs11SignerResult {
   signer: Signer;
   availableKeys: Pkcs11KeyInfo[];
   /** The PKCS#11 instance (needed for destroyPkcs11Signer). */
-  pkcs11Instance: pkcs11js.PKCS11;
+  pkcs11Instance: Pkcs11Types.PKCS11;
   /** The PKCS#11 session (needed for destroyPkcs11Signer). */
   session: Pkcs11Session;
 }
@@ -262,7 +274,7 @@ function buildRsaSigner(session: Pkcs11Session, targetKey: Pkcs11KeyInfo, label?
     async sign(data: Uint8Array): Promise<Uint8Array> {
       try {
         // RSA-PSS with SHA-256 hash, MGF1-SHA256, salt length = 32
-        const rsaPssParams: pkcs11js.RsaPSS = {
+        const rsaPssParams: Pkcs11Types.RsaPSS = {
           type: pkcs11js.CK_PARAMS_RSA_PSS,
           hashAlg: pkcs11js.CKM_SHA256,
           mgf: pkcs11js.CKG_MGF1_SHA256,
@@ -299,7 +311,7 @@ function buildRsaSigner(session: Pkcs11Session, targetKey: Pkcs11KeyInfo, label?
  * @param session - The PKCS#11 session to close.
  * @param pkcs11 - The PKCS11 instance to finalize.
  */
-export function destroyPkcs11Signer(session: Pkcs11Session, pkcs11Instance: pkcs11js.PKCS11): void {
+export function destroyPkcs11Signer(session: Pkcs11Session, pkcs11Instance: Pkcs11Types.PKCS11): void {
   closeSession(session);
   finalizePkcs11(pkcs11Instance);
 }
