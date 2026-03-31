@@ -95,7 +95,14 @@ const fakeRsaExponent = new Uint8Array([0x01, 0x00, 0x01]);
 // A fake DER certificate
 const fakeDerCert = new Uint8Array([0x30, 0x82, 0x01, 0x00, 0xAA, 0xBB, 0xCC]);
 
-vi.mock("pkcs11js", () => {
+vi.mock("../pkcs11-loader.js", () => {
+  // Build the mock pkcs11js module inline, then export it via loadPkcs11js()
+  return {
+    loadPkcs11js: () => mockPkcs11Module,
+  };
+});
+
+const mockPkcs11Module = (() => {
   class MockPKCS11 {
     load(_path: string) {
       if (mockState.loadShouldFail) throw new Error("Cannot load library");
@@ -243,7 +250,7 @@ vi.mock("pkcs11js", () => {
     PKCS11: MockPKCS11,
     ...CONSTS,
   };
-});
+})();
 
 // Import after mocks
 import {

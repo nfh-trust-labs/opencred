@@ -112,7 +112,13 @@ const {
   };
 });
 
-vi.mock("pkcs11js", () => {
+vi.mock("@opencred/signing/pkcs11-loader", () => {
+  return {
+    loadPkcs11js: () => mockPkcs11Module,
+  };
+});
+
+const mockPkcs11Module = (() => {
   class MockPKCS11 {
     load(_path: string) {
       // Accept any path
@@ -242,7 +248,7 @@ vi.mock("pkcs11js", () => {
     PKCS11: MockPKCS11,
     ...CONSTS,
   };
-});
+})();
 
 // ---------------------------------------------------------------------------
 // Import modules under test (AFTER mock is set up)

@@ -61,8 +61,22 @@ export function getProviderForPlatform(
 
   switch (platform) {
     case "darwin":
+      if (process.platform !== "darwin") {
+        throw new CryptoError(
+          "macOS Keychain integration is only available on macOS. " +
+            `Current platform: ${process.platform}. ` +
+            "Use a software key or PKCS#11 token instead.",
+        );
+      }
       return createMacOsCertProvider();
     case "win32":
+      if (process.platform !== "win32") {
+        throw new CryptoError(
+          "Windows Certificate Store integration is only available on Windows. " +
+            `Current platform: ${process.platform}. ` +
+            "Use a software key or PKCS#11 token instead.",
+        );
+      }
       return createWindowsCertProvider();
     case "linux": {
       const p11Module = autoDiscoverP11KitModule();

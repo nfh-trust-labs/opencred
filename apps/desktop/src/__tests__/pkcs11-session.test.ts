@@ -70,7 +70,13 @@ const { mockState, resetMocks, testKeyId, testEcPoint, CONSTS } = vi.hoisted(() 
   };
 });
 
-vi.mock("pkcs11js", () => {
+vi.mock("@opencred/signing/pkcs11-loader", () => {
+  return {
+    loadPkcs11js: () => mockPkcs11Module,
+  };
+});
+
+const mockPkcs11Module = (() => {
   class MockPKCS11 {
     load(_path: string) {
       if (mockState.loadShouldFail) throw new Error("Cannot load library");
@@ -182,7 +188,7 @@ vi.mock("pkcs11js", () => {
     PKCS11: MockPKCS11,
     ...CONSTS,
   };
-});
+})();
 
 // Import after mocks
 import {
