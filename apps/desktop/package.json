@@ -106,8 +106,7 @@
     "afterSign": "scripts/notarize.cjs",
     "win": {
       "target": [
-        "nsis",
-        "msi"
+        "nsis"
       ],
       "signingHashAlgorithms": [
         "sha256"
