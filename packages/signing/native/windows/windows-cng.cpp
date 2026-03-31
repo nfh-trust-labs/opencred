@@ -22,6 +22,14 @@
 #include <bcrypt.h>
 #include <vector>
 #include <string>
+
+// CERT_FIND_SHA_256_HASH may not be defined in older Windows SDK headers
+#ifndef CERT_FIND_SHA_256_HASH
+#define CERT_FIND_SHA_256_HASH (CERT_COMPARE_SHA_256_HASH << CERT_COMPARE_SHIFT)
+#endif
+#ifndef CERT_COMPARE_SHA_256_HASH
+#define CERT_COMPARE_SHA_256_HASH 19
+#endif
 #include <sstream>
 #include <iomanip>
 
