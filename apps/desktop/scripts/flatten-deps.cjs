@@ -24,6 +24,7 @@ const rootNodeModulesDir = path.resolve(__dirname, "..", "..", "..", "node_modul
 const pnpmStoreDir = path.join(rootNodeModulesDir, ".pnpm");
 let flattened = 0;
 let hoisted = 0;
+let missing = 0;
 
 // -------------------------------------------------------------------------
 // Pass 1: Flatten all symlinks in node_modules/
@@ -77,49 +78,83 @@ function flattenSymlinks(dir, depth) {
 // Pass 2: Hoist missing transitive deps from .pnpm/ store
 // -------------------------------------------------------------------------
 
-/**
- * Find a package inside the .pnpm virtual store. pnpm stores packages at
- * .pnpm/<name>@<version>/node_modules/<name>. For scoped packages the
- * directory key uses "+" instead of "/".
- */
-function findInPnpmStore(pkgName) {
-  if (!fs.existsSync(pnpmStoreDir)) return null;
-
-  // The package could be a sibling in any .pnpm entry's node_modules/.
-  // Scan store entries that match the package name prefix.
-  const storeKey = pkgName.replace("/", "+");
-  let entries;
+// Cache the .pnpm store listing (read once, reused across all lookups)
+let _storeEntries = null;
+function getStoreEntries() {
+  if (_storeEntries) return _storeEntries;
+  if (!fs.existsSync(pnpmStoreDir)) return [];
   try {
-    entries = fs.readdirSync(pnpmStoreDir);
+    _storeEntries = fs.readdirSync(pnpmStoreDir);
   } catch {
-    return null;
+    _storeEntries = [];
+  }
+  return _storeEntries;
+}
+
+/**
+ * Find a package inside the .pnpm virtual store.
+ *
+ * When parentName + parentVersion are provided, looks for the dep as a
+ * sibling in the parent's store entry first. This ensures we get the
+ * exact version pnpm resolved for that parent (avoids hoisting ajv@6
+ * when the parent needs ajv@8).
+ *
+ * Falls back to a global store scan if the parent lookup fails.
+ */
+function findInPnpmStore(pkgName, parentName, parentVersion) {
+  const entries = getStoreEntries();
+  if (entries.length === 0) return null;
+
+  // Strategy 1: look for pkgName as a sibling of the parent package.
+  // .pnpm/<parent>@<version>/node_modules/<pkgName> is the exact version
+  // pnpm resolved for this parent.
+  if (parentName && parentVersion) {
+    const parentKey = parentName.replace("/", "+") + "@" + parentVersion;
+    for (const entry of entries) {
+      if (!entry.startsWith(parentKey)) continue;
+      const candidate = path.join(pnpmStoreDir, entry, "node_modules", pkgName);
+      if (fs.existsSync(candidate)) return candidate;
+    }
   }
 
-  // Prefer the canonical entry (pkgName@version) first, then fall back to
-  // finding it as a transitive dep inside any other package's node_modules.
+  // Strategy 2: global scan — when multiple versions exist, prefer the highest
+  // semver (app packages generally need newer versions; build tools that need
+  // older versions are typically .ignored_ and not packaged).
+  const storeKey = pkgName.replace("/", "+");
+  let bestCanonical = null;
+  let bestVersion = "";
   let fallback = null;
   for (const entry of entries) {
     const candidate = path.join(pnpmStoreDir, entry, "node_modules", pkgName);
     if (!fs.existsSync(candidate)) continue;
-    if (entry.startsWith(storeKey + "@")) return candidate; // canonical match
-    if (!fallback) fallback = candidate;
+    if (entry.startsWith(storeKey + "@")) {
+      const ver = entry.slice(storeKey.length + 1).split("_")[0]; // strip peer-dep suffix
+      if (!bestCanonical || ver > bestVersion) {
+        bestCanonical = candidate;
+        bestVersion = ver;
+      }
+    } else if (!fallback) {
+      fallback = candidate;
+    }
   }
-  if (fallback) return fallback;
-
-  return null;
+  return bestCanonical || fallback;
 }
 
 /**
- * Read production dependencies from a package's package.json.
+ * Read package.json and return production deps + package metadata.
  */
-function getProductionDeps(pkgDir) {
+function readPackageInfo(pkgDir) {
   const pkgJsonPath = path.join(pkgDir, "package.json");
-  if (!fs.existsSync(pkgJsonPath)) return [];
+  if (!fs.existsSync(pkgJsonPath)) return { deps: [], name: null, version: null };
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
-    return Object.keys(pkg.dependencies || {});
+    return {
+      deps: Object.keys(pkg.dependencies || {}),
+      name: pkg.name || null,
+      version: pkg.version || null,
+    };
   } catch {
-    return [];
+    return { deps: [], name: null, version: null };
   }
 }
 
@@ -171,16 +206,17 @@ function hoistMissingDeps() {
       visited.add(pkg);
 
       const pkgDir = path.join(nodeModulesDir, pkg);
-      const deps = getProductionDeps(pkgDir);
+      const { deps, name: parentName, version: parentVersion } = readPackageInfo(pkgDir);
 
       for (const dep of deps) {
         const depDir = path.join(nodeModulesDir, dep);
         if (fs.existsSync(depDir)) continue; // already present
 
-        // Missing — find in .pnpm store and copy
-        const storeLocation = findInPnpmStore(dep);
+        // Missing — find in .pnpm store, preferring the version resolved for this parent
+        const storeLocation = findInPnpmStore(dep, parentName, parentVersion);
         if (!storeLocation) {
           console.warn(`[flatten-deps] WARN: ${dep} (needed by ${pkg}) not found in .pnpm store`);
+          missing++;
           continue;
         }
 
@@ -210,4 +246,8 @@ console.log(`[flatten-deps] Flattened ${flattened} symlinks`);
 console.log("[flatten-deps] Pass 2: Hoisting missing transitive dependencies...");
 hoistMissingDeps();
 console.log(`[flatten-deps] Hoisted ${hoisted} missing transitive deps`);
+if (missing > 0) {
+  console.error(`[flatten-deps] ERROR: ${missing} dependencies could not be found in the pnpm store`);
+  process.exit(1);
+}
 console.log("[flatten-deps] Done");
