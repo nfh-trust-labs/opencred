@@ -75,18 +75,7 @@ jobs:
       - name: Run tests
         run: pnpm --filter @opencred/desktop test
 
-      # Flatten pnpm workspace symlinks so electron-builder can pack them
-      - name: Flatten dependencies
-        working-directory: apps/desktop
-        run: node scripts/flatten-deps.cjs
-
-      # Rebuild native addons (pkcs11js, macos-keychain, windows-cng) for the
-      # Electron ABI on this platform. The binding.gyp conditionally compiles
-      # only the platform-appropriate addon (macos-keychain on mac, windows-cng
-      # on win, neither on linux).
-      # Custom native addon rebuild (macos-keychain/windows-cng).
-      # On Linux there are no custom targets so this is a no-op.
-      # electron-builder also runs its own @electron/rebuild for pkcs11js.
+      # Rebuild native addons for the Electron ABI before bundling
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
         continue-on-error: true
@@ -96,7 +85,16 @@ jobs:
         continue-on-error: true
         working-directory: packages/signing
 
-      # Create output dirs that electron-builder expects (scoped package names)
+      # Bundle main process + preload with esbuild (inlines all JS deps)
+      - name: Bundle main process
+        working-directory: apps/desktop
+        run: node scripts/bundle-main.mjs
+
+      # Set up minimal node_modules with only native addon packages
+      - name: Prepare native dependencies
+        working-directory: apps/desktop
+        run: node scripts/prepare-native-deps.cjs
+
       - name: Prepare output directories
         shell: bash
         working-directory: apps/desktop

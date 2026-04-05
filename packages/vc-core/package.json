@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "build": "tsc && cp -r src/contexts dist/contexts",
+    "build": "node scripts/embed-contexts.cjs && tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"

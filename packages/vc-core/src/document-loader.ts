@@ -5,7 +5,6 @@
  * All W3C contexts are bundled as static JSON and served locally.
  */
 
-import { createRequire } from "node:module";
 import { ContextNotFoundError } from "./context-errors.js";
 import {
   W3C_CREDENTIALS_V2_CONTEXT,
@@ -17,17 +16,16 @@ import {
   NFH_HEALTH_V1_CONTEXT,
   NFH_BUSINESS_V1_CONTEXT,
 } from "./types.js";
-
-const require = createRequire(import.meta.url);
-
-const credentialsV2 = require("./contexts/credentials-v2.json") as Record<string, unknown>;
-const dataIntegrityV1 = require("./contexts/data-integrity-v1.json") as Record<string, unknown>;
-const delegationV1 = require("./contexts/delegation-v1.json") as Record<string, unknown>;
-const educationV1 = require("./contexts/education-v1.json") as Record<string, unknown>;
-const employmentV1 = require("./contexts/employment-v1.json") as Record<string, unknown>;
-const identityV1 = require("./contexts/identity-v1.json") as Record<string, unknown>;
-const healthV1 = require("./contexts/health-v1.json") as Record<string, unknown>;
-const businessV1 = require("./contexts/business-v1.json") as Record<string, unknown>;
+import {
+  credentialsV2,
+  dataIntegrityV1,
+  delegationV1,
+  educationV1,
+  employmentV1,
+  identityV1,
+  healthV1,
+  businessV1,
+} from "./context-data.js";
 
 export interface JsonLdDocument {
   contextUrl: string | null;
