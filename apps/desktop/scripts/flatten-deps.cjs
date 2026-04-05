@@ -25,6 +25,7 @@ const pnpmStoreDir = path.join(rootNodeModulesDir, ".pnpm");
 let flattened = 0;
 let hoisted = 0;
 let missing = 0;
+const hoistedDeps = []; // track {name, version} for Pass 3
 
 // -------------------------------------------------------------------------
 // Pass 1: Flatten all symlinks in node_modules/
@@ -280,6 +281,7 @@ function hoistMissingDeps() {
           fs.cpSync(realPath, nestedDir, { recursive: true });
           hoisted++;
           foundNew = true;
+          hoistedDeps.push({ name: dep, version: storeVersion });
           console.log(`[flatten-deps] Hoisted ${dep}@${storeVersion} nested under ${pkg} (top-level has ${existingVersion})`);
           continue;
         }
@@ -293,6 +295,7 @@ function hoistMissingDeps() {
         fs.cpSync(realPath, topLevelDir, { recursive: true });
         hoisted++;
         foundNew = true;
+        hoistedDeps.push({ name: dep, version: storeVersion });
         console.log(`[flatten-deps] Hoisted ${dep} (needed by ${pkg})`);
       }
     }
@@ -310,4 +313,33 @@ if (missing > 0) {
   console.error(`[flatten-deps] ERROR: ${missing} dependencies could not be found in the pnpm store`);
   process.exit(1);
 }
+
+// -------------------------------------------------------------------------
+// Pass 3: Register hoisted deps in package.json for electron-builder
+// -------------------------------------------------------------------------
+// electron-builder uses package.json `dependencies` to determine which
+// packages to bundle into the asar. Physically present but unlisted
+// packages are ignored. This pass adds hoisted deps so they get bundled.
+
+if (hoistedDeps.length > 0) {
+  console.log("[flatten-deps] Pass 3: Registering hoisted deps in package.json...");
+  const appPkgPath = path.join(nodeModulesDir, "..", "package.json");
+  try {
+    const appPkg = JSON.parse(fs.readFileSync(appPkgPath, "utf-8"));
+    let added = 0;
+    for (const { name, version } of hoistedDeps) {
+      if (!name || !version) continue;
+      if (appPkg.dependencies[name]) continue; // already listed
+      appPkg.dependencies[name] = version;
+      added++;
+    }
+    if (added > 0) {
+      fs.writeFileSync(appPkgPath, JSON.stringify(appPkg, null, 2) + "\n");
+      console.log(`[flatten-deps] Registered ${added} deps in package.json`);
+    }
+  } catch (err) {
+    console.warn(`[flatten-deps] WARN: could not update package.json: ${err.message}`);
+  }
+}
+
 console.log("[flatten-deps] Done");
