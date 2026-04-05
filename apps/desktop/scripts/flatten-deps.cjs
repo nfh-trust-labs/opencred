@@ -95,17 +95,16 @@ function findInPnpmStore(pkgName) {
     return null;
   }
 
-  for (const entry of entries) {
-    if (!entry.startsWith(storeKey + "@")) continue;
-    const candidate = path.join(pnpmStoreDir, entry, "node_modules", pkgName);
-    if (fs.existsSync(candidate)) return candidate;
-  }
-
-  // Also check as a transitive dep inside other packages' node_modules
+  // Prefer the canonical entry (pkgName@version) first, then fall back to
+  // finding it as a transitive dep inside any other package's node_modules.
+  let fallback = null;
   for (const entry of entries) {
     const candidate = path.join(pnpmStoreDir, entry, "node_modules", pkgName);
-    if (fs.existsSync(candidate)) return candidate;
+    if (!fs.existsSync(candidate)) continue;
+    if (entry.startsWith(storeKey + "@")) return candidate; // canonical match
+    if (!fallback) fallback = candidate;
   }
+  if (fallback) return fallback;
 
   return null;
 }
@@ -125,22 +124,20 @@ function getProductionDeps(pkgDir) {
 }
 
 /**
- * Resolve a dependency name to a directory within node_modules, handling
- * both regular and scoped packages.
- */
-function resolveInNodeModules(depName) {
-  return path.join(nodeModulesDir, depName);
-}
-
-/**
  * Iteratively hoist all missing transitive deps. Keeps going until no
  * new deps are found (handles chains like conf -> dot-prop -> type-fest).
  */
 function hoistMissingDeps() {
   let foundNew = true;
   const visited = new Set();
+  let iterations = 0;
+  const MAX_ITERATIONS = 50;
 
   while (foundNew) {
+    if (++iterations > MAX_ITERATIONS) {
+      console.error(`[flatten-deps] ERROR: exceeded ${MAX_ITERATIONS} iterations — possible circular dependency`);
+      process.exit(1);
+    }
     foundNew = false;
 
     // Collect all packages currently in node_modules (top-level)
@@ -173,11 +170,11 @@ function hoistMissingDeps() {
       if (visited.has(pkg)) continue;
       visited.add(pkg);
 
-      const pkgDir = resolveInNodeModules(pkg);
+      const pkgDir = path.join(nodeModulesDir, pkg);
       const deps = getProductionDeps(pkgDir);
 
       for (const dep of deps) {
-        const depDir = resolveInNodeModules(dep);
+        const depDir = path.join(nodeModulesDir, dep);
         if (fs.existsSync(depDir)) continue; // already present
 
         // Missing — find in .pnpm store and copy
