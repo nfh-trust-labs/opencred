@@ -159,12 +159,29 @@ function readPackageInfo(pkgDir) {
 }
 
 /**
- * Iteratively hoist all missing transitive deps. Keeps going until no
- * new deps are found (handles chains like conf -> dot-prop -> type-fest).
+ * Iteratively hoist missing transitive deps for runtime packages only.
+ *
+ * Only processes packages listed in the desktop app's `dependencies` (not
+ * devDependencies) and their transitive dependency chains. This prevents
+ * hoisting build tool deps (electron-builder, vite, etc.) which would
+ * shadow their correct versions during the build step.
  */
 function hoistMissingDeps() {
+  // Read the desktop app's package.json to find runtime dependencies
+  const appPkgPath = path.join(nodeModulesDir, "..", "package.json");
+  let runtimeRoots;
+  try {
+    const appPkg = JSON.parse(fs.readFileSync(appPkgPath, "utf-8"));
+    runtimeRoots = new Set(Object.keys(appPkg.dependencies || {}));
+  } catch {
+    console.warn("[flatten-deps] WARN: could not read app package.json — hoisting all deps");
+    runtimeRoots = null; // fall back to hoisting everything
+  }
+
   let foundNew = true;
   const visited = new Set();
+  // Track which packages are in the runtime dependency tree
+  const runtimePackages = runtimeRoots ? new Set(runtimeRoots) : null;
   let iterations = 0;
   const MAX_ITERATIONS = 50;
 
@@ -203,20 +220,25 @@ function hoistMissingDeps() {
 
     for (const pkg of packages) {
       if (visited.has(pkg)) continue;
+      // Only process runtime dependency tree
+      if (runtimePackages && !runtimePackages.has(pkg)) continue;
       visited.add(pkg);
 
       const pkgDir = path.join(nodeModulesDir, pkg);
       const { deps, name: parentName, version: parentVersion } = readPackageInfo(pkgDir);
 
       for (const dep of deps) {
-        const depDir = path.join(nodeModulesDir, dep);
-        if (fs.existsSync(depDir)) continue; // already present
+        // Mark dep as runtime so its own transitive deps get processed
+        if (runtimePackages) runtimePackages.add(dep);
 
-        // Missing — find in .pnpm store, preferring the version resolved for this parent
+        // Find the correct version for this parent
         const storeLocation = findInPnpmStore(dep, parentName, parentVersion);
         if (!storeLocation) {
-          console.warn(`[flatten-deps] WARN: ${dep} (needed by ${pkg}) not found in .pnpm store`);
-          missing++;
+          const depDir = path.join(nodeModulesDir, dep);
+          if (!fs.existsSync(depDir)) {
+            console.warn(`[flatten-deps] WARN: ${dep} (needed by ${pkg}) not found in .pnpm store`);
+            missing++;
+          }
           continue;
         }
 
@@ -224,13 +246,51 @@ function hoistMissingDeps() {
           ? fs.realpathSync(storeLocation)
           : storeLocation;
 
-        // For scoped packages, ensure the scope directory exists
+        // Read the version we'd install
+        let storeVersion = null;
+        try {
+          const storePkg = JSON.parse(fs.readFileSync(path.join(realPath, "package.json"), "utf-8"));
+          storeVersion = storePkg.version;
+        } catch { /* ignore */ }
+
+        const topLevelDir = path.join(nodeModulesDir, dep);
+        const topLevelExists = fs.existsSync(topLevelDir);
+
+        if (topLevelExists) {
+          // Check if the existing version matches what this parent needs
+          let existingVersion = null;
+          try {
+            const existingPkg = JSON.parse(fs.readFileSync(path.join(topLevelDir, "package.json"), "utf-8"));
+            existingVersion = existingPkg.version;
+          } catch { /* ignore */ }
+
+          if (existingVersion === storeVersion) continue; // same version, skip
+
+          // Different version needed — install nested under the parent package
+          const nestedDir = path.join(pkgDir, "node_modules", dep);
+          if (fs.existsSync(nestedDir)) continue; // already installed nested
+
+          if (dep.startsWith("@")) {
+            const scopeDir = path.join(pkgDir, "node_modules", dep.split("/")[0]);
+            if (!fs.existsSync(scopeDir)) fs.mkdirSync(scopeDir, { recursive: true });
+          } else {
+            const parentNm = path.join(pkgDir, "node_modules");
+            if (!fs.existsSync(parentNm)) fs.mkdirSync(parentNm, { recursive: true });
+          }
+          fs.cpSync(realPath, nestedDir, { recursive: true });
+          hoisted++;
+          foundNew = true;
+          console.log(`[flatten-deps] Hoisted ${dep}@${storeVersion} nested under ${pkg} (top-level has ${existingVersion})`);
+          continue;
+        }
+
+        // Not present at top level — hoist there
         if (dep.startsWith("@")) {
           const scopeDir = path.join(nodeModulesDir, dep.split("/")[0]);
           if (!fs.existsSync(scopeDir)) fs.mkdirSync(scopeDir, { recursive: true });
         }
 
-        fs.cpSync(realPath, depDir, { recursive: true });
+        fs.cpSync(realPath, topLevelDir, { recursive: true });
         hoisted++;
         foundNew = true;
         console.log(`[flatten-deps] Hoisted ${dep} (needed by ${pkg})`);
