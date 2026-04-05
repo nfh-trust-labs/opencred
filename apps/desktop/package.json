@@ -13,10 +13,10 @@
   "scripts": {
     "dev": "concurrently -n vite,electron \"vite\" \"wait-on http://localhost:5174 && electron .\"",
     "rebuild:native": "electron-rebuild -f -m ../../packages/signing/native -o pkcs11js",
-    "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs && vite build",
-    "build:dist": "npm run rebuild:native && tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs && vite build && node scripts/flatten-deps.cjs && electron-builder",
+    "build": "vite build && node scripts/bundle-main.mjs",
+    "build:dist": "npm run rebuild:native && vite build && node scripts/bundle-main.mjs && node scripts/prepare-native-deps.cjs && electron-builder",
     "build:renderer": "vite build",
-    "build:main": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && node scripts/rename-preload-cjs.cjs",
+    "build:main": "node scripts/bundle-main.mjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "typecheck:main": "tsc -p tsconfig.main.json --noEmit",
     "typecheck:renderer": "tsc -p tsconfig.renderer.json --noEmit",
@@ -63,6 +63,7 @@
     "concurrently": "^9.1.0",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
+    "esbuild": "^0.28.0",
     "happy-dom": "^15.11.7",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
@@ -81,12 +82,12 @@
     "files": [
       "dist/**/*",
       "package.json",
-      "!**/node_modules/**/__tests__/**",
-      "!**/node_modules/**/*.test.*",
-      "!**/node_modules/**/*.spec.*",
-      "!**/*.test.d.ts",
-      "!**/*.test.d.ts.map",
-      "!**/*.test.js.map"
+      "node_modules/pkcs11js/**/*",
+      "node_modules/node-addon-api/**/*",
+      "node_modules/node-gyp-build/**/*",
+      "!**/__tests__/**",
+      "!**/*.test.*",
+      "!**/*.spec.*"
     ],
     "asarUnpack": [
       "dist/**/*.node",

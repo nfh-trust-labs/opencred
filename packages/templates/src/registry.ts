@@ -2,25 +2,20 @@
  * Template registry — maps schema IDs to SVG templates.
  */
 
-import { readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { CredentialTemplate } from "./types.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-/** Load an SVG template file from the templates directory. */
-function loadTemplate(filename: string): string {
-  return readFileSync(resolve(__dirname, "templates", filename), "utf-8");
-}
-
-/** Load the default SVG template at module init. */
-const DEFAULT_TEMPLATE_SVG = loadTemplate("default.svg");
+import {
+  defaultSvg,
+  educationSvg,
+  employmentSvg,
+  identitySvg,
+  healthSvg,
+  businessSvg,
+} from "./svg-data.js";
 
 const DEFAULT_TEMPLATE: CredentialTemplate = {
   id: "default",
   name: "Default Credential",
-  svg: DEFAULT_TEMPLATE_SVG,
+  svg: defaultSvg,
 };
 
 /** Schema-specific templates loaded at module init. */
@@ -28,27 +23,27 @@ const SCHEMA_TEMPLATES: ReadonlyArray<CredentialTemplate> = [
   {
     id: "education",
     name: "Education Credential",
-    svg: loadTemplate("education.svg"),
+    svg: educationSvg,
   },
   {
     id: "employment",
     name: "Employment Credential",
-    svg: loadTemplate("employment.svg"),
+    svg: employmentSvg,
   },
   {
     id: "identity",
     name: "Identity Credential",
-    svg: loadTemplate("identity.svg"),
+    svg: identitySvg,
   },
   {
     id: "health",
     name: "Health Credential",
-    svg: loadTemplate("health.svg"),
+    svg: healthSvg,
   },
   {
     id: "business",
     name: "Business Credential",
-    svg: loadTemplate("business.svg"),
+    svg: businessSvg,
   },
 ];
 
