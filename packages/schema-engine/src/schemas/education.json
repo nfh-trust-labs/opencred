@@ -1,14 +1,31 @@
 {
-  "$id": "https://opencred.dev/schemas/education/v1",
+  "$id": "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/education/v1/schema.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Education Credential",
+  "description": "Verifiable credential attesting that a person has been conferred an academic qualification by an institution.",
   "type": "object",
   "required": ["name", "degree", "institution", "dateConferred"],
   "properties": {
-    "name": { "type": "string", "minLength": 1 },
-    "degree": { "type": "string", "minLength": 1 },
-    "institution": { "type": "string", "minLength": 1 },
-    "dateConferred": { "type": "string", "format": "date" }
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Full name of the person to whom the credential is issued."
+    },
+    "degree": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The academic qualification conferred (e.g. \"Bachelor of Science in Computer Science\")."
+    },
+    "institution": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Legal name of the institution that conferred the qualification."
+    },
+    "dateConferred": {
+      "type": "string",
+      "format": "date",
+      "description": "ISO 8601 date (YYYY-MM-DD) on which the qualification was conferred."
+    }
   },
   "additionalProperties": true
 }

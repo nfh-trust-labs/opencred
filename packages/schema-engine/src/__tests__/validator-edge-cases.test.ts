@@ -84,7 +84,9 @@ describe("SchemaRegistry — edge cases", () => {
 
 describe("Built-in schema definitions", () => {
   it("educationSchema has correct $id and required fields", () => {
-    expect(educationSchema.$id).toBe("https://opencred.dev/schemas/education/v1");
+    expect(educationSchema.$id).toBe(
+      "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/education/v1/schema.json",
+    );
     expect(educationSchema.required).toContain("name");
     expect(educationSchema.required).toContain("degree");
     expect(educationSchema.required).toContain("institution");
@@ -93,7 +95,9 @@ describe("Built-in schema definitions", () => {
   });
 
   it("employmentSchema has correct $id and required fields", () => {
-    expect(employmentSchema.$id).toBe("https://opencred.dev/schemas/employment/v1");
+    expect(employmentSchema.$id).toBe(
+      "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/employment/v1/schema.json",
+    );
     expect(employmentSchema.required).toContain("name");
     expect(employmentSchema.required).toContain("employer");
     expect(employmentSchema.required).toContain("position");
@@ -101,7 +105,9 @@ describe("Built-in schema definitions", () => {
   });
 
   it("identitySchema has correct $id and required fields", () => {
-    expect(identitySchema.$id).toBe("https://opencred.dev/schemas/identity/v1");
+    expect(identitySchema.$id).toBe(
+      "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/identity/v1/schema.json",
+    );
     expect(identitySchema.required).toContain("name");
     expect(identitySchema.required).toContain("dateOfBirth");
     expect(identitySchema.required).toContain("nationality");
@@ -109,7 +115,9 @@ describe("Built-in schema definitions", () => {
   });
 
   it("healthSchema has correct $id and required fields", () => {
-    expect(healthSchema.$id).toBe("https://opencred.dev/schemas/health/v1");
+    expect(healthSchema.$id).toBe(
+      "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/health/v1/schema.json",
+    );
     expect(healthSchema.required).toContain("name");
     expect(healthSchema.required).toContain("certification");
     expect(healthSchema.required).toContain("issuingBody");
@@ -119,7 +127,9 @@ describe("Built-in schema definitions", () => {
   });
 
   it("businessSchema has correct $id and required fields", () => {
-    expect(businessSchema.$id).toBe("https://opencred.dev/schemas/business/v1");
+    expect(businessSchema.$id).toBe(
+      "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/business/v1/schema.json",
+    );
     expect(businessSchema.required).toContain("name");
     expect(businessSchema.required).toContain("registrationNumber");
     expect(businessSchema.required).toContain("jurisdiction");

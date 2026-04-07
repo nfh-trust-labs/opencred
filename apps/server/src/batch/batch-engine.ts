@@ -80,6 +80,20 @@ function getValidator(): Validator {
   return validatorInstance;
 }
 
+/**
+ * Resolve the canonical schema URL (`$id`) for a registered built-in schema.
+ * See the matching helper in `routes/credentials.ts` for rationale.
+ */
+function getBuiltInSchemaUrl(schemaId: string): string | undefined {
+  try {
+    const def = getRegistry().getSchema(schemaId);
+    const id = (def.schema as { $id?: unknown })["$id"];
+    return typeof id === "string" ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Batch engine
 // ---------------------------------------------------------------------------
@@ -137,8 +151,12 @@ export function createBatchEngine(signer: Signer, parsedRows: ParsedRow[], confi
           statusListCredential,
         });
       }
-      if (config.credentialSchemaUrl) {
-        builder.setSchema({ id: config.credentialSchemaUrl, type: "JsonSchema" });
+      // Default credentialSchema to the built-in schema's `$id` so every issued
+      // credential carries a stable schema URL. User-provided URL still wins.
+      const credentialSchemaUrl =
+        config.credentialSchemaUrl ?? getBuiltInSchemaUrl(config.schemaId);
+      if (credentialSchemaUrl) {
+        builder.setSchema({ id: credentialSchemaUrl, type: "JsonSchema" });
       }
 
       const unsigned = builder.build();

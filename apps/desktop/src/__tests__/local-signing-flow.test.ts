@@ -268,6 +268,110 @@ describe("buildAndSign — full offline round-trip", () => {
     expect(schema.type).toBe("JsonSchema");
   });
 
+  it("should default credentialSchema.id to the built-in schema's $id when no credentialSchemaUrl is provided", async () => {
+    const { signer } = createSoftwareSigner(pemKeyPath);
+    const result = await buildAndSign(signer, {
+      schemaId: "education",
+      issuerDid: "did:web:university.example",
+      credentialSubject: {
+        name: "Jane Doe",
+        degree: "Bachelor of Science",
+        institution: "MIT",
+        dateConferred: "2025-06-15",
+      },
+      validFrom: "2025-06-15T00:00:00Z",
+    });
+    expect(result.unsignedCredential.credentialSchema).toBeDefined();
+    const schema = result.unsignedCredential.credentialSchema as { id: string; type: string };
+    expect(schema.id).toBe(
+      "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/education/v1/schema.json",
+    );
+    expect(schema.type).toBe("JsonSchema");
+  });
+
+  it("should set credentialSchema for every built-in schema by default", async () => {
+    const { signer } = createSoftwareSigner(pemKeyPath);
+    const cases: Array<{
+      schemaId: string;
+      subject: Record<string, unknown>;
+      expectedUrl: string;
+    }> = [
+      {
+        schemaId: "education",
+        subject: {
+          name: "Jane",
+          degree: "BSc",
+          institution: "MIT",
+          dateConferred: "2025-06-15",
+        },
+        expectedUrl:
+          "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/education/v1/schema.json",
+      },
+      {
+        schemaId: "employment",
+        subject: {
+          name: "John",
+          employer: "Acme",
+          position: "Eng",
+          startDate: "2024-01-15",
+        },
+        expectedUrl:
+          "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/employment/v1/schema.json",
+      },
+      {
+        schemaId: "identity",
+        subject: {
+          name: "Alice",
+          dateOfBirth: "1990-05-20",
+          nationality: "US",
+          documentNumber: "AB123456",
+        },
+        expectedUrl:
+          "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/identity/v1/schema.json",
+      },
+      {
+        schemaId: "health",
+        subject: {
+          name: "Bob",
+          certification: "First Aid",
+          issuingBody: "Red Cross",
+          validUntil: "2027-12-31",
+        },
+        expectedUrl:
+          "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/health/v1/schema.json",
+      },
+      {
+        schemaId: "business",
+        subject: {
+          name: "Acme Inc",
+          registrationNumber: "REG-12345",
+          jurisdiction: "US-DE",
+          incorporationDate: "2020-03-01",
+        },
+        expectedUrl:
+          "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/business/v1/schema.json",
+      },
+    ];
+
+    for (const { schemaId, subject, expectedUrl } of cases) {
+      const result = await buildAndSign(signer, {
+        schemaId,
+        issuerDid: "did:web:issuer.example",
+        credentialSubject: subject,
+        validFrom: "2025-06-15T00:00:00Z",
+      });
+      const schema = result.unsignedCredential.credentialSchema as
+        | { id: string; type: string }
+        | undefined;
+      expect(
+        schema,
+        `built-in schema "${schemaId}" should have credentialSchema set`,
+      ).toBeDefined();
+      expect(schema!.id).toBe(expectedUrl);
+      expect(schema!.type).toBe("JsonSchema");
+    }
+  });
+
   it("should reject unknown schema IDs", async () => {
     const { signer } = createSoftwareSigner(pemKeyPath);
 

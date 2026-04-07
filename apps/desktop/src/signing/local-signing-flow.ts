@@ -130,6 +130,24 @@ export function validateSubject(schemaId: string, data: unknown): ValidationResu
 }
 
 /**
+ * Look up the canonical schema URL (`$id`) for a registered built-in schema.
+ *
+ * Returns `undefined` for unknown schemas (e.g. custom user-defined ones whose
+ * `schemaId` does not appear in the registry). Used by `buildAndSign` to set
+ * a sensible default `credentialSchema.id` on issued credentials when the
+ * caller didn't provide one explicitly.
+ */
+export function getBuiltInSchemaUrl(schemaId: string): string | undefined {
+  try {
+    const def = getRegistry().getSchema(schemaId);
+    const schemaId$id = (def.schema as { $id?: unknown })["$id"];
+    return typeof schemaId$id === "string" ? schemaId$id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Build and sign a Verifiable Credential locally.
  *
  * This is the main entry point for local (offline) credential issuance.
@@ -208,31 +226,13 @@ export async function buildAndSign(
   }
 
   // Set credential schema link.
-  //
-  // Per W3C VCDM 2.0, every issued credential SHOULD carry a `credentialSchema`
-  // field referencing the JSON Schema it conforms to. We populate this for
-  // every built-in schema using the priority:
-  //   1. user-provided `credentialSchemaUrl` (e.g. an upgraded permanent URL)
-  //   2. the schema's own `$id` (the placeholder URL on built-in schemas —
-  //      issuers can update this later by passing `credentialSchemaUrl`)
-  //
-  // Custom (inline) schemas use a separate path in handleBuildAndSign which
-  // also handles the data-URI fallback.
-  const credentialSchemaIdFromBuiltIn = (() => {
-    if (options.credentialSchemaUrl) {
-      return options.credentialSchemaUrl;
-    }
-    try {
-      const def = getRegistry().getSchema(options.schemaId);
-      const id = (def.schema as { $id?: unknown }).$id;
-      return typeof id === "string" && id.length > 0 ? id : undefined;
-    } catch {
-      return undefined;
-    }
-  })();
-
-  if (credentialSchemaIdFromBuiltIn) {
-    builder.setSchema({ id: credentialSchemaIdFromBuiltIn, type: "JsonSchema" });
+  // Priority: user-provided URL > the schema's own `$id`. The schemas registered
+  // via createRegistry() carry a stable `$id` that points at the canonical raw
+  // schema URL in the opencred-vc-schemas repo, so we always emit a
+  // `credentialSchema` field for built-in schemas.
+  const schemaUrl = options.credentialSchemaUrl ?? getBuiltInSchemaUrl(options.schemaId);
+  if (schemaUrl) {
+    builder.setSchema({ id: schemaUrl, type: "JsonSchema" });
   }
 
   const unsignedCredential = builder.build();

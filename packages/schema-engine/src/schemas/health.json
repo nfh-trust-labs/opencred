@@ -1,13 +1,26 @@
 {
-  "$id": "https://opencred.dev/schemas/health/v1",
+  "$id": "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/health/v1/schema.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Health Credential",
+  "description": "Verifiable credential attesting that a person holds a health-related certification (e.g. fitness-for-duty, professional medical certification).",
   "type": "object",
   "required": ["name", "certification", "issuingBody"],
   "properties": {
-    "name": { "type": "string", "minLength": 1 },
-    "certification": { "type": "string", "minLength": 1 },
-    "issuingBody": { "type": "string", "minLength": 1 }
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Full name of the credential subject."
+    },
+    "certification": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Name of the health certification (e.g. \"Aviation Medical Class 1\")."
+    },
+    "issuingBody": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Legal name of the body that issued the certification."
+    }
   },
   "additionalProperties": true
 }

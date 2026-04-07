@@ -1,14 +1,31 @@
 {
-  "$id": "https://opencred.dev/schemas/identity/v1",
+  "$id": "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/identity/v1/schema.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Identity Credential",
+  "description": "Verifiable credential attesting basic identity attributes of a person, anchored to a government-issued document.",
   "type": "object",
   "required": ["name", "dateOfBirth", "nationality", "documentNumber"],
   "properties": {
-    "name": { "type": "string", "minLength": 1 },
-    "dateOfBirth": { "type": "string", "format": "date" },
-    "nationality": { "type": "string", "minLength": 1 },
-    "documentNumber": { "type": "string", "minLength": 1 }
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Full legal name of the person."
+    },
+    "dateOfBirth": {
+      "type": "string",
+      "format": "date",
+      "description": "ISO 8601 date of birth (YYYY-MM-DD)."
+    },
+    "nationality": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Nationality, recommended as an ISO 3166-1 alpha-2 country code (e.g. \"IN\", \"US\")."
+    },
+    "documentNumber": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the underlying government-issued document (passport, national ID, etc.)."
+    }
   },
   "additionalProperties": true
 }

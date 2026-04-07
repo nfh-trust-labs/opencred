@@ -55,7 +55,7 @@ List available credential schemas.
 ```json
 {
   "schemas": [
-    { "id": "education", "contextUrl": "https://opencred.dev/schemas/education/v1" }
+    { "id": "education", "contextUrl": "https://schema.nfh.global/contexts/education/v1" }
   ]
 }
 ```
@@ -70,8 +70,12 @@ Get a schema definition by ID.
 ```json
 {
   "id": "education",
-  "schema": { "$id": "...", "title": "Education Credential", "properties": { "..." : "..." } },
-  "contextUrl": "https://opencred.dev/schemas/education/v1"
+  "schema": {
+    "$id": "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/education/v1/schema.json",
+    "title": "Education Credential",
+    "properties": { "...": "..." }
+  },
+  "contextUrl": "https://schema.nfh.global/contexts/education/v1"
 }
 ```
 

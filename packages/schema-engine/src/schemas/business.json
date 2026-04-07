@@ -1,14 +1,31 @@
 {
-  "$id": "https://opencred.dev/schemas/business/v1",
+  "$id": "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/business/v1/schema.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Business Credential",
+  "description": "Verifiable credential attesting that an organization is incorporated in a particular jurisdiction under a specific registration number.",
   "type": "object",
   "required": ["name", "registrationNumber", "jurisdiction", "incorporationDate"],
   "properties": {
-    "name": { "type": "string", "minLength": 1 },
-    "registrationNumber": { "type": "string", "minLength": 1 },
-    "jurisdiction": { "type": "string", "minLength": 1 },
-    "incorporationDate": { "type": "string", "format": "date" }
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Legal name of the organization."
+    },
+    "registrationNumber": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Registration number assigned by the registering authority."
+    },
+    "jurisdiction": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Jurisdiction of incorporation, recommended as an ISO 3166-1 / ISO 3166-2 code (e.g. \"IN\", \"US-DE\")."
+    },
+    "incorporationDate": {
+      "type": "string",
+      "format": "date",
+      "description": "ISO 8601 date (YYYY-MM-DD) on which the organization was incorporated."
+    }
   },
   "additionalProperties": true
 }

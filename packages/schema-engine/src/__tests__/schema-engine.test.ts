@@ -70,6 +70,35 @@ describe("createRegistry", () => {
       "https://schema.nfh.global/contexts/business/v1",
     );
   });
+
+  it("each built-in schema has a stable $id pointing at opencred-vc-schemas", () => {
+    const registry = createRegistry();
+    const expected: Record<string, string> = {
+      education:
+        "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/education/v1/schema.json",
+      employment:
+        "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/employment/v1/schema.json",
+      identity:
+        "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/identity/v1/schema.json",
+      health:
+        "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/health/v1/schema.json",
+      business:
+        "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/business/v1/schema.json",
+    };
+    for (const [id, url] of Object.entries(expected)) {
+      const def = registry.getSchema(id);
+      expect((def.schema as { $id: string }).$id).toBe(url);
+    }
+  });
+
+  it("does not point any built-in schema $id at the opencred.dev placeholder", () => {
+    const registry = createRegistry();
+    for (const id of registry.listSchemas()) {
+      const def = registry.getSchema(id);
+      const $id = (def.schema as { $id?: string }).$id ?? "";
+      expect($id).not.toContain("opencred.dev/schemas");
+    }
+  });
 });
 
 describe("Validator", () => {

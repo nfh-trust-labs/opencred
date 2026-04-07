@@ -1,14 +1,36 @@
 {
-  "$id": "https://opencred.dev/schemas/employment/v1",
+  "$id": "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/employment/v1/schema.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Employment Credential",
+  "description": "Verifiable credential attesting that a person holds (or held) a position at an organization.",
   "type": "object",
   "required": ["name", "employer", "position", "startDate"],
   "properties": {
-    "name": { "type": "string", "minLength": 1 },
-    "employer": { "type": "string", "minLength": 1 },
-    "position": { "type": "string", "minLength": 1 },
-    "startDate": { "type": "string", "format": "date" }
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Full name of the employee."
+    },
+    "employer": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Legal name of the employing organization."
+    },
+    "position": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Job title or role held by the employee."
+    },
+    "startDate": {
+      "type": "string",
+      "format": "date",
+      "description": "ISO 8601 date (YYYY-MM-DD) on which the employment began."
+    },
+    "endDate": {
+      "type": "string",
+      "format": "date",
+      "description": "ISO 8601 date (YYYY-MM-DD) on which the employment ended. Omit if employment is current."
+    }
   },
   "additionalProperties": true
 }

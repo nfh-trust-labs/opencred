@@ -190,7 +190,7 @@ describe("credentialSchema field — built-in schemas", () => {
     expect(result.success).toBe(true);
     const signed = JSON.parse(result.signedCredential!);
     expect(signed.credentialSchema).toEqual({
-      id: "https://opencred.dev/schemas/education/v1",
+      id: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/education/v1/schema.json",
       type: "JsonSchema",
     });
   });
@@ -259,7 +259,9 @@ describe("credentialSchema field — built-in schemas", () => {
       const signed = JSON.parse(result.signedCredential!);
       expect(signed.credentialSchema).toBeDefined();
       expect(signed.credentialSchema.type).toBe("JsonSchema");
-      expect(signed.credentialSchema.id).toBe(`https://opencred.dev/schemas/${c.id}/v1`);
+      expect(signed.credentialSchema.id).toBe(
+        `https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/${c.id}/v1/schema.json`,
+      );
     }
   });
 });

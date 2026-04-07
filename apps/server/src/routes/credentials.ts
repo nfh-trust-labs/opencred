@@ -134,7 +134,8 @@ credentials.post("/credentials/issue", async (c) => {
   // mirrors the desktop path (see `apps/desktop/src/signing/local-signing-flow.ts`
   // and `apps/desktop/src/main/ipc-handlers.ts handleBuildAndSign`):
   //   1. explicit credentialSchemaUrl from the request
-  //   2. the schema's own `$id` when it has one
+  //   2. the schema's own `$id` (the canonical raw URL on opencred-vc-schemas
+  //      for built-in schemas)
   //   3. a data-URI containing the base64-encoded schema as a last resort,
   //      so the credential is never silently shipped without a schema
   //      reference.
