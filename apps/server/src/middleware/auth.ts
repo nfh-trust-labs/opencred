@@ -23,8 +23,8 @@ export async function authMiddleware(c: Context, next: Next): Promise<void> {
     return;
   }
 
-  // Health endpoint is always public
-  if (c.req.path === "/health") {
+  // Health endpoint is always public — both legacy and /v1 paths.
+  if (c.req.path === "/health" || c.req.path === "/v1/health") {
     await next();
     return;
   }

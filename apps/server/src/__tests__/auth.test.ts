@@ -57,6 +57,26 @@ describe("Auth middleware — with API key configured", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.status).toBe("ok");
   });
+
+  it("allows /v1/health without auth even when API key is set", async () => {
+    const res = await app.request("/v1/health");
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.status).toBe("ok");
+  });
+
+  it("requires auth on /v1/keys", async () => {
+    const res = await app.request("/v1/keys");
+    expect(res.status).toBe(401);
+  });
+
+  it("passes /v1/keys with correct Bearer token", async () => {
+    const res = await app.request("/v1/keys", {
+      headers: { Authorization: `Bearer ${TEST_API_KEY}` },
+    });
+    expect(res.status).toBe(200);
+  });
 });
 
 describe("Auth middleware — without API key configured", () => {
