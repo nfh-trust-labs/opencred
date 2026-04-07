@@ -407,9 +407,48 @@ async function handleBuildAndSign(
           statusListCredential,
         });
       }
-      if (request.credentialSchemaUrl) {
-        builder.setSchema({ id: request.credentialSchemaUrl, type: "JsonSchema" });
+
+      // Look up the saved custom schema entry (if any) to fetch DeDi/context info.
+      let customSchemaEntry: CustomSchemaEntry | undefined;
+      if (request.schemaId?.startsWith("custom:")) {
+        const store = getStore();
+        const customSchemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+        customSchemaEntry = customSchemas.find((s) => s.id === request.schemaId);
       }
+
+      // credentialSchema priority for inline/custom schemas:
+      //   1. DeDi schema URL (if the schema was published to DeDi)
+      //   2. user-provided URL (request.credentialSchemaUrl)
+      //   3. inline data URI containing the base64-encoded JSON Schema
+      //      (taken from the saved CustomSchemaEntry when available, or from
+      //      the request payload otherwise)
+      //
+      // Per W3C VCDM 2.0 §4.10, every credential SHOULD reference the schema
+      // it conforms to. The data-URI fallback ensures we always emit one even
+      // when the issuer hasn't published anywhere yet.
+      const credentialSchemaId = (() => {
+        if (customSchemaEntry?.dediSchemaUrl) {
+          return customSchemaEntry.dediSchemaUrl;
+        }
+        if (request.credentialSchemaUrl) {
+          return request.credentialSchemaUrl;
+        }
+        // Pick the best schema object we have available for the data-URI
+        // fallback. We prefer the persisted CustomSchemaEntry's schema (the
+        // canonical, vetted form) and fall back to whatever the request
+        // supplied. If the request only carried a sentinel value (e.g.
+        // `inlineSchema: true` from older callers / tests), we fall back to
+        // an empty object so the URI is still well-formed.
+        const schemaObject =
+          customSchemaEntry?.schema ??
+          (typeof request.inlineSchema === "object" && request.inlineSchema !== null
+            ? request.inlineSchema
+            : {});
+        const schemaJson = JSON.stringify(schemaObject);
+        const base64 = Buffer.from(schemaJson, "utf8").toString("base64");
+        return `data:application/schema+json;base64,${base64}`;
+      })();
+      builder.setSchema({ id: credentialSchemaId, type: "JsonSchema" });
 
       // Add JSON-LD context for Data Integrity proofs on inline/custom schemas
       if (proofFormat === "data-integrity") {
@@ -417,15 +456,10 @@ async function handleBuildAndSign(
           builder.addContext(request.contextUrl);
         } else if (request.inlineContext) {
           builder.addContext(request.inlineContext);
-        } else if (request.schemaId?.startsWith("custom:")) {
-          const store = getStore();
-          const customSchemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
-          const customSchema = customSchemas.find((s) => s.id === request.schemaId);
-          if (customSchema?.dediContextUrl) {
-            builder.addContext(customSchema.dediContextUrl);
-          } else if (customSchema?.generatedContext) {
-            builder.addContext(customSchema.generatedContext);
-          }
+        } else if (customSchemaEntry?.dediContextUrl) {
+          builder.addContext(customSchemaEntry.dediContextUrl);
+        } else if (customSchemaEntry?.generatedContext) {
+          builder.addContext(customSchemaEntry.generatedContext);
         }
       }
 
