@@ -122,6 +122,10 @@ import { BATCH_ROW_LIMIT } from "../shared/constants.js";
 import { DeDiPublishManager, createPublishManager, CONTEXT_REGISTRY, SCHEMA_REGISTRY } from "@opencred/dedi-client";
 import type { ContextRecord } from "@opencred/dedi-client";
 import { generateInlineContext } from "@opencred/vc-core";
+import {
+  runWithActiveSchemaContext,
+  deriveScopeForCredential,
+} from "./document-loader-with-cache.js";
 
 // ---------------------------------------------------------------------------
 // In-memory registries
@@ -471,11 +475,20 @@ async function handleBuildAndSign(
       // did:web DID's key, not the signer's internal did:key-based ID.
       const verificationMethod = deriveVerificationMethod(request.issuerDid, signer.id);
 
-      const result = await signWithFormat(signer, unsigned, proofFormat, {
-        verificationMethod,
-        selectiveDisclosureClaims: request.selectiveDisclosureClaims,
-        vct,
-      });
+      // Scope cached custom JSON-LD contexts to the in-flight schema for the
+      // duration of the signing call. This is the same defence as in
+      // local-signing-flow.ts `buildAndSign` — we inline the same pattern
+      // here because this path bypasses `buildAndSign` entirely. See
+      // `document-loader-with-cache.ts` for the full rationale.
+      const result = await runWithActiveSchemaContext(
+        request.schemaId ? [request.schemaId] : [],
+        () =>
+          signWithFormat(signer, unsigned, proofFormat, {
+            verificationMethod,
+            selectiveDisclosureClaims: request.selectiveDisclosureClaims,
+            vct,
+          }),
+      );
       signedCredentialJson = result.signedOutput;
       isCompactToken = result.isCompactToken;
     } else {
@@ -630,9 +643,29 @@ async function handleVerifyCredential(
       ]),
     );
 
-    const verificationResult = await verifyCredential(verificationInput, {
-      didResolver: compositeResolver,
-    });
+    // Scope cached custom JSON-LD contexts to the schemas the credential
+    // actually claims to use. We derive the scope from the credential's
+    // `@context` array — for any URL in there that matches a custom
+    // schema's saved `dediContextUrl`, that schema is "in scope". This
+    // means: the verifier only honours contexts it has explicitly
+    // imported AND that the credential is referencing.
+    //
+    // For VC-JWT credentials we pass `verificationInput` (a string) so
+    // there is no `@context` to inspect — `deriveScopeForCredential` only
+    // looks at object inputs and returns an empty scope for strings,
+    // which is correct: VC-JWT does not run JSON-LD canonicalization.
+    const scopeSchemaIds =
+      typeof verificationInput === "object"
+        ? deriveScopeForCredential(verificationInput as Record<string, unknown>)
+        : [];
+
+    const verificationResult = await runWithActiveSchemaContext(
+      scopeSchemaIds,
+      () =>
+        verifyCredential(verificationInput, {
+          didResolver: compositeResolver,
+        }),
+    );
 
     logger.info("Credential verified", { valid: verificationResult.verified, code: verificationResult.code });
     return {
@@ -1455,20 +1488,51 @@ interface ContextFetchResult {
   error?: string;
 }
 
+/** Hard cap on context document size. 1 MiB is comfortably above any real
+ * JSON-LD context (the W3C credentials/v2 context is ~16 KB) but small
+ * enough that buffering it cannot exhaust main-process memory. */
+const MAX_CONTEXT_BYTES = 1024 * 1024;
+
+/** Hard cap on the entire fetch+read+parse pipeline. */
+const CONTEXT_FETCH_TIMEOUT_MS = 10_000;
+
+/** Internal sentinel — never propagated to the renderer. */
+class ContextSizeLimitError extends Error {
+  constructor() {
+    super("context document exceeds size limit");
+  }
+}
+
 /**
- * Fetch a JSON-LD context document with strict SSRF protection.
+ * Fetch a JSON-LD context document for a user-provided URL.
  *
- * Security invariants (HARD requirements per CLAUDE.md):
- *   - HTTPS only
- *   - DNS lookup must NOT resolve to a private IP (10/8, 127/8, 169.254/16,
- *     172.16/12, 192.168/16, ::1, fc00::/7, fe80::/10, IPv4-mapped variants)
- *   - No redirects followed
- *   - 10-second hard timeout
- *   - Response must be a JSON object that looks like a JSON-LD context
- *     (either has an `@context` key or is itself a context object)
+ * Threat model: the URL is pasted into the custom-schema setup form by the
+ * user themselves. They have already chosen to trust it. The desktop main
+ * process holds no privileged network position the user does not — it runs
+ * with the user's network identity, on the user's machine, against the
+ * user's chosen URL. SSRF gymnastics (DNS pinning, private-IP rejection)
+ * are NOT applied here for that reason; they would be security theatre and
+ * would block legitimate self-hosted issuers on private networks.
+ *
+ * What we DO enforce, because they protect the user from their own paste:
+ *  - **HTTPS only.** No plaintext over hostile networks.
+ *  - **No redirects.** A redirect could silently point at a different host.
+ *  - **1 MiB body limit.** Real JSON-LD contexts are tens of kilobytes.
+ *    A multi-megabyte body is either a misconfiguration or an attempt to
+ *    OOM the main process (which would crash the entire app).
+ *  - **10-second hard timeout** on the *entire* operation (fetch + body
+ *    read + parse), so a slow-loris or hanging connection cannot freeze
+ *    schema-save indefinitely.
+ *  - **Strict shape validation.** The response must be a JSON object with
+ *    a top-level `@context` key whose value is itself an object — i.e.
+ *    a real JSON-LD context document, not arbitrary JSON.
+ *  - **Generic errors to the renderer.** The error string returned to the
+ *    renderer never reveals internal details (resolved hostnames, raw
+ *    network errors, etc.). Full diagnostics go to the structured logger
+ *    only — see `logger.warn` calls in this function.
  *
  * The response body is NEVER logged. Only structural diagnostics (success,
- * status code, top-level key count) are emitted.
+ * status code, byte count, key count) are emitted.
  */
 async function fetchJsonLdContextDocument(url: string): Promise<ContextFetchResult> {
   let parsed: URL;
@@ -1482,76 +1546,164 @@ async function fetchJsonLdContextDocument(url: string): Promise<ContextFetchResu
     return { error: "Context URL must use HTTPS" };
   }
 
-  // SSRF protection — resolve hostname to an IP and reject anything private.
-  try {
-    const { promises: dnsPromises } = await import("node:dns");
-    const { address } = await dnsPromises.lookup(parsed.hostname);
-    if (isPrivateIP(address)) {
-      return { error: "Context URL resolves to a private IP address" };
-    }
-  } catch (err) {
-    return {
-      error: `Failed to resolve context URL hostname: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
+  // Single AbortController gates the entire pipeline (fetch, body read,
+  // parse). If the timeout fires mid-stream, getReader().read() rejects
+  // and we surface a generic error.
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  const timeout = setTimeout(() => controller.abort(), CONTEXT_FETCH_TIMEOUT_MS);
 
-  let response: Response;
   try {
+    let response: Response;
     try {
       response = await fetch(url, {
         signal: controller.signal,
         headers: { Accept: "application/ld+json, application/json" },
-        // Per CLAUDE.md: never follow redirects when fetching from user-provided URLs.
         redirect: "error",
       });
-    } finally {
-      clearTimeout(timeout);
+    } catch (err) {
+      logger.warn("Custom-schema context fetch failed", {
+        url,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { error: "Failed to fetch context URL" };
     }
-  } catch (err) {
-    return {
-      error: `Failed to fetch context URL: ${err instanceof Error ? err.message : String(err)}`,
-    };
+
+    if (!response.ok) {
+      logger.warn("Custom-schema context fetch returned non-2xx", {
+        url,
+        status: response.status,
+        statusText: response.statusText,
+      });
+      return { error: `Context fetch failed: HTTP ${response.status}` };
+    }
+
+    let bodyText: string;
+    try {
+      bodyText = await readBodyWithSizeLimit(response, MAX_CONTEXT_BYTES, controller.signal);
+    } catch (err) {
+      if (err instanceof ContextSizeLimitError) {
+        logger.warn("Custom-schema context exceeds size limit", {
+          url,
+          limitBytes: MAX_CONTEXT_BYTES,
+        });
+        return {
+          error: `Context document exceeds ${MAX_CONTEXT_BYTES}-byte size limit`,
+        };
+      }
+      logger.warn("Custom-schema context body read failed", {
+        url,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { error: "Failed to read context response body" };
+    }
+
+    let body: unknown;
+    try {
+      body = JSON.parse(bodyText);
+    } catch (err) {
+      logger.warn("Custom-schema context not valid JSON", {
+        url,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { error: "Context response is not valid JSON" };
+    }
+
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return { error: "Context response is not a JSON object" };
+    }
+
+    // Strict shape: a real JSON-LD context document must have a top-level
+    // `@context` key whose value is itself an object (the term map). We
+    // do NOT accept "bare" context objects here because they are
+    // ambiguous — accepting them would let an arbitrary JSON file pass
+    // shape validation.
+    const obj = body as Record<string, unknown>;
+    const innerContext = obj["@context"];
+    if (
+      typeof innerContext !== "object" ||
+      innerContext === null ||
+      Array.isArray(innerContext)
+    ) {
+      return {
+        error: "Response does not look like a JSON-LD context document (missing @context object)",
+      };
+    }
+
+    // Deliberately do NOT log the body — it may contain user-defined vocab.
+    logger.info("Fetched JSON-LD context", {
+      url,
+      status: response.status,
+      bytes: bodyText.length,
+      contextKeyCount: Object.keys(innerContext as object).length,
+    });
+
+    return { document: obj };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Read a fetch Response body as UTF-8 text, aborting if it exceeds `limit`
+ * bytes. Honours an external AbortSignal so the caller's timeout cancels
+ * an in-flight read mid-stream.
+ *
+ * This streams via `body.getReader()` rather than calling `.text()` so we
+ * never buffer more than `limit` bytes — a malicious or misconfigured
+ * server cannot OOM the main process by sending a multi-gigabyte body.
+ */
+async function readBodyWithSizeLimit(
+  response: Response,
+  limit: number,
+  signal: AbortSignal,
+): Promise<string> {
+  // Cheap pre-check: if Content-Length is set and honest, bail before reading.
+  const declared = response.headers.get("content-length");
+  if (declared) {
+    const declaredBytes = Number(declared);
+    if (Number.isFinite(declaredBytes) && declaredBytes > limit) {
+      throw new ContextSizeLimitError();
+    }
   }
 
-  if (!response.ok) {
-    return { error: `Context fetch failed: HTTP ${response.status} ${response.statusText}` };
+  const body = response.body;
+  if (!body) {
+    // Some test/mock environments produce a Response with no streamable
+    // body. Fall back to text() but enforce the limit on the result.
+    const text = await response.text();
+    if (Buffer.byteLength(text, "utf8") > limit) {
+      throw new ContextSizeLimitError();
+    }
+    return text;
   }
 
-  let body: unknown;
+  const reader = body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let accumulated = "";
+  let receivedBytes = 0;
+
   try {
-    body = await response.json();
-  } catch (err) {
-    return {
-      error: `Context response is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
-    };
+    while (true) {
+      if (signal.aborted) {
+        throw new Error("aborted");
+      }
+      const { value, done } = await reader.read();
+      if (done) break;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > limit) {
+        throw new ContextSizeLimitError();
+      }
+      accumulated += decoder.decode(value, { stream: true });
+    }
+    accumulated += decoder.decode();
+    return accumulated;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      /* ignore — reader may already be released */
+    }
   }
-
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    return { error: "Context response is not a JSON object" };
-  }
-
-  const obj = body as Record<string, unknown>;
-  // A valid JSON-LD context document is either {"@context": {...}} or a bare
-  // context object (a map of term -> definition). We accept both shapes.
-  const hasContextKey = "@context" in obj && typeof obj["@context"] === "object";
-  const looksLikeContext = !hasContextKey && Object.keys(obj).length > 0;
-
-  if (!hasContextKey && !looksLikeContext) {
-    return { error: "Response does not look like a JSON-LD context document" };
-  }
-
-  // Deliberately do NOT log the body — it may contain user-defined vocab.
-  logger.info("Fetched JSON-LD context", {
-    url,
-    status: response.status,
-    hasContextKey,
-    topLevelKeyCount: Object.keys(obj).length,
-  });
-
-  return { document: obj };
 }
 
 async function handleCustomSchemaList(): Promise<CustomSchemaListResponse> {

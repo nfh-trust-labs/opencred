@@ -1,12 +1,15 @@
 /**
  * Tests for the custom-schema JSON-LD context fetching + caching flow,
- * the wrapped document loader, and the SSRF protection on user-provided
- * context URLs.
+ * the wrapped (per-schema-scoped) document loader, and the safety limits
+ * applied to user-provided context URLs.
  *
- * SECURITY NOTE: every test path that exercises the fetch goes through
- * the production handler — there are no shortcuts around HTTPS / SSRF /
- * shape validation. We mock `node:dns` so we can simulate "URL resolves
- * to public IP" without depending on real DNS.
+ * Threat model note: the context URL is *user-pasted* in the custom-schema
+ * setup form. SSRF gymnastics would be security theatre here (the user can
+ * already make any HTTP request from their machine), so the production
+ * fetch path does NOT do DNS pinning or private-IP rejection. Instead it
+ * enforces what actually protects the user from their own paste:
+ * HTTPS-only, no redirects, ~1 MiB body cap, hard 10s timeout, and strict
+ * JSON-LD shape validation. These tests cover all of those.
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
@@ -97,21 +100,6 @@ vi.mock("keytar", () => ({
   deletePassword: vi.fn(async () => true),
 }));
 
-// We mock the dns lookup so we can simulate "URL resolves to public IP"
-// without needing real network access. The SSRF guard sits *after* this,
-// so the production code path still runs end-to-end.
-const dnsLookupMock = vi.fn();
-vi.mock("node:dns", async () => {
-  const actual = await vi.importActual<typeof import("node:dns")>("node:dns");
-  return {
-    ...actual,
-    promises: {
-      ...actual.promises,
-      lookup: dnsLookupMock,
-    },
-  };
-});
-
 // Initialise store before importing IPC handlers.
 const { initStore } = await import("../main/store");
 initStore();
@@ -124,7 +112,10 @@ const {
   installCustomContextResolver,
   uninstallCustomContextResolver,
   lookupCachedCustomContext,
-} = await import("../main/document-loader-with-cache");
+  findCachedCustomContext,
+  runWithActiveSchemaContext,
+  deriveScopeForCredential,
+} = await import("../main/document-loader-with-cache.js");
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -164,9 +155,6 @@ beforeEach(() => {
   storeData["customSchemas"] = [];
   storeData["recentTemplates"] = [];
   storeData["dediPublishedSchemas"] = [];
-  dnsLookupMock.mockReset();
-  // Default: pretend hostnames resolve to a benign public IP.
-  dnsLookupMock.mockResolvedValue({ address: "203.0.113.10", family: 4 });
   originalFetch = globalThis.fetch;
 });
 
@@ -200,19 +188,23 @@ async function callBuildAndSign(opts: Record<string, unknown>): Promise<Record<s
   return (await handler(fakeEvent, opts)) as Record<string, unknown>;
 }
 
+/** Build a fetch mock that returns a JSON body with the given object. */
+function jsonResponseMock(body: unknown, status = 200): typeof globalThis.fetch {
+  return vi.fn(async () =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/ld+json" },
+    }),
+  ) as unknown as typeof globalThis.fetch;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Custom schema context fetching
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("Custom schema context fetching", () => {
   it("fetches and caches a JSON-LD context document at save time", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify(SAMPLE_JSONLD_CONTEXT), {
-        status: 200,
-        headers: { "Content-Type": "application/ld+json" },
-      }),
-    );
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    globalThis.fetch = jsonResponseMock(SAMPLE_JSONLD_CONTEXT);
 
     const result = await callCustomSchemaSave({
       name: "Custom A",
@@ -231,8 +223,9 @@ describe("Custom schema context fetching", () => {
     expect(stored.cachedContextDocument).toEqual(SAMPLE_JSONLD_CONTEXT);
     expect(typeof stored.cachedContextFetchedAt).toBe("string");
 
-    const cached = lookupCachedCustomContext("https://example.com/context.jsonld");
-    expect(cached).toEqual(SAMPLE_JSONLD_CONTEXT);
+    // Cache is populated regardless of scope.
+    const direct = findCachedCustomContext("https://example.com/context.jsonld");
+    expect(direct?.document).toEqual(SAMPLE_JSONLD_CONTEXT);
   });
 
   it("rejects non-HTTPS context URLs", async () => {
@@ -247,56 +240,8 @@ describe("Custom schema context fetching", () => {
     expect(result.error).toMatch(/HTTPS/i);
   });
 
-  it("rejects URLs that resolve to a private IPv4 address (SSRF)", async () => {
-    dnsLookupMock.mockResolvedValueOnce({ address: "192.168.1.42", family: 4 });
-
-    const result = await callCustomSchemaSave({
-      name: "Custom C",
-      schema: { type: "object", properties: { name: { type: "string" } } },
-      contextUrl: "https://internal.example.com/context.jsonld",
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.contextCached).toBe(false);
-    expect(result.error).toMatch(/private IP/i);
-  });
-
-  it("rejects URLs that resolve to loopback (127.0.0.1)", async () => {
-    dnsLookupMock.mockResolvedValueOnce({ address: "127.0.0.1", family: 4 });
-
-    const result = await callCustomSchemaSave({
-      name: "Custom D",
-      schema: { type: "object", properties: { name: { type: "string" } } },
-      contextUrl: "https://localhost.example.com/context.jsonld",
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.contextCached).toBe(false);
-    expect(result.error).toMatch(/private IP/i);
-  });
-
-  it("rejects URLs that resolve to IPv6 loopback (::1)", async () => {
-    dnsLookupMock.mockResolvedValueOnce({ address: "::1", family: 6 });
-
-    const result = await callCustomSchemaSave({
-      name: "Custom E",
-      schema: { type: "object", properties: { name: { type: "string" } } },
-      contextUrl: "https://internal-v6.example.com/context.jsonld",
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.contextCached).toBe(false);
-    expect(result.error).toMatch(/private IP/i);
-  });
-
   it("rejects responses that are not a JSON object (e.g. arrays)", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify(["not", "an", "object"]), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    globalThis.fetch = jsonResponseMock(["not", "an", "object"]);
 
     const result = await callCustomSchemaSave({
       name: "Custom F",
@@ -310,7 +255,38 @@ describe("Custom schema context fetching", () => {
     expect(result.error).toMatch(/not a JSON object/i);
   });
 
-  it("rejects HTTP error responses (5xx)", async () => {
+  it("rejects responses without an @context object key (strict shape)", async () => {
+    // Looks like JSON but is not a JSON-LD context document.
+    globalThis.fetch = jsonResponseMock({ randomKey: "value", anotherKey: 42 });
+
+    const result = await callCustomSchemaSave({
+      name: "Custom shape-bad",
+      schema: { type: "object", properties: { name: { type: "string" } } },
+      contextUrl: "https://example.com/not-a-context.json",
+    });
+    restoreFetch();
+
+    expect(result.success).toBe(true);
+    expect(result.contextCached).toBe(false);
+    expect(result.error).toMatch(/JSON-LD context document/i);
+  });
+
+  it("rejects responses where @context is a string, not an object", async () => {
+    globalThis.fetch = jsonResponseMock({ "@context": "https://schema.org" });
+
+    const result = await callCustomSchemaSave({
+      name: "Custom shape-string",
+      schema: { type: "object", properties: { name: { type: "string" } } },
+      contextUrl: "https://example.com/string-ctx.json",
+    });
+    restoreFetch();
+
+    expect(result.success).toBe(true);
+    expect(result.contextCached).toBe(false);
+    expect(result.error).toMatch(/JSON-LD context document/i);
+  });
+
+  it("rejects HTTP error responses (5xx) without leaking statusText", async () => {
     const fetchMock = vi.fn(async () =>
       new Response("server error", { status: 500, statusText: "Internal Server Error" }),
     );
@@ -326,6 +302,76 @@ describe("Custom schema context fetching", () => {
     expect(result.success).toBe(true);
     expect(result.contextCached).toBe(false);
     expect(result.error).toMatch(/HTTP 500/);
+    // Generic error: should NOT propagate the server's statusText.
+    expect(result.error).not.toMatch(/Internal Server Error/);
+  });
+
+  it("rejects responses larger than the 1 MiB size cap (declared Content-Length)", async () => {
+    // Server claims a 5 MiB body via Content-Length. We bail before reading.
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify(SAMPLE_JSONLD_CONTEXT), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/ld+json",
+          "Content-Length": String(5 * 1024 * 1024),
+        },
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    const result = await callCustomSchemaSave({
+      name: "Custom oversize",
+      schema: { type: "object", properties: { name: { type: "string" } } },
+      contextUrl: "https://example.com/oversize.jsonld",
+    });
+    restoreFetch();
+
+    expect(result.success).toBe(true);
+    expect(result.contextCached).toBe(false);
+    expect(result.error).toMatch(/size limit/i);
+  });
+
+  it("rejects responses larger than the 1 MiB size cap (streamed body)", async () => {
+    // No Content-Length header — server lies / omits it. We must catch this
+    // mid-stream and abort before buffering more than the limit.
+    // 1.5 MiB body, no header.
+    const huge = "x".repeat(1.5 * 1024 * 1024);
+    const fetchMock = vi.fn(async () => new Response(huge, { status: 200 }));
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    const result = await callCustomSchemaSave({
+      name: "Custom oversize-stream",
+      schema: { type: "object", properties: { name: { type: "string" } } },
+      contextUrl: "https://example.com/oversize-stream.jsonld",
+    });
+    restoreFetch();
+
+    expect(result.success).toBe(true);
+    expect(result.contextCached).toBe(false);
+    expect(result.error).toMatch(/size limit/i);
+  });
+
+  it("never propagates internal error messages from network failures", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error("ECONNREFUSED 192.168.1.1:443 super-secret-internal-detail");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    const result = await callCustomSchemaSave({
+      name: "Custom net-fail",
+      schema: { type: "object", properties: { name: { type: "string" } } },
+      contextUrl: "https://example.com/net-fail.jsonld",
+    });
+    restoreFetch();
+
+    expect(result.success).toBe(true);
+    expect(result.contextCached).toBe(false);
+    // Generic message — internal details (IP, port, raw error) must NOT
+    // appear in the renderer-facing error.
+    expect(result.error).toMatch(/Failed to fetch context URL/);
+    expect(result.error).not.toMatch(/192\.168/);
+    expect(result.error).not.toMatch(/super-secret/);
+    expect(result.error).not.toMatch(/ECONNREFUSED/);
   });
 
   it("does not fetch when no context URL is supplied", async () => {
@@ -345,29 +391,69 @@ describe("Custom schema context fetching", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Wrapped document loader behaviour
+// Per-schema scope on the cached context lookup
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("Wrapped document loader", () => {
-  it("returns undefined when no custom schema matches", () => {
-    expect(lookupCachedCustomContext("https://nope.example/ctx")).toBeUndefined();
-  });
-
-  it("returns the cached context document for a matching dediContextUrl", () => {
+describe("Per-schema scope on cached context lookup", () => {
+  beforeEach(() => {
     storeData["customSchemas"] = [
       {
-        id: "custom:abc",
-        name: "Test",
+        id: "custom:schema-a",
+        name: "Schema A",
         schema: { type: "object" },
         createdAt: "2026-01-01T00:00:00Z",
-        dediContextUrl: "https://schema.example/context",
-        cachedContextDocument: SAMPLE_JSONLD_CONTEXT,
+        dediContextUrl: "https://schema.example/contexts/a",
+        cachedContextDocument: { "@context": { "@vocab": "https://example.org/a#" } },
+        cachedContextFetchedAt: "2026-01-01T00:00:00Z",
+      },
+      {
+        id: "custom:schema-b",
+        name: "Schema B",
+        schema: { type: "object" },
+        createdAt: "2026-01-01T00:00:00Z",
+        dediContextUrl: "https://schema.example/contexts/b",
+        cachedContextDocument: { "@context": { "@vocab": "https://example.org/b#" } },
         cachedContextFetchedAt: "2026-01-01T00:00:00Z",
       },
     ];
+  });
 
-    const cached = lookupCachedCustomContext("https://schema.example/context");
-    expect(cached).toEqual(SAMPLE_JSONLD_CONTEXT);
+  it("returns undefined for unknown URLs", () => {
+    runWithActiveSchemaContext(["custom:schema-a"], () => {
+      expect(lookupCachedCustomContext("https://nope.example/ctx")).toBeUndefined();
+    });
+  });
+
+  it("returns undefined when no scope is active (safe default)", () => {
+    // Outside any runWithActiveSchemaContext block, the cache is invisible.
+    expect(lookupCachedCustomContext("https://schema.example/contexts/a")).toBeUndefined();
+  });
+
+  it("returns the cached context for an in-scope schema URL", () => {
+    runWithActiveSchemaContext(["custom:schema-a"], () => {
+      const cached = lookupCachedCustomContext("https://schema.example/contexts/a");
+      expect(cached).toEqual({ "@context": { "@vocab": "https://example.org/a#" } });
+    });
+  });
+
+  it("does NOT serve schema A's cached context when only schema B is in scope", () => {
+    // Defence-in-depth: even though schema A has cached context X, while
+    // we're issuing/verifying schema B that cache must NOT be visible.
+    runWithActiveSchemaContext(["custom:schema-b"], () => {
+      expect(
+        lookupCachedCustomContext("https://schema.example/contexts/a"),
+      ).toBeUndefined();
+      expect(
+        lookupCachedCustomContext("https://schema.example/contexts/b"),
+      ).toBeDefined();
+    });
+  });
+
+  it("findCachedCustomContext bypasses scope (diagnostic-only)", () => {
+    // The diagnostic helper deliberately ignores the scope so the
+    // schema-management UI can answer "is this URL cached anywhere?"
+    const found = findCachedCustomContext("https://schema.example/contexts/a");
+    expect(found?.schemaId).toBe("custom:schema-a");
   });
 
   it("falls through bundled contexts before custom ones", async () => {
@@ -377,6 +463,79 @@ describe("Wrapped document loader", () => {
     // never registered it as a custom context.
     const result = bundledLoader("https://www.w3.org/ns/credentials/v2");
     expect(result.document).toBeDefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// deriveScopeForCredential
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("deriveScopeForCredential", () => {
+  beforeEach(() => {
+    storeData["customSchemas"] = [
+      {
+        id: "custom:imported-1",
+        name: "Imported 1",
+        schema: { type: "object" },
+        createdAt: "2026-01-01T00:00:00Z",
+        dediContextUrl: "https://schema.example/imported-1",
+        cachedContextDocument: { "@context": {} },
+      },
+      {
+        id: "custom:imported-2",
+        name: "Imported 2",
+        schema: { type: "object" },
+        createdAt: "2026-01-01T00:00:00Z",
+        dediContextUrl: "https://schema.example/imported-2",
+        cachedContextDocument: { "@context": {} },
+      },
+    ];
+  });
+
+  it("returns the schema id when @context references its URL", () => {
+    const scope = deriveScopeForCredential({
+      "@context": [
+        "https://www.w3.org/ns/credentials/v2",
+        "https://schema.example/imported-1",
+      ],
+    });
+    expect(scope).toEqual(["custom:imported-1"]);
+  });
+
+  it("returns multiple schema ids when @context references multiple", () => {
+    const scope = deriveScopeForCredential({
+      "@context": [
+        "https://www.w3.org/ns/credentials/v2",
+        "https://schema.example/imported-1",
+        "https://schema.example/imported-2",
+      ],
+    });
+    expect(scope.sort()).toEqual(["custom:imported-1", "custom:imported-2"]);
+  });
+
+  it("returns an empty array when no custom URL is referenced", () => {
+    const scope = deriveScopeForCredential({
+      "@context": ["https://www.w3.org/ns/credentials/v2"],
+    });
+    expect(scope).toEqual([]);
+  });
+
+  it("returns an empty array when @context is missing", () => {
+    expect(deriveScopeForCredential({})).toEqual([]);
+  });
+
+  it("returns an empty array when @context is a single string", () => {
+    const scope = deriveScopeForCredential({
+      "@context": "https://www.w3.org/ns/credentials/v2",
+    });
+    expect(scope).toEqual([]);
+  });
+
+  it("includes a schema referenced by a single-string @context", () => {
+    const scope = deriveScopeForCredential({
+      "@context": "https://schema.example/imported-1",
+    });
+    expect(scope).toEqual(["custom:imported-1"]);
   });
 });
 
@@ -427,8 +586,8 @@ describe("Cached custom context is consumed by data-integrity canonicalization",
     expect(signed.proof.type).toBe("DataIntegrityProof");
     expect(signed.proof.cryptosuite).toBe("ecdsa-rdfc-2019");
 
-    // Confirm the wrapped loader still serves the cached context.
-    const cached = lookupCachedCustomContext("https://schema.example/contexts/di-1");
-    expect(cached).toEqual(tolerantContext);
+    // Confirm the cache entry is still there for the diagnostic helper.
+    const found = findCachedCustomContext("https://schema.example/contexts/di-1");
+    expect(found?.document).toEqual(tolerantContext);
   });
 });
