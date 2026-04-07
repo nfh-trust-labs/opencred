@@ -232,4 +232,232 @@ describe("renderSvg", () => {
 
     expect(result).toBe("<svg></svg>");
   });
+
+  // ─────────────────────────────────────────────────────────────────
+  // XSS / injection coverage (issue #315)
+  // ─────────────────────────────────────────────────────────────────
+
+  describe("XSS protection (issue #315)", () => {
+    /** Strip every text node from an SVG and return the structural skeleton. */
+    function stripTextContent(svg: string): string {
+      // Remove the contents of every <text>...</text> element.
+      return svg.replace(/<text\b[^>]*>[\s\S]*?<\/text>/g, "<text></text>");
+    }
+
+    /**
+     * Assert that a rendered SVG does not contain executable script. We
+     * focus on the structural shape outside text content: hostile markup
+     * inside an escaped `<text>` element is fine because the browser
+     * displays it as text. Hostile markup OUTSIDE a `<text>` element
+     * (e.g. an injected `<script>` tag, an `on*` event handler, or a
+     * `javascript:` URL in an `href`/`src` attribute) is the actual
+     * threat.
+     */
+    function assertNoScript(rendered: string): void {
+      const skeleton = stripTextContent(rendered);
+      // No real <script> elements anywhere in the structural skeleton.
+      expect(skeleton.toLowerCase()).not.toContain("<script");
+      // No event-handler attributes anywhere in the structural skeleton.
+      expect(skeleton.toLowerCase()).not.toMatch(/\son[a-z]+\s*=/);
+      // No javascript: URI scheme anywhere — neither in attributes nor
+      // text content. (We check the raw output for this one because
+      // browsers will run javascript:-scheme URLs from any context.)
+      expect(rendered.toLowerCase()).not.toContain("javascript:");
+    }
+
+    it("escapes hostile credentialTitle (no <script> in output)", () => {
+      const options = defaultOptions();
+      options.values.credentialTitle =
+        '</text><script>alert("xss")</script><text>';
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      assertNoScript(result);
+      // The escaped payload appears in text content.
+      expect(result).toContain("&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;");
+      // The literal `</text>` from the payload should NOT appear unescaped
+      // (it would close the wrapping <text> element early).
+      expect(result).toContain("&lt;/text&gt;");
+    });
+
+    it("escapes hostile issuerName (no markup in output)", () => {
+      const options = defaultOptions();
+      options.values.issuerName =
+        '<svg/onload="alert(1)"></svg> & <img src=x onerror=alert(1)>';
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      assertNoScript(result);
+      // Escaped form is present.
+      expect(result).toContain("&lt;svg/onload=&quot;alert(1)&quot;&gt;");
+      expect(result).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    });
+
+    it("escapes hostile validFrom / validUntil (no markup in output)", () => {
+      const options = defaultOptions();
+      // Pass strings that are not parseable as dates so formatDate returns
+      // them verbatim, then assert they are escaped.
+      options.values.validFrom = '<script>alert("from")</script>';
+      options.values.validUntil = '"><script>alert("until")</script>';
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      assertNoScript(result);
+      expect(result).toContain("&lt;script&gt;");
+      // The double-quote escape sequence appears (defending against
+      // injection that would close an attribute).
+      expect(result).toContain("&quot;&gt;&lt;script&gt;");
+    });
+
+    it("falls back to default primaryColor on CSS injection payload", () => {
+      const options = defaultOptions();
+      options.customization = {
+        primaryColor: "red; background: url(javascript:alert(1)) /*",
+      };
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      // The malicious string must not appear anywhere in the output.
+      expect(result).not.toContain("javascript");
+      expect(result).not.toContain("url(");
+      // Falls back to the OpenCred default.
+      expect(result).toContain(DEFAULT_PRIMARY_COLOR);
+    });
+
+    it("falls back to default accentColor on CSS injection payload", () => {
+      const options = defaultOptions();
+      options.customization = {
+        accentColor: "} body { background: url(javascript:alert(1)) } /*",
+      };
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      expect(result).not.toContain("javascript");
+      expect(result).not.toContain("url(");
+      expect(result).toContain(DEFAULT_ACCENT_COLOR);
+    });
+
+    it("rejects an https:// logo URL (drops the conditional, no remote URL in output)", () => {
+      const options = defaultOptions();
+      options.customization = { logoDataUri: "https://evil.example/x.svg" };
+
+      const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+      expect(result).not.toContain("https://evil.example");
+      expect(result).not.toContain("evil.example");
+      // The conditional should have collapsed because validation rejected
+      // the value.
+      expect(result).not.toContain("<image");
+    });
+
+    it("rejects a javascript: URL pretending to be a data URI", () => {
+      const options = defaultOptions();
+      // The branding.ts validator rejects anything that does not start with
+      // `data:`. Use a string that BEGINS with `data:` but has the wrong
+      // MIME type and a hostile fragment.
+      options.customization = {
+        logoDataUri: 'data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==',
+      };
+
+      const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+      // Wrong MIME type → rejected.
+      expect(result).not.toContain("text/html");
+      expect(result).not.toContain("<image");
+    });
+
+    it("rejects a javascript: URL in qrCode and drops the conditional", () => {
+      const options = defaultOptions();
+      options.values.qrCode = "javascript:alert(1)";
+
+      const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+      expect(result).not.toContain("javascript");
+      expect(result).not.toContain("alert");
+      expect(result).not.toContain("<image");
+    });
+
+    it("rejects an https://-scheme qrCode and drops the conditional", () => {
+      const options = defaultOptions();
+      options.values.qrCode = "https://evil.example/qr.png";
+
+      const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+      expect(result).not.toContain("https://evil.example");
+      expect(result).not.toContain("<image");
+    });
+
+    it("rejects a data: URL with a non-image MIME type in qrCode", () => {
+      const options = defaultOptions();
+      options.values.qrCode =
+        "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==";
+
+      const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+      expect(result).not.toContain("text/html");
+      expect(result).not.toContain("<image");
+    });
+
+    it("accepts a valid PNG data URI for qrCode", () => {
+      const options = defaultOptions();
+      options.values.qrCode = "data:image/png;base64,iVBORw0KGgo=";
+
+      const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+      expect(result).toContain("data:image/png;base64,iVBORw0KGgo=");
+    });
+
+    it("primaryColor accepts valid hex colors as-is", () => {
+      const options = defaultOptions();
+      options.customization = { primaryColor: "#ff5733" };
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      expect(result).toContain("#ff5733");
+      expect(result).not.toContain(DEFAULT_PRIMARY_COLOR);
+    });
+
+    it("primaryColor rejects an unquoted CSS expression even when starting with '#'", () => {
+      const options = defaultOptions();
+      // Looks vaguely like a hex color but contains hostile CSS.
+      options.customization = {
+        primaryColor: "#fff; background: url(javascript:alert(1))",
+      };
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      expect(result).not.toContain("javascript");
+      expect(result).not.toContain("background:");
+      expect(result).toContain(DEFAULT_PRIMARY_COLOR);
+    });
+
+    it("logoDataUri attribute value is XML-escaped (defense in depth)", () => {
+      // Construct a "valid" data URI that contains characters which need
+      // XML escaping (in practice base64 never produces them, but the
+      // renderer must escape regardless of what the validator allows).
+      const options = defaultOptions();
+      // 1x1 transparent PNG.
+      const tinyPng =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=";
+      options.customization = { logoDataUri: `data:image/png;base64,${tinyPng}` };
+
+      const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+      // The data URI made it through because it is a valid PNG.
+      expect(result).toContain(`data:image/png;base64,${tinyPng}`);
+    });
+
+    it("issuerDisplayName override is also escaped", () => {
+      const options = defaultOptions();
+      options.customization = {
+        issuerDisplayName: '</text><script>alert("display")</script>',
+      };
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      assertNoScript(result);
+      expect(result).toContain("&lt;script&gt;");
+      expect(result).toContain("&lt;/text&gt;");
+    });
+  });
 });
