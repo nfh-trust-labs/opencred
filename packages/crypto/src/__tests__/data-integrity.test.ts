@@ -3,6 +3,7 @@ import { generateKeyPairSync, createSign, KeyObject } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
 import {
+  canonicalize,
   prepareProof,
   completeProof,
   signCredential,
@@ -417,5 +418,111 @@ describe("proof with domain and challenge", () => {
 
     const result = await verifyProof(signedVC, { publicKey: signingKey.publicKey });
     expect(result.verified).toBe(true);
+  });
+});
+
+describe("canonicalize — strict mode (safe canonicalization)", () => {
+  // Regression coverage for the silent-field-drop signature gap.  Strict mode
+  // (`safe: true`) is on by default and must throw on undefined terms so that
+  // attacker-controlled fields cannot slip past the signature.
+
+  it("rejects credentials with undefined credentialSubject fields by default", async () => {
+    // `favoriteColor` is not defined in the W3C credentials-v2 context and is
+    // not mapped by any other bundled context.  Strict canonicalization must
+    // refuse rather than silently dropping the field.
+    const credentialWithUndefinedField = {
+      "@context": ["https://www.w3.org/ns/credentials/v2"],
+      id: "urn:uuid:test-credential-undefined-field",
+      type: ["VerifiableCredential"],
+      issuer: "did:web:university.example",
+      validFrom: "2026-01-01T00:00:00Z",
+      credentialSubject: {
+        id: "did:example:holder123",
+        name: "Jane Doe",
+        favoriteColor: "purple",
+      },
+    };
+
+    await expect(canonicalize(credentialWithUndefinedField)).rejects.toThrow();
+  });
+
+  it("rejects credentials with undefined top-level fields by default", async () => {
+    // `secretClaim` is at the top level and not in any bundled context.  Strict
+    // canonicalization must reject this too — otherwise an attacker could add
+    // an extra top-level field that the signature would not cover.
+    const credentialWithUndefinedTopLevel = {
+      "@context": ["https://www.w3.org/ns/credentials/v2"],
+      id: "urn:uuid:test-credential-undefined-top",
+      type: ["VerifiableCredential"],
+      issuer: "did:web:university.example",
+      validFrom: "2026-01-01T00:00:00Z",
+      credentialSubject: {
+        id: "did:example:holder123",
+        name: "Jane Doe",
+      },
+      secretClaim: "should-not-canonicalize",
+    };
+
+    await expect(canonicalize(credentialWithUndefinedTopLevel)).rejects.toThrow();
+  });
+
+  it("signCredential surfaces strict-mode failure when undefined fields are present", async () => {
+    // The signing path uses computeSigningInput → canonicalize, which now runs
+    // in strict mode.  An attempt to sign a credential with an undefined field
+    // must fail with a CryptoError instead of silently producing a signature
+    // that does not cover the field.
+    const credential = {
+      "@context": ["https://www.w3.org/ns/credentials/v2"],
+      id: "urn:uuid:test-credential-strict-sign",
+      type: ["VerifiableCredential"],
+      issuer: "did:web:university.example",
+      validFrom: "2026-01-01T00:00:00Z",
+      credentialSubject: {
+        id: "did:example:holder123",
+        name: "Jane Doe",
+        unauthorizedField: "should be rejected",
+      },
+    } as unknown as UnsignedCredential;
+    const signingKey = createTestSigningKey("did:web:university.example#key-1");
+
+    await expect(signCredential(credential, signingKey, defaultProofOptions)).rejects.toThrow(
+      CryptoError,
+    );
+  });
+
+  it("escape hatch: explicitly passing { strict: false } tolerates undefined fields", async () => {
+    // Documenting the escape hatch — callers who explicitly opt out get the
+    // pre-fix behaviour (silent field drop) so legacy tooling can still
+    // canonicalize partially-defined documents when they accept the risk.
+    const credentialWithUndefinedField = {
+      "@context": ["https://www.w3.org/ns/credentials/v2"],
+      id: "urn:uuid:test-credential-escape-hatch",
+      type: ["VerifiableCredential"],
+      issuer: "did:web:university.example",
+      validFrom: "2026-01-01T00:00:00Z",
+      credentialSubject: {
+        id: "did:example:holder123",
+        name: "Jane Doe",
+        favoriteColor: "purple",
+      },
+    };
+
+    const canonical = await canonicalize(credentialWithUndefinedField, { strict: false });
+    expect(typeof canonical).toBe("string");
+    // The undefined term must NOT appear in the canonical N-Quads form — that
+    // is exactly the silent-drop behaviour we are protecting against by
+    // default, and it is the reason callers should not opt out for issuance.
+    expect(canonical).not.toContain("favoriteColor");
+    expect(canonical).not.toContain("purple");
+  });
+
+  it("accepts credentials whose fields are all in the loaded contexts", async () => {
+    // The fixture used by the rest of this file (`createTestCredential`) only
+    // contains terms that are mapped by the W3C credentials-v2 context, so it
+    // must continue to canonicalize cleanly under strict mode.
+    const unsignedVC = createTestCredential();
+    const canonical = await canonicalize(unsignedVC as unknown as Record<string, unknown>);
+    expect(typeof canonical).toBe("string");
+    expect(canonical.length).toBeGreaterThan(0);
   });
 });

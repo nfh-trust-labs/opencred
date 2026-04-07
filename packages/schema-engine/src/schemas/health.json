@@ -3,12 +3,11 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Health Credential",
   "type": "object",
-  "required": ["name", "certification", "issuingBody", "validUntil"],
+  "required": ["name", "certification", "issuingBody"],
   "properties": {
     "name": { "type": "string", "minLength": 1 },
     "certification": { "type": "string", "minLength": 1 },
-    "issuingBody": { "type": "string", "minLength": 1 },
-    "validUntil": { "type": "string", "format": "date" }
+    "issuingBody": { "type": "string", "minLength": 1 }
   },
   "additionalProperties": true
 }
