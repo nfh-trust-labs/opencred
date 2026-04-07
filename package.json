@@ -26,7 +26,10 @@
       "esbuild",
       "pkcs11js",
       "protobufjs"
-    ]
+    ],
+    "overrides": {
+      "iconv-lite@0.6.3": "^0.7.2"
+    }
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
