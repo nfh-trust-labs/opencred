@@ -161,11 +161,13 @@ describe("Validator", () => {
 
   describe("health schema", () => {
     it("accepts valid health credential", () => {
+      // `validUntil` lives on the VC itself (not the subject) — the
+      // certification expiry IS the credential expiry, so the subject schema
+      // intentionally has no `validUntil` property.
       const result = validator.validateCredentialSubject("health", {
         name: "Bob",
         certification: "First Aid",
         issuingBody: "Red Cross",
-        validUntil: "2025-12-31",
       });
       expect(result.valid).toBe(true);
     });
@@ -173,7 +175,35 @@ describe("Validator", () => {
     it("rejects missing required fields", () => {
       const result = validator.validateCredentialSubject("health", {});
       expect(result.valid).toBe(false);
-      expect(result.errors.length).toBe(4);
+      // Three required fields remain after dropping the subject-level
+      // `validUntil`: name, certification, issuingBody.
+      expect(result.errors.length).toBe(3);
+    });
+
+    it("does not require subject-level validUntil", () => {
+      // Regression: the subject-level `validUntil` was removed because it
+      // semantically collides with the W3C credentials-v2 VC-level
+      // `validUntil`.  Subjects without it must validate.
+      const result = validator.validateCredentialSubject("health", {
+        name: "Bob",
+        certification: "First Aid",
+        issuingBody: "Red Cross",
+      });
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it("ignores subject-level validUntil if a caller still includes it", () => {
+      // `additionalProperties: true` means stale callers that pass a
+      // subject-level `validUntil` still validate — they are simply not
+      // required, and the field is treated as an additional property.
+      const result = validator.validateCredentialSubject("health", {
+        name: "Bob",
+        certification: "First Aid",
+        issuingBody: "Red Cross",
+        validUntil: "2025-12-31",
+      });
+      expect(result.valid).toBe(true);
     });
   });
 
