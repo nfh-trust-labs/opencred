@@ -96,6 +96,16 @@ credentials.post("/credentials/issue", async (c) => {
   }
   builder.setCredentialSubject(subject);
 
+  // Add JSON-LD context for Data Integrity proofs (required for RDFC-1.0
+  // canonicalization with safe mode). VC-JWT and SD-JWT-VC don't need this —
+  // fields are preserved as-is in the JWT payload.
+  if (parsed.proofFormat === "data-integrity") {
+    const builtInContextUrl = getRegistry().getContextForType(parsed.schemaId);
+    if (builtInContextUrl) {
+      builder.addContext(builtInContextUrl);
+    }
+  }
+
   if (parsed.additionalTypes) {
     for (const type of parsed.additionalTypes) {
       builder.addType(type);
