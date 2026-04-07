@@ -88,6 +88,28 @@ export interface DeDiStoreConfig {
   authType: "api-key" | "bearer";
 }
 
+/**
+ * Persisted issuer branding (logo + brand colors).
+ *
+ * SECURITY NOTE: This is presentation-layer only. It NEVER appears in
+ * any signed Verifiable Credential payload — verifiers receive the same
+ * VC regardless of branding. The logo is always a `data:` URI (base64
+ * PNG or sanitized SVG); remote URLs are rejected at the IPC boundary.
+ * Hex colors are validated against `^#[0-9a-fA-F]{3,6}$`.
+ */
+export interface IssuerBrandingStoreEntry {
+  /** Base64 `data:` URI for the logo. */
+  logoDataUri?: string;
+  /** Detected MIME type of the logo (`image/png` or `image/svg+xml`). */
+  logoMimeType?: "image/png" | "image/svg+xml";
+  /** Hex primary color (`#RRGGBB`). */
+  primaryColor?: string;
+  /** Hex accent color (`#RRGGBB`). */
+  accentColor?: string;
+  /** ISO 8601 timestamp of the most recent update. */
+  updatedAt?: string;
+}
+
 export interface StoreSchema {
   /** ID of the last-used signing key (for convenience, not the key itself). */
   lastKeyId: string | undefined;
@@ -120,6 +142,8 @@ export interface StoreSchema {
   dediPublishedSchemas: string[];
   /** ISO 8601 date until which the key rotation reminder is snoozed. */
   keyRotationDismissedUntil?: string;
+  /** Persisted issuer branding (logo + colors) used by the SVG renderer. */
+  issuerBranding?: IssuerBrandingStoreEntry;
 }
 
 const DEFAULTS: StoreSchema = {

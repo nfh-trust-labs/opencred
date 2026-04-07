@@ -125,6 +125,14 @@ export const IPC_CHANNELS = {
   /** Write a config value. Payload: { key, value }. Response: void. */
   SET_CONFIG: "config:set",
 
+  // --- Issuer branding ---
+  /** Read the persisted issuer branding. Response: BrandingGetResponse. */
+  BRANDING_GET: "branding:get",
+  /** Persist issuer branding (logo + colors). Payload: BrandingSetRequest. Response: BrandingSetResponse. */
+  BRANDING_SET: "branding:set",
+  /** Clear all persisted branding (revert to OpenCred defaults). Response: BrandingClearResponse. */
+  BRANDING_CLEAR: "branding:clear",
+
   // --- DeDi integration ---
   /** Save DeDi configuration. Payload: DeDiConfigSetRequest. Response: DeDiConfigSetResponse. */
   DEDI_SET_CONFIG: "dedi:set-config",

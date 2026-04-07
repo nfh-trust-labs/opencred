@@ -3,6 +3,7 @@
     <style>
       .bg { fill: #ffffff; }
       .header { fill: {{primaryColor}}; }
+      .accent-stripe { fill: {{accentColor}}; }
       .title { font: bold 24px sans-serif; fill: #ffffff; }
       .label { font: 12px sans-serif; fill: #666666; }
       .value { font: 16px sans-serif; fill: #333333; }
@@ -19,6 +20,8 @@
   <!-- Header bar -->
   <rect class="header" width="800" height="80" rx="12" />
   <rect class="header" y="12" width="800" height="68" />
+  <!-- Accent stripe under header — issuer brand colour -->
+  <rect class="accent-stripe" y="80" width="800" height="6" />
 
   <!-- Medical cross icon -->
   <g class="icon" transform="translate(20, 18)">
@@ -28,7 +31,7 @@
 
   <!-- Logo placeholder -->
   {{#logoDataUri}}
-  <image x="20" y="15" width="50" height="50" href="{{logoDataUri}}" />
+  <image x="20" y="15" width="50" height="50" href="{{logoDataUri}}" preserveAspectRatio="xMidYMid meet" />
   {{/logoDataUri}}
 
   <!-- Credential title -->
@@ -67,6 +70,9 @@
   {{#qrCode}}
   <image x="600" y="100" width="160" height="160" href="{{qrCode}}" />
   {{/qrCode}}
+
+  <!-- Accent footer bar — issuer brand colour -->
+  <rect class="accent-stripe" y="552" width="800" height="8" rx="0" />
 
   <!-- Footer -->
   <text class="footer" x="40" y="540">Verifiable Credential — powered by OpenCred</text>

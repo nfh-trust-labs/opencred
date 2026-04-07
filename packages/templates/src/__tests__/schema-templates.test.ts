@@ -329,3 +329,97 @@ describe("XML escaping in schema templates", () => {
     expect(rendered).not.toContain("<Team>");
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// 6. Issuer branding smoke tests
+// ─────────────────────────────────────────────────────────────
+
+import { svgToDataUri } from "../branding.js";
+
+describe("issuer branding on built-in templates", () => {
+  for (const schemaId of SCHEMA_IDS) {
+    describe(schemaId, () => {
+      it("contains the {{accentColor}} placeholder", () => {
+        const template = getTemplate(schemaId);
+        expect(template.svg).toContain("{{accentColor}}");
+      });
+
+      it("renders branding primary + accent colors when provided", () => {
+        const template = getTemplate(schemaId);
+        const options = makeRenderOptions(schemaId, {
+          customization: {
+            branding: {
+              primaryColor: "#fa8072",
+              accentColor: "#9333ea",
+            },
+          },
+        });
+
+        const rendered = renderSvg(template.svg, options);
+
+        expect(rendered).toContain("#fa8072");
+        expect(rendered).toContain("#9333ea");
+      });
+
+      it("embeds the branding logo data URI in the rendered output", () => {
+        const template = getTemplate(schemaId);
+        const svgLogo = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="32" height="32" fill="#0f172a"/></svg>';
+        const dataUri = svgToDataUri(svgLogo);
+
+        const options = makeRenderOptions(schemaId, {
+          customization: { branding: { logoDataUri: dataUri } },
+        });
+
+        const rendered = renderSvg(template.svg, options);
+
+        expect(rendered).toContain(dataUri);
+      });
+
+      it("falls back to OpenCred defaults when branding is absent", () => {
+        const template = getTemplate(schemaId);
+        const options = makeRenderOptions(schemaId);
+
+        const rendered = renderSvg(template.svg, options);
+
+        expect(rendered).toContain("#1a56db"); // default primary
+        expect(rendered).toContain("#0ea5e9"); // default accent
+      });
+
+      it("rejects an HTTPS logo URL silently and falls back", () => {
+        const template = getTemplate(schemaId);
+        const options = makeRenderOptions(schemaId, {
+          customization: { branding: { logoDataUri: "https://evil.example/logo.png" } },
+        });
+
+        const rendered = renderSvg(template.svg, options);
+
+        expect(rendered).not.toContain("https://evil.example");
+      });
+
+      it("renders both branding fields and a QR code together", () => {
+        const template = getTemplate(schemaId);
+        const options = makeRenderOptions(schemaId, {
+          values: {
+            issuerName: "Test Issuer",
+            credentialTitle: SCHEMA_FIELDS[schemaId].title,
+            validFrom: "2026-01-01T00:00:00Z",
+            subject: { ...SCHEMA_FIELDS[schemaId].subject },
+            qrCode: "data:image/png;base64,testqr",
+          },
+          customization: {
+            branding: {
+              primaryColor: "#1d4ed8",
+              accentColor: "#f59e0b",
+            },
+          },
+        });
+
+        const rendered = renderSvg(template.svg, options);
+
+        expect(rendered).toContain("#1d4ed8");
+        expect(rendered).toContain("#f59e0b");
+        expect(rendered).toContain("data:image/png;base64,testqr");
+      });
+    });
+  }
+});

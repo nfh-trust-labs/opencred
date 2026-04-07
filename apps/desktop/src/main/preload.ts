@@ -81,6 +81,10 @@ import type {
   CustomSchemaSaveResponse,
   CustomSchemaDeleteRequest,
   CustomSchemaDeleteResponse,
+  BrandingGetResponse,
+  BrandingSetRequest,
+  BrandingSetResponse,
+  BrandingClearResponse,
   DeDiConfigSetRequest,
   DeDiConfigSetResponse,
   DeDiStatusResponse,
@@ -260,6 +264,16 @@ const api: OpenCredDesktopAPI = {
 
   setConfig: (key: string, value: unknown): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SET_CONFIG, { key, value }),
+
+  // Issuer branding
+  brandingGet: (): Promise<BrandingGetResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.BRANDING_GET),
+
+  brandingSet: (request: BrandingSetRequest): Promise<BrandingSetResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.BRANDING_SET, request),
+
+  brandingClear: (): Promise<BrandingClearResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.BRANDING_CLEAR),
 
   // System / diagnostics
   getSystemInfo: (): Promise<SystemInfoResponse> =>

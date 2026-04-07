@@ -13,14 +13,396 @@
  * algorithm, source) is displayed. Private keys NEVER reach the renderer.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card } from "./ui/Card";
 import { Button } from "./ui/Button";
 import { KeyManagement } from "./KeyManagement";
 import { BugReportDialog } from "./BugReportDialog";
-import type { UpdateStatusResponse, DeDiStatusResponse } from "../../shared/ipc-types";
+import type {
+  BrandingGetResponse,
+  BrandingSetRequest,
+  DeDiStatusResponse,
+  IssuerBrandingPayload,
+  UpdateStatusResponse,
+} from "../../shared/ipc-types";
 
 const DEDI_BASE_URL = "https://api.dedi.global";
+
+// ---------------------------------------------------------------------------
+// Branding constants — keep in sync with apps/desktop/src/main/branding.ts
+// ---------------------------------------------------------------------------
+
+const HEX_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+const ACCEPTED_LOGO_MIME = ["image/png", "image/svg+xml"] as const;
+const MAX_LOGO_RAW_BYTES = 1024 * 1024;
+const MAX_LOGO_PIXEL_DIMENSION = 1024;
+const DEFAULT_PRIMARY_COLOR = "#1a56db";
+const DEFAULT_ACCENT_COLOR = "#0ea5e9";
+
+/**
+ * Read a `File` (PNG or SVG) into a base64 string. Returns `null` if the
+ * read fails or the file is too large.
+ */
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read file."));
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("Unexpected file read result."));
+        return;
+      }
+      // FileReader.readAsDataURL → "data:<mime>;base64,<payload>"
+      const comma = result.indexOf(",");
+      if (comma === -1) {
+        reject(new Error("Invalid file data."));
+        return;
+      }
+      resolve(result.slice(comma + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Verify a PNG `File` is within `MAX_LOGO_PIXEL_DIMENSION` x
+ * `MAX_LOGO_PIXEL_DIMENSION`. Resolves `true` if the dimensions are
+ * acceptable. Resolves `false` if the image is too large or fails to load.
+ */
+function checkPngDimensions(file: File): Promise<{ ok: boolean; width?: number; height?: number; error?: string }> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const ok = img.width <= MAX_LOGO_PIXEL_DIMENSION && img.height <= MAX_LOGO_PIXEL_DIMENSION;
+      resolve({
+        ok,
+        width: img.width,
+        height: img.height,
+        error: ok
+          ? undefined
+          : `Logo is ${img.width}×${img.height}; max allowed is ${MAX_LOGO_PIXEL_DIMENSION}×${MAX_LOGO_PIXEL_DIMENSION}.`,
+      });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve({ ok: false, error: "Could not read image dimensions." });
+    };
+    img.src = url;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// BrandingCard — issuer logo + brand colors
+// ---------------------------------------------------------------------------
+
+function BrandingCard() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [primaryColor, setPrimaryColor] = useState(DEFAULT_PRIMARY_COLOR);
+  const [accentColor, setAccentColor] = useState(DEFAULT_ACCENT_COLOR);
+  const [persistedBranding, setPersistedBranding] = useState<IssuerBrandingPayload | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [pendingLogoFile, setPendingLogoFile] = useState<File | null>(null);
+  const [pendingLogoPreview, setPendingLogoPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Object URL lifecycle: revoke previous URL when the file changes or
+  // when the component unmounts.
+  useEffect(() => {
+    if (!pendingLogoFile) {
+      setPendingLogoPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(pendingLogoFile);
+    setPendingLogoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pendingLogoFile]);
+
+  const loadBranding = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response: BrandingGetResponse = await window.opencred.brandingGet();
+      if (response.configured && response.branding) {
+        setPersistedBranding(response.branding);
+        setPrimaryColor(response.branding.primaryColor ?? DEFAULT_PRIMARY_COLOR);
+        setAccentColor(response.branding.accentColor ?? DEFAULT_ACCENT_COLOR);
+      } else {
+        setPersistedBranding(undefined);
+      }
+    } catch {
+      // Branding API not available — silently fall back to defaults.
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadBranding();
+  }, [loadBranding]);
+
+  function clearMessages() {
+    setError(null);
+    setSuccess(null);
+  }
+
+  async function handleFileSelected(file: File) {
+    clearMessages();
+
+    const mime = file.type.toLowerCase();
+    if (!ACCEPTED_LOGO_MIME.includes(mime as (typeof ACCEPTED_LOGO_MIME)[number])) {
+      setError(`Logo must be PNG or SVG. Selected: ${file.type || "unknown"}.`);
+      return;
+    }
+    if (file.size > MAX_LOGO_RAW_BYTES) {
+      setError(`Logo is ${(file.size / 1024).toFixed(0)} KB; max allowed is ${MAX_LOGO_RAW_BYTES / 1024} KB.`);
+      return;
+    }
+
+    if (mime === "image/png") {
+      const dim = await checkPngDimensions(file);
+      if (!dim.ok) {
+        setError(dim.error ?? "Logo dimensions are too large.");
+        return;
+      }
+    }
+
+    setPendingLogoFile(file);
+  }
+
+  async function handleSave() {
+    clearMessages();
+
+    if (!HEX_COLOR_RE.test(primaryColor)) {
+      setError("Primary color must be a hex value, e.g. #1a56db.");
+      return;
+    }
+    if (!HEX_COLOR_RE.test(accentColor)) {
+      setError("Accent color must be a hex value, e.g. #0ea5e9.");
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const request: BrandingSetRequest = {
+        primaryColor,
+        accentColor,
+      };
+
+      if (pendingLogoFile) {
+        const base64 = await readFileAsBase64(pendingLogoFile);
+        request.logoFile = {
+          mimeType: pendingLogoFile.type,
+          base64,
+          name: pendingLogoFile.name,
+        };
+      }
+
+      const result = await window.opencred.brandingSet(request);
+      if (!result.success) {
+        setError(result.error ?? "Failed to save branding.");
+        setSaving(false);
+        return;
+      }
+
+      setPersistedBranding(result.branding);
+      setPendingLogoFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      setSuccess("Branding saved. New credentials will use these values.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save branding.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemoveLogo() {
+    clearMessages();
+    setSaving(true);
+    try {
+      const result = await window.opencred.brandingSet({ removeLogo: true });
+      if (!result.success) {
+        setError(result.error ?? "Failed to remove logo.");
+      } else {
+        setPersistedBranding(result.branding);
+        setSuccess("Logo removed.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove logo.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleResetAll() {
+    clearMessages();
+    setSaving(true);
+    try {
+      const result = await window.opencred.brandingClear();
+      if (!result.success) {
+        setError(result.error ?? "Failed to reset branding.");
+      } else {
+        setPersistedBranding(undefined);
+        setPrimaryColor(DEFAULT_PRIMARY_COLOR);
+        setAccentColor(DEFAULT_ACCENT_COLOR);
+        setPendingLogoFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        setSuccess("Branding reset to OpenCred defaults.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reset branding.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <Card className="space-y-2">
+        <h2 className="text-sm font-medium text-gray-700">Branding</h2>
+        <p className="text-xs text-gray-400">Loading...</p>
+      </Card>
+    );
+  }
+
+  const previewLogo = pendingLogoPreview ?? persistedBranding?.logoDataUri;
+
+  return (
+    <Card className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium text-gray-700">Branding</h2>
+        {persistedBranding && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+            <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+            Active
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-gray-500 -mt-1">
+        Add your institutional logo and brand colors. These appear on the visual representation of every credential you issue (the signed credential JSON is unchanged).
+      </p>
+
+      {/* Logo upload */}
+      <div className="space-y-2">
+        <label className="block text-xs font-medium text-gray-600">Institutional logo</label>
+        <div className="flex items-center gap-3">
+          <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-md border border-dashed border-gray-300 bg-white">
+            {previewLogo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={previewLogo} alt="Logo preview" className="max-h-14 max-w-14 object-contain" />
+            ) : (
+              <span className="text-[10px] text-gray-400">No logo</span>
+            )}
+          </div>
+          <div className="flex flex-col gap-1">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/svg+xml"
+              className="block text-xs text-gray-500 file:mr-3 file:rounded file:border-0 file:bg-gray-100 file:px-3 file:py-1 file:text-xs file:font-medium file:text-gray-700 hover:file:bg-gray-200"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleFileSelected(file);
+              }}
+              disabled={saving}
+            />
+            <p className="text-[10px] text-gray-400">PNG or SVG, max 1 MB, max 1024×1024.</p>
+          </div>
+        </div>
+
+        {persistedBranding?.logoDataUri && !pendingLogoFile && (
+          <button
+            type="button"
+            className="text-xs font-medium text-red-600 hover:underline"
+            onClick={() => void handleRemoveLogo()}
+            disabled={saving}
+          >
+            Remove logo
+          </button>
+        )}
+      </div>
+
+      {/* Color pickers */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-gray-600">Primary color</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={HEX_COLOR_RE.test(primaryColor) ? primaryColor : DEFAULT_PRIMARY_COLOR}
+              onChange={(e) => setPrimaryColor(e.target.value)}
+              disabled={saving}
+              className="h-9 w-12 cursor-pointer rounded border border-gray-300"
+              aria-label="Primary brand color"
+            />
+            <input
+              type="text"
+              value={primaryColor}
+              onChange={(e) => setPrimaryColor(e.target.value)}
+              disabled={saving}
+              placeholder={DEFAULT_PRIMARY_COLOR}
+              className="flex-1 rounded border border-gray-300 px-2 py-1.5 font-mono text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-blue"
+              aria-label="Primary color hex"
+            />
+          </div>
+        </div>
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-gray-600">Accent color</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={HEX_COLOR_RE.test(accentColor) ? accentColor : DEFAULT_ACCENT_COLOR}
+              onChange={(e) => setAccentColor(e.target.value)}
+              disabled={saving}
+              className="h-9 w-12 cursor-pointer rounded border border-gray-300"
+              aria-label="Accent brand color"
+            />
+            <input
+              type="text"
+              value={accentColor}
+              onChange={(e) => setAccentColor(e.target.value)}
+              disabled={saving}
+              placeholder={DEFAULT_ACCENT_COLOR}
+              className="flex-1 rounded border border-gray-300 px-2 py-1.5 font-mono text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-blue"
+              aria-label="Accent color hex"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Feedback */}
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>
+      )}
+      {success && (
+        <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">{success}</div>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center gap-2 pt-1">
+        <Button onClick={() => void handleSave()} disabled={saving} size="sm">
+          {saving ? "Saving..." : "Save branding"}
+        </Button>
+        {persistedBranding && (
+          <button
+            type="button"
+            onClick={() => void handleResetAll()}
+            disabled={saving}
+            className="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            Reset to defaults
+          </button>
+        )}
+      </div>
+    </Card>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // DeDiCard — configure / manage DeDi integration from Settings
@@ -623,10 +1005,13 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
         <KeyManagement />
       </div>
 
-      {/* 2. Software updates */}
+      {/* 2. Issuer branding (logo + colors) */}
+      <BrandingCard />
+
+      {/* 3. Software updates */}
       <UpdateCard />
 
-      {/* 3. DeDi integration */}
+      {/* 4. DeDi integration */}
       <DeDiCard />
 
       {/* 4. Network status */}

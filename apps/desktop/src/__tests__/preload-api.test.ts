@@ -66,6 +66,9 @@ const CHANNEL_TO_METHOD: Record<string, string> = {
   [IPC_CHANNELS.SCHEMA_FETCH_URL]: "schemaFetchUrl",
   [IPC_CHANNELS.GET_CONFIG]: "getConfig",
   [IPC_CHANNELS.SET_CONFIG]: "setConfig",
+  [IPC_CHANNELS.BRANDING_GET]: "brandingGet",
+  [IPC_CHANNELS.BRANDING_SET]: "brandingSet",
+  [IPC_CHANNELS.BRANDING_CLEAR]: "brandingClear",
 };
 
 /**
@@ -183,6 +186,9 @@ describe("Preload API completeness", () => {
       recentTemplatesRecord: async () => {},
       getConfig: async () => undefined,
       setConfig: async () => {},
+      brandingGet: async () => ({ configured: false }),
+      brandingSet: async () => ({ success: true }),
+      brandingClear: async () => ({ success: true }),
     };
 
     for (const methodPath of Object.values(CHANNEL_TO_METHOD)) {
@@ -269,6 +275,9 @@ describe("Preload API completeness", () => {
       recentTemplatesRecord: async () => {},
       getConfig: async () => undefined,
       setConfig: async () => {},
+      brandingGet: async () => ({ configured: false }),
+      brandingSet: async () => ({ success: true }),
+      brandingClear: async () => ({ success: true }),
     };
 
     // Each method should return something thenable.
