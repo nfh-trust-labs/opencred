@@ -1,5 +1,16 @@
-import { describe, it, expect } from "vitest";
-import { isPrivateIP } from "../ssrf.js";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  isPrivateIP,
+  resolveAndPinHostname,
+  buildPinnedFetchTarget,
+} from "../ssrf.js";
+
+vi.mock("node:dns/promises", () => ({
+  resolve4: vi.fn(),
+  resolve6: vi.fn(),
+}));
+
+import { resolve4, resolve6 } from "node:dns/promises";
 
 describe("isPrivateIP", () => {
   // IPv4 private ranges
@@ -76,5 +87,139 @@ describe("isPrivateIP", () => {
   it("returns false for non-IP strings", () => {
     expect(isPrivateIP("not-an-ip")).toBe(false);
     expect(isPrivateIP("")).toBe(false);
+  });
+});
+
+describe("resolveAndPinHostname", () => {
+  const resolve4Mock = vi.mocked(resolve4);
+  const resolve6Mock = vi.mocked(resolve6);
+
+  beforeEach(() => {
+    resolve4Mock.mockReset();
+    resolve6Mock.mockReset();
+    // Default both to ENODATA so a forgotten setup fails clean.
+    resolve4Mock.mockRejectedValue(new Error("ENODATA"));
+    resolve6Mock.mockRejectedValue(new Error("ENODATA"));
+  });
+
+  afterEach(() => {
+    resolve4Mock.mockReset();
+    resolve6Mock.mockReset();
+  });
+
+  it("returns the first IPv4 address when public", async () => {
+    resolve4Mock.mockResolvedValue(["93.184.216.34"]);
+
+    const result = await resolveAndPinHostname("example.com");
+    expect(result).toEqual({ address: "93.184.216.34", family: 4 });
+  });
+
+  it("falls back to IPv6 when no IPv4 records", async () => {
+    resolve6Mock.mockResolvedValue(["2606:2800:220:1:248:1893:25c8:1946"]);
+
+    const result = await resolveAndPinHostname("ipv6.example.com");
+    expect(result).toEqual({
+      address: "2606:2800:220:1:248:1893:25c8:1946",
+      family: 6,
+    });
+  });
+
+  it("rejects when ANY resolved IP is private (multi-A-record SSRF)", async () => {
+    resolve4Mock.mockResolvedValue(["93.184.216.34", "127.0.0.1"]);
+
+    await expect(resolveAndPinHostname("evil.example.com")).rejects.toThrow(
+      /private\/reserved/,
+    );
+  });
+
+  it("rejects when the only IPv4 record is private", async () => {
+    resolve4Mock.mockResolvedValue(["10.0.0.1"]);
+
+    await expect(resolveAndPinHostname("evil.example.com")).rejects.toThrow(
+      /private\/reserved/,
+    );
+  });
+
+  it("rejects when the only IPv6 record is private", async () => {
+    resolve6Mock.mockResolvedValue(["::1"]);
+
+    await expect(resolveAndPinHostname("evil.example.com")).rejects.toThrow(
+      /private\/reserved/,
+    );
+  });
+
+  it("rejects when both DNS lookups fail", async () => {
+    await expect(resolveAndPinHostname("nonexistent.example.com")).rejects.toThrow(
+      /DNS resolution failed/,
+    );
+  });
+
+  it("DNS rebinding TOCTOU defence: only one resolution call per request", async () => {
+    // The first call returns a public IP. A hypothetical re-resolution
+    // would return loopback. The helper performs exactly one resolution
+    // and returns the pinned address — callers must use that address
+    // directly, not call back into resolveAndPinHostname.
+    resolve4Mock
+      .mockResolvedValueOnce(["93.184.216.34"])
+      .mockResolvedValueOnce(["127.0.0.1"]);
+
+    const result = await resolveAndPinHostname("rebinding.example.com");
+
+    expect(resolve4Mock).toHaveBeenCalledTimes(1);
+    expect(result.address).toBe("93.184.216.34");
+  });
+
+  it("honours an injected isPrivateIP predicate", async () => {
+    resolve4Mock.mockResolvedValue(["8.8.8.8"]);
+
+    // Reject everything as "private" using a custom predicate.
+    await expect(
+      resolveAndPinHostname("public.example.com", { isPrivateIP: () => true }),
+    ).rejects.toThrow(/private\/reserved/);
+  });
+});
+
+describe("buildPinnedFetchTarget", () => {
+  it("rewrites the hostname to an IPv4 literal", () => {
+    const result = buildPinnedFetchTarget("https://example.com/path?q=1", {
+      address: "93.184.216.34",
+      family: 4,
+    });
+    expect(result.url).toBe("https://93.184.216.34/path?q=1");
+    expect(result.headers.Host).toBe("example.com");
+  });
+
+  it("rewrites the hostname to a bracketed IPv6 literal", () => {
+    const result = buildPinnedFetchTarget("https://ipv6.example.com/", {
+      address: "2606:2800:220:1:248:1893:25c8:1946",
+      family: 6,
+    });
+    expect(result.url).toBe("https://[2606:2800:220:1:248:1893:25c8:1946]/");
+    expect(result.headers.Host).toBe("ipv6.example.com");
+  });
+
+  it("preserves a non-default port in the Host header", () => {
+    const result = buildPinnedFetchTarget("https://example.com:8443/foo", {
+      address: "93.184.216.34",
+      family: 4,
+    });
+    expect(result.url).toBe("https://93.184.216.34:8443/foo");
+    expect(result.headers.Host).toBe("example.com:8443");
+  });
+
+  it("omits the default https port from the Host header", () => {
+    const result = buildPinnedFetchTarget("https://example.com:443/foo", {
+      address: "93.184.216.34",
+      family: 4,
+    });
+    expect(result.headers.Host).toBe("example.com");
+  });
+
+  it("preserves the path and query string", () => {
+    const result = buildPinnedFetchTarget(
+      "https://example.com/.well-known/did.json?v=1",
+      { address: "93.184.216.34", family: 4 },
+    );
+    expect(result.url).toBe("https://93.184.216.34/.well-known/did.json?v=1");
   });
 });

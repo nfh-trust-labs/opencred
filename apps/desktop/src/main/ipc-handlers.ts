@@ -15,6 +15,7 @@
 import { app, ipcMain, dialog, safeStorage, type IpcMainInvokeEvent } from "electron";
 import * as os from "node:os";
 import * as fs from "node:fs/promises";
+import { isIP } from "node:net";
 import { IPC_CHANNELS } from "../shared/ipc-channels.js";
 import type {
   KeyImportRequest,
@@ -93,7 +94,14 @@ import { generateKeyPairSync, createPublicKey, randomUUID, createHash } from "no
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
-import { CryptoError, ValidationError, SchemaValidationError, isPrivateIP } from "@opencred/shared";
+import {
+  CryptoError,
+  ValidationError,
+  SchemaValidationError,
+  buildPinnedFetchTarget,
+  isPrivateIP,
+  resolveAndPinHostname,
+} from "@opencred/shared";
 import { SchemaRegistry } from "@opencred/schema-engine";
 import { packageCredential as packageCredentialWithTemplates } from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
@@ -1482,6 +1490,9 @@ async function handleCredentialHistoryDelete(
 // Schema URL fetch handler
 // ---------------------------------------------------------------------------
 
+/** Maximum response size accepted from a remote schema URL (1 MB). */
+const SCHEMA_FETCH_MAX_BYTES = 1_048_576;
+
 /** SCHEMA_FETCH_URL — fetch a JSON Schema from a remote URL. */
 async function handleSchemaFetchUrl(
   _event: IpcMainInvokeEvent,
@@ -1493,12 +1504,45 @@ async function handleSchemaFetchUrl(
       return { success: false, error: "URL must use HTTPS" };
     }
 
-    // SSRF protection: resolve hostname and reject private IPs
-    const { hostname } = new URL(url);
-    const { promises: dnsPromises } = await import("node:dns");
-    const { address } = await dnsPromises.lookup(hostname);
-    if (isPrivateIP(address)) {
-      return { success: false, error: "URL resolves to a private IP address" };
+    // Validate the URL syntax up-front so we can fail fast on garbage input.
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return { success: false, error: "Invalid URL" };
+    }
+    if (parsedUrl.protocol !== "https:") {
+      return { success: false, error: "URL must use HTTPS" };
+    }
+
+    const hostname = parsedUrl.hostname;
+
+    // SSRF + DNS rebinding (TOCTOU) protection: resolve the hostname
+    // ourselves via dns.resolve4/resolve6 (NOT dns.lookup, which only
+    // returns one address from getaddrinfo and can leave additional
+    // records unchecked) and pin the resolved IP into the fetch URL so
+    // the HTTP client cannot re-resolve the hostname between our check
+    // and the network request.
+    let fetchUrl: string;
+    let hostHeader: string | undefined;
+    if (isIP(hostname)) {
+      if (isPrivateIP(hostname)) {
+        return { success: false, error: "URL resolves to a private IP address" };
+      }
+      fetchUrl = url;
+    } else {
+      try {
+        const pinned = await resolveAndPinHostname(hostname);
+        const target = buildPinnedFetchTarget(url, pinned);
+        fetchUrl = target.url;
+        hostHeader = target.headers.Host;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "DNS lookup failed";
+        if (message.includes("private/reserved")) {
+          return { success: false, error: "URL resolves to a private IP address" };
+        }
+        return { success: false, error: message };
+      }
     }
 
     const controller = new AbortController();
@@ -1506,9 +1550,13 @@ async function handleSchemaFetchUrl(
 
     let response: Response;
     try {
-      response = await fetch(url, {
+      const headers: Record<string, string> = { Accept: "application/json" };
+      if (hostHeader) {
+        headers.Host = hostHeader;
+      }
+      response = await fetch(fetchUrl, {
         signal: controller.signal,
-        headers: { Accept: "application/json" },
+        headers,
         redirect: "error",
       });
     } finally {
@@ -1519,7 +1567,35 @@ async function handleSchemaFetchUrl(
       return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
     }
 
-    const body: unknown = await response.json();
+    // Enforce a hard size cap on the response body. We check the
+    // Content-Length header first as a fast path; even when the server
+    // omits or lies about it, we read the body as a stream and abort
+    // when SCHEMA_FETCH_MAX_BYTES is exceeded.
+    const contentLength = response.headers.get("content-length");
+    if (contentLength) {
+      const declared = parseInt(contentLength, 10);
+      if (Number.isFinite(declared) && declared > SCHEMA_FETCH_MAX_BYTES) {
+        return {
+          success: false,
+          error: `Response too large (${String(declared)} bytes; limit ${String(SCHEMA_FETCH_MAX_BYTES)})`,
+        };
+      }
+    }
+
+    let bodyText: string;
+    try {
+      bodyText = await readBodyWithLimit(response, SCHEMA_FETCH_MAX_BYTES);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to read response body";
+      return { success: false, error: message };
+    }
+
+    let body: unknown;
+    try {
+      body = JSON.parse(bodyText);
+    } catch {
+      return { success: false, error: "Response is not valid JSON" };
+    }
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
       return { success: false, error: "Response is not a JSON object" };
     }
@@ -1548,6 +1624,52 @@ async function handleSchemaFetchUrl(
     logger.warn("Schema fetch failed", { url: request.url, error: message });
     return { success: false, error: message };
   }
+}
+
+/**
+ * Read a fetch Response body as text while enforcing a hard byte cap. The
+ * stream is aborted (and the consumed bytes discarded) as soon as the limit
+ * is exceeded so a hostile peer can never get us to allocate more than
+ * `maxBytes` of memory for a single schema.
+ */
+async function readBodyWithLimit(response: Response, maxBytes: number): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    // Streaming reader not available; fall back to text() but still cap.
+    const text = await response.text();
+    if (text.length > maxBytes) {
+      throw new Error(`Response too large (limit ${String(maxBytes)} bytes)`);
+    }
+    return text;
+  }
+
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      try {
+        await reader.cancel();
+      } catch {
+        // Best-effort cancellation; the limit error below is the source of truth.
+      }
+      throw new Error(`Response too large (limit ${String(maxBytes)} bytes)`);
+    }
+    chunks.push(value);
+  }
+
+  // Concatenate chunks into a single Uint8Array, then decode as UTF-8.
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8").decode(merged);
 }
 
 // ---------------------------------------------------------------------------

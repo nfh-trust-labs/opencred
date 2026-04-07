@@ -7,8 +7,13 @@
  * Spec: https://w3c-ccg.github.io/did-method-web/
  */
 
-import { promises as dns } from "node:dns";
-import { DIDResolutionError, isPrivateIP } from "@opencred/shared";
+import { isIP } from "node:net";
+import {
+  DIDResolutionError,
+  buildPinnedFetchTarget,
+  isPrivateIP,
+  resolveAndPinHostname,
+} from "@opencred/shared";
 import type { DIDDocument, DIDResolutionResult, JWK, VerificationMethod } from "./types.js";
 import type { DIDResolver } from "./resolver.js";
 
@@ -180,24 +185,38 @@ export class DIDWebResolver implements DIDResolver {
     const parsedUrl = new URL(url);
     const hostname = parsedUrl.hostname;
 
-    // DNS resolution + SSRF check: resolve the hostname and verify
-    // all returned IPs (IPv4 + IPv6) are public before making the HTTP request.
-    const [v4Result, v6Result] = await Promise.allSettled([
-      dns.resolve4(hostname),
-      dns.resolve6(hostname),
-    ]);
-    const addresses = [
-      ...(v4Result.status === "fulfilled" ? v4Result.value : []),
-      ...(v6Result.status === "fulfilled" ? v6Result.value : []),
-    ];
+    // Build the pinned fetch target. If the URL already contains an IP literal
+    // (rare for did:web but legal), we still validate it; otherwise we resolve
+    // the hostname ourselves and pin the IP into the URL with a Host header.
+    //
+    // Pinning the IP into the URL prevents DNS rebinding (TOCTOU): once the
+    // URL contains a literal IP, fetch cannot re-resolve the hostname to a
+    // different (private) address between our SSRF check and the network
+    // request.
+    let fetchUrl = url;
+    let hostHeader: string | undefined;
 
-    if (addresses.length === 0) {
-      throw new DIDResolutionError(`Failed to resolve hostname: ${hostname}`);
-    }
-
-    for (const ip of addresses) {
-      if (isPrivateIP(ip)) {
-        throw new DIDResolutionError("SSRF protection: DID document host resolves to a private IP");
+    if (isIP(hostname)) {
+      // Direct IP literal — no DNS lookup needed, just validate.
+      if (isPrivateIP(hostname)) {
+        throw new DIDResolutionError(
+          "SSRF protection: DID document host resolves to a private IP",
+        );
+      }
+    } else {
+      try {
+        const pinned = await resolveAndPinHostname(hostname);
+        const target = buildPinnedFetchTarget(url, pinned);
+        fetchUrl = target.url;
+        hostHeader = target.headers.Host;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes("private/reserved")) {
+          throw new DIDResolutionError(
+            "SSRF protection: DID document host resolves to a private IP",
+          );
+        }
+        throw new DIDResolutionError(`Failed to resolve hostname: ${hostname}`);
       }
     }
 
@@ -205,14 +224,19 @@ export class DIDWebResolver implements DIDResolver {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
+    const headers: Record<string, string> = {
+      Accept: "application/did+ld+json, application/json",
+    };
+    if (hostHeader) {
+      headers.Host = hostHeader;
+    }
+
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await fetch(fetchUrl, {
         signal: controller.signal,
         redirect: "error",
-        headers: {
-          Accept: "application/did+ld+json, application/json",
-        },
+        headers,
       });
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "AbortError") {

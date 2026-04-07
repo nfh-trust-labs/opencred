@@ -11,7 +11,7 @@
  * Mocks only Electron APIs (ipcMain, dialog, safeStorage) and electron-store.
  */
 
-import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -109,6 +109,16 @@ vi.mock("keytar", () => ({
   getPassword: vi.fn(async () => null),
   setPassword: vi.fn(async () => {}),
   deletePassword: vi.fn(async () => true),
+}));
+
+// Mock node:dns/promises so SCHEMA_FETCH_URL tests can drive DNS responses
+// without leaking real network calls. lookup is also mocked because
+// other handlers (e.g., GET_OFFLINE_STATUS) call it; we default it to
+// reject so those code paths treat the machine as offline.
+vi.mock("node:dns/promises", () => ({
+  resolve4: vi.fn(),
+  resolve6: vi.fn(),
+  lookup: vi.fn().mockRejectedValue(new Error("ENOTFOUND")),
 }));
 
 // Initialise store before importing IPC handlers
@@ -747,5 +757,260 @@ describe("IPC Handler Integration Tests", () => {
         expect(signed.type).toContain("VerifiableCredential");
       });
     }
+  });
+
+  // -----------------------------------------------------------------------
+  // SCHEMA_FETCH_URL — SSRF + DNS rebinding (TOCTOU) protection
+  // (Issue #314)
+  // -----------------------------------------------------------------------
+  describe("SCHEMA_FETCH_URL", () => {
+    let resolve4Spy: ReturnType<typeof vi.fn>;
+    let resolve6Spy: ReturnType<typeof vi.fn>;
+
+    beforeEach(async () => {
+      const { resolve4, resolve6 } = await import("node:dns/promises");
+      resolve4Spy = resolve4 as unknown as ReturnType<typeof vi.fn>;
+      resolve6Spy = resolve6 as unknown as ReturnType<typeof vi.fn>;
+      resolve4Spy.mockReset();
+      resolve6Spy.mockReset();
+      // Default both to ENODATA so any test that forgets to set them up
+      // gets a clean failure instead of leaking real DNS calls.
+      resolve4Spy.mockRejectedValue(new Error("ENODATA"));
+      resolve6Spy.mockRejectedValue(new Error("ENODATA"));
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    /** Build a fake fetch Response with the given JSON body. */
+    function jsonResponse(body: unknown, init: { ok?: boolean; status?: number } = {}): Response {
+      const ok = init.ok ?? true;
+      const status = init.status ?? 200;
+      return {
+        ok,
+        status,
+        statusText: ok ? "OK" : "Error",
+        headers: new Headers({ "content-type": "application/json" }),
+        body: null,
+        text: vi.fn().mockResolvedValue(JSON.stringify(body)),
+        json: vi.fn().mockResolvedValue(body),
+      } as unknown as Response;
+    }
+
+    it("rejects non-HTTPS URLs without resolving DNS", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_FETCH_URL];
+      const result = (await handler(fakeEvent, { url: "http://example.com/schema.json" })) as {
+        success: boolean;
+        error?: string;
+      };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("HTTPS");
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(resolve4Spy).not.toHaveBeenCalled();
+    });
+
+    it("rejects when ALL resolved IPs are private", async () => {
+      resolve4Spy.mockResolvedValue(["127.0.0.1"]);
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_FETCH_URL];
+      const result = (await handler(fakeEvent, {
+        url: "https://evil.example.com/schema.json",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("private IP");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects when ANY resolved IP is private (multi-A-record SSRF)", async () => {
+      // Reproduces the exact bug called out in the issue: dns.lookup would
+      // return only the first record. dns.resolve4 returns the full set so
+      // we can refuse the entire request.
+      resolve4Spy.mockResolvedValue(["1.2.3.4", "127.0.0.1"]);
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_FETCH_URL];
+      const result = (await handler(fakeEvent, {
+        url: "https://evil.example.com/schema.json",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("private IP");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("pins the resolved IP into the fetch URL and sets the Host header (DNS rebinding defence)", async () => {
+      resolve4Spy.mockResolvedValue(["93.184.216.34"]);
+      const fetchSpy = vi.fn().mockResolvedValue(
+        jsonResponse({
+          $schema: "https://json-schema.org/draft/2020-12/schema",
+          title: "Test schema",
+          properties: { name: { type: "string" } },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_FETCH_URL];
+      const result = (await handler(fakeEvent, {
+        url: "https://example.com/schema.json",
+      })) as { success: boolean; schema?: Record<string, unknown>; title?: string };
+
+      expect(result.success).toBe(true);
+      expect(result.title).toBe("Test schema");
+
+      // Critical: the URL passed to fetch must contain the resolved IP, not
+      // the original hostname. Otherwise fetch would re-resolve the hostname.
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const calledUrl = fetchSpy.mock.calls[0][0] as string;
+      expect(calledUrl).toBe("https://93.184.216.34/schema.json");
+      expect(calledUrl).not.toContain("example.com");
+
+      // The Host header carries the original hostname so the server's
+      // virtual-host routing still works.
+      const calledOptions = fetchSpy.mock.calls[0][1] as {
+        headers: Record<string, string>;
+        redirect: string;
+      };
+      expect(calledOptions.headers.Host).toBe("example.com");
+      expect(calledOptions.redirect).toBe("error");
+    });
+
+    it("does not re-resolve hostname between SSRF check and fetch (TOCTOU defence)", async () => {
+      // Simulate a DNS rebinding attacker: the first resolve4 call (for the
+      // SSRF check) returns a public IP. A subsequent call (which would
+      // happen if fetch re-resolved) would return loopback. The fixed code
+      // never makes that subsequent call because the IP is pinned into the
+      // fetch URL.
+      resolve4Spy
+        .mockResolvedValueOnce(["93.184.216.34"]) // First call: public
+        .mockResolvedValueOnce(["127.0.0.1"]); // Hypothetical re-resolve: loopback
+
+      const fetchSpy = vi.fn().mockResolvedValue(
+        jsonResponse({
+          properties: { name: { type: "string" } },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_FETCH_URL];
+      const result = (await handler(fakeEvent, {
+        url: "https://rebinding.example.com/schema.json",
+      })) as { success: boolean };
+
+      expect(result.success).toBe(true);
+      expect(resolve4Spy).toHaveBeenCalledTimes(1);
+
+      const calledUrl = fetchSpy.mock.calls[0][0] as string;
+      expect(calledUrl).toContain("93.184.216.34");
+      expect(calledUrl).not.toContain("127.0.0.1");
+      expect(calledUrl).not.toContain("rebinding.example.com");
+    });
+
+    it("rejects when DNS resolution fails entirely", async () => {
+      resolve4Spy.mockRejectedValue(new Error("ENOTFOUND"));
+      resolve6Spy.mockRejectedValue(new Error("ENOTFOUND"));
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_FETCH_URL];
+      const result = (await handler(fakeEvent, {
+        url: "https://nonexistent.example.com/schema.json",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("DNS resolution failed");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("validates HTTPS-only when given a literal IP", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_FETCH_URL];
+      const result = (await handler(fakeEvent, {
+        url: "https://127.0.0.1/schema.json",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("private IP");
+      expect(fetchSpy).not.toHaveBeenCalled();
+      // Literal IP path bypasses DNS entirely.
+      expect(resolve4Spy).not.toHaveBeenCalled();
+    });
+
+    it("rejects responses larger than the 1 MB cap (Content-Length fast path)", async () => {
+      resolve4Spy.mockResolvedValue(["93.184.216.34"]);
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: new Headers({
+          "content-type": "application/json",
+          "content-length": String(2_000_000),
+        }),
+        body: null,
+        text: vi.fn().mockResolvedValue("{}"),
+        json: vi.fn().mockResolvedValue({}),
+      } as unknown as Response);
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_FETCH_URL];
+      const result = (await handler(fakeEvent, {
+        url: "https://example.com/schema.json",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Response too large");
+    });
+
+    it("rejects responses larger than the 1 MB cap (streaming check)", async () => {
+      resolve4Spy.mockResolvedValue(["93.184.216.34"]);
+
+      // Simulate a response with a missing/lying Content-Length but a body
+      // that streams more than 1 MB. The reader returns 2 MB worth of data
+      // in two chunks; the handler must abort before allocating it all.
+      const bigChunk = new Uint8Array(700_000);
+      bigChunk.fill(0x7b); // "{"
+      let chunkIdx = 0;
+      const reader = {
+        read: vi.fn().mockImplementation(async () => {
+          if (chunkIdx < 3) {
+            chunkIdx++;
+            return { done: false, value: bigChunk };
+          }
+          return { done: true, value: undefined };
+        }),
+        cancel: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: new Headers({ "content-type": "application/json" }),
+        body: { getReader: () => reader },
+        text: vi.fn().mockResolvedValue(""),
+        json: vi.fn().mockResolvedValue({}),
+      } as unknown as Response);
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_FETCH_URL];
+      const result = (await handler(fakeEvent, {
+        url: "https://example.com/schema.json",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Response too large");
+      // The reader should have been cancelled before draining all 3 chunks.
+      expect(reader.cancel).toHaveBeenCalled();
+    });
   });
 });

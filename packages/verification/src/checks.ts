@@ -1,10 +1,14 @@
-import { resolve4, resolve6 } from "node:dns/promises";
 import { isIP } from "node:net";
 import { promisify } from "node:util";
 import { gunzip as gunzipCb } from "node:zlib";
 import type { DeDiClient } from "@opencred/dedi-client";
 import { computeRevocationHash } from "@opencred/crypto";
 import type { DIDResolver } from "@opencred/did";
+import {
+  buildPinnedFetchTarget,
+  resolveAndPinHostname,
+  type PinnedHostnameResult,
+} from "@opencred/shared";
 import { verifyDataIntegrity } from "./data-integrity.js";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import type { VerificationCheck } from "./types.js";
@@ -186,40 +190,16 @@ function validateStatusListUrl(
 /**
  * Resolve a hostname to an IP and validate that none of the resolved IPs are private.
  * Prevents DNS rebinding attacks by pinning the resolved IP for use in the fetch.
+ *
+ * Delegates to the shared {@link resolveAndPinHostname} helper but passes the
+ * verification package's more thorough {@link isPrivateIP} as the predicate
+ * (covers CGNAT, multicast, reserved, etc. — see MEDIUM-3 in the security
+ * review).
  */
 export async function resolveAndValidateIp(
   hostname: string,
-): Promise<{ address: string; family: 4 | 6 }> {
-  let addresses: string[] = [];
-  let family: 4 | 6 = 4;
-
-  try {
-    addresses = await resolve4(hostname);
-  } catch {
-    // resolve4 failed, try IPv6
-  }
-
-  if (addresses.length === 0) {
-    try {
-      addresses = await resolve6(hostname);
-      family = 6;
-    } catch {
-      throw new Error(`DNS resolution failed for ${hostname}`);
-    }
-  }
-
-  if (addresses.length === 0) {
-    throw new Error(`DNS resolution failed for ${hostname}`);
-  }
-
-  // Validate ALL resolved IPs — if any are private, reject
-  for (const addr of addresses) {
-    if (isPrivateIP(addr)) {
-      throw new Error(`DNS resolved to private/reserved IP for ${hostname}`);
-    }
-  }
-
-  return { address: addresses[0], family };
+): Promise<PinnedHostnameResult> {
+  return resolveAndPinHostname(hostname, { isPrivateIP });
 }
 
 /** Options for the BitstringStatusList check. */
@@ -279,24 +259,19 @@ export async function checkBitstringStatusList(
       };
     }
 
-    // DNS rebinding prevention: resolve hostname and pin IP before fetch
+    // DNS rebinding prevention: resolve hostname and pin the IP into the
+    // fetch URL with a Host header so the HTTP client cannot re-resolve.
     let fetchUrl = urlValidation.url;
-    const fetchHeaders: Record<string, string> = {};
+    let fetchHeaders: Record<string, string> = {};
 
     const parsedUrl = new URL(urlValidation.url);
     const hostname = parsedUrl.hostname;
 
     if (!isIP(hostname)) {
       const resolved = await resolveAndValidateIp(hostname);
-      // Replace hostname with resolved IP; set Host header to original hostname
-      const pinnedUrl = new URL(urlValidation.url);
-      if (resolved.family === 6) {
-        pinnedUrl.hostname = `[${resolved.address}]`;
-      } else {
-        pinnedUrl.hostname = resolved.address;
-      }
-      fetchUrl = pinnedUrl.toString();
-      fetchHeaders["Host"] = hostname;
+      const target = buildPinnedFetchTarget(urlValidation.url, resolved);
+      fetchUrl = target.url;
+      fetchHeaders = target.headers;
     }
 
     const response = await globalThis.fetch(fetchUrl, {
