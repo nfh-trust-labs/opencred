@@ -43,6 +43,23 @@ function createJsonLdDocumentLoader(): _jsonldNs.Options.DocLoader["documentLoad
 
 /**
  * Canonicalize a JSON-LD document using RDFC-1.0 (URDNA2015).
+ *
+ * Strict (safe) mode is **enabled by default**.  This is a hard security
+ * requirement: when canonicalizing a credential for signing, any field that
+ * is not defined in the loaded JSON-LD contexts is silently dropped from the
+ * canonical N-Quads form, never gets hashed, and therefore never gets covered
+ * by the resulting signature.  An attacker who can modify the credential post
+ * facto could change those undefined fields and the signature would still
+ * verify — a critical signature-coverage gap.  Enabling `safe: true` causes
+ * `jsonld.canonize` to *throw* on any undefined term, forcing every claim to
+ * be properly typed in a context before it can be signed.
+ *
+ * Callers must explicitly pass `{ strict: false }` to opt out.  Do **not** opt
+ * out for issuance or verification of Verifiable Credentials — the only
+ * legitimate use cases are debugging, tooling that intentionally inspects
+ * non-conforming JSON-LD, or one-off canonicalization of documents whose
+ * vocabularies are known to be partial.  Opting out re-introduces the
+ * silent-field-drop attack surface described above.
  */
 export async function canonicalize(
   document: Record<string, unknown>,
@@ -50,17 +67,15 @@ export async function canonicalize(
 ): Promise<string> {
   // Cast to JsonLdDocument since our documents are valid JSON-LD NodeObjects.
   // The `safe` option is supported by jsonld 8.x at runtime but not yet in
-  // @types/jsonld, so we cast the options to include it.  When strict mode is
-  // enabled (`safe: true`), canonicalization will reject documents containing
-  // terms not defined in the loaded JSON-LD contexts.  When disabled (the
-  // default), application-specific claims in credentialSubject are tolerated.
+  // @types/jsonld, so we cast the options to include it.  Strict mode is
+  // ON by default (`safe: true`); see the JSDoc above for the rationale.
   const result = await jsonld.canonize(
     document as _jsonldNs.JsonLdDocument,
     {
       algorithm: "URDNA2015",
       format: "application/n-quads",
       documentLoader: createJsonLdDocumentLoader(),
-      safe: options?.strict ?? false,
+      safe: options?.strict ?? true,
     } as _jsonldNs.Options.Normalize & { safe: boolean },
   );
   return result as string;
@@ -97,22 +112,29 @@ function buildProofConfig(
  * Per the W3C ecdsa-rdfc-2019 spec:
  * - P-256: SHA-256(canonicalized proofConfig) || SHA-256(canonicalized document)
  * - P-384: SHA-384(canonicalized proofConfig) || SHA-384(canonicalized document)
+ *
+ * `strict` defaults to `true` and is forwarded to both `canonicalize()` calls
+ * (proof config and document).  See `canonicalize()` for the security rationale
+ * — leaving this `true` is the only safe choice for credential issuance and
+ * verification.
  */
 export async function computeSigningInput(
   document: Record<string, unknown>,
   proofConfig: ProofConfig,
   hashAlgorithm: "sha256" | "sha384" = "sha256",
+  strict: boolean = true,
 ): Promise<Uint8Array> {
   const hash = hashAlgorithm === "sha384" ? sha384 : sha256;
 
   // Canonicalize the proof config (without @context for the canonical form, spec says include it)
   const canonicalProofConfig = await canonicalize(
     proofConfig as unknown as Record<string, unknown>,
+    { strict },
   );
   const proofConfigHash = hash(canonicalProofConfig);
 
   // Canonicalize the document (without proof)
-  const canonicalDocument = await canonicalize(document);
+  const canonicalDocument = await canonicalize(document, { strict });
   const documentHash = hash(canonicalDocument);
 
   // Concatenate: hash(proofConfig) || hash(document)
