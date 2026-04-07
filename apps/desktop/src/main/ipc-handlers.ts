@@ -1412,13 +1412,149 @@ async function handleSchemaFetchUrl(
 // Custom schema handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * Result of fetching and validating a JSON-LD context document.
+ * Either contains the parsed document or an error message — never both.
+ */
+interface ContextFetchResult {
+  document?: Record<string, unknown>;
+  error?: string;
+}
+
+/**
+ * Fetch a JSON-LD context document with strict SSRF protection.
+ *
+ * Security invariants (HARD requirements per CLAUDE.md):
+ *   - HTTPS only
+ *   - DNS lookup must NOT resolve to a private IP (10/8, 127/8, 169.254/16,
+ *     172.16/12, 192.168/16, ::1, fc00::/7, fe80::/10, IPv4-mapped variants)
+ *   - No redirects followed
+ *   - 10-second hard timeout
+ *   - Response must be a JSON object that looks like a JSON-LD context
+ *     (either has an `@context` key or is itself a context object)
+ *
+ * The response body is NEVER logged. Only structural diagnostics (success,
+ * status code, top-level key count) are emitted.
+ */
+async function fetchJsonLdContextDocument(url: string): Promise<ContextFetchResult> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { error: "Invalid context URL" };
+  }
+
+  if (parsed.protocol !== "https:") {
+    return { error: "Context URL must use HTTPS" };
+  }
+
+  // SSRF protection — resolve hostname to an IP and reject anything private.
+  try {
+    const { promises: dnsPromises } = await import("node:dns");
+    const { address } = await dnsPromises.lookup(parsed.hostname);
+    if (isPrivateIP(address)) {
+      return { error: "Context URL resolves to a private IP address" };
+    }
+  } catch (err) {
+    return {
+      error: `Failed to resolve context URL hostname: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+
+  let response: Response;
+  try {
+    try {
+      response = await fetch(url, {
+        signal: controller.signal,
+        headers: { Accept: "application/ld+json, application/json" },
+        // Per CLAUDE.md: never follow redirects when fetching from user-provided URLs.
+        redirect: "error",
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (err) {
+    return {
+      error: `Failed to fetch context URL: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  if (!response.ok) {
+    return { error: `Context fetch failed: HTTP ${response.status} ${response.statusText}` };
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (err) {
+    return {
+      error: `Context response is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return { error: "Context response is not a JSON object" };
+  }
+
+  const obj = body as Record<string, unknown>;
+  // A valid JSON-LD context document is either {"@context": {...}} or a bare
+  // context object (a map of term -> definition). We accept both shapes.
+  const hasContextKey = "@context" in obj && typeof obj["@context"] === "object";
+  const looksLikeContext = !hasContextKey && Object.keys(obj).length > 0;
+
+  if (!hasContextKey && !looksLikeContext) {
+    return { error: "Response does not look like a JSON-LD context document" };
+  }
+
+  // Deliberately do NOT log the body — it may contain user-defined vocab.
+  logger.info("Fetched JSON-LD context", {
+    url,
+    status: response.status,
+    hasContextKey,
+    topLevelKeyCount: Object.keys(obj).length,
+  });
+
+  return { document: obj };
+}
+
 async function handleCustomSchemaList(): Promise<CustomSchemaListResponse> {
   const store = getStore();
   const schemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
   return { schemas };
 }
 
-/** CUSTOM_SCHEMA_SAVE — create or update a custom schema. */
+/** Build a response payload from a stored CustomSchemaEntry. */
+function customSchemaSaveSuccess(entry: CustomSchemaEntry): CustomSchemaSaveResponse {
+  return {
+    id: entry.id,
+    name: entry.name,
+    schema: entry.schema,
+    createdAt: entry.createdAt,
+    success: true,
+    ...(entry.sourceUrl ? { sourceUrl: entry.sourceUrl } : {}),
+    ...(entry.dediContextUrl ? { contextUrl: entry.dediContextUrl } : {}),
+    contextCached: entry.cachedContextDocument != null,
+    ...(entry.cachedContextFetchedAt ? { cachedContextFetchedAt: entry.cachedContextFetchedAt } : {}),
+  };
+}
+
+/**
+ * CUSTOM_SCHEMA_SAVE — create or update a custom schema.
+ *
+ * If the request includes a JSON-LD context URL (or the schema gets a
+ * `dediContextUrl` from DeDi publishing), the main process fetches that
+ * URL once now and caches the document on the entry. Future signing /
+ * verification can then resolve the URL locally without any network
+ * requests, allowing strict canonicalization (`safe: true`) to succeed.
+ *
+ * SECURITY: the fetch is gated by `fetchJsonLdContextDocument`, which
+ * enforces HTTPS-only, SSRF protection, no redirects, and a 10-second
+ * timeout. If the fetch fails, the schema is still saved but the response
+ * carries an error so the UI can surface "could not fetch context".
+ */
 async function handleCustomSchemaSave(
   _event: IpcMainInvokeEvent,
   request: CustomSchemaSaveRequest,
@@ -1426,13 +1562,50 @@ async function handleCustomSchemaSave(
   const store = getStore();
   const schemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
 
+  // Determine the context URL the user wants cached. If the request supplies
+  // one explicitly, prefer it; otherwise we'll fall back to whatever URL DeDi
+  // publishing produces below (dediContextUrl).
+  const userContextUrl = request.contextUrl?.trim() || undefined;
+
   if (request.id) {
-    // Update existing
+    // Update existing — preserve immutable fields, refresh name/schema and
+    // optionally re-fetch the cached context document if a context URL is
+    // present and not yet cached.
     const idx = schemas.findIndex((s) => s.id === request.id);
     if (idx >= 0) {
-      schemas[idx] = { ...schemas[idx], name: request.name, schema: request.schema };
+      const existing = schemas[idx];
+      const updated: CustomSchemaEntry = {
+        ...existing,
+        name: request.name,
+        schema: request.schema,
+      };
+      if (userContextUrl) {
+        updated.dediContextUrl = userContextUrl;
+      }
+
+      let fetchError: string | undefined;
+      const targetContextUrl = updated.dediContextUrl;
+      if (targetContextUrl && !updated.cachedContextDocument) {
+        const result = await fetchJsonLdContextDocument(targetContextUrl);
+        if (result.document) {
+          updated.cachedContextDocument = result.document;
+          updated.cachedContextFetchedAt = new Date().toISOString();
+        } else {
+          fetchError = result.error;
+          logger.warn("Custom schema context fetch failed (update)", {
+            schemaId: updated.id,
+            error: fetchError,
+          });
+        }
+      }
+
+      schemas[idx] = updated;
       store.set("customSchemas" as keyof typeof store.store, schemas);
-      return schemas[idx];
+      const response = customSchemaSaveSuccess(updated);
+      if (fetchError) {
+        response.error = fetchError;
+      }
+      return response;
     }
   }
 
@@ -1443,6 +1616,7 @@ async function handleCustomSchemaSave(
     schema: request.schema,
     createdAt: new Date().toISOString(),
     ...(request.sourceUrl ? { sourceUrl: request.sourceUrl } : {}),
+    ...(userContextUrl ? { dediContextUrl: userContextUrl } : {}),
   };
 
   // Auto-generate JSON-LD context from schema
@@ -1487,12 +1661,36 @@ async function handleCustomSchemaSave(
       }
 
       entry.dediSchemaUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${SCHEMA_REGISTRY}/${schemaRecordName}`;
-      entry.dediContextUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${CONTEXT_REGISTRY}/${contextRecordName}`;
+      // Only overwrite the user-provided context URL if none was supplied.
+      if (!entry.dediContextUrl) {
+        entry.dediContextUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${CONTEXT_REGISTRY}/${contextRecordName}`;
+      }
+    }
+  }
+
+  // Fetch and cache the context document if a URL is present.
+  let fetchError: string | undefined;
+  if (entry.dediContextUrl && !entry.cachedContextDocument) {
+    const result = await fetchJsonLdContextDocument(entry.dediContextUrl);
+    if (result.document) {
+      entry.cachedContextDocument = result.document;
+      entry.cachedContextFetchedAt = new Date().toISOString();
+    } else {
+      fetchError = result.error;
+      logger.warn("Custom schema context fetch failed (create)", {
+        schemaId: entry.id,
+        error: fetchError,
+      });
     }
   }
 
   store.set("customSchemas" as keyof typeof store.store, [...schemas, entry]);
-  return entry;
+
+  const response = customSchemaSaveSuccess(entry);
+  if (fetchError) {
+    response.error = fetchError;
+  }
+  return response;
 }
 
 /** CUSTOM_SCHEMA_DELETE — remove a custom schema. */

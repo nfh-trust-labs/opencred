@@ -27,6 +27,11 @@ export { CredentialBuilder } from "./credential-builder.js";
 
 export { ContextNotFoundError } from "./context-errors.js";
 
-export { createDocumentLoader, getBundledContextUrls } from "./document-loader.js";
+export {
+  createDocumentLoader,
+  getBundledContextUrls,
+  setDefaultExtraContextResolver,
+  getDefaultExtraContextResolver,
+} from "./document-loader.js";
 
-export type { JsonLdDocument } from "./document-loader.js";
+export type { JsonLdDocument, ExtraContextResolver } from "./document-loader.js";

@@ -50,6 +50,14 @@ export interface CustomSchemaEntry {
   dediContextUrl?: string;
   /** Auto-generated JSON-LD context for this schema. */
   generatedContext?: Record<string, unknown>;
+  /**
+   * Fetched & cached JSON-LD context document for this schema's context URL.
+   * Populated at schema-save time so the document loader can serve the URL
+   * during issuance/verification without making any runtime network requests.
+   */
+  cachedContextDocument?: Record<string, unknown>;
+  /** ISO 8601 timestamp at which the context document was fetched. */
+  cachedContextFetchedAt?: string;
 }
 
 /** A recently used credential template (no credential data stored). */
