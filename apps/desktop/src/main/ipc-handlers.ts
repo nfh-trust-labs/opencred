@@ -76,6 +76,10 @@ import type {
   CustomSchemaListResponse,
   CustomSchemaDeleteRequest,
   CustomSchemaDeleteResponse,
+  BrandingGetResponse,
+  BrandingSetRequest,
+  BrandingSetResponse,
+  BrandingClearResponse,
   SystemInfoResponse,
   LogTailResponse,
 } from "../shared/ipc-types.js";
@@ -96,6 +100,12 @@ import { parseCredentialJson } from "../packaging/json-export.js";
 import { CryptoError, ValidationError, SchemaValidationError, isPrivateIP } from "@opencred/shared";
 import { SchemaRegistry } from "@opencred/schema-engine";
 import { packageCredential as packageCredentialWithTemplates } from "./credential-export.js";
+import {
+  getActiveBranding,
+  handleBrandingClear as brandingClear,
+  handleBrandingGet as brandingGet,
+  handleBrandingSet as brandingSet,
+} from "./branding.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
 import { deriveVerificationMethod } from "../signing/types.js";
 import type { Signer } from "../signing/types.js";
@@ -765,12 +775,23 @@ async function handlePackageCredential(
 
     // Process template-aware formats
     if (templateRequested.length > 0) {
+      // Merge persisted issuer branding with the per-call customization.
+      // Explicit per-call fields always win; missing fields fall back to
+      // the issuer's persisted branding.
+      const branding = getActiveBranding();
+      const mergedCustomization = branding
+        ? {
+            ...request.customization,
+            branding,
+          }
+        : request.customization;
+
       try {
         const templateOutputs = await packageCredentialWithTemplates(
           credential,
           request.schemaId ?? "default",
           templateRequested,
-          request.customization,
+          mergedCustomization,
         );
 
         for (const output of templateOutputs) {
@@ -947,6 +968,49 @@ async function handleSetConfig(
 ): Promise<void> {
   const store = getStore();
   store.set(request.key as keyof typeof store.store, request.value);
+}
+
+// ---------------------------------------------------------------------------
+// Issuer branding handlers
+// ---------------------------------------------------------------------------
+
+/** BRANDING_GET — read the persisted issuer branding. */
+async function handleBrandingGet(
+  _event: IpcMainInvokeEvent,
+): Promise<BrandingGetResponse> {
+  return brandingGet();
+}
+
+/** BRANDING_SET — validate, sanitize, and persist issuer branding. */
+async function handleBrandingSet(
+  _event: IpcMainInvokeEvent,
+  request: BrandingSetRequest,
+): Promise<BrandingSetResponse> {
+  const result = brandingSet(request);
+  if (result.success) {
+    logger.info("Issuer branding updated", {
+      hasLogo: Boolean(result.branding?.logoDataUri),
+      hasPrimary: Boolean(result.branding?.primaryColor),
+      hasAccent: Boolean(result.branding?.accentColor),
+    });
+  } else {
+    logger.warn("Issuer branding update rejected", {
+      error: result.error,
+      field: result.errorField,
+    });
+  }
+  return result;
+}
+
+/** BRANDING_CLEAR — remove all persisted branding. */
+async function handleBrandingClear(
+  _event: IpcMainInvokeEvent,
+): Promise<BrandingClearResponse> {
+  const result = brandingClear();
+  if (result.success) {
+    logger.info("Issuer branding cleared");
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -2478,6 +2542,11 @@ export function registerIpcHandlers(): void {
   // Config
   ipcMain.handle(IPC_CHANNELS.GET_CONFIG, handleGetConfig);
   ipcMain.handle(IPC_CHANNELS.SET_CONFIG, handleSetConfig);
+
+  // Issuer branding
+  ipcMain.handle(IPC_CHANNELS.BRANDING_GET, handleBrandingGet);
+  ipcMain.handle(IPC_CHANNELS.BRANDING_SET, handleBrandingSet);
+  ipcMain.handle(IPC_CHANNELS.BRANDING_CLEAR, handleBrandingClear);
 
   // System / diagnostics
   ipcMain.handle(IPC_CHANNELS.SYSTEM_INFO, handleSystemInfo);

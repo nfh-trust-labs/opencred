@@ -825,6 +825,75 @@ export interface CustomSchemaDeleteResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Issuer branding
+// ---------------------------------------------------------------------------
+
+/**
+ * Issuer branding payload — logo + brand colors.
+ *
+ * SECURITY NOTE: Branding is presentation-layer only. It never appears in
+ * the signed Verifiable Credential payload. The logo is always a `data:`
+ * URI (base64-encoded PNG or SVG); remote URLs are rejected. Hex colors
+ * must match `^#[0-9a-fA-F]{3}$` or `^#[0-9a-fA-F]{6}$`.
+ */
+export interface IssuerBrandingPayload {
+  /** Base64-encoded `data:` URI for the logo (PNG or SVG only). */
+  logoDataUri?: string;
+  /** Hex primary color, e.g. `#1a56db`. */
+  primaryColor?: string;
+  /** Hex accent color, e.g. `#0ea5e9`. */
+  accentColor?: string;
+}
+
+export interface BrandingGetResponse {
+  /** Whether any branding has been persisted. */
+  configured: boolean;
+  branding?: IssuerBrandingPayload;
+  /** ISO 8601 timestamp of the last update, if any. */
+  updatedAt?: string;
+}
+
+export interface BrandingSetRequest {
+  /**
+   * Raw image bytes for a logo. Either `logoFile` is provided (which the
+   * main process validates and converts to a `data:` URI) **or**
+   * `branding.logoDataUri` is provided directly. Both fields may be
+   * omitted to update colors only.
+   */
+  logoFile?: {
+    /** MIME type — must be `image/png` or `image/svg+xml`. */
+    mimeType: string;
+    /** Base64-encoded raw bytes (no `data:` prefix). */
+    base64: string;
+    /** Original filename (used only for diagnostics). */
+    name?: string;
+  };
+  /**
+   * If `true`, the existing logo is removed (the colors are kept). Has
+   * no effect if `logoFile` is also set.
+   */
+  removeLogo?: boolean;
+  /** Hex primary color override. */
+  primaryColor?: string;
+  /** Hex accent color override. */
+  accentColor?: string;
+}
+
+export interface BrandingSetResponse {
+  success: boolean;
+  branding?: IssuerBrandingPayload;
+  updatedAt?: string;
+  error?: string;
+  /** Which field failed validation, if any (`logo`, `primaryColor`, `accentColor`). */
+  errorField?: "logo" | "primaryColor" | "accentColor";
+}
+
+export interface BrandingClearResponse {
+  success: boolean;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
 // System / diagnostics
 // ---------------------------------------------------------------------------
 
@@ -937,6 +1006,11 @@ export interface OpenCredDesktopAPI {
   dediPublishSchema: (request: DeDiPublishSchemaRequest) => Promise<DeDiPublishResponse>;
   dediEnsureRegistries: () => Promise<DeDiEnsureRegistriesResponse>;
   dediDisconnect: () => Promise<DeDiDisconnectResponse>;
+
+  // Issuer branding
+  brandingGet: () => Promise<BrandingGetResponse>;
+  brandingSet: (request: BrandingSetRequest) => Promise<BrandingSetResponse>;
+  brandingClear: () => Promise<BrandingClearResponse>;
 
   // System / diagnostics
   getSystemInfo: () => Promise<SystemInfoResponse>;
