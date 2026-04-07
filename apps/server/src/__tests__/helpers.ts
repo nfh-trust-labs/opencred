@@ -82,20 +82,47 @@ export function generateTestKey(): TestKeyPair {
 // App factory for testing
 // ---------------------------------------------------------------------------
 
+/** Default API key used by tests that do not care about the auth path. */
+export const DEFAULT_TEST_API_KEY = "test-api-key-default";
+
 /**
  * Create a fresh Hono app with all routes and middleware,
  * initializing config and logger from current env vars.
+ *
+ * The server now refuses to start without OPENCRED_API_KEY (or an explicit
+ * dev-mode opt-out), so this helper either sets an API key or enables the
+ * dev-mode flag — never both unset.
+ *
+ * Options:
+ *  - `apiKey`     — explicit API key string. Auth is enforced.
+ *  - `devModeNoAuth: true` — enable OPENCRED_DEV_MODE_NO_AUTH=true. Auth is bypassed.
+ *  - neither      — defaults to apiKey = DEFAULT_TEST_API_KEY.
  */
-export function createTestApp(opts?: { apiKey?: string }): Hono {
+export function createTestApp(opts?: {
+  apiKey?: string;
+  devModeNoAuth?: boolean;
+}): Hono {
   // Reset singletons
   resetConfig();
   resetLogger();
 
-  // Set env vars before loading config
-  if (opts?.apiKey) {
+  // Wipe any prior auth-related env vars so previous tests don't bleed in.
+  delete process.env.OPENCRED_API_KEY;
+  delete process.env.OPENCRED_DEV_MODE_NO_AUTH;
+  // Tests run in NODE_ENV=test by default; force it so the dev-mode opt-out
+  // is permitted (it is refused when NODE_ENV=production).
+  if (process.env.NODE_ENV === "production") {
+    delete process.env.NODE_ENV;
+  }
+
+  if (opts?.devModeNoAuth) {
+    process.env.OPENCRED_DEV_MODE_NO_AUTH = "true";
+  } else if (opts?.apiKey !== undefined) {
     process.env.OPENCRED_API_KEY = opts.apiKey;
   } else {
-    delete process.env.OPENCRED_API_KEY;
+    // Default: an API key is set so auth is enforced. Tests that need
+    // unauthenticated behaviour pass devModeNoAuth: true explicitly.
+    process.env.OPENCRED_API_KEY = DEFAULT_TEST_API_KEY;
   }
 
   // Ensure basic config is set
