@@ -280,7 +280,7 @@ credentials.post("/credentials/verify", async (c) => {
   // Verify using composite DID resolver (supports did:key, did:jwk, did:web)
   const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
     await import("@opencred/did");
-  const { verifyCredential } = await import("@opencred/verification");
+  const { verifyCredential, loadCscaTrustStore } = await import("@opencred/verification");
 
   const compositeResolver = new CompositeDIDResolver(
     new Map([
@@ -290,8 +290,17 @@ credentials.post("/credentials/verify", async (c) => {
     ]),
   );
 
+  // Load CSCA trust anchors if configured. Required for DSC-backed
+  // credentials per nfh-trust-labs/opencred#316.
+  const { getConfig } = await import("../config.js");
+  const config = getConfig();
+  const trustAnchors = config.CSCA_TRUST_STORE_PATH
+    ? await loadCscaTrustStore(config.CSCA_TRUST_STORE_PATH)
+    : undefined;
+
   const verificationResult = await verifyCredential(credential, {
     didResolver: compositeResolver,
+    trustAnchors,
   });
 
   return c.json({

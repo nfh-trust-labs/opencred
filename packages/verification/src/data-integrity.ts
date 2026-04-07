@@ -11,6 +11,12 @@ const SUPPORTED_CRYPTOSUITES = ["ecdsa-rdfc-2019", "eddsa-rdfc-2022"] as const;
 /**
  * Verify a Data Integrity proof on a VerifiableCredential.
  * Resolves the issuer's public key via DID resolution if a resolver is provided.
+ *
+ * SECURITY: The verification key MUST come from the resolved DID document. Any
+ * data inside the credential (including the `verificationMethod` URL fragment)
+ * is attacker-controlled and must NEVER be trusted as the source of the key.
+ * If the resolved DID document does not contain a verification method whose
+ * `id` matches `proof.verificationMethod`, verification fails.
  */
 export async function verifyDataIntegrity(
   credential: VerifiableCredential,
@@ -71,6 +77,15 @@ export async function verifyDataIntegrity(
   }
 }
 
+/**
+ * Resolve the public key for a given verificationMethod.
+ *
+ * The lookup is strict: the verificationMethod string must split into a DID
+ * (which is resolved) and a verification method whose `id` exactly matches
+ * the credential's `verificationMethod`. If no such verification method exists
+ * in the resolved DID document, this function returns `undefined` — there is
+ * NO fallback to credential-controlled data.
+ */
 async function resolvePublicKeyFromVerificationMethod(
   verificationMethod: string,
   didResolver?: DIDResolver,
@@ -79,60 +94,57 @@ async function resolvePublicKeyFromVerificationMethod(
     return undefined;
   }
 
-  const did = verificationMethod.split("#")[0];
-
-  try {
-    const resolution = await didResolver.resolve(did);
-    if (!resolution.didDocument?.verificationMethod?.length) {
-      return undefined;
-    }
-
-    const vmId = verificationMethod;
-    const fragmentId = verificationMethod.includes("#")
-      ? `#${verificationMethod.split("#")[1]}`
-      : undefined;
-
-    let vm = resolution.didDocument.verificationMethod.find(
-      (m) => m.id === vmId || (fragmentId && m.id === fragmentId),
-    );
-
-    // Fallback: if the fragment is a base64url-encoded JWK (e.g. from the web UI),
-    // it won't match the multibase fragment that did:key resolvers produce.
-    // In that case, try to extract the public key directly from the fragment,
-    // or fall back to the single VM in the document (did:key always has exactly one).
-    if (!vm && fragmentId) {
-      // Try decoding the fragment as a base64url JWK
-      try {
-        const decoded = fragmentId.slice(1); // remove leading '#'
-        const jwkJson = JSON.parse(atob(decoded.replace(/-/g, "+").replace(/_/g, "/")));
-        if (jwkJson.kty) {
-          return createPublicKey({ key: jwkJson, format: "jwk" });
-        }
-      } catch {
-        // Not a valid JWK fragment — fall through
-      }
-
-      // For did:key (single-key DIDs), use the only VM available
-      if (did.startsWith("did:key:") && resolution.didDocument.verificationMethod.length === 1) {
-        vm = resolution.didDocument.verificationMethod[0];
-      }
-    }
-
-    if (!vm) {
-      return undefined;
-    }
-
-    if (vm.publicKeyMultibase) {
-      const key = publicKeyFromMultibase(vm.publicKeyMultibase);
-      return key ?? undefined;
-    }
-
-    if (vm.publicKeyJwk) {
-      return createPublicKey({ key: vm.publicKeyJwk, format: "jwk" });
-    }
-
+  if (typeof verificationMethod !== "string" || verificationMethod.length === 0) {
     return undefined;
+  }
+
+  const did = verificationMethod.split("#")[0];
+  if (!did) {
+    return undefined;
+  }
+
+  let resolution;
+  try {
+    resolution = await didResolver.resolve(did);
   } catch {
     return undefined;
   }
+
+  if (!resolution.didDocument?.verificationMethod?.length) {
+    return undefined;
+  }
+
+  // Strict lookup: the verification method `id` published in the DID document
+  // must exactly match the credential's `verificationMethod`. We also accept a
+  // bare fragment match (`#fragment`) because some DID documents publish
+  // verification methods with relative ids. We do NOT accept any other form of
+  // matching, and we never decode or trust the fragment as key material.
+  const fragmentId = verificationMethod.includes("#")
+    ? `#${verificationMethod.split("#").slice(1).join("#")}`
+    : undefined;
+
+  const vm = resolution.didDocument.verificationMethod.find(
+    (m) => m.id === verificationMethod || (fragmentId !== undefined && m.id === fragmentId),
+  );
+
+  if (!vm) {
+    return undefined;
+  }
+
+  // Both publicKeyMultibase and publicKeyJwk come from the resolved DID
+  // document, not from the credential, so they are trusted at this point.
+  if (vm.publicKeyMultibase) {
+    const key = publicKeyFromMultibase(vm.publicKeyMultibase);
+    return key ?? undefined;
+  }
+
+  if (vm.publicKeyJwk) {
+    try {
+      return createPublicKey({ key: vm.publicKeyJwk, format: "jwk" });
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
 }

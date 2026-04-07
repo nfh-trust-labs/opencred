@@ -3,60 +3,191 @@
  *
  * Validates the x5c certificate chain embedded in a credential's proof,
  * linking the signing key back to a DSC (Digital Signature Certificate)
- * and optionally to a CSCA (Country Signing Certificate Authority).
+ * and to a configured CSCA (Country Signing Certificate Authority) trust
+ * anchor.
  *
  * The x5c field follows JOSE conventions (RFC 7517 §4.7): an array of
  * base64-encoded DER certificates, leaf (DSC) first.
  *
- * Checks performed:
- * 1. The leaf certificate's public key matches the credential's signing key
- * 2. Each certificate in the chain was signed by the next (chain-of-trust)
- * 3. No certificate in the chain is expired at the credential's proof.created time
+ * Checks performed when `x5c` is present:
+ *  1. The leaf certificate's public key matches the credential's signing key
+ *     (resolved via the DID document of `proof.verificationMethod`).
+ *  2. Each certificate in the chain was signed by the next (chain-of-trust).
+ *  3. The chain terminates in (or chains to) one of the configured trust
+ *     anchors. If no trust anchors are configured the check fails closed.
+ *  4. No certificate in the chain is expired at the credential's
+ *     proof.created time.
+ *
+ * SECURITY: This check fails CLOSED. If `x5c` is present but the DID public
+ * key cannot be resolved, the trust anchor list is empty, or the chain does
+ * not terminate at a trusted root, the check returns `passed: false` with a
+ * detail explaining which check failed. Silently passing on incomplete trust
+ * data was the bug fixed in nfh-trust-labs/opencred#316.
  */
 
-import { X509Certificate } from "node:crypto";
-import type { DIDResolver } from "@opencred/did";
+import { readdir, readFile } from "node:fs/promises";
+import { createHash, createPublicKey, type KeyObject, X509Certificate } from "node:crypto";
+import path from "node:path";
+import type { DIDResolver, JWK } from "@opencred/did";
+import { publicKeyFromMultibase } from "./key-utils.js";
 import type { VerificationCheck } from "./types.js";
 
 /**
  * Options for X.509 chain verification.
  */
 export interface X509ChainCheckOptions {
+  /**
+   * DID resolver used to fetch the credential issuer's published verification
+   * method, so the leaf certificate's public key can be bound to the DID.
+   */
   didResolver?: DIDResolver;
+
+  /**
+   * PEM-encoded trust anchor certificates (e.g. CSCA roots). Required when a
+   * credential carries an `x5c` chain — the check fails closed if no trust
+   * anchors are supplied.
+   */
+  trustAnchors?: string[];
 }
 
 /**
- * Extract the public key from a DID's verification method.
- * Returns a JWK-format public key for comparison with the x5c leaf.
+ * Load all PEM-encoded certificates from a directory.
+ *
+ * Used to populate the trust anchor list from a `CSCA_TRUST_STORE_PATH`
+ * directory containing one or more `.pem` / `.crt` files. Returns an empty
+ * array if the directory does not exist or contains no PEM files.
+ *
+ * Each returned string is a complete PEM block (single certificate); files
+ * containing multiple concatenated certificates are split.
+ */
+export async function loadCscaTrustStore(directory: string): Promise<string[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(directory);
+  } catch {
+    return [];
+  }
+
+  const pems: string[] = [];
+  for (const entry of entries) {
+    const lower = entry.toLowerCase();
+    if (!lower.endsWith(".pem") && !lower.endsWith(".crt") && !lower.endsWith(".cer")) {
+      continue;
+    }
+    let content: string;
+    try {
+      content = await readFile(path.join(directory, entry), "utf8");
+    } catch {
+      continue;
+    }
+    for (const block of splitPemBlocks(content)) {
+      pems.push(block);
+    }
+  }
+  return pems;
+}
+
+/**
+ * Split a PEM string that may contain multiple concatenated certificates
+ * into individual single-certificate PEM blocks. Lines outside CERTIFICATE
+ * blocks are ignored. Each returned block ends with a trailing newline.
+ */
+function splitPemBlocks(input: string): string[] {
+  const blocks: string[] = [];
+  const lines = input.split(/\r?\n/);
+  let inBlock = false;
+  let buffer: string[] = [];
+  for (const line of lines) {
+    if (line.includes("-----BEGIN CERTIFICATE-----")) {
+      inBlock = true;
+      buffer = [line];
+      continue;
+    }
+    if (inBlock) {
+      buffer.push(line);
+      if (line.includes("-----END CERTIFICATE-----")) {
+        blocks.push(buffer.join("\n") + "\n");
+        inBlock = false;
+        buffer = [];
+      }
+    }
+  }
+  return blocks;
+}
+
+/**
+ * Compute a SHA-256 fingerprint over a public key's SPKI DER encoding.
+ *
+ * This is the canonical way to compare two public keys without depending on
+ * key-type-specific JWK fields. Two keys produce the same fingerprint iff
+ * they encode the same public key material.
+ */
+function spkiFingerprint(key: KeyObject): string {
+  const der = key.export({ format: "der", type: "spki" });
+  return createHash("sha256").update(der).digest("hex");
+}
+
+/**
+ * Extract the public key (as a KeyObject) from a DID's verification method.
+ * Returns `null` if the DID cannot be resolved, the verification method id
+ * does not match, or the VM does not contain a recognised key encoding.
+ *
+ * SECURITY: The lookup is strict — the verification method `id` published in
+ * the DID document must match the credential's `verificationMethod` exactly
+ * (or the bare fragment must match a relative-id verification method). The
+ * URL fragment is NEVER decoded as key material. See
+ * nfh-trust-labs/opencred#311.
  */
 async function resolveDidPublicKey(
-  did: string,
+  verificationMethod: string,
   resolver?: DIDResolver,
-): Promise<{ x: string; y: string; crv: string } | null> {
-  if (!resolver) return null;
-
-  try {
-    const result = await resolver.resolve(did.split("#")[0]);
-    const doc = result.didDocument;
-    if (!doc || !doc.verificationMethod || doc.verificationMethod.length === 0) {
-      return null;
-    }
-
-    // Find the matching verification method
-    const vm =
-      doc.verificationMethod.find(
-        (v) => v.id === did || v.id === `${did.split("#")[0]}#${did.split("#")[1]}`,
-      ) ?? doc.verificationMethod[0];
-
-    const jwk = vm.publicKeyJwk;
-    if (jwk && jwk.x && jwk.y && jwk.crv) {
-      return { x: jwk.x as string, y: jwk.y as string, crv: jwk.crv as string };
-    }
-
+): Promise<KeyObject | null> {
+  if (!resolver || typeof verificationMethod !== "string" || verificationMethod.length === 0) {
     return null;
+  }
+
+  const did = verificationMethod.split("#")[0];
+  if (!did) {
+    return null;
+  }
+
+  let result;
+  try {
+    result = await resolver.resolve(did);
   } catch {
     return null;
   }
+
+  const doc = result.didDocument;
+  if (!doc || !doc.verificationMethod || doc.verificationMethod.length === 0) {
+    return null;
+  }
+
+  const fragmentId = verificationMethod.includes("#")
+    ? `#${verificationMethod.split("#").slice(1).join("#")}`
+    : undefined;
+
+  const vm = doc.verificationMethod.find(
+    (v) => v.id === verificationMethod || (fragmentId !== undefined && v.id === fragmentId),
+  );
+
+  if (!vm) {
+    return null;
+  }
+
+  if (vm.publicKeyMultibase) {
+    return publicKeyFromMultibase(vm.publicKeyMultibase) ?? null;
+  }
+
+  if (vm.publicKeyJwk) {
+    try {
+      return createPublicKey({ key: vm.publicKeyJwk as JWK, format: "jwk" });
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -69,27 +200,13 @@ function parseX5cCert(base64Der: string): X509Certificate {
 
 /**
  * Check whether the leaf certificate's public key matches the DID's public key.
+ *
+ * Comparison is done over the SPKI fingerprint, which works uniformly for
+ * EC and RSA keys.
  */
-function checkKeyBinding(
-  leafCert: X509Certificate,
-  didPublicKey: { x: string; y: string; crv: string },
-): boolean {
+function checkKeyBinding(leafCert: X509Certificate, didPublicKey: KeyObject): boolean {
   try {
-    // leafCert.publicKey is already a KeyObject in Node 23+
-    const certKeyObject = leafCert.publicKey;
-    const certJwk = certKeyObject.export({ format: "jwk" }) as {
-      x?: string;
-      y?: string;
-      crv?: string;
-    };
-
-    if (!certJwk.x || !certJwk.y || !certJwk.crv) return false;
-
-    return (
-      certJwk.x === didPublicKey.x &&
-      certJwk.y === didPublicKey.y &&
-      certJwk.crv === didPublicKey.crv
-    );
+    return spkiFingerprint(leafCert.publicKey) === spkiFingerprint(didPublicKey);
   } catch {
     return false;
   }
@@ -99,7 +216,10 @@ function checkKeyBinding(
  * Validate the certificate chain's temporal bounds at a specific point in time.
  * Each certificate must be valid (not before / not after) at the given time.
  */
-function checkChainTemporal(certs: X509Certificate[], proofTime: Date): string | null {
+function checkChainTemporal(
+  certs: X509Certificate[],
+  proofTime: Date,
+): string | null {
   for (let i = 0; i < certs.length; i++) {
     const cert = certs[i];
     const notBefore = new Date(cert.validFrom);
@@ -141,14 +261,64 @@ function checkChainSignatures(certs: X509Certificate[]): string | null {
 }
 
 /**
+ * Verify that the chain terminates at one of the configured trust anchors.
+ *
+ * Walks from the top of the supplied chain outward and looks for a trust
+ * anchor that either (a) IS the top-of-chain certificate (matching by SPKI
+ * fingerprint via `checkIssued` against itself) or (b) signed the
+ * top-of-chain certificate. Returns the matching anchor's subject string when
+ * found, or `null` when no anchor accepts the chain.
+ */
+function findAnchor(
+  chain: X509Certificate[],
+  trustAnchors: X509Certificate[],
+): X509Certificate | null {
+  if (chain.length === 0 || trustAnchors.length === 0) {
+    return null;
+  }
+  const topOfChain = chain[chain.length - 1];
+
+  // Case 1: the top-of-chain certificate IS one of the trust anchors.
+  // Match by issuer/subject identity AND signature self-verification.
+  for (const anchor of trustAnchors) {
+    if (
+      anchor.subject === topOfChain.subject &&
+      anchor.fingerprint256 === topOfChain.fingerprint256
+    ) {
+      return anchor;
+    }
+  }
+
+  // Case 2: the top-of-chain certificate was issued by one of the trust
+  // anchors. The anchor itself is not in the x5c.
+  for (const anchor of trustAnchors) {
+    try {
+      if (topOfChain.checkIssued(anchor) && topOfChain.verify(anchor.publicKey)) {
+        return anchor;
+      }
+    } catch {
+      // Try next anchor.
+    }
+  }
+
+  return null;
+}
+
+/**
  * Check the X.509 certificate chain embedded in a credential's proof.
  *
- * If the credential has no x5c field, this check is skipped (returns passed).
- * When x5c is present, the full chain is validated:
- *  1. Parse all certificates
- *  2. Verify the leaf cert's public key matches the signing DID
- *  3. Verify chain-of-trust signatures
- *  4. Verify all certificates were valid at proof.created time
+ * If the credential has no x5c field, this check is skipped (returns passed) —
+ * the credential is not DSC-backed and trust comes from elsewhere (e.g. did:web
+ * + TLS PKI).
+ *
+ * When x5c is present, the chain is validated end-to-end:
+ *  1. Parse all certificates.
+ *  2. Verify the leaf cert's public key matches the signing DID. Fails closed
+ *     if the DID cannot be resolved or has no matching verification method.
+ *  3. Verify chain-of-trust signatures.
+ *  4. Verify the chain terminates at a configured trust anchor. Fails closed
+ *     if no trust anchors are configured.
+ *  5. Verify all certificates were valid at proof.created time.
  */
 export async function checkX509Chain(
   credential: Record<string, unknown>,
@@ -168,7 +338,11 @@ export async function checkX509Chain(
     };
   }
 
-  // Parse all certificates
+  // x5c IS present — every check below must fail closed if it cannot be
+  // satisfied.
+
+  // Parse all certificates first; without parseable certs nothing else can be
+  // checked.
   let certs: X509Certificate[];
   try {
     certs = x5c.map(parseX5cCert);
@@ -180,24 +354,43 @@ export async function checkX509Chain(
     };
   }
 
-  // Check 1: Leaf certificate public key matches the signing DID
-  const verificationMethod = proof["verificationMethod"] as string | undefined;
-  if (verificationMethod) {
-    const didPubKey = await resolveDidPublicKey(verificationMethod, options.didResolver);
-    if (didPubKey) {
-      if (!checkKeyBinding(certs[0], didPubKey)) {
-        return {
-          name: "x509-chain",
-          passed: false,
-          detail:
-            "X.509 chain invalid: leaf certificate public key does not match the signing DID's public key",
-        };
-      }
-    }
-    // If DID can't be resolved, skip key binding check (signature check already passed)
+  if (certs.length === 0) {
+    return {
+      name: "x509-chain",
+      passed: false,
+      detail: "x5c chain is empty",
+    };
   }
 
-  // Check 2: Chain-of-trust signatures (if more than one cert)
+  // Check 1: Bind leaf certificate to the credential's signing DID. The DID
+  // resolution MUST succeed and yield a public key matching the leaf — silent
+  // skipping (the previous behaviour) is the bug fixed by #316.
+  const verificationMethod = proof["verificationMethod"] as string | undefined;
+  if (!verificationMethod) {
+    return {
+      name: "x509-chain",
+      passed: false,
+      detail: "Credential has x5c but no proof.verificationMethod — cannot bind certificate to issuer",
+    };
+  }
+
+  const didPubKey = await resolveDidPublicKey(verificationMethod, options.didResolver);
+  if (!didPubKey) {
+    return {
+      name: "x509-chain",
+      passed: false,
+      detail: "Unable to confirm leaf certificate matches credential issuer (DID could not be resolved or has no matching verification method)",
+    };
+  }
+  if (!checkKeyBinding(certs[0], didPubKey)) {
+    return {
+      name: "x509-chain",
+      passed: false,
+      detail: "X.509 chain invalid: leaf certificate public key does not match the signing DID's public key",
+    };
+  }
+
+  // Check 2: Chain-of-trust signatures (if more than one cert).
   if (certs.length > 1) {
     const chainError = checkChainSignatures(certs);
     if (chainError) {
@@ -209,12 +402,47 @@ export async function checkX509Chain(
     }
   }
 
-  // Check 3: Temporal validity at proof.created time
+  // Check 3: Chain MUST terminate at a configured trust anchor. The previous
+  // behaviour ("self-signed or root not included") silently accepted any chain
+  // — exactly the false-sense-of-security flaw reported in #316. Fail closed
+  // when no trust anchors are configured or the chain doesn't reach one.
+  const trustAnchorPems = options.trustAnchors ?? [];
+  if (trustAnchorPems.length === 0) {
+    return {
+      name: "x509-chain",
+      passed: false,
+      detail: "X.509 chain check requires a configured trust anchor (set CSCA_TRUST_STORE_PATH or pass trustAnchors to the verifier)",
+    };
+  }
+
+  let trustAnchorCerts: X509Certificate[];
+  try {
+    trustAnchorCerts = trustAnchorPems.map((pem) => new X509Certificate(pem));
+  } catch (err) {
+    return {
+      name: "x509-chain",
+      passed: false,
+      detail: `Failed to parse configured trust anchors: ${err instanceof Error ? err.message : "unknown error"}`,
+    };
+  }
+
+  const anchor = findAnchor(certs, trustAnchorCerts);
+  if (!anchor) {
+    return {
+      name: "x509-chain",
+      passed: false,
+      detail: "X.509 chain invalid: chain does not terminate at a configured trust anchor",
+    };
+  }
+
+  // Check 4: Temporal validity at proof.created time. Validate the
+  // presented chain AND the resolved trust anchor (a recently-expired CA must
+  // not be honoured).
   const proofCreated = proof["created"] as string | undefined;
   if (proofCreated) {
     const proofTime = new Date(proofCreated);
     if (!isNaN(proofTime.getTime())) {
-      const temporalError = checkChainTemporal(certs, proofTime);
+      const temporalError = checkChainTemporal([...certs, anchor], proofTime);
       if (temporalError) {
         return {
           name: "x509-chain",
@@ -225,12 +453,10 @@ export async function checkX509Chain(
     }
   }
 
-  // Build success detail
   const leaf = certs[0];
-  const detail =
-    certs.length > 1
-      ? `DSC verified (${leaf.subject}), chain depth: ${certs.length}`
-      : `DSC present (${leaf.subject}), self-signed or root not included`;
-
-  return { name: "x509-chain", passed: true, detail };
+  return {
+    name: "x509-chain",
+    passed: true,
+    detail: `DSC verified (${leaf.subject}), chain depth: ${certs.length}, anchored to ${anchor.subject}`,
+  };
 }

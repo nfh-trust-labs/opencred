@@ -666,7 +666,7 @@ async function handleVerifyCredential(
     // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
     const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
       await import("@opencred/did");
-    const { verifyCredential } = await import("@opencred/verification");
+    const { verifyCredential, loadCscaTrustStore } = await import("@opencred/verification");
 
     const compositeResolver = new CompositeDIDResolver(
       new Map([
@@ -680,8 +680,24 @@ async function handleVerifyCredential(
     // from a per-URL cache populated at schema-save time. Conflicts on the
     // same URL are rejected at save time by content-hash comparison, so
     // verification can rely on the URL → document mapping being stable.
+    //
+    // Load CSCA trust anchors when configured. Required for DSC-backed
+    // credentials per nfh-trust-labs/opencred#316. The path is taken from
+    // either the persisted preference or the CSCA_TRUST_STORE_PATH env var
+    // (env wins). When unconfigured, credentials with an x5c chain will be
+    // rejected with a fail-closed configuration error — this is intentional.
+    const verifyStore = getStore();
+    const verifyPrefs =
+      (verifyStore.get("preferences" as keyof typeof verifyStore.store) as
+        | Record<string, unknown>
+        | undefined) ?? {};
+    const cscaTrustStorePath =
+      process.env.CSCA_TRUST_STORE_PATH ?? (verifyPrefs["cscaTrustStorePath"] as string | undefined);
+    const trustAnchors = cscaTrustStorePath ? await loadCscaTrustStore(cscaTrustStorePath) : undefined;
+
     const verificationResult = await verifyCredential(verificationInput, {
       didResolver: compositeResolver,
+      trustAnchors,
     });
 
     logger.info("Credential verified", {
