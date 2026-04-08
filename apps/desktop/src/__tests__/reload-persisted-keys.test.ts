@@ -193,7 +193,9 @@ describe("reloadPersistedSigners", () => {
 
   it("does not crash on corrupt store data", () => {
     const store = {
-      get: vi.fn(() => { throw new Error("Store corrupted"); }),
+      get: vi.fn(() => {
+        throw new Error("Store corrupted");
+      }),
       set: vi.fn(),
     };
 

@@ -258,7 +258,8 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
         <div className="space-y-3">
           <label className="block text-xs text-gray-600">PKCS#11 Library Path</label>
           <p className="text-xs text-gray-400 mb-2">
-            The path to your hardware token's PKCS#11 driver library. Common locations are auto-filled below.
+            The path to your hardware token's PKCS#11 driver library. Common locations are
+            auto-filled below.
           </p>
           <div className="flex gap-2">
             <input
@@ -276,7 +277,8 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
             </button>
           </div>
           <p className="text-xs text-gray-400">
-            Common paths: YubiKey (/usr/lib/libykcs11.so), OpenSC (/usr/lib/opensc-pkcs11.so), SafeNet (/usr/lib/libeTPkcs11.so)
+            Common paths: YubiKey (/usr/lib/libykcs11.so), OpenSC (/usr/lib/opensc-pkcs11.so),
+            SafeNet (/usr/lib/libeTPkcs11.so)
           </p>
           <button
             onClick={() => void handleDetectAndListSlots()}
@@ -402,8 +404,12 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
       {/* Inline PIN dialog for connection */}
       {showConnectPin && (
         <div className="rounded-md border border-blue-200 bg-blue-50 p-4 space-y-3">
-          <p className="text-xs font-medium text-blue-800">Enter your token PIN to connect this key:</p>
-          <p className="text-xs text-blue-600">Your PIN is used only for this session and is never stored.</p>
+          <p className="text-xs font-medium text-blue-800">
+            Enter your token PIN to connect this key:
+          </p>
+          <p className="text-xs text-blue-600">
+            Your PIN is used only for this session and is never stored.
+          </p>
           <div className="flex items-center gap-2">
             <input
               type="password"
@@ -423,7 +429,11 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
               Submit
             </button>
             <button
-              onClick={() => { setShowConnectPin(false); setConnectPin(""); setPendingConnectKeyId(undefined); }}
+              onClick={() => {
+                setShowConnectPin(false);
+                setConnectPin("");
+                setPendingConnectKeyId(undefined);
+              }}
               className="rounded-md bg-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-300"
             >
               Cancel

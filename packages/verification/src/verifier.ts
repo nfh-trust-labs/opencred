@@ -111,7 +111,10 @@ export async function verifyCredential(
     // Extract VC fields from the JWS payload
     try {
       const payloadB64 = (input as string).split(".")[1];
-      const vcPayload = JSON.parse(Buffer.from(payloadB64, "base64url").toString()) as Record<string, unknown>;
+      const vcPayload = JSON.parse(Buffer.from(payloadB64, "base64url").toString()) as Record<
+        string,
+        unknown
+      >;
       validFrom = vcPayload.validFrom as string | undefined;
       validUntil = vcPayload.validUntil as string | undefined;
       credentialStatus = vcPayload.credentialStatus as Record<string, unknown> | undefined;
@@ -199,7 +202,6 @@ export async function verifyCredential(
       return { code: "INVALID", verified: false, checks };
     }
   }
-
 
   return { code: "VALID", verified: true, checks };
 }

@@ -40,7 +40,9 @@ function buildVcJwtClaims(unsignedVC: Record<string, unknown>): Record<string, u
   }
 
   // exp: from validUntil or expirationDate
-  const validUntil = (unsignedVC["validUntil"] ?? unsignedVC["expirationDate"]) as string | undefined;
+  const validUntil = (unsignedVC["validUntil"] ?? unsignedVC["expirationDate"]) as
+    | string
+    | undefined;
   if (validUntil) {
     claims.exp = isoToUnixTimestamp(validUntil);
   }

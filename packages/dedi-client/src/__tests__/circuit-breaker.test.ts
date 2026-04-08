@@ -116,14 +116,13 @@ describe("CircuitBreaker", () => {
     const cb = new CircuitBreaker({ threshold: 3 });
 
     for (let i = 0; i < 3; i++) {
-      await expect(
-        cb.execute(() => Promise.reject(new TypeError("fetch failed"))),
-      ).rejects.toThrow("fetch failed");
+      await expect(cb.execute(() => Promise.reject(new TypeError("fetch failed")))).rejects.toThrow(
+        "fetch failed",
+      );
     }
 
     expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
   });
-
 
   // ── countAuthFailures ─────────────────────────────────────────────
 

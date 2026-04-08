@@ -23,11 +23,14 @@ import type { BatchEngine, BatchProgress, ProofFormat } from "../batch/batch-eng
 const batch = new Hono();
 
 // In-memory job store (keyed by job ID)
-const jobs = new Map<string, {
-  engine: BatchEngine;
-  progress: BatchProgress | null;
-  createdAt: string;
-}>();
+const jobs = new Map<
+  string,
+  {
+    engine: BatchEngine;
+    progress: BatchProgress | null;
+    createdAt: string;
+  }
+>();
 
 const batchRequestSchema = z.object({
   csvContent: z.string(),
@@ -79,7 +82,11 @@ batch.post("/credentials/batch", async (c) => {
   });
 
   const jobId = randomUUID();
-  const job = { engine, progress: null as BatchProgress | null, createdAt: new Date().toISOString() };
+  const job = {
+    engine,
+    progress: null as BatchProgress | null,
+    createdAt: new Date().toISOString(),
+  };
   jobs.set(jobId, job);
 
   // Start processing in background
@@ -91,14 +98,17 @@ batch.post("/credentials/batch", async (c) => {
     .filter((r) => !r.valid)
     .map((r) => ({ rowIndex: r.rowIndex, errors: r.errors }));
 
-  return c.json({
-    jobId,
-    headers: parseResult.headers,
-    validCount: parseResult.validCount,
-    invalidCount: parseResult.invalidCount,
-    totalCount: parseResult.totalCount,
-    parseErrors: parseErrors.length > 0 ? parseErrors : undefined,
-  }, 202);
+  return c.json(
+    {
+      jobId,
+      headers: parseResult.headers,
+      validCount: parseResult.validCount,
+      invalidCount: parseResult.invalidCount,
+      totalCount: parseResult.totalCount,
+      parseErrors: parseErrors.length > 0 ? parseErrors : undefined,
+    },
+    202,
+  );
 });
 
 // --- Get batch progress ---
@@ -137,9 +147,12 @@ batch.get("/credentials/batch/:jobId/results", (c) => {
   const progress = job.engine.getProgress();
 
   if (progress.running) {
-    return c.json({
-      error: { code: "JOB_RUNNING", message: "Batch is still running. Check progress first." },
-    }, 409);
+    return c.json(
+      {
+        error: { code: "JOB_RUNNING", message: "Batch is still running. Check progress first." },
+      },
+      409,
+    );
   }
 
   const results = progress.rows.map((r) => ({
@@ -147,7 +160,9 @@ batch.get("/credentials/batch/:jobId/results", (c) => {
     status: r.status,
     error: r.error,
     credential: r.credential
-      ? (typeof r.credential === "string" ? r.credential : r.credential)
+      ? typeof r.credential === "string"
+        ? r.credential
+        : r.credential
       : undefined,
     isCompactToken: r.isCompactToken,
   }));

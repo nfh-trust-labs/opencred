@@ -95,9 +95,7 @@ import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
 import { CryptoError, ValidationError, SchemaValidationError, isPrivateIP } from "@opencred/shared";
 import { SchemaRegistry } from "@opencred/schema-engine";
-import {
-  packageCredential as packageCredentialWithTemplates,
-} from "./credential-export.js";
+import { packageCredential as packageCredentialWithTemplates } from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
 import { deriveVerificationMethod } from "../signing/types.js";
 import type { Signer } from "../signing/types.js";
@@ -117,9 +115,13 @@ import {
 } from "./auto-updater.js";
 // OS cert imports are lazy to avoid requiring the native addon at startup.
 
-
 import { BATCH_ROW_LIMIT } from "../shared/constants.js";
-import { DeDiPublishManager, createPublishManager, CONTEXT_REGISTRY, SCHEMA_REGISTRY } from "@opencred/dedi-client";
+import {
+  DeDiPublishManager,
+  createPublishManager,
+  CONTEXT_REGISTRY,
+  SCHEMA_REGISTRY,
+} from "@opencred/dedi-client";
 import type { ContextRecord } from "@opencred/dedi-client";
 import { generateInlineContext } from "@opencred/vc-core";
 
@@ -140,7 +142,9 @@ const loadedPublicKeyJwks = new Map<string, Record<string, unknown>>();
  * Merge signers reloaded from persisted paths into the in-memory registries.
  * Called once at startup from index.ts after reloadPersistedSigners().
  */
-export function mergeReloadedSigners(result: import("./persisted-signer-loader.js").ReloadResult): void {
+export function mergeReloadedSigners(
+  result: import("./persisted-signer-loader.js").ReloadResult,
+): void {
   for (const [id, meta] of result.metadata) {
     importedKeys.set(id, meta);
   }
@@ -179,7 +183,11 @@ async function handleKeyImport(
   request: KeyImportRequest,
 ): Promise<KeyImportResponse> {
   try {
-    const { signer, format } = createSoftwareSigner(request.filePath, request.label, request.password);
+    const { signer, format } = createSoftwareSigner(
+      request.filePath,
+      request.label,
+      request.password,
+    );
 
     const meta: KeyMetadata = {
       id: signer.id,
@@ -193,7 +201,12 @@ async function handleKeyImport(
 
     importedKeys.set(signer.id, meta);
     loadedSigners.set(signer.id, signer);
-    logger.info("Key imported", { keyId: signer.id, fingerprint: meta.fingerprint, format, source: "file" });
+    logger.info("Key imported", {
+      keyId: signer.id,
+      fingerprint: meta.fingerprint,
+      format,
+      source: "file",
+    });
 
     // SECURITY TRADE-OFF: Persisting file paths enables auto-reload on
     // restart but means an attacker with filesystem read access can discover
@@ -206,7 +219,8 @@ async function handleKeyImport(
     if (shouldPersist) {
       const prefs =
         (store.get("preferences" as keyof typeof store.store) as Record<string, unknown>) ?? {};
-      const savedPaths = (prefs["importedKeyPaths"] as Record<string, string | PersistedSignerEntry>) ?? {};
+      const savedPaths =
+        (prefs["importedKeyPaths"] as Record<string, string | PersistedSignerEntry>) ?? {};
       savedPaths[signer.id] = { path: request.filePath, label: request.label };
       store.set("preferences" as keyof typeof store.store, {
         ...prefs,
@@ -362,7 +376,8 @@ async function handleBuildAndSign(
   if (proofFormat === "data-integrity" && signer.algorithm.startsWith("RSA")) {
     return {
       success: false,
-      error: "Data Integrity proofs require ECDSA or EdDSA keys. Your key uses RSA — please select VC-JWT or SD-JWT-VC.",
+      error:
+        "Data Integrity proofs require ECDSA or EdDSA keys. Your key uses RSA — please select VC-JWT or SD-JWT-VC.",
       errorCode: "INCOMPATIBLE_FORMAT",
       errorField: "proofFormat",
     };
@@ -407,9 +422,49 @@ async function handleBuildAndSign(
           statusListCredential,
         });
       }
-      if (request.credentialSchemaUrl) {
-        builder.setSchema({ id: request.credentialSchemaUrl, type: "JsonSchema" });
+
+      // Look up the saved custom schema entry (if any) to fetch DeDi/context info.
+      let customSchemaEntry: CustomSchemaEntry | undefined;
+      if (request.schemaId?.startsWith("custom:")) {
+        const store = getStore();
+        const customSchemas =
+          (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+        customSchemaEntry = customSchemas.find((s) => s.id === request.schemaId);
       }
+
+      // credentialSchema priority for inline/custom schemas:
+      //   1. DeDi schema URL (if the schema was published to DeDi)
+      //   2. user-provided URL (request.credentialSchemaUrl)
+      //   3. inline data URI containing the base64-encoded JSON Schema
+      //      (taken from the saved CustomSchemaEntry when available, or from
+      //      the request payload otherwise)
+      //
+      // Per W3C VCDM 2.0 §4.10, every credential SHOULD reference the schema
+      // it conforms to. The data-URI fallback ensures we always emit one even
+      // when the issuer hasn't published anywhere yet.
+      const credentialSchemaId = (() => {
+        if (customSchemaEntry?.dediSchemaUrl) {
+          return customSchemaEntry.dediSchemaUrl;
+        }
+        if (request.credentialSchemaUrl) {
+          return request.credentialSchemaUrl;
+        }
+        // Pick the best schema object we have available for the data-URI
+        // fallback. We prefer the persisted CustomSchemaEntry's schema (the
+        // canonical, vetted form) and fall back to whatever the request
+        // supplied. If the request only carried a sentinel value (e.g.
+        // `inlineSchema: true` from older callers / tests), we fall back to
+        // an empty object so the URI is still well-formed.
+        const schemaObject =
+          customSchemaEntry?.schema ??
+          (typeof request.inlineSchema === "object" && request.inlineSchema !== null
+            ? request.inlineSchema
+            : {});
+        const schemaJson = JSON.stringify(schemaObject);
+        const base64 = Buffer.from(schemaJson, "utf8").toString("base64");
+        return `data:application/schema+json;base64,${base64}`;
+      })();
+      builder.setSchema({ id: credentialSchemaId, type: "JsonSchema" });
 
       // Add JSON-LD context for Data Integrity proofs on inline/custom schemas
       if (proofFormat === "data-integrity") {
@@ -417,15 +472,10 @@ async function handleBuildAndSign(
           builder.addContext(request.contextUrl);
         } else if (request.inlineContext) {
           builder.addContext(request.inlineContext);
-        } else if (request.schemaId?.startsWith("custom:")) {
-          const store = getStore();
-          const customSchemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
-          const customSchema = customSchemas.find((s) => s.id === request.schemaId);
-          if (customSchema?.dediContextUrl) {
-            builder.addContext(customSchema.dediContextUrl);
-          } else if (customSchema?.generatedContext) {
-            builder.addContext(customSchema.generatedContext);
-          }
+        } else if (customSchemaEntry?.dediContextUrl) {
+          builder.addContext(customSchemaEntry.dediContextUrl);
+        } else if (customSchemaEntry?.generatedContext) {
+          builder.addContext(customSchemaEntry.generatedContext);
         }
       }
 
@@ -437,6 +487,10 @@ async function handleBuildAndSign(
       // did:web DID's key, not the signer's internal did:key-based ID.
       const verificationMethod = deriveVerificationMethod(request.issuerDid, signer.id);
 
+      // Custom JSON-LD contexts are served by the shared document loader
+      // from a per-URL cache. The cache write path (handleCustomSchemaSave)
+      // rejects conflicts on content hash, so canonicalization can rely on
+      // the URL → document mapping being stable without per-call scoping.
       const result = await signWithFormat(signer, unsigned, proofFormat, {
         verificationMethod,
         selectiveDisclosureClaims: request.selectiveDisclosureClaims,
@@ -450,7 +504,8 @@ async function handleBuildAndSign(
       let inlineContext = request.inlineContext;
       if (!contextUrl && !inlineContext && request.schemaId.startsWith("custom:")) {
         const store = getStore();
-        const customSchemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+        const customSchemas =
+          (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
         const customSchema = customSchemas.find((s) => s.id === request.schemaId);
         if (customSchema?.dediContextUrl) {
           contextUrl = customSchema.dediContextUrl;
@@ -474,9 +529,10 @@ async function handleBuildAndSign(
         contextUrl,
         inlineContext,
       });
-      signedCredentialJson = typeof result.credential === "string"
-        ? result.credential
-        : JSON.stringify(result.credential);
+      signedCredentialJson =
+        typeof result.credential === "string"
+          ? result.credential
+          : JSON.stringify(result.credential);
       isCompactToken = result.isCompactToken;
     }
 
@@ -499,16 +555,28 @@ async function handleBuildAndSign(
       }));
     }
 
-    logger.info("Build and sign completed", { keyId: request.keyId, schemaId: request.schemaId, proofFormat });
+    logger.info("Build and sign completed", {
+      keyId: request.keyId,
+      schemaId: request.schemaId,
+      proofFormat,
+    });
 
     // Record template usage for the "Recently used" list
     if (request.schemaId) {
-      const schemaLabel = request.schemaId.startsWith("custom:") ? request.schemaId : request.schemaId;
+      const schemaLabel = request.schemaId.startsWith("custom:")
+        ? request.schemaId
+        : request.schemaId;
       try {
         const def = getSchemaDefinition(request.schemaId);
-        void handleRecentTemplatesRecord(null as unknown as IpcMainInvokeEvent, { schemaId: request.schemaId, schemaName: def.id });
+        void handleRecentTemplatesRecord(null as unknown as IpcMainInvokeEvent, {
+          schemaId: request.schemaId,
+          schemaName: def.id,
+        });
       } catch {
-        void handleRecentTemplatesRecord(null as unknown as IpcMainInvokeEvent, { schemaId: request.schemaId, schemaName: schemaLabel });
+        void handleRecentTemplatesRecord(null as unknown as IpcMainInvokeEvent, {
+          schemaId: request.schemaId,
+          schemaName: schemaLabel,
+        });
       }
     }
 
@@ -517,18 +585,29 @@ async function handleBuildAndSign(
     if (dediMgr && request.schemaId && !request.inlineSchema) {
       try {
         const def = getSchemaDefinition(request.schemaId);
-        void dediMgr.ensureSchemaPublished({
-          schemaId: def.id, version: "1", schema: def.schema, contextUrl: def.contextUrl,
-          checksum: SchemaRegistry.computeChecksum(def.schema), publishedAt: new Date().toISOString(),
-        }).then((r: import("@opencred/dedi-client").PublishResult | null) => {
-          if (r) {
-            const s = getStore();
-            const pub = s.get("dediPublishedSchemas");
-            const k = `${def.id}-v1`;
-            if (!pub.includes(k)) s.set("dediPublishedSchemas", [...pub, k]);
-          }
-        }).catch(() => { /* fire-and-forget — errors logged by publish manager */ });
-      } catch { /* schema lookup failed — skip */ }
+        void dediMgr
+          .ensureSchemaPublished({
+            schemaId: def.id,
+            version: "1",
+            schema: def.schema,
+            contextUrl: def.contextUrl,
+            checksum: SchemaRegistry.computeChecksum(def.schema),
+            publishedAt: new Date().toISOString(),
+          })
+          .then((r: import("@opencred/dedi-client").PublishResult | null) => {
+            if (r) {
+              const s = getStore();
+              const pub = s.get("dediPublishedSchemas");
+              const k = `${def.id}-v1`;
+              if (!pub.includes(k)) s.set("dediPublishedSchemas", [...pub, k]);
+            }
+          })
+          .catch(() => {
+            /* fire-and-forget — errors logged by publish manager */
+          });
+      } catch {
+        /* schema lookup failed — skip */
+      }
     }
 
     return response;
@@ -585,7 +664,8 @@ async function handleVerifyCredential(
     }
 
     // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
-    const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } = await import("@opencred/did");
+    const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
+      await import("@opencred/did");
     const { verifyCredential } = await import("@opencred/verification");
 
     const compositeResolver = new CompositeDIDResolver(
@@ -596,11 +676,18 @@ async function handleVerifyCredential(
       ]),
     );
 
+    // Custom JSON-LD contexts are served by the shared document loader
+    // from a per-URL cache populated at schema-save time. Conflicts on the
+    // same URL are rejected at save time by content-hash comparison, so
+    // verification can rely on the URL → document mapping being stable.
     const verificationResult = await verifyCredential(verificationInput, {
       didResolver: compositeResolver,
     });
 
-    logger.info("Credential verified", { valid: verificationResult.verified, code: verificationResult.code });
+    logger.info("Credential verified", {
+      valid: verificationResult.verified,
+      code: verificationResult.code,
+    });
     return {
       success: true,
       valid: verificationResult.verified,
@@ -612,7 +699,8 @@ async function handleVerifyCredential(
   } catch (err) {
     // Provide a user-friendly message for did:web offline failures
     const message = err instanceof Error ? err.message : "Verification failed.";
-    const isNetworkError = message.includes("resolve hostname") || message.includes("Timeout fetching");
+    const isNetworkError =
+      message.includes("resolve hostname") || message.includes("Timeout fetching");
     const userMessage = isNetworkError
       ? "Verification requires network access to resolve the issuer's DID document (did:web). Please check your connection."
       : message;
@@ -864,7 +952,8 @@ async function handleBatchStart(
   try {
     // Lightweight pre-check: count data lines before full parsing to prevent
     // excessive memory/CPU usage on very large CSVs.
-    const lineCount = request.csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0).length - 1;
+    const lineCount =
+      request.csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0).length - 1;
     if (lineCount > BATCH_ROW_LIMIT) {
       return {
         success: false,
@@ -899,10 +988,18 @@ async function handleBatchStart(
 
     batchState.engine = engine;
 
-    logger.info("Batch started", { schemaId: request.schemaId, totalRows: parseResult.totalCount, validRows: parseResult.validCount });
+    logger.info("Batch started", {
+      schemaId: request.schemaId,
+      totalRows: parseResult.totalCount,
+      validRows: parseResult.validCount,
+    });
     void engine.start().then((finalProgress) => {
       batchState.results = finalProgress.rows;
-      logger.info("Batch completed", { total: finalProgress.total, success: finalProgress.successCount, errors: finalProgress.errorCount });
+      logger.info("Batch completed", {
+        total: finalProgress.total,
+        success: finalProgress.successCount,
+        errors: finalProgress.errorCount,
+      });
     });
 
     return {
@@ -1141,7 +1238,11 @@ async function handlePkcs11Connect(
 
     importedKeys.set(signer.id, meta);
     loadedSigners.set(signer.id, signer);
-    logger.info("PKCS#11 key connected", { keyId: signer.id, fingerprint: meta.fingerprint, slotIndex: request.slotIndex });
+    logger.info("PKCS#11 key connected", {
+      keyId: signer.id,
+      fingerprint: meta.fingerprint,
+      slotIndex: request.slotIndex,
+    });
 
     return {
       success: true,
@@ -1280,7 +1381,11 @@ async function handleOsCertConnect(
 
     importedKeys.set(signer.id, meta);
     loadedSigners.set(signer.id, signer);
-    logger.info("OS certificate connected", { keyId: signer.id, fingerprint: meta.fingerprint, platform });
+    logger.info("OS certificate connected", {
+      keyId: signer.id,
+      fingerprint: meta.fingerprint,
+      platform,
+    });
 
     return {
       success: true,
@@ -1300,7 +1405,8 @@ async function handleOsCertConnect(
 /** CREDENTIAL_HISTORY_LIST — return all credential history entries. */
 async function handleCredentialHistoryList(): Promise<CredentialHistoryListResponse> {
   const store = getStore();
-  const history = (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
+  const history =
+    (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
   return { entries: history };
 }
 
@@ -1310,7 +1416,8 @@ async function handleCredentialHistoryAdd(
   request: CredentialHistoryAddRequest,
 ): Promise<CredentialHistoryEntry> {
   const store = getStore();
-  const history = (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
+  const history =
+    (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
 
   const entry: CredentialHistoryEntry = {
     id: randomUUID(),
@@ -1335,7 +1442,8 @@ async function handleCredentialHistoryDelete(
   request: CredentialHistoryDeleteRequest,
 ): Promise<CredentialHistoryDeleteResponse> {
   const store = getStore();
-  const history = (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
+  const history =
+    (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
   const filtered = history.filter((e) => e.id !== request.id);
   const deleted = filtered.length < history.length;
   store.set("credentialHistory" as keyof typeof store.store, filtered);
@@ -1394,12 +1502,23 @@ async function handleSchemaFetchUrl(
     }
 
     const schema = body as Record<string, unknown>;
-    if (!schema.properties || typeof schema.properties !== "object" || Array.isArray(schema.properties)) {
-      return { success: false, error: "Response does not appear to be a JSON Schema (missing 'properties' object)" };
+    if (
+      !schema.properties ||
+      typeof schema.properties !== "object" ||
+      Array.isArray(schema.properties)
+    ) {
+      return {
+        success: false,
+        error: "Response does not appear to be a JSON Schema (missing 'properties' object)",
+      };
     }
 
     const title = typeof schema.title === "string" ? schema.title : undefined;
-    logger.info("Schema fetched from URL", { url, title, fieldCount: Object.keys(schema.properties as object).length });
+    logger.info("Schema fetched from URL", {
+      url,
+      title,
+      fieldCount: Object.keys(schema.properties as object).length,
+    });
     return { success: true, schema, title };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -1412,27 +1531,386 @@ async function handleSchemaFetchUrl(
 // Custom schema handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * Result of fetching and validating a JSON-LD context document.
+ * Either contains the parsed document or an error message — never both.
+ */
+interface ContextFetchResult {
+  document?: Record<string, unknown>;
+  error?: string;
+}
+
+/** Hard cap on context document size. 1 MiB is comfortably above any real
+ * JSON-LD context (the W3C credentials/v2 context is ~16 KB) but small
+ * enough that buffering it cannot exhaust main-process memory. */
+const MAX_CONTEXT_BYTES = 1024 * 1024;
+
+/** Hard cap on the entire fetch+read+parse pipeline. */
+const CONTEXT_FETCH_TIMEOUT_MS = 10_000;
+
+/** Internal sentinel — never propagated to the renderer. */
+class ContextSizeLimitError extends Error {
+  constructor() {
+    super("context document exceeds size limit");
+  }
+}
+
+/**
+ * Fetch a JSON-LD context document for a user-provided URL.
+ *
+ * Threat model: the URL is pasted into the custom-schema setup form by the
+ * user themselves. They have already chosen to trust it. The desktop main
+ * process holds no privileged network position the user does not — it runs
+ * with the user's network identity, on the user's machine, against the
+ * user's chosen URL. SSRF gymnastics (DNS pinning, private-IP rejection)
+ * are NOT applied here for that reason; they would be security theatre and
+ * would block legitimate self-hosted issuers on private networks.
+ *
+ * What we DO enforce, because they protect the user from their own paste:
+ *  - **HTTPS only.** No plaintext over hostile networks.
+ *  - **No redirects.** A redirect could silently point at a different host.
+ *  - **1 MiB body limit.** Real JSON-LD contexts are tens of kilobytes.
+ *    A multi-megabyte body is either a misconfiguration or an attempt to
+ *    OOM the main process (which would crash the entire app).
+ *  - **10-second hard timeout** on the *entire* operation (fetch + body
+ *    read + parse), so a slow-loris or hanging connection cannot freeze
+ *    schema-save indefinitely.
+ *  - **Strict shape validation.** The response must be a JSON object with
+ *    a top-level `@context` key whose value is itself an object — i.e.
+ *    a real JSON-LD context document, not arbitrary JSON.
+ *  - **Generic errors to the renderer.** The error string returned to the
+ *    renderer never reveals internal details (resolved hostnames, raw
+ *    network errors, etc.). Full diagnostics go to the structured logger
+ *    only — see `logger.warn` calls in this function.
+ *
+ * The response body is NEVER logged. Only structural diagnostics (success,
+ * status code, byte count, key count) are emitted.
+ */
+async function fetchJsonLdContextDocument(url: string): Promise<ContextFetchResult> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { error: "Invalid context URL" };
+  }
+
+  if (parsed.protocol !== "https:") {
+    return { error: "Context URL must use HTTPS" };
+  }
+
+  // Single AbortController gates the entire pipeline (fetch, body read,
+  // parse). If the timeout fires mid-stream, getReader().read() rejects
+  // and we surface a generic error.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CONTEXT_FETCH_TIMEOUT_MS);
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        signal: controller.signal,
+        headers: { Accept: "application/ld+json, application/json" },
+        redirect: "error",
+      });
+    } catch (err) {
+      logger.warn("Custom-schema context fetch failed", {
+        url,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { error: "Failed to fetch context URL" };
+    }
+
+    if (!response.ok) {
+      logger.warn("Custom-schema context fetch returned non-2xx", {
+        url,
+        status: response.status,
+        statusText: response.statusText,
+      });
+      return { error: `Context fetch failed: HTTP ${response.status}` };
+    }
+
+    let bodyText: string;
+    try {
+      bodyText = await readBodyWithSizeLimit(response, MAX_CONTEXT_BYTES, controller.signal);
+    } catch (err) {
+      if (err instanceof ContextSizeLimitError) {
+        logger.warn("Custom-schema context exceeds size limit", {
+          url,
+          limitBytes: MAX_CONTEXT_BYTES,
+        });
+        return {
+          error: `Context document exceeds ${MAX_CONTEXT_BYTES}-byte size limit`,
+        };
+      }
+      logger.warn("Custom-schema context body read failed", {
+        url,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { error: "Failed to read context response body" };
+    }
+
+    let body: unknown;
+    try {
+      body = JSON.parse(bodyText);
+    } catch (err) {
+      logger.warn("Custom-schema context not valid JSON", {
+        url,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { error: "Context response is not valid JSON" };
+    }
+
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return { error: "Context response is not a JSON object" };
+    }
+
+    // Strict shape: a real JSON-LD context document must have a top-level
+    // `@context` key whose value is itself an object (the term map). We
+    // do NOT accept "bare" context objects here because they are
+    // ambiguous — accepting them would let an arbitrary JSON file pass
+    // shape validation.
+    const obj = body as Record<string, unknown>;
+    const innerContext = obj["@context"];
+    if (typeof innerContext !== "object" || innerContext === null || Array.isArray(innerContext)) {
+      return {
+        error: "Response does not look like a JSON-LD context document (missing @context object)",
+      };
+    }
+
+    // Deliberately do NOT log the body — it may contain user-defined vocab.
+    logger.info("Fetched JSON-LD context", {
+      url,
+      status: response.status,
+      bytes: bodyText.length,
+      contextKeyCount: Object.keys(innerContext as object).length,
+    });
+
+    return { document: obj };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Read a fetch Response body as UTF-8 text, aborting if it exceeds `limit`
+ * bytes. Honours an external AbortSignal so the caller's timeout cancels
+ * an in-flight read mid-stream.
+ *
+ * This streams via `body.getReader()` rather than calling `.text()` so we
+ * never buffer more than `limit` bytes — a malicious or misconfigured
+ * server cannot OOM the main process by sending a multi-gigabyte body.
+ */
+async function readBodyWithSizeLimit(
+  response: Response,
+  limit: number,
+  signal: AbortSignal,
+): Promise<string> {
+  // Cheap pre-check: if Content-Length is set and honest, bail before reading.
+  const declared = response.headers.get("content-length");
+  if (declared) {
+    const declaredBytes = Number(declared);
+    if (Number.isFinite(declaredBytes) && declaredBytes > limit) {
+      throw new ContextSizeLimitError();
+    }
+  }
+
+  const body = response.body;
+  if (!body) {
+    // Some test/mock environments produce a Response with no streamable
+    // body. Fall back to text() but enforce the limit on the result.
+    const text = await response.text();
+    if (Buffer.byteLength(text, "utf8") > limit) {
+      throw new ContextSizeLimitError();
+    }
+    return text;
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let accumulated = "";
+  let receivedBytes = 0;
+
+  try {
+    let done = false;
+    while (!done) {
+      if (signal.aborted) {
+        throw new Error("aborted");
+      }
+      const result = await reader.read();
+      done = result.done;
+      if (done) break;
+      receivedBytes += result.value.byteLength;
+      if (receivedBytes > limit) {
+        throw new ContextSizeLimitError();
+      }
+      accumulated += decoder.decode(result.value, { stream: true });
+    }
+    accumulated += decoder.decode();
+    return accumulated;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      /* ignore — reader may already be released */
+    }
+  }
+}
+
 async function handleCustomSchemaList(): Promise<CustomSchemaListResponse> {
   const store = getStore();
-  const schemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+  const schemas =
+    (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
   return { schemas };
 }
 
-/** CUSTOM_SCHEMA_SAVE — create or update a custom schema. */
+/** Build a response payload from a stored CustomSchemaEntry. */
+function customSchemaSaveSuccess(entry: CustomSchemaEntry): CustomSchemaSaveResponse {
+  return {
+    id: entry.id,
+    name: entry.name,
+    schema: entry.schema,
+    createdAt: entry.createdAt,
+    success: true,
+    ...(entry.sourceUrl ? { sourceUrl: entry.sourceUrl } : {}),
+    ...(entry.dediContextUrl ? { contextUrl: entry.dediContextUrl } : {}),
+    contextCached: entry.cachedContextDocument != null,
+    ...(entry.cachedContextFetchedAt
+      ? { cachedContextFetchedAt: entry.cachedContextFetchedAt }
+      : {}),
+  };
+}
+
+/**
+ * Compute the canonical content hash of a fetched JSON-LD context document.
+ * Two documents that serialise to the same JSON string hash to the same
+ * value — good enough to detect conflicts where one URL is caching two
+ * different bodies.
+ */
+function computeContextDocumentHash(document: Record<string, unknown>): string {
+  return createHash("sha256").update(JSON.stringify(document)).digest("hex");
+}
+
+/**
+ * Walk all stored custom schemas and return the first one (other than
+ * `selfId`) whose `dediContextUrl` matches `url` AND whose stored
+ * `cachedContextDocumentHash` differs from `newHash`. Entries with an
+ * absent hash are treated as "match anything" so pre-existing data
+ * written before the hash field was added does not trip the check —
+ * the next time that legacy entry is re-saved it will acquire a hash
+ * and start participating in conflict detection normally.
+ */
+function findContextHashConflict(
+  schemas: readonly CustomSchemaEntry[],
+  url: string,
+  newHash: string,
+  selfId: string | undefined,
+): CustomSchemaEntry | undefined {
+  for (const entry of schemas) {
+    if (entry.id === selfId) continue;
+    if (entry.dediContextUrl !== url) continue;
+    // Legacy entries (written before the hash field existed) are treated
+    // as matching — we cannot tell whether their document equals the new
+    // one, and refusing the save would strand the user. See the field
+    // doc in `store.ts` for rationale.
+    if (entry.cachedContextDocumentHash == null) continue;
+    if (entry.cachedContextDocumentHash !== newHash) {
+      return entry;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * CUSTOM_SCHEMA_SAVE — create or update a custom schema.
+ *
+ * If the request includes a JSON-LD context URL (or the schema gets a
+ * `dediContextUrl` from DeDi publishing), the main process fetches that
+ * URL once now and caches the document on the entry. Future signing /
+ * verification can then resolve the URL locally without any network
+ * requests, allowing strict canonicalization (`safe: true`) to succeed.
+ *
+ * SECURITY: the fetch is gated by `fetchJsonLdContextDocument`, which
+ * enforces HTTPS-only, no redirects, a 1 MiB body cap, a 10-second
+ * overall timeout, and strict JSON-LD shape validation. If the fetch
+ * fails, the schema is still saved but the response carries an error so
+ * the UI can surface "could not fetch context".
+ *
+ * Per JSON-LD 1.1 §3.1 a context URL is a global identifier — the same
+ * URL must always resolve to the same document. If a previously-saved
+ * schema already cached a different body under the same URL, this
+ * handler refuses the save and returns a conflict error. This keeps the
+ * shared URL → document cache consistent with the spec without needing
+ * per-schema execution-context scoping around canonicalization.
+ */
 async function handleCustomSchemaSave(
   _event: IpcMainInvokeEvent,
   request: CustomSchemaSaveRequest,
 ): Promise<CustomSchemaSaveResponse> {
   const store = getStore();
-  const schemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+  const schemas =
+    (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+
+  // Determine the context URL the user wants cached. If the request supplies
+  // one explicitly, prefer it; otherwise we'll fall back to whatever URL DeDi
+  // publishing produces below (dediContextUrl).
+  const userContextUrl = request.contextUrl?.trim() || undefined;
 
   if (request.id) {
-    // Update existing
+    // Update existing — preserve immutable fields, refresh name/schema and
+    // optionally re-fetch the cached context document if a context URL is
+    // present and not yet cached.
     const idx = schemas.findIndex((s) => s.id === request.id);
     if (idx >= 0) {
-      schemas[idx] = { ...schemas[idx], name: request.name, schema: request.schema };
+      const existing = schemas[idx];
+      const updated: CustomSchemaEntry = {
+        ...existing,
+        name: request.name,
+        schema: request.schema,
+      };
+      if (userContextUrl) {
+        updated.dediContextUrl = userContextUrl;
+      }
+
+      let fetchError: string | undefined;
+      const targetContextUrl = updated.dediContextUrl;
+      if (targetContextUrl && !updated.cachedContextDocument) {
+        const result = await fetchJsonLdContextDocument(targetContextUrl);
+        if (result.document) {
+          const newHash = computeContextDocumentHash(result.document);
+          const conflict = findContextHashConflict(schemas, targetContextUrl, newHash, updated.id);
+          if (conflict) {
+            logger.warn("Custom schema context hash conflict (update)", {
+              schemaId: updated.id,
+              conflictingSchemaId: conflict.id,
+              url: targetContextUrl,
+            });
+            const response = customSchemaSaveSuccess(updated);
+            response.contextCached = false;
+            response.error =
+              `Context URL ${targetContextUrl} is already cached with a ` +
+              `different content hash by schema '${conflict.name}'. ` +
+              `Refusing to overwrite — JSON-LD context URLs must be global.`;
+            return response;
+          }
+          updated.cachedContextDocument = result.document;
+          updated.cachedContextDocumentHash = newHash;
+          updated.cachedContextFetchedAt = new Date().toISOString();
+        } else {
+          fetchError = result.error;
+          logger.warn("Custom schema context fetch failed (update)", {
+            schemaId: updated.id,
+            error: fetchError,
+          });
+        }
+      }
+
+      schemas[idx] = updated;
       store.set("customSchemas" as keyof typeof store.store, schemas);
-      return schemas[idx];
+      const response = customSchemaSaveSuccess(updated);
+      if (fetchError) {
+        response.error = fetchError;
+      }
+      return response;
     }
   }
 
@@ -1443,6 +1921,7 @@ async function handleCustomSchemaSave(
     schema: request.schema,
     createdAt: new Date().toISOString(),
     ...(request.sourceUrl ? { sourceUrl: request.sourceUrl } : {}),
+    ...(userContextUrl ? { dediContextUrl: userContextUrl } : {}),
   };
 
   // Auto-generate JSON-LD context from schema
@@ -1467,13 +1946,17 @@ async function handleCustomSchemaSave(
       const contextRecordName = `${entry.id}-ctx-v${version}`;
 
       // Publish schema (fire-and-forget)
-      mgr.ensureSchemaPublished({
-        schemaId: entry.id,
-        version,
-        schema: request.schema,
-        checksum: SchemaRegistry.computeChecksum(request.schema),
-        publishedAt: new Date().toISOString(),
-      }).catch(() => { /* logged internally */ });
+      mgr
+        .ensureSchemaPublished({
+          schemaId: entry.id,
+          version,
+          schema: request.schema,
+          checksum: SchemaRegistry.computeChecksum(request.schema),
+          publishedAt: new Date().toISOString(),
+        })
+        .catch(() => {
+          /* logged internally */
+        });
 
       // Publish context (fire-and-forget)
       if (entry.generatedContext) {
@@ -1483,16 +1966,62 @@ async function handleCustomSchemaSave(
           context: entry.generatedContext,
           publishedAt: new Date().toISOString(),
         };
-        mgr.publishContext(contextRecord).catch(() => { /* logged internally */ });
+        mgr.publishContext(contextRecord).catch(() => {
+          /* logged internally */
+        });
       }
 
       entry.dediSchemaUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${SCHEMA_REGISTRY}/${schemaRecordName}`;
-      entry.dediContextUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${CONTEXT_REGISTRY}/${contextRecordName}`;
+      // Only overwrite the user-provided context URL if none was supplied.
+      if (!entry.dediContextUrl) {
+        entry.dediContextUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${CONTEXT_REGISTRY}/${contextRecordName}`;
+      }
+    }
+  }
+
+  // Fetch and cache the context document if a URL is present.
+  let fetchError: string | undefined;
+  if (entry.dediContextUrl && !entry.cachedContextDocument) {
+    const result = await fetchJsonLdContextDocument(entry.dediContextUrl);
+    if (result.document) {
+      const newHash = computeContextDocumentHash(result.document);
+      const conflict = findContextHashConflict(schemas, entry.dediContextUrl, newHash, entry.id);
+      if (conflict) {
+        logger.warn("Custom schema context hash conflict (create)", {
+          schemaId: entry.id,
+          conflictingSchemaId: conflict.id,
+          url: entry.dediContextUrl,
+        });
+        // Refuse the save entirely — we don't want to persist a schema
+        // with an unresolvable context. The response mirrors other
+        // "fetch failed" outcomes so the UI renders a consistent shape.
+        const response = customSchemaSaveSuccess(entry);
+        response.contextCached = false;
+        response.error =
+          `Context URL ${entry.dediContextUrl} is already cached with a ` +
+          `different content hash by schema '${conflict.name}'. ` +
+          `Refusing to overwrite — JSON-LD context URLs must be global.`;
+        return response;
+      }
+      entry.cachedContextDocument = result.document;
+      entry.cachedContextDocumentHash = newHash;
+      entry.cachedContextFetchedAt = new Date().toISOString();
+    } else {
+      fetchError = result.error;
+      logger.warn("Custom schema context fetch failed (create)", {
+        schemaId: entry.id,
+        error: fetchError,
+      });
     }
   }
 
   store.set("customSchemas" as keyof typeof store.store, [...schemas, entry]);
-  return entry;
+
+  const response = customSchemaSaveSuccess(entry);
+  if (fetchError) {
+    response.error = fetchError;
+  }
+  return response;
 }
 
 /** CUSTOM_SCHEMA_DELETE — remove a custom schema. */
@@ -1501,7 +2030,8 @@ async function handleCustomSchemaDelete(
   request: CustomSchemaDeleteRequest,
 ): Promise<CustomSchemaDeleteResponse> {
   const store = getStore();
-  const schemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+  const schemas =
+    (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
   const filtered = schemas.filter((s) => s.id !== request.id);
   const deleted = filtered.length < schemas.length;
   store.set("customSchemas" as keyof typeof store.store, filtered);
@@ -1542,12 +2072,23 @@ async function handleLogTail(
 import { exportDidDocument } from "./did-web-export.js";
 import { DIDWebResolver, encodeDidWeb } from "@opencred/did";
 import type {
-  DidWebExportRequest, DidWebExportResponse, DidWebVerifyRequest, DidWebVerifyResponse,
-  DeDiConfigSetRequest, DeDiConfigSetResponse, DeDiStatusResponse,
-  DeDiPublishDIDRequest, DeDiPublishSchemaRequest, DeDiPublishResponse, DeDiEnsureRegistriesResponse,
+  DidWebExportRequest,
+  DidWebExportResponse,
+  DidWebVerifyRequest,
+  DidWebVerifyResponse,
+  DeDiConfigSetRequest,
+  DeDiConfigSetResponse,
+  DeDiStatusResponse,
+  DeDiPublishDIDRequest,
+  DeDiPublishSchemaRequest,
+  DeDiPublishResponse,
+  DeDiEnsureRegistriesResponse,
 } from "../shared/ipc-types.js";
 
-async function handleDidWebExport(_event: IpcMainInvokeEvent, request: DidWebExportRequest): Promise<DidWebExportResponse> {
+async function handleDidWebExport(
+  _event: IpcMainInvokeEvent,
+  request: DidWebExportRequest,
+): Promise<DidWebExportResponse> {
   try {
     const jwk = loadedPublicKeyJwks.get(request.keyId);
     if (!jwk) return { success: false, error: "Key not found or not a generated key" };
@@ -1555,13 +2096,19 @@ async function handleDidWebExport(_event: IpcMainInvokeEvent, request: DidWebExp
     const didDocument = exportDidDocument(jwk as import("@opencred/did").JWK, request.domain);
     return { success: true, didDocument, did };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "DID document export failed." };
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "DID document export failed.",
+    };
   }
 }
 
 const DOMAIN_PATTERN = /^[a-zA-Z0-9]([a-zA-Z0-9-]*\.)+[a-zA-Z]{2,}(:\d+)?$/;
 
-async function handleDidWebVerify(_event: IpcMainInvokeEvent, request: DidWebVerifyRequest): Promise<DidWebVerifyResponse> {
+async function handleDidWebVerify(
+  _event: IpcMainInvokeEvent,
+  request: DidWebVerifyRequest,
+): Promise<DidWebVerifyResponse> {
   if (!request.domain || !DOMAIN_PATTERN.test(request.domain)) {
     return { success: true, accessible: false, error: "Invalid domain format" };
   }
@@ -1570,7 +2117,11 @@ async function handleDidWebVerify(_event: IpcMainInvokeEvent, request: DidWebVer
     await resolver.resolve(encodeDidWeb(request.domain));
     return { success: true, accessible: true };
   } catch (err) {
-    return { success: true, accessible: false, error: err instanceof Error ? err.message : "DID verification failed." };
+    return {
+      success: true,
+      accessible: false,
+      error: err instanceof Error ? err.message : "DID verification failed.",
+    };
   }
 }
 
@@ -1588,11 +2139,28 @@ export function getDeDiPublishManager(): DeDiPublishManager | null {
   const credJson = getDeDiCredentialFromKeychain();
   if (!credJson) return null;
   let parsed: { apiKey?: string; email?: string; password?: string };
-  try { parsed = JSON.parse(credJson); } catch { return null; }
-  const auth = config.authType === "api-key"
-    ? { type: "api-key" as const, apiKey: parsed.apiKey ?? "" }
-    : { type: "bearer" as const, email: parsed.email ?? "", password: parsed.password ?? "" };
-  publishManager = createPublishManager({ baseUrl: config.baseUrl, defaultNamespace: config.namespace, auth, timeoutMs: 10_000, circuitBreakerThreshold: 5, maxRetries: 3, logger }, store.get("dediPublishedSchemas"), logger);
+  try {
+    parsed = JSON.parse(credJson);
+  } catch {
+    return null;
+  }
+  const auth =
+    config.authType === "api-key"
+      ? { type: "api-key" as const, apiKey: parsed.apiKey ?? "" }
+      : { type: "bearer" as const, email: parsed.email ?? "", password: parsed.password ?? "" };
+  publishManager = createPublishManager(
+    {
+      baseUrl: config.baseUrl,
+      defaultNamespace: config.namespace,
+      auth,
+      timeoutMs: 10_000,
+      circuitBreakerThreshold: 5,
+      maxRetries: 3,
+      logger,
+    },
+    store.get("dediPublishedSchemas"),
+    logger,
+  );
   return publishManager;
 }
 
@@ -1600,7 +2168,11 @@ function getDeDiCredentialFromKeychain(): string | null {
   if (!safeStorage.isEncryptionAvailable()) return null;
   const encrypted = getStore().get("preferences")["dediCredentialEncrypted"] as string | undefined;
   if (!encrypted) return null;
-  try { return safeStorage.decryptString(Buffer.from(encrypted, "base64")); } catch { return null; }
+  try {
+    return safeStorage.decryptString(Buffer.from(encrypted, "base64"));
+  } catch {
+    return null;
+  }
 }
 
 function storeDeDiCredentialInKeychain(json: string): void {
@@ -1610,11 +2182,21 @@ function storeDeDiCredentialInKeychain(json: string): void {
   store.set("preferences", { ...store.get("preferences"), dediCredentialEncrypted: enc });
 }
 
-async function handleDeDiSetConfig(_event: IpcMainInvokeEvent, request: DeDiConfigSetRequest): Promise<DeDiConfigSetResponse> {
+async function handleDeDiSetConfig(
+  _event: IpcMainInvokeEvent,
+  request: DeDiConfigSetRequest,
+): Promise<DeDiConfigSetResponse> {
   try {
     const store = getStore();
-    store.set("dediConfig", { baseUrl: request.baseUrl, namespace: request.namespace, authType: request.credentials.type });
-    const cred = request.credentials.type === "api-key" ? { apiKey: request.credentials.apiKey } : { email: request.credentials.email, password: request.credentials.password };
+    store.set("dediConfig", {
+      baseUrl: request.baseUrl,
+      namespace: request.namespace,
+      authType: request.credentials.type,
+    });
+    const cred =
+      request.credentials.type === "api-key"
+        ? { apiKey: request.credentials.apiKey }
+        : { email: request.credentials.email, password: request.credentials.password };
     storeDeDiCredentialInKeychain(JSON.stringify(cred));
     publishManager = null;
     const mgr = getDeDiPublishManager();
@@ -1626,29 +2208,47 @@ async function handleDeDiSetConfig(_event: IpcMainInvokeEvent, request: DeDiConf
     try {
       registriesReady = await mgr.ensureRegistries(request.namespace);
     } catch (regErr) {
-      logger.error("DeDi ensureRegistries failed", { error: regErr instanceof Error ? regErr.message : String(regErr) });
+      logger.error("DeDi ensureRegistries failed", {
+        error: regErr instanceof Error ? regErr.message : String(regErr),
+      });
     }
     store.set("dediRegistriesReady", registriesReady);
     return { success: true, registriesReady };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Failed to configure DeDi" };
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to configure DeDi",
+    };
   }
 }
 
 async function handleDeDiGetStatus(_event: IpcMainInvokeEvent): Promise<DeDiStatusResponse> {
   const store = getStore();
   const config = store.get("dediConfig");
-  return { configured: config != null, namespace: config?.namespace, registriesReady: store.get("dediRegistriesReady") === true, publishedSchemas: store.get("dediPublishedSchemas") };
+  return {
+    configured: config != null,
+    namespace: config?.namespace,
+    registriesReady: store.get("dediRegistriesReady") === true,
+    publishedSchemas: store.get("dediPublishedSchemas"),
+  };
 }
 
-async function handleDeDiPublishDID(_event: IpcMainInvokeEvent, request: DeDiPublishDIDRequest): Promise<DeDiPublishResponse> {
+async function handleDeDiPublishDID(
+  _event: IpcMainInvokeEvent,
+  request: DeDiPublishDIDRequest,
+): Promise<DeDiPublishResponse> {
   const mgr = getDeDiPublishManager();
   if (!mgr) return { success: false, error: "DeDi not configured" };
   const result = await mgr.publishDIDDocument(request.did, request.document);
-  return result ? { success: true, recordName: result.recordName } : { success: false, error: "Failed to publish DID to DeDi" };
+  return result
+    ? { success: true, recordName: result.recordName }
+    : { success: false, error: "Failed to publish DID to DeDi" };
 }
 
-async function handleDeDiPublishSchema(_event: IpcMainInvokeEvent, request: DeDiPublishSchemaRequest): Promise<DeDiPublishResponse> {
+async function handleDeDiPublishSchema(
+  _event: IpcMainInvokeEvent,
+  request: DeDiPublishSchemaRequest,
+): Promise<DeDiPublishResponse> {
   const mgr = getDeDiPublishManager();
   if (!mgr) return { success: false, error: "DeDi not configured" };
 
@@ -1679,7 +2279,9 @@ async function handleDeDiPublishSchema(_event: IpcMainInvokeEvent, request: DeDi
   }
 }
 
-async function handleDeDiEnsureRegistries(_event: IpcMainInvokeEvent): Promise<DeDiEnsureRegistriesResponse> {
+async function handleDeDiEnsureRegistries(
+  _event: IpcMainInvokeEvent,
+): Promise<DeDiEnsureRegistriesResponse> {
   const mgr = getDeDiPublishManager();
   if (!mgr) return { success: false, error: "DeDi not configured" };
   const store = getStore();
@@ -1697,14 +2299,17 @@ async function handleDeDiEnsureRegistries(_event: IpcMainInvokeEvent): Promise<D
  * SECURITY NOTE: This is an intentional credential deletion operation invoked
  * by the user via the Settings UI to disconnect their DeDi account.
  */
-async function handleDeDiDisconnect(_event: IpcMainInvokeEvent): Promise<import("../shared/ipc-types.js").DeDiDisconnectResponse> {
+async function handleDeDiDisconnect(
+  _event: IpcMainInvokeEvent,
+): Promise<import("../shared/ipc-types.js").DeDiDisconnectResponse> {
   const store = getStore();
   store.delete("dediConfig" as never);
   store.set("dediPublishedSchemas", []);
   store.delete("dediRegistriesReady" as never);
   const prefs = store.get("preferences");
   if (prefs && typeof prefs === "object" && "dediCredentialEncrypted" in prefs) {
-    const { dediCredentialEncrypted: _, ...rest } = prefs as Record<string, unknown>;
+    const rest = { ...(prefs as Record<string, unknown>) };
+    delete rest.dediCredentialEncrypted;
     store.set("preferences", rest as never);
   }
   publishManager = null;
@@ -1715,11 +2320,16 @@ async function handleDeDiDisconnect(_event: IpcMainInvokeEvent): Promise<import(
 // Recent templates
 // ---------------------------------------------------------------------------
 
-import type { RecentTemplatesListResponse, RecentTemplateRecordRequest } from "../shared/ipc-types.js";
+import type {
+  RecentTemplatesListResponse,
+  RecentTemplateRecordRequest,
+} from "../shared/ipc-types.js";
 import { RECENT_TEMPLATES_CAP } from "./store.js";
 import type { RecentTemplateEntry } from "./store.js";
 
-async function handleRecentTemplatesList(_event: IpcMainInvokeEvent): Promise<RecentTemplatesListResponse> {
+async function handleRecentTemplatesList(
+  _event: IpcMainInvokeEvent,
+): Promise<RecentTemplatesListResponse> {
   const store = getStore();
   const templates = store.get("recentTemplates");
   return { templates };

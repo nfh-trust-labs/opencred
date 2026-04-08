@@ -26,6 +26,10 @@ import { initStore, getStore } from "./store.js";
 import { reloadPersistedSigners } from "./persisted-signer-loader.js";
 import { initAutoUpdater, cleanupAutoUpdater } from "./auto-updater.js";
 import { checkForSchemaUpdatesAtStartup } from "./schema-updater.js";
+import {
+  installCustomContextResolver,
+  uninstallCustomContextResolver,
+} from "./document-loader-with-cache.js";
 import { createLogger } from "./logger.js";
 
 // ---------------------------------------------------------------------------
@@ -173,6 +177,14 @@ function buildAppMenu(): void {
 app.whenReady().then(() => {
   logger.info("App ready, initialising");
   initStore();
+
+  // Register the process-wide JSON-LD document loader extension so that
+  // user-provided custom-schema contexts (cached in electron-store) are
+  // resolvable by @opencred/crypto's canonicalization step. This must run
+  // BEFORE any signing/verification can occur — i.e. before IPC handlers
+  // are registered.
+  installCustomContextResolver();
+
   registerIpcHandlers();
 
   // Reload previously imported signing keys from disk.
@@ -191,7 +203,9 @@ app.whenReady().then(() => {
   // Check for schema updates in the background (non-blocking).
   // App starts immediately with bundled schemas; updates are cached for next launch.
   checkForSchemaUpdatesAtStartup().catch((err: unknown) => {
-    logger.warn("Background schema update check failed", { error: err instanceof Error ? err.message : String(err) });
+    logger.warn("Background schema update check failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
 
   app.on("activate", () => {
@@ -212,4 +226,5 @@ app.on("before-quit", () => {
   logger.info("App shutting down");
   cleanupAutoUpdater();
   cleanupIpcHandlers();
+  uninstallCustomContextResolver();
 });

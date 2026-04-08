@@ -77,9 +77,9 @@ describe("signCredentialJws", () => {
 
   it("should reject non-RSA keys", async () => {
     const ecKey = createEcSigningKey(verificationMethod);
-    await expect(
-      signCredentialJws(unsignedVC, ecKey, { verificationMethod }),
-    ).rejects.toThrow("signCredentialJws only supports RSA keys");
+    await expect(signCredentialJws(unsignedVC, ecKey, { verificationMethod })).rejects.toThrow(
+      "signCredentialJws only supports RSA keys",
+    );
   });
 });
 
@@ -122,9 +122,7 @@ describe("completeJwsProof", () => {
   });
 
   it("should throw for invalid signing input (no dot separator)", () => {
-    expect(() =>
-      completeJwsProof("nodot", new Uint8Array([1])),
-    ).toThrow("Invalid signing input");
+    expect(() => completeJwsProof("nodot", new Uint8Array([1]))).toThrow("Invalid signing input");
   });
 });
 

@@ -54,9 +54,7 @@ test.describe("Onboarding Wizard", () => {
     await expect(page.locator("#pfx-password")).toHaveValue("test-password");
   });
 
-  test("DSC workflow: P12 import shows correct description", async ({
-    openCredPage: page,
-  }) => {
+  test("DSC workflow: P12 import shows correct description", async ({ openCredPage: page }) => {
     await waitForAppReady(page);
     await page.click("button:has-text('Get Started')");
     await page.click("text=I have a DSC");

@@ -93,7 +93,7 @@ fakeRsaModulus.fill(0x01);
 const fakeRsaExponent = new Uint8Array([0x01, 0x00, 0x01]);
 
 // A fake DER certificate
-const fakeDerCert = new Uint8Array([0x30, 0x82, 0x01, 0x00, 0xAA, 0xBB, 0xCC]);
+const fakeDerCert = new Uint8Array([0x30, 0x82, 0x01, 0x00, 0xaa, 0xbb, 0xcc]);
 
 vi.mock("../pkcs11-loader.js", () => {
   // Build the mock pkcs11js module inline, then export it via loadPkcs11js()

@@ -204,11 +204,7 @@ describe("DeDiTokenManager", () => {
       );
 
       const tm = new DeDiTokenManager(createBearerConfig());
-      const [t1, t2, t3] = await Promise.all([
-        tm.getToken(),
-        tm.getToken(),
-        tm.getToken(),
-      ]);
+      const [t1, t2, t3] = await Promise.all([tm.getToken(), tm.getToken(), tm.getToken()]);
 
       expect(t1).toBe(jwt);
       expect(t2).toBe(jwt);
@@ -337,9 +333,7 @@ describe("DeDiTokenManager", () => {
       );
 
       const tm = new DeDiTokenManager(createBearerConfig());
-      await expect(tm.getToken()).rejects.toThrow(
-        "DeDi auth endpoint returned non-JSON response",
-      );
+      await expect(tm.getToken()).rejects.toThrow("DeDi auth endpoint returned non-JSON response");
       await expect(tm.getToken.bind(tm)).rejects.not.toBeInstanceOf(SyntaxError);
     });
 
@@ -363,20 +357,14 @@ describe("DeDiTokenManager", () => {
 
       const tm = new DeDiTokenManager(createBearerConfig({ auth: { refreshBufferMs: 60_000 } }));
       await tm.getToken(); // login
-      await expect(tm.getToken()).rejects.toThrow(
-        "DeDi auth endpoint returned non-JSON response",
-      );
+      await expect(tm.getToken()).rejects.toThrow("DeDi auth endpoint returned non-JSON response");
     });
 
     it("throws DeDiClientError when login returns empty body", async () => {
-      mockFetch.mockResolvedValueOnce(
-        new Response("", { status: 200 }),
-      );
+      mockFetch.mockResolvedValueOnce(new Response("", { status: 200 }));
 
       const tm = new DeDiTokenManager(createBearerConfig());
-      await expect(tm.getToken()).rejects.toThrow(
-        "DeDi auth endpoint returned non-JSON response",
-      );
+      await expect(tm.getToken()).rejects.toThrow("DeDi auth endpoint returned non-JSON response");
     });
   });
 
@@ -386,7 +374,11 @@ describe("DeDiTokenManager", () => {
     it("throws on malformed JWT (fewer than 2 parts)", async () => {
       mockFetch.mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ access_token: "not-a-jwt", refresh_token: "rt_1", token_type: "bearer" }),
+          JSON.stringify({
+            access_token: "not-a-jwt",
+            refresh_token: "rt_1",
+            token_type: "bearer",
+          }),
           { status: 200 },
         ),
       );
@@ -423,7 +415,9 @@ describe("DeDiTokenManager", () => {
       );
 
       const tm = new DeDiTokenManager(createBearerConfig());
-      await expect(tm.getToken()).rejects.toThrow("DeDi API returned a JWT with an undecodable payload");
+      await expect(tm.getToken()).rejects.toThrow(
+        "DeDi API returned a JWT with an undecodable payload",
+      );
     });
   });
 
@@ -525,10 +519,9 @@ describe("DeDiTokenManager", () => {
   describe("response shape validation", () => {
     it("throws on login response missing access_token", async () => {
       mockFetch.mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ refresh_token: "rt_1", token_type: "bearer" }),
-          { status: 200 },
-        ),
+        new Response(JSON.stringify({ refresh_token: "rt_1", token_type: "bearer" }), {
+          status: 200,
+        }),
       );
 
       const tm = new DeDiTokenManager(createBearerConfig());
@@ -540,10 +533,7 @@ describe("DeDiTokenManager", () => {
     it("throws on login response missing refresh_token", async () => {
       const jwt = jwtExpiringIn(3600);
       mockFetch.mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ access_token: jwt, token_type: "bearer" }),
-          { status: 200 },
-        ),
+        new Response(JSON.stringify({ access_token: jwt, token_type: "bearer" }), { status: 200 }),
       );
 
       const tm = new DeDiTokenManager(createBearerConfig());

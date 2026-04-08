@@ -419,9 +419,9 @@ describe("completeSdJwtVcProof", () => {
   });
 
   it("should throw for invalid signing input (no dot)", () => {
-    expect(() =>
-      completeSdJwtVcProof("nodot", new Uint8Array([1]), []),
-    ).toThrow("Invalid signing input");
+    expect(() => completeSdJwtVcProof("nodot", new Uint8Array([1]), [])).toThrow(
+      "Invalid signing input",
+    );
   });
 
   it("should handle empty disclosures", () => {
@@ -489,7 +489,10 @@ describe("Interface Signing round-trip", () => {
     expect(payload.vct).toBe("EducationalCredential");
 
     // Verify disclosures round-trip
-    const outputDisclosures = sdJwtVc.split("~").slice(1).filter((p) => p !== "");
+    const outputDisclosures = sdJwtVc
+      .split("~")
+      .slice(1)
+      .filter((p) => p !== "");
     expect(outputDisclosures.length).toBe(2);
     for (const d of outputDisclosures) {
       const decoded = decodeDisclosure(d);

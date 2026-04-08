@@ -100,7 +100,9 @@ describe("withRetry", () => {
   it("does NOT retry on SyntaxError", async () => {
     const fn = vi.fn().mockRejectedValue(new SyntaxError("Unexpected token"));
 
-    await expect(withRetry(fn, { maxRetries: 3, baseDelayMs: 100 })).rejects.toThrow("Unexpected token");
+    await expect(withRetry(fn, { maxRetries: 3, baseDelayMs: 100 })).rejects.toThrow(
+      "Unexpected token",
+    );
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
@@ -116,7 +118,9 @@ describe("withRetry", () => {
   it("does NOT retry on generic Error", async () => {
     const fn = vi.fn().mockRejectedValue(new Error("something broke"));
 
-    await expect(withRetry(fn, { maxRetries: 3, baseDelayMs: 100 })).rejects.toThrow("something broke");
+    await expect(withRetry(fn, { maxRetries: 3, baseDelayMs: 100 })).rejects.toThrow(
+      "something broke",
+    );
     expect(fn).toHaveBeenCalledTimes(1);
   });
 });

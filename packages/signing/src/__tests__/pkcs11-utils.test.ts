@@ -84,10 +84,7 @@ describe("publicKeyFromRsaComponents", () => {
     const modulus = Buffer.from(rsaJwk.n!, "base64url");
     const exponent = Buffer.from(rsaJwk.e!, "base64url");
 
-    const key = publicKeyFromRsaComponents(
-      new Uint8Array(modulus),
-      new Uint8Array(exponent),
-    );
+    const key = publicKeyFromRsaComponents(new Uint8Array(modulus), new Uint8Array(exponent));
 
     const jwk = key.export({ format: "jwk" });
     expect(jwk.kty).toBe("RSA");
@@ -115,10 +112,7 @@ describe("publicKeyFromRsaComponents", () => {
   it("should produce a valid key from standard RSA-2048 components", () => {
     const modulus = Buffer.from(rsaJwk.n!, "base64url");
     const exponent = Buffer.from(rsaJwk.e!, "base64url");
-    const key = publicKeyFromRsaComponents(
-      new Uint8Array(modulus),
-      new Uint8Array(exponent),
-    );
+    const key = publicKeyFromRsaComponents(new Uint8Array(modulus), new Uint8Array(exponent));
     // Verify round-trip
     const exportedJwk = key.export({ format: "jwk" });
     expect(exportedJwk.kty).toBe("RSA");
@@ -219,7 +213,7 @@ describe("normalizeSignature", () => {
 
 describe("derCertToPem", () => {
   it("should produce valid PEM from DER bytes", () => {
-    const der = new Uint8Array([0x30, 0x82, 0x01, 0x00, 0xAA, 0xBB, 0xCC]);
+    const der = new Uint8Array([0x30, 0x82, 0x01, 0x00, 0xaa, 0xbb, 0xcc]);
     const pem = derCertToPem(der);
 
     expect(pem).toMatch(/^-----BEGIN CERTIFICATE-----\n/);
@@ -236,7 +230,7 @@ describe("derCertToPem", () => {
   it("should wrap long base64 at 64 characters", () => {
     // Create a cert large enough to need line wrapping
     const der = new Uint8Array(100);
-    der.fill(0xAA);
+    der.fill(0xaa);
     const pem = derCertToPem(der);
 
     const lines = pem.split("\n");

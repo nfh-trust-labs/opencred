@@ -109,10 +109,7 @@ test.describe("Credential Verification", () => {
     await page.locator("main button:has-text('Verify')").click();
 
     // Wait for error result (CSP-safe)
-    await page
-      .locator("text=/INVALID|Invalid|failed|error/i")
-      .first()
-      .waitFor({ timeout: 10_000 });
+    await page.locator("text=/INVALID|Invalid|failed|error/i").first().waitFor({ timeout: 10_000 });
 
     const body = await page.textContent("body");
     expect(body).toMatch(/invalid|error|failed/i);

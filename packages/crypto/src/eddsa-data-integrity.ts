@@ -111,9 +111,7 @@ export async function signCredentialEdDsa(
   options: ProofOptions,
 ): Promise<VerifiableCredential> {
   if (signingKey.algorithm !== "Ed25519") {
-    throw new CryptoError(
-      `EdDSA Data Integrity requires Ed25519 key, got ${signingKey.algorithm}`,
-    );
+    throw new CryptoError(`EdDSA Data Integrity requires Ed25519 key, got ${signingKey.algorithm}`);
   }
 
   const { dataToSign, proofConfig } = await prepareEdDsaProof(unsignedVC, {

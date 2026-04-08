@@ -2,13 +2,7 @@
  * E2E: Key management -- generation, import, hardware tokens, OS cert store.
  */
 
-import {
-  test,
-  expect,
-  waitForAppReady,
-  skipOnboarding,
-  generateKeyViaIpc,
-} from "./electron-fixture";
+import { test, expect, waitForAppReady, skipOnboarding } from "./electron-fixture";
 
 test.describe("Key Management", () => {
   test.describe("Settings -> Key Management tabs", () => {

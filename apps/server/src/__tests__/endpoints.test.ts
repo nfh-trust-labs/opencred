@@ -3,7 +3,12 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import { createTestApp, generateTestKey, VALID_ISSUE_REQUEST, EDUCATION_SUBJECT } from "./helpers.js";
+import {
+  createTestApp,
+  generateTestKey,
+  VALID_ISSUE_REQUEST,
+  EDUCATION_SUBJECT,
+} from "./helpers.js";
 import { setActiveSigner } from "../signing/key-manager.js";
 import type { Hono } from "hono";
 import type { TestKeyPair } from "./helpers.js";
@@ -151,9 +156,7 @@ describe("POST /credentials/verify", () => {
     const result = (await verifyRes.json()) as Record<string, unknown>;
     expect(result.valid).toBe(true);
     expect(result.checks).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: "signature", passed: true }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ name: "signature", passed: true })]),
     );
   });
 
@@ -169,7 +172,9 @@ describe("POST /credentials/verify", () => {
       }),
     });
 
-    const issued = (await issueRes.json()) as { credential: Record<string, unknown> & { credentialSubject: Record<string, unknown> } };
+    const issued = (await issueRes.json()) as {
+      credential: Record<string, unknown> & { credentialSubject: Record<string, unknown> };
+    };
 
     // Tamper with it
     const tampered = { ...issued.credential };

@@ -5,7 +5,7 @@
  * preload API surface is correctly typed and functional.
  */
 
-import { test, expect, waitForAppReady, skipOnboarding } from "./electron-fixture";
+import { test, expect, waitForAppReady } from "./electron-fixture";
 
 test.describe("IPC API — Key Management", () => {
   test("listKeys returns array", async ({ openCredPage: page }) => {
@@ -40,9 +40,7 @@ test.describe("IPC API — Key Management", () => {
       return await window.opencred.listKeys();
     });
 
-    const found = listResult.keys.find(
-      (k: { id: string }) => k.id === genResult.key!.id,
-    );
+    const found = listResult.keys.find((k: { id: string }) => k.id === genResult.key!.id);
     expect(found).toBeDefined();
   });
 
@@ -108,22 +106,19 @@ test.describe("IPC API — Build and Sign", () => {
       return await window.opencred.generateKey({ label: "Sign Test" });
     });
 
-    const result = await page.evaluate(
-      async (keyId: string) => {
-        return await window.opencred.buildAndSign({
-          schemaId: "education",
-          issuerDid: keyId,
-          credentialSubject: {
-            name: "Alice Smith",
-            degreeType: "BS Computer Science",
-            institution: "MIT",
-          },
-          validFrom: new Date().toISOString(),
-          keyId,
-        });
-      },
-      keyResult.key!.id,
-    );
+    const result = await page.evaluate(async (keyId: string) => {
+      return await window.opencred.buildAndSign({
+        schemaId: "education",
+        issuerDid: keyId,
+        credentialSubject: {
+          name: "Alice Smith",
+          degreeType: "BS Computer Science",
+          institution: "MIT",
+        },
+        validFrom: new Date().toISOString(),
+        keyId,
+      });
+    }, keyResult.key!.id);
 
     expect(result.success).toBe(true);
     const parsed = JSON.parse(result.signedCredential!);
@@ -143,18 +138,15 @@ test.describe("IPC API — Verification", () => {
       return await window.opencred.generateKey({ label: "Verify Test" });
     });
 
-    const signResult = await page.evaluate(
-      async (keyId: string) => {
-        return await window.opencred.buildAndSign({
-          schemaId: "education",
-          issuerDid: keyId,
-          credentialSubject: { name: "Test User" },
-          validFrom: new Date().toISOString(),
-          keyId,
-        });
-      },
-      keyResult.key!.id,
-    );
+    const signResult = await page.evaluate(async (keyId: string) => {
+      return await window.opencred.buildAndSign({
+        schemaId: "education",
+        issuerDid: keyId,
+        credentialSubject: { name: "Test User" },
+        validFrom: new Date().toISOString(),
+        keyId,
+      });
+    }, keyResult.key!.id);
 
     const verifyResult = await page.evaluate(async (cred: string) => {
       return await window.opencred.verifyCredential({ credential: cred });
@@ -212,7 +204,6 @@ test.describe("IPC API — OS Certificate Store", () => {
     expect(result.key!.id).toMatch(/^did:key:/);
   });
 });
-
 
 test.describe("IPC API — Config", () => {
   test("get/set config round-trip", async ({ openCredPage: page }) => {

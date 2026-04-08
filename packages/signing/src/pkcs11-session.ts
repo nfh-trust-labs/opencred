@@ -363,9 +363,7 @@ export function listCertificates(session: Pkcs11Session): Pkcs11CertInfo[] {
   const certs: Pkcs11CertInfo[] = [];
 
   try {
-    pkcs11.C_FindObjectsInit(handle, [
-      { type: pkcs11js.CKA_CLASS, value: CKO_CERTIFICATE },
-    ]);
+    pkcs11.C_FindObjectsInit(handle, [{ type: pkcs11js.CKA_CLASS, value: CKO_CERTIFICATE }]);
 
     let obj = pkcs11.C_FindObjects(handle);
     while (obj) {
@@ -514,8 +512,12 @@ function findPublicKeyRsaComponents(
       { type: CKA_PUBLIC_EXPONENT },
     ]);
 
-    const modulus = attrs[0].value ? new Uint8Array(Buffer.from(attrs[0].value as Buffer)) : undefined;
-    const publicExponent = attrs[1].value ? new Uint8Array(Buffer.from(attrs[1].value as Buffer)) : undefined;
+    const modulus = attrs[0].value
+      ? new Uint8Array(Buffer.from(attrs[0].value as Buffer))
+      : undefined;
+    const publicExponent = attrs[1].value
+      ? new Uint8Array(Buffer.from(attrs[1].value as Buffer))
+      : undefined;
 
     if (!modulus || !publicExponent) {
       return undefined;

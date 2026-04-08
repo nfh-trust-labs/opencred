@@ -50,6 +50,22 @@ export interface CustomSchemaEntry {
   dediContextUrl?: string;
   /** Auto-generated JSON-LD context for this schema. */
   generatedContext?: Record<string, unknown>;
+  /**
+   * Fetched & cached JSON-LD context document for this schema's context URL.
+   * Populated at schema-save time so the document loader can serve the URL
+   * during issuance/verification without making any runtime network requests.
+   */
+  cachedContextDocument?: Record<string, unknown>;
+  /** ISO 8601 timestamp at which the context document was fetched. */
+  cachedContextFetchedAt?: string;
+  /**
+   * SHA-256 hex digest of `JSON.stringify(cachedContextDocument)`. Used by
+   * `handleCustomSchemaSave` to detect context-URL collisions: per JSON-LD
+   * 1.1 §3.1 a URL is a global identifier, so two schemas that claim the
+   * same URL but hash to different bodies are refused at save time. Older
+   * entries written before this field existed may have the hash absent.
+   */
+  cachedContextDocumentHash?: string;
 }
 
 /** A recently used credential template (no credential data stored). */

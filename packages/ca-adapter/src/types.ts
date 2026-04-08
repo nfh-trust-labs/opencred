@@ -53,11 +53,7 @@ export interface DscRequest {
 }
 
 /** Status values for a DSC request. */
-export type DscRequestStatusCode =
-  | "pending"
-  | "approved"
-  | "rejected"
-  | "issued";
+export type DscRequestStatusCode = "pending" | "approved" | "rejected" | "issued";
 
 /**
  * Result returned when a DSC request is initially submitted.

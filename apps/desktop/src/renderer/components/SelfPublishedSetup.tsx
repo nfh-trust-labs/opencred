@@ -156,9 +156,7 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
   // Render
   // ------------------------------------------------------------------
 
-  const didPreview = domain.trim()
-    ? `did:web:${domain.trim().replace(/:/g, "%3A")}`
-    : "";
+  const didPreview = domain.trim() ? `did:web:${domain.trim().replace(/:/g, "%3A")}` : "";
 
   return (
     <>
@@ -172,14 +170,12 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
               Self-Published Keys
             </h2>
             <p className="text-body-sm text-txt-secondary">
-              Generate a new key pair. Your public key will be published on your website
-              as a DID document. Your private key never leaves this machine.
+              Generate a new key pair. Your public key will be published on your website as a DID
+              document. Your private key never leaves this machine.
             </p>
           </div>
 
-          {genError && (
-            <p className="text-sm text-red-600">{genError}</p>
-          )}
+          {genError && <p className="text-sm text-red-600">{genError}</p>}
 
           <div className="pt-2 flex gap-3">
             <Button onClick={() => void handleGenerate()} disabled={generating}>
@@ -199,8 +195,7 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
               Enter Your Domain
             </h2>
             <p className="text-body-sm text-txt-secondary">
-              Enter the domain where you will host your DID document.
-              The document will be served at{" "}
+              Enter the domain where you will host your DID document. The document will be served at{" "}
               <code className="text-[0.72rem] bg-surface-warm px-1 py-0.5 rounded">
                 https://your-domain/.well-known/did.json
               </code>
@@ -213,29 +208,26 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
               <input
                 type="text"
                 value={domain}
-                onChange={(e) => { setDomain(e.target.value); setDomainError(null); }}
+                onChange={(e) => {
+                  setDomain(e.target.value);
+                  setDomainError(null);
+                }}
                 placeholder="university.example"
                 className="w-full rounded-oc border border-border px-3 py-2 text-body-sm text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue"
               />
-              {domainError && (
-                <p className="text-[0.72rem] text-red-600 mt-1">{domainError}</p>
-              )}
+              {domainError && <p className="text-[0.72rem] text-red-600 mt-1">{domainError}</p>}
             </div>
 
             {didPreview && (
               <div className="rounded-oc border border-border-light bg-surface-warm p-3">
                 <p className="oc-label mb-1">DID Preview</p>
-                <p className="font-mono text-[0.72rem] text-txt-primary break-all">
-                  {didPreview}
-                </p>
+                <p className="font-mono text-[0.72rem] text-txt-primary break-all">{didPreview}</p>
               </div>
             )}
 
             <div className="rounded-oc border border-green-200 bg-green-50 p-3 space-y-1">
               <p className="text-[0.72rem] font-medium text-green-800">Key Generated</p>
-              <p className="text-[0.68rem] text-green-700">
-                Algorithm: {generatedKey.algorithm}
-              </p>
+              <p className="text-[0.68rem] text-green-700">Algorithm: {generatedKey.algorithm}</p>
               <p className="text-[0.68rem] text-green-700">
                 Fingerprint: {generatedKey.fingerprint.slice(0, 32)}...
               </p>
@@ -243,9 +235,7 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
           </div>
 
           <div className="pt-2 flex gap-3">
-            <Button onClick={handleDomainSubmit}>
-              Continue
-            </Button>
+            <Button onClick={handleDomainSubmit}>Continue</Button>
             <Button variant="secondary" onClick={() => setStep("generate")}>
               Back
             </Button>
@@ -271,14 +261,10 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
             <div className="space-y-3">
               <div className="rounded-oc border border-border-light bg-surface-warm p-3">
                 <p className="oc-label mb-1">Your DID</p>
-                <p className="font-mono text-[0.72rem] text-txt-primary break-all">
-                  {didPreview}
-                </p>
+                <p className="font-mono text-[0.72rem] text-txt-primary break-all">{didPreview}</p>
               </div>
 
-              {exportError && (
-                <p className="text-sm text-red-600">{exportError}</p>
-              )}
+              {exportError && <p className="text-sm text-red-600">{exportError}</p>}
 
               <Button onClick={() => void handleExport()} disabled={exporting}>
                 {exporting ? "Generating..." : "Generate DID Document"}
@@ -300,12 +286,8 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
 
               {/* Save button */}
               <div className="flex gap-3 items-center">
-                <Button onClick={() => void handleSaveToFile()}>
-                  Save to File
-                </Button>
-                {saved && (
-                  <span className="text-[0.78rem] text-green-700">Saved</span>
-                )}
+                <Button onClick={() => void handleSaveToFile()}>Save to File</Button>
+                {saved && <span className="text-[0.78rem] text-green-700">Saved</span>}
               </div>
 
               {/* Collapsible: View DID Document (Advanced) */}
@@ -358,12 +340,26 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
                 {showInstructions && (
                   <div className="mt-2 rounded-oc border border-blue-200 bg-blue-50 p-3 space-y-2">
                     <p className="text-[0.72rem] text-blue-600 italic">
-                      You will need access to your organization&apos;s website hosting. Your IT administrator or web developer can help with this step.
+                      You will need access to your organization&apos;s website hosting. Your IT
+                      administrator or web developer can help with this step.
                     </p>
                     <ol className="text-[0.72rem] text-blue-700 list-decimal list-inside space-y-0.5">
-                      <li>Save the DID document as <code className="bg-blue-100 px-1 rounded">did.json</code></li>
-                      <li>Upload it to <code className="bg-blue-100 px-1 rounded">https://{domain.trim()}/.well-known/did.json</code></li>
-                      <li>Ensure the file is served with <code className="bg-blue-100 px-1 rounded">Content-Type: application/json</code></li>
+                      <li>
+                        Save the DID document as{" "}
+                        <code className="bg-blue-100 px-1 rounded">did.json</code>
+                      </li>
+                      <li>
+                        Upload it to{" "}
+                        <code className="bg-blue-100 px-1 rounded">
+                          https://{domain.trim()}/.well-known/did.json
+                        </code>
+                      </li>
+                      <li>
+                        Ensure the file is served with{" "}
+                        <code className="bg-blue-100 px-1 rounded">
+                          Content-Type: application/json
+                        </code>
+                      </li>
                     </ol>
                   </div>
                 )}
@@ -380,8 +376,9 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
                 {showNoWebsite && (
                   <div className="mt-2 rounded-oc border border-border-light bg-surface-warm p-3">
                     <p className="text-[0.72rem] text-txt-secondary">
-                      You can still issue credentials. Verifiers will need your public key shared directly.
-                      You can also set up DeDi later from Settings to publish your key to a public directory.
+                      You can still issue credentials. Verifiers will need your public key shared
+                      directly. You can also set up DeDi later from Settings to publish your key to
+                      a public directory.
                     </p>
                   </div>
                 )}
@@ -390,11 +387,7 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
           )}
 
           <div className="pt-2 flex gap-3">
-            {exportedDoc && (
-              <Button onClick={() => setStep("verify")}>
-                Continue
-              </Button>
-            )}
+            {exportedDoc && <Button onClick={() => setStep("verify")}>Continue</Button>}
             <Button variant="secondary" onClick={() => setStep("domain")}>
               Back
             </Button>
@@ -412,8 +405,8 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
               Verify Publication
             </h2>
             <p className="text-body-sm text-txt-secondary">
-              Optionally verify that your DID document is accessible at the expected URL.
-              You can skip this step and verify later.
+              Optionally verify that your DID document is accessible at the expected URL. You can
+              skip this step and verify later.
             </p>
           </div>
 
@@ -484,7 +477,9 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
           </div>
 
           <div className="rounded-oc border border-green-200 bg-green-50 p-4 space-y-2">
-            <h3 className="oc-card-label" style={{ color: "#2e7d32" }}>Profile Summary</h3>
+            <h3 className="oc-card-label" style={{ color: "#2e7d32" }}>
+              Profile Summary
+            </h3>
             <dl className="text-[0.78rem] text-green-700 space-y-1.5">
               <div className="flex gap-2">
                 <dt className="font-medium w-24 flex-shrink-0">DID:</dt>
@@ -510,7 +505,17 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
           </div>
 
           <div className="pt-2">
-            <Button onClick={() => onComplete({ key: generatedKey!, domain: domain.trim(), didDocument: exportedDoc ?? undefined })}>Start Issuing Credentials</Button>
+            <Button
+              onClick={() =>
+                onComplete({
+                  key: generatedKey!,
+                  domain: domain.trim(),
+                  didDocument: exportedDoc ?? undefined,
+                })
+              }
+            >
+              Start Issuing Credentials
+            </Button>
           </div>
         </Card>
       )}

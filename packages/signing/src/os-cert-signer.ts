@@ -170,10 +170,7 @@ function buildEcSpkiDer(compressedKey: Uint8Array, curveName: string): Buffer {
   const innerSeq = Buffer.concat([Buffer.from([0x30, innerSeqContent.length]), innerSeqContent]);
 
   const bitStringContent = Buffer.concat([Buffer.from([0x00]), compressedKey]);
-  const bitString = Buffer.concat([
-    Buffer.from([0x03, bitStringContent.length]),
-    bitStringContent,
-  ]);
+  const bitString = Buffer.concat([Buffer.from([0x03, bitStringContent.length]), bitStringContent]);
 
   const outerContent = Buffer.concat([innerSeq, bitString]);
   return Buffer.concat([Buffer.from([0x30, outerContent.length]), outerContent]);
@@ -182,9 +179,7 @@ function buildEcSpkiDer(compressedKey: Uint8Array, curveName: string): Buffer {
 /**
  * Derive the DID identifier and fingerprint for an RSA key from SPKI DER bytes.
  */
-function deriveRsaIdentity(
-  spkiDer: Uint8Array,
-): { id: string; fingerprint: string } {
+function deriveRsaIdentity(spkiDer: Uint8Array): { id: string; fingerprint: string } {
   const publicKey = createPublicKey({
     key: Buffer.from(spkiDer),
     format: "der",

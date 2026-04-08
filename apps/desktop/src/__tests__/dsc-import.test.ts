@@ -27,10 +27,7 @@ import {
   listStoredKeys,
   clearKeyStore,
 } from "../main/dsc-import";
-import type {
-  DscImportResult,
-  CertificateMetadata,
-} from "../main/dsc-import";
+import type { DscImportResult, CertificateMetadata } from "../main/dsc-import";
 
 // ---------------------------------------------------------------------------
 // Resolve node-forge from @opencred/signing (which has it as a dependency)
@@ -217,9 +214,7 @@ describe("DSC Import Module", () => {
     it("should throw a descriptive error for invalid PFX data", () => {
       const invalidBuffer = Buffer.from("this is not a PFX file");
 
-      expect(() => importPfx(invalidBuffer, "any-password")).toThrow(
-        /invalid|parse|ASN/i,
-      );
+      expect(() => importPfx(invalidBuffer, "any-password")).toThrow(/invalid|parse|ASN/i);
     });
 
     it("should store the imported key retrievable by ID", () => {
@@ -259,9 +254,7 @@ describe("DSC Import Module", () => {
     });
 
     it("should throw a descriptive error for random text (not PEM)", () => {
-      expect(() => importPem("this is not PEM data at all")).toThrow(
-        /invalid|parse|key/i,
-      );
+      expect(() => importPem("this is not PEM data at all")).toThrow(/invalid|parse|key/i);
     });
 
     it("should import an RSA private key from PEM", () => {

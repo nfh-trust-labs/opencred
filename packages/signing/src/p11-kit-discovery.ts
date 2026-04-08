@@ -14,9 +14,9 @@ import { existsSync } from "node:fs";
 const P11_KIT_PROXY_PATHS = [
   "/usr/lib/x86_64-linux-gnu/pkcs11/p11-kit-proxy.so", // Debian/Ubuntu (x86_64)
   "/usr/lib/aarch64-linux-gnu/pkcs11/p11-kit-proxy.so", // Debian/Ubuntu (ARM64)
-  "/usr/lib64/pkcs11/p11-kit-proxy.so",                 // RHEL/Fedora/CentOS
-  "/usr/lib/pkcs11/p11-kit-proxy.so",                   // Arch Linux
-  "/usr/lib/i386-linux-gnu/pkcs11/p11-kit-proxy.so",    // Debian/Ubuntu (i386)
+  "/usr/lib64/pkcs11/p11-kit-proxy.so", // RHEL/Fedora/CentOS
+  "/usr/lib/pkcs11/p11-kit-proxy.so", // Arch Linux
+  "/usr/lib/i386-linux-gnu/pkcs11/p11-kit-proxy.so", // Debian/Ubuntu (i386)
 ];
 
 /**

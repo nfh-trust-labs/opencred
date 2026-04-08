@@ -29,7 +29,8 @@ MIICpDCCAYwCCQDU+pQ4pHgSpDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
   });
 
   it("redacts multiple PEM blocks in one string", () => {
-    const input = "key1: -----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY----- and key2: -----BEGIN EC PRIVATE KEY-----\ndef\n-----END EC PRIVATE KEY-----";
+    const input =
+      "key1: -----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY----- and key2: -----BEGIN EC PRIVATE KEY-----\ndef\n-----END EC PRIVATE KEY-----";
     const result = redact(input);
     expect(result).not.toContain("BEGIN");
     expect(result).toContain("[REDACTED-PEM]");
@@ -116,7 +117,10 @@ describe("redactValue", () => {
   });
 
   it("redacts within objects", () => {
-    const obj = { key: "-----BEGIN EC PRIVATE KEY-----\ndata\n-----END EC PRIVATE KEY-----", safe: "hello" };
+    const obj = {
+      key: "-----BEGIN EC PRIVATE KEY-----\ndata\n-----END EC PRIVATE KEY-----",
+      safe: "hello",
+    };
     const result = redactValue(obj) as Record<string, unknown>;
     expect(result.key).toBe("[REDACTED-PEM]");
     expect(result.safe).toBe("hello");

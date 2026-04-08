@@ -13,9 +13,7 @@ import { NoopCaAdapter } from "./noop-adapter.js";
  * @returns A configured CertificateAuthorityAdapter instance
  * @throws CaAdapterError if the adapter type is unknown
  */
-export function createCaAdapter(
-  config?: CaAdapterConfig,
-): CertificateAuthorityAdapter {
+export function createCaAdapter(config?: CaAdapterConfig): CertificateAuthorityAdapter {
   if (!config || config.type === "noop") {
     return new NoopCaAdapter();
   }

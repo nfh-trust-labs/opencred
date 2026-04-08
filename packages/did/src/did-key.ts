@@ -95,7 +95,8 @@ export function deriveDidKeyIdFromCompressedKey(
   compressedPublicKey: Uint8Array,
   curve: "P-256" | "P-384" = "P-256",
 ): string {
-  const expectedLength = curve === "P-256" ? P256_COMPRESSED_KEY_LENGTH : P384_COMPRESSED_KEY_LENGTH;
+  const expectedLength =
+    curve === "P-256" ? P256_COMPRESSED_KEY_LENGTH : P384_COMPRESSED_KEY_LENGTH;
   if (compressedPublicKey.length !== expectedLength) {
     throw new CryptoError(
       `Invalid compressed public key length: expected ${expectedLength} bytes, got ${compressedPublicKey.length}`,
@@ -148,13 +149,21 @@ export class DIDKeyResolver implements DIDResolver {
     let isEd25519 = false;
     if (decoded[0] === P256_MULTICODEC_PREFIX[0] && decoded[1] === P256_MULTICODEC_PREFIX[1]) {
       expectedKeyLength = P256_COMPRESSED_KEY_LENGTH;
-    } else if (decoded[0] === P384_MULTICODEC_PREFIX[0] && decoded[1] === P384_MULTICODEC_PREFIX[1]) {
+    } else if (
+      decoded[0] === P384_MULTICODEC_PREFIX[0] &&
+      decoded[1] === P384_MULTICODEC_PREFIX[1]
+    ) {
       expectedKeyLength = P384_COMPRESSED_KEY_LENGTH;
-    } else if (decoded[0] === ED25519_MULTICODEC_PREFIX[0] && decoded[1] === ED25519_MULTICODEC_PREFIX[1]) {
+    } else if (
+      decoded[0] === ED25519_MULTICODEC_PREFIX[0] &&
+      decoded[1] === ED25519_MULTICODEC_PREFIX[1]
+    ) {
       expectedKeyLength = ED25519_PUBLIC_KEY_LENGTH;
       isEd25519 = true;
     } else {
-      throw new DIDResolutionError("Unsupported key type: only P-256, P-384, and Ed25519 keys are supported");
+      throw new DIDResolutionError(
+        "Unsupported key type: only P-256, P-384, and Ed25519 keys are supported",
+      );
     }
 
     const publicKeyBytes = decoded.slice(2);

@@ -19,7 +19,8 @@ import type { DIDResolver } from "./resolver.js";
  */
 export function encodeDidJwk(jwk: JWK): string {
   // Strip private components for safety
-  const { d: _d, ...publicJwk } = jwk;
+  const publicJwk = { ...jwk };
+  delete publicJwk.d;
   const json = JSON.stringify(publicJwk);
   const encoded = Buffer.from(json).toString("base64url");
   return `did:jwk:${encoded}`;
@@ -78,10 +79,7 @@ export class DIDJwkResolver implements DIDResolver {
     };
 
     const didDocument: DIDDocument = {
-      "@context": [
-        "https://www.w3.org/ns/did/v1",
-        "https://w3id.org/security/suites/jws-2020/v1",
-      ],
+      "@context": ["https://www.w3.org/ns/did/v1", "https://w3id.org/security/suites/jws-2020/v1"],
       id: did,
       verificationMethod: [verificationMethod],
       authentication: [verificationMethodId],

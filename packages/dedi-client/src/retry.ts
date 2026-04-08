@@ -47,9 +47,7 @@ export async function withRetry<T>(
         }
         throw error;
       }
-      opts.logger?.debug(
-        `Retrying request, attempt ${attempt + 1} of ${opts.maxRetries}`,
-      );
+      opts.logger?.debug(`Retrying request, attempt ${attempt + 1} of ${opts.maxRetries}`);
       const delay = opts.baseDelayMs * Math.pow(2, attempt);
       await sleep(delay);
     }

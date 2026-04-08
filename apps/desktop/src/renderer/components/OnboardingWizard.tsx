@@ -111,7 +111,11 @@ function StepIndicator({ step }: { step: Step }) {
               </div>
               <span
                 className={`mt-1.5 text-[0.6rem] font-medium whitespace-nowrap ${
-                  isActive ? "text-brand-blue" : isCompleted ? "text-txt-secondary" : "text-txt-muted"
+                  isActive
+                    ? "text-brand-blue"
+                    : isCompleted
+                      ? "text-txt-secondary"
+                      : "text-txt-muted"
                 }`}
               >
                 {label}
@@ -153,13 +157,20 @@ function PathGuidance() {
       {open && (
         <div className="mt-3 rounded-oc border border-border-light bg-surface-warm p-4 space-y-3 text-[0.78rem] text-txt-secondary">
           <p>
-            <span className="font-semibold text-txt-primary">I have a Digital Signature Certificate</span>: Choose this if you already have a DSC from a government certificate authority (e.g., NIC, eMudhra).
+            <span className="font-semibold text-txt-primary">
+              I have a Digital Signature Certificate
+            </span>
+            : Choose this if you already have a DSC from a government certificate authority (e.g.,
+            NIC, eMudhra).
           </p>
           <p>
-            <span className="font-semibold text-txt-primary">Self-Published Keys</span> (Recommended): Choose this if your organization has a website. You&apos;ll generate a signing key and publish your identity on your domain.
+            <span className="font-semibold text-txt-primary">Self-Published Keys</span>{" "}
+            (Recommended): Choose this if your organization has a website. You&apos;ll generate a
+            signing key and publish your identity on your domain.
           </p>
           <p>
-            <span className="font-semibold text-txt-primary">I want to get a DSC</span>: Coming soon. Choose Self-Published Keys for now.
+            <span className="font-semibold text-txt-primary">I want to get a DSC</span>: Coming
+            soon. Choose Self-Published Keys for now.
           </p>
         </div>
       )}
@@ -201,7 +212,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         <StepIndicator step={step} />
 
         <div className="w-full max-w-xl">
-
           {/* ============================================================
               Step: Welcome
               ============================================================ */}
@@ -212,11 +222,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   Welcome to OpenCred
                 </h2>
                 <p className="text-body-sm text-txt-secondary">
-                  Let&apos;s set up your signing identity. This will allow you to issue
-                  and sign Verifiable Credentials from your desktop.
+                  Let&apos;s set up your signing identity. This will allow you to issue and sign
+                  Verifiable Credentials from your desktop.
                 </p>
                 <p className="text-body-sm text-txt-primary font-medium">
-                  Issue tamper-proof digital certificates that anyone can verify — from your desktop.
+                  Issue tamper-proof digital certificates that anyone can verify — from your
+                  desktop.
                 </p>
               </div>
               <p className="oc-label">
@@ -224,9 +235,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               </p>
               <div className="pt-2 space-y-3">
                 <Button onClick={() => setStep("choose-path")}>Get Started</Button>
-                <p className="text-[0.72rem] text-txt-muted">
-                  Setup takes about 5 minutes
-                </p>
+                <p className="text-[0.72rem] text-txt-muted">Setup takes about 5 minutes</p>
               </div>
             </Card>
           )}
@@ -298,7 +307,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                     </span>
                   </div>
                 </button>
-
               </div>
 
               {/* "Which should I choose?" collapsible guidance */}
@@ -322,8 +330,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   How is your DSC stored?
                 </h2>
                 <p className="text-body-sm text-txt-secondary">
-                  Choose where your Digital Signature Certificate is located.
-                  Your private key never leaves your machine.
+                  Choose where your Digital Signature Certificate is located. Your private key never
+                  leaves your machine.
                 </p>
               </div>
 
@@ -386,8 +394,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   Import Certificate File
                 </h2>
                 <p className="text-body-sm text-txt-secondary">
-                  Select a PFX, PEM, JWK, or PKCS#8 DER file from your computer.
-                  Only ECDSA P-256 keys are accepted. Your private key never leaves this machine.
+                  Select a PFX, PEM, JWK, or PKCS#8 DER file from your computer. Only ECDSA P-256
+                  keys are accepted. Your private key never leaves this machine.
                 </p>
               </div>
               <KeyImport
@@ -417,8 +425,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   Connect Hardware Token
                 </h2>
                 <p className="text-body-sm text-txt-secondary">
-                  Connect a PKCS#11 device such as a YubiKey, smart card, or HSM
-                  to use your DSC for signing.
+                  Connect a PKCS#11 device such as a YubiKey, smart card, or HSM to use your DSC for
+                  signing.
                 </p>
               </div>
               <HardwareToken
@@ -448,8 +456,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   OS Certificate Store
                 </h2>
                 <p className="text-body-sm text-txt-secondary">
-                  Browse certificates from macOS Keychain or Windows Certificate Store.
-                  Your private key stays in the OS — signing is handled natively.
+                  Browse certificates from macOS Keychain or Windows Certificate Store. Your private
+                  key stays in the OS — signing is handled natively.
                 </p>
               </div>
               <OsCertStore
@@ -484,7 +492,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               </div>
 
               <div className="rounded-oc border border-green-200 bg-green-50 p-4 space-y-2">
-                <h3 className="oc-card-label" style={{ color: "#2e7d32" }}>Key Details</h3>
+                <h3 className="oc-card-label" style={{ color: "#2e7d32" }}>
+                  Key Details
+                </h3>
                 <dl className="text-[0.78rem] text-green-700 space-y-1.5">
                   <div className="flex gap-2">
                     <dt className="font-medium w-24 flex-shrink-0">DID:</dt>
@@ -523,17 +533,17 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   Get a Digital Signature Certificate
                 </h2>
                 <p className="text-body-sm text-txt-secondary">
-                  OpenCred will connect you to trusted Certificate Authorities to
-                  obtain your own DSC. This feature is under development.
+                  OpenCred will connect you to trusted Certificate Authorities to obtain your own
+                  DSC. This feature is under development.
                 </p>
               </div>
 
               <div className="rounded-oc border border-amber-200 bg-amber-50 p-4">
                 <p className="text-[0.82rem] text-amber-800 font-medium mb-1">Coming Soon</p>
                 <p className="text-[0.78rem] text-amber-700">
-                  CA integration is being built as part of Phase 3. In the meantime,
-                  if you already have a DSC from a certificate authority, choose
-                  &ldquo;I have a DSC&rdquo; to import it.
+                  CA integration is being built as part of Phase 3. In the meantime, if you already
+                  have a DSC from a certificate authority, choose &ldquo;I have a DSC&rdquo; to
+                  import it.
                 </p>
               </div>
 
@@ -549,14 +559,16 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               Self-Published Keys Setup
               ============================================================ */}
           {step === "self-pub-setup" && (
-            <SelfPublishedSetup onComplete={(result) => {
-              if (result) {
-                setImportedKey(result.key);
-                setSelfPubDomain(result.domain);
-                setSelfPubDidDoc(result.didDocument ?? null);
-              }
-              setStep("dedi-setup");
-            }} />
+            <SelfPublishedSetup
+              onComplete={(result) => {
+                if (result) {
+                  setImportedKey(result.key);
+                  setSelfPubDomain(result.domain);
+                  setSelfPubDidDoc(result.didDocument ?? null);
+                }
+                setStep("dedi-setup");
+              }}
+            />
           )}
 
           {/* ============================================================
@@ -576,7 +588,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               onComplete={onComplete}
             />
           )}
-
         </div>
       </main>
     </div>

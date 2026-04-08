@@ -43,9 +43,10 @@ async function resolveDidPublicKey(
     }
 
     // Find the matching verification method
-    const vm = doc.verificationMethod.find(
-      (v) => v.id === did || v.id === `${did.split("#")[0]}#${did.split("#")[1]}`,
-    ) ?? doc.verificationMethod[0];
+    const vm =
+      doc.verificationMethod.find(
+        (v) => v.id === did || v.id === `${did.split("#")[0]}#${did.split("#")[1]}`,
+      ) ?? doc.verificationMethod[0];
 
     const jwk = vm.publicKeyJwk;
     if (jwk && jwk.x && jwk.y && jwk.crv) {
@@ -76,13 +77,19 @@ function checkKeyBinding(
   try {
     // leafCert.publicKey is already a KeyObject in Node 23+
     const certKeyObject = leafCert.publicKey;
-    const certJwk = certKeyObject.export({ format: "jwk" }) as { x?: string; y?: string; crv?: string };
+    const certJwk = certKeyObject.export({ format: "jwk" }) as {
+      x?: string;
+      y?: string;
+      crv?: string;
+    };
 
     if (!certJwk.x || !certJwk.y || !certJwk.crv) return false;
 
-    return certJwk.x === didPublicKey.x &&
-           certJwk.y === didPublicKey.y &&
-           certJwk.crv === didPublicKey.crv;
+    return (
+      certJwk.x === didPublicKey.x &&
+      certJwk.y === didPublicKey.y &&
+      certJwk.crv === didPublicKey.crv
+    );
   } catch {
     return false;
   }
@@ -92,10 +99,7 @@ function checkKeyBinding(
  * Validate the certificate chain's temporal bounds at a specific point in time.
  * Each certificate must be valid (not before / not after) at the given time.
  */
-function checkChainTemporal(
-  certs: X509Certificate[],
-  proofTime: Date,
-): string | null {
+function checkChainTemporal(certs: X509Certificate[], proofTime: Date): string | null {
   for (let i = 0; i < certs.length; i++) {
     const cert = certs[i];
     const notBefore = new Date(cert.validFrom);
@@ -185,7 +189,8 @@ export async function checkX509Chain(
         return {
           name: "x509-chain",
           passed: false,
-          detail: "X.509 chain invalid: leaf certificate public key does not match the signing DID's public key",
+          detail:
+            "X.509 chain invalid: leaf certificate public key does not match the signing DID's public key",
         };
       }
     }
@@ -222,9 +227,10 @@ export async function checkX509Chain(
 
   // Build success detail
   const leaf = certs[0];
-  const detail = certs.length > 1
-    ? `DSC verified (${leaf.subject}), chain depth: ${certs.length}`
-    : `DSC present (${leaf.subject}), self-signed or root not included`;
+  const detail =
+    certs.length > 1
+      ? `DSC verified (${leaf.subject}), chain depth: ${certs.length}`
+      : `DSC present (${leaf.subject}), self-signed or root not included`;
 
   return { name: "x509-chain", passed: true, detail };
 }

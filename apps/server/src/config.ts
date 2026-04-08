@@ -15,9 +15,7 @@ const configSchema = z.object({
   OPENCRED_API_KEY: z.string().optional(),
 
   /** Log level for pino. */
-  OPENCRED_LOG_LEVEL: z
-    .enum(["fatal", "error", "warn", "info", "debug", "trace"])
-    .default("info"),
+  OPENCRED_LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 
   /** Path to the signing key file (PEM, JWK, PKCS#8, or PFX). */
   OPENCRED_KEY_PATH: z.string().optional(),

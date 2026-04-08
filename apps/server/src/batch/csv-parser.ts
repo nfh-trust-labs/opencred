@@ -114,8 +114,17 @@ function parseCsvLine(line: string, delimiter: string): string[] {
       current += ch;
       i++;
     } else {
-      if (ch === '"') { inQuotes = true; i++; continue; }
-      if (ch === delimiter) { fields.push(current); current = ""; i++; continue; }
+      if (ch === '"') {
+        inQuotes = true;
+        i++;
+        continue;
+      }
+      if (ch === delimiter) {
+        fields.push(current);
+        current = "";
+        i++;
+        continue;
+      }
       current += ch;
       i++;
     }
@@ -217,5 +226,12 @@ export function parseCsv(csv: string, options: CsvParseOptions): CsvParseResult 
     parsedRows.push({ rowIndex: i, rawValues, mappedSubject, valid, errors });
   }
 
-  return { delimiter, headers, rows: parsedRows, validCount, invalidCount, totalCount: rawRows.length };
+  return {
+    delimiter,
+    headers,
+    rows: parsedRows,
+    validCount,
+    invalidCount,
+    totalCount: rawRows.length,
+  };
 }

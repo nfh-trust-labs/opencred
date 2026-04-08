@@ -774,6 +774,12 @@ export interface CustomSchemaSaveRequest {
   id?: string;
   /** Source URL if the schema was imported from a URL. */
   sourceUrl?: string;
+  /**
+   * Optional user-provided JSON-LD context URL. If set, the main process will
+   * fetch the context document at save time, validate it, and cache it locally
+   * so the bundled JSON-LD loader can serve it during issuance/verification.
+   */
+  contextUrl?: string;
 }
 
 export interface CustomSchemaSaveResponse {
@@ -782,6 +788,21 @@ export interface CustomSchemaSaveResponse {
   schema: Record<string, unknown>;
   createdAt: string;
   sourceUrl?: string;
+  /** Whether the save (and any context fetch) succeeded. */
+  success?: boolean;
+  /** The context URL that was fetched (if any). */
+  contextUrl?: string;
+  /** Whether a context document was successfully fetched and cached. */
+  contextCached?: boolean;
+  /** ISO 8601 timestamp at which the context was cached. */
+  cachedContextFetchedAt?: string;
+  /**
+   * Error message if the context-fetch step failed. Note: even when this
+   * is set, the schema itself was saved (the fetch error is non-fatal),
+   * so the renderer can still treat the call as successful for the
+   * purposes of displaying / re-using the schema.
+   */
+  error?: string;
 }
 
 export interface CustomSchemaListResponse {
@@ -790,6 +811,8 @@ export interface CustomSchemaListResponse {
     name: string;
     schema: Record<string, unknown>;
     createdAt: string;
+    contextUrl?: string;
+    cachedContextFetchedAt?: string;
   }>;
 }
 
@@ -884,8 +907,12 @@ export interface OpenCredDesktopAPI {
 
   // Credential history (deprecated)
   credentialHistoryList: () => Promise<CredentialHistoryListResponse>;
-  credentialHistoryAdd: (request: CredentialHistoryAddRequest) => Promise<CredentialHistoryAddRequest & { id: string; issuedAt: string }>;
-  credentialHistoryDelete: (request: CredentialHistoryDeleteRequest) => Promise<CredentialHistoryDeleteResponse>;
+  credentialHistoryAdd: (
+    request: CredentialHistoryAddRequest,
+  ) => Promise<CredentialHistoryAddRequest & { id: string; issuedAt: string }>;
+  credentialHistoryDelete: (
+    request: CredentialHistoryDeleteRequest,
+  ) => Promise<CredentialHistoryDeleteResponse>;
 
   // Schema URL fetch
   schemaFetchUrl: (request: SchemaFetchUrlRequest) => Promise<SchemaFetchUrlResponse>;
@@ -914,5 +941,4 @@ export interface OpenCredDesktopAPI {
   // System / diagnostics
   getSystemInfo: () => Promise<SystemInfoResponse>;
   getRecentLogs: (lines?: number) => Promise<LogTailResponse>;
-
 }

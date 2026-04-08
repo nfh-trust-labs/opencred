@@ -85,16 +85,18 @@ export function BugReportDialog({ open, onClose }: BugReportDialogProps) {
       <div className="bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col border border-border-default">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border-default">
-          <h2 className="text-heading-sm font-heading text-txt-primary">
-            Report a Bug
-          </h2>
+          <h2 className="text-heading-sm font-heading text-txt-primary">Report a Bug</h2>
           <button
             onClick={onClose}
             className="text-txt-muted hover:text-txt-primary p-1 rounded transition-colors"
             aria-label="Close"
           >
             <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              <path
+                fillRule="evenodd"
+                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                clipRule="evenodd"
+              />
             </svg>
           </button>
         </div>
@@ -115,7 +117,9 @@ export function BugReportDialog({ open, onClose }: BugReportDialogProps) {
                     <p>App: OpenCred v{systemInfo.appVersion}</p>
                     <p>Electron: {systemInfo.electronVersion}</p>
                     <p>Node.js: {systemInfo.nodeVersion}</p>
-                    <p>OS: {systemInfo.os} {systemInfo.osVersion} ({systemInfo.arch})</p>
+                    <p>
+                      OS: {systemInfo.os} {systemInfo.osVersion} ({systemInfo.arch})
+                    </p>
                   </div>
                 )}
               </div>
@@ -127,8 +131,8 @@ export function BugReportDialog({ open, onClose }: BugReportDialogProps) {
                 </h3>
                 <div className="bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-2">
                   <p className="text-xs text-amber-800">
-                    Review these logs for sensitive information before sharing.
-                    Logs are from: <span className="font-mono">{logPath}</span>
+                    Review these logs for sensitive information before sharing. Logs are from:{" "}
+                    <span className="font-mono">{logPath}</span>
                   </p>
                 </div>
                 <pre className="bg-gray-50 border border-gray-200 rounded p-3 text-[11px] font-mono overflow-auto max-h-48 whitespace-pre-wrap text-gray-700">

@@ -67,9 +67,7 @@ export async function checkForSchemaUpdatesAtStartup(): Promise<void> {
   logger.info("Schema updates available", { updatedIds: result.updatedIds });
 
   // 3. Download updated schemas and validate checksums
-  const checksumLookup = new Map(
-    result.remoteManifest.schemas.map((s) => [s.id, s.checksum]),
-  );
+  const checksumLookup = new Map(result.remoteManifest.schemas.map((s) => [s.id, s.checksum]));
   const downloaded: SchemaDefinition[] = [];
   for (const schemaId of result.updatedIds) {
     const schema = await downloadSchema(schemaId, updateUrl);

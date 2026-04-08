@@ -76,7 +76,9 @@ export default function App() {
       }
 
       // Check if dismissed
-      const dismissedUntil = await window.opencred.getConfig("keyRotationDismissedUntil") as string | undefined;
+      const dismissedUntil = (await window.opencred.getConfig("keyRotationDismissedUntil")) as
+        | string
+        | undefined;
       if (dismissedUntil && new Date(dismissedUntil) > new Date()) {
         setRotationOverdue(false);
         return;
@@ -139,9 +141,7 @@ export default function App() {
   if (showOnboarding) {
     return (
       <ErrorBoundary>
-        <OnboardingWizard
-          onComplete={() => setShowOnboarding(false)}
-        />
+        <OnboardingWizard onComplete={() => setShowOnboarding(false)} />
       </ErrorBoundary>
     );
   }
@@ -164,9 +164,7 @@ export default function App() {
         {/* Main content area */}
         <main className="flex-1 overflow-y-auto bg-surface-bg">
           <div className="px-7 py-6 max-w-[900px] mx-auto">
-            {activeView === "home" && (
-              <HomeScreen onSelectTemplate={handleSelectTemplate} />
-            )}
+            {activeView === "home" && <HomeScreen onSelectTemplate={handleSelectTemplate} />}
             {activeView === "builder" && (
               <CredentialBuilderPage
                 schemaId={builderSchemaId}
@@ -179,19 +177,17 @@ export default function App() {
               />
             )}
             {activeView === "verify" && <VerifyPage />}
-            {activeView === "history" && (
-              <HistoryPage onReissue={handleSelectTemplate} />
+            {activeView === "history" && <HistoryPage onReissue={handleSelectTemplate} />}
+            {activeView === "settings" && (
+              <SettingsPage onRotationDismissed={checkRotationStatus} />
             )}
-            {activeView === "settings" && <SettingsPage onRotationDismissed={checkRotationStatus} />}
           </div>
         </main>
 
         {/* Status bar */}
         <div className="oc-status-bar">
           <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              isOffline ? "bg-amber-500" : "bg-green-500"
-            }`}
+            className={`h-1.5 w-1.5 rounded-full ${isOffline ? "bg-amber-500" : "bg-green-500"}`}
             aria-hidden="true"
           />
           {isOffline ? "Offline" : "Connected"}

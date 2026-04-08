@@ -198,10 +198,12 @@ program
 
     const vm: string = proof.verificationMethod;
     const fragment = vm.includes("#") ? vm.split("#")[1] : undefined;
-    const publicKey = fragment ? publicKeyFromMultibase(fragment) ?? undefined : undefined;
+    const publicKey = fragment ? (publicKeyFromMultibase(fragment) ?? undefined) : undefined;
 
     if (!publicKey) {
-      console.error("Unable to resolve public key from verificationMethod. Only did:key is supported.");
+      console.error(
+        "Unable to resolve public key from verificationMethod. Only did:key is supported.",
+      );
       process.exit(1);
     }
 
@@ -252,7 +254,9 @@ program
 
     const parseResult = parseCsv(csvContent, { schemaId: opts.schema });
 
-    console.log(`Parsed ${parseResult.totalCount} rows: ${parseResult.validCount} valid, ${parseResult.invalidCount} invalid`);
+    console.log(
+      `Parsed ${parseResult.totalCount} rows: ${parseResult.validCount} valid, ${parseResult.invalidCount} invalid`,
+    );
 
     if (parseResult.validCount === 0) {
       console.error("No valid rows to process.");
@@ -272,15 +276,18 @@ program
     for (const row of progress.rows) {
       if (row.status === "success" && row.credential) {
         const filename = `credential-${row.rowIndex}.json`;
-        const content = typeof row.credential === "string"
-          ? row.credential
-          : JSON.stringify(row.credential, null, 2);
+        const content =
+          typeof row.credential === "string"
+            ? row.credential
+            : JSON.stringify(row.credential, null, 2);
         writeFileSync(join(outputDir, filename), content, "utf-8");
         written++;
       }
     }
 
-    console.log(`Batch complete: ${progress.successCount} issued, ${progress.errorCount} errors, ${progress.skippedCount} skipped`);
+    console.log(
+      `Batch complete: ${progress.successCount} issued, ${progress.errorCount} errors, ${progress.skippedCount} skipped`,
+    );
     console.log(`${written} credentials written to ${outputDir}`);
 
     if (progress.errorCount > 0) {

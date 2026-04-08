@@ -50,11 +50,12 @@ export class DeDiApiClient {
 
     // Enforce HTTPS in production to prevent credentials transmitting in plaintext (#152)
     const url = new URL(config.baseUrl);
-    if (url.protocol !== "https:" && process.env.NODE_ENV !== "development" && process.env.NODE_ENV !== "test") {
-      throw new DeDiClientError(
-        "DeDi baseUrl must use HTTPS in production",
-        400,
-      );
+    if (
+      url.protocol !== "https:" &&
+      process.env.NODE_ENV !== "development" &&
+      process.env.NODE_ENV !== "test"
+    ) {
+      throw new DeDiClientError("DeDi baseUrl must use HTTPS in production", 400);
     }
 
     this.config = config;
@@ -97,13 +98,18 @@ export class DeDiApiClient {
         registry_name: name,
         description: `OpenCred ${name} registry`,
         // DeDi API: either schema OR tag, not both
-        ...(tag ? { tag } : {
-          schema: Object.keys(schema as Record<string, unknown>).length > 0 ? schema : {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {},
-          },
-        }),
+        ...(tag
+          ? { tag }
+          : {
+              schema:
+                Object.keys(schema as Record<string, unknown>).length > 0
+                  ? schema
+                  : {
+                      $schema: "http://json-schema.org/draft-07/schema#",
+                      type: "object",
+                      properties: {},
+                    },
+            }),
         meta: {},
       }),
     });
@@ -148,9 +154,7 @@ export class DeDiApiClient {
     reg: string,
     recordName: string,
   ): Promise<DeDiRecord<T>> {
-    return this.request<DeDiRecord<T>>(
-      `/dedi/lookup/${enc(ns)}/${enc(reg)}/${enc(recordName)}`,
-    );
+    return this.request<DeDiRecord<T>>(`/dedi/lookup/${enc(ns)}/${enc(reg)}/${enc(recordName)}`);
   }
 
   async revokeRecord(ns: string, reg: string, recordName: string): Promise<void> {
@@ -164,15 +168,18 @@ export class DeDiApiClient {
     state: DeDiRecordState,
   ): Promise<void> {
     // Map state to DeDi endpoint
-    const action = state === "revoked" ? "revoke-record"
-      : state === "suspended" ? "suspend-record"
-      : state === "live" ? "reinstate-record"
-      : null;
+    const action =
+      state === "revoked"
+        ? "revoke-record"
+        : state === "suspended"
+          ? "suspend-record"
+          : state === "live"
+            ? "reinstate-record"
+            : null;
     if (!action) return;
-    await this.requestVoid(
-      `/dedi/${enc(ns)}/${enc(reg)}/${enc(recordName)}/${action}`,
-      { method: "POST" },
-    );
+    await this.requestVoid(`/dedi/${enc(ns)}/${enc(reg)}/${enc(recordName)}/${action}`, {
+      method: "POST",
+    });
   }
 
   // ── Query & Search ───────────────────────────────────────────────
@@ -183,9 +190,7 @@ export class DeDiApiClient {
     params?: DeDiQueryParams,
   ): Promise<DeDiQueryResult<T>> {
     const qs = params ? toQueryString(params as Record<string, unknown>) : "";
-    return this.request<DeDiQueryResult<T>>(
-      `/dedi/query/${enc(ns)}/${enc(reg)}${qs}`,
-    );
+    return this.request<DeDiQueryResult<T>>(`/dedi/query/${enc(ns)}/${enc(reg)}${qs}`);
   }
 
   async search<T = unknown>(
@@ -199,9 +204,7 @@ export class DeDiApiClient {
   // ── Domain verification ──────────────────────────────────────────
 
   async generateTxt(ns: string, domain: string): Promise<DeDiTxtRecord> {
-    return this.request<DeDiTxtRecord>(
-      `/dedi/generate-dns-txt/${enc(ns)}/${enc(domain)}`,
-    );
+    return this.request<DeDiTxtRecord>(`/dedi/generate-dns-txt/${enc(ns)}/${enc(domain)}`);
   }
 
   async verifyDomain(ns: string): Promise<void> {
@@ -212,9 +215,7 @@ export class DeDiApiClient {
   }
 
   async checkVerification(ns: string): Promise<DeDiVerificationStatus> {
-    return this.request<DeDiVerificationStatus>(
-      `/dedi/check-verification/${enc(ns)}`,
-    );
+    return this.request<DeDiVerificationStatus>(`/dedi/check-verification/${enc(ns)}`);
   }
 
   // ── Verification ─────────────────────────────────────────────────
@@ -229,32 +230,22 @@ export class DeDiApiClient {
   // ── Delegation (DeDi user delegation) ────────────────────────────
 
   async addDelegate(ns: string, reg: string, email: string): Promise<void> {
-    await this.requestVoid(
-      `/dedi/${enc(ns)}/${enc(reg)}/add-delegate`,
-      {
-        method: "POST",
-        body: JSON.stringify({ email }),
-      },
-    );
+    await this.requestVoid(`/dedi/${enc(ns)}/${enc(reg)}/add-delegate`, {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
   }
 
   async removeDelegate(ns: string, reg: string, email: string): Promise<void> {
-    await this.requestVoid(
-      `/dedi/${enc(ns)}/${enc(reg)}/remove-registry-delegate`,
-      {
-        method: "POST",
-        body: JSON.stringify({ email }),
-      },
-    );
+    await this.requestVoid(`/dedi/${enc(ns)}/${enc(reg)}/remove-registry-delegate`, {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
   }
 
   // ── Bulk ─────────────────────────────────────────────────────────
 
-  async bulkUpload(
-    _ns: string,
-    _reg: string,
-    file: Blob,
-  ): Promise<{ job_id: string }> {
+  async bulkUpload(_ns: string, _reg: string, file: Blob): Promise<{ job_id: string }> {
     return this.circuitBreaker.execute(() =>
       withRetry(
         async () => {
@@ -358,7 +349,11 @@ export class DeDiApiClient {
 
     if (!response.ok) {
       let body = "";
-      try { body = await response.text(); } catch { /* ignore */ }
+      try {
+        body = await response.text();
+      } catch {
+        /* ignore */
+      }
       this.logger.error(`DeDi API ${response.status} ${path}`, { body: body.slice(0, 500) });
       throw new DeDiClientError(
         `DeDi API error: ${response.status}`,
@@ -378,7 +373,11 @@ export class DeDiApiClient {
 
     if (!response.ok) {
       let body = "";
-      try { body = await response.text(); } catch { /* ignore */ }
+      try {
+        body = await response.text();
+      } catch {
+        /* ignore */
+      }
       this.logger.error(`DeDi API ${response.status} ${path}`, { body: body.slice(0, 500) });
       throw new DeDiClientError(
         `DeDi API error: ${response.status}`,
@@ -429,9 +428,7 @@ function enc(value: string): string {
 }
 
 function toQueryString(params: Record<string, unknown>): string {
-  const entries = Object.entries(params).filter(
-    ([, v]) => v !== undefined && v !== null,
-  );
+  const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null);
   if (entries.length === 0) return "";
   const qs = entries
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)

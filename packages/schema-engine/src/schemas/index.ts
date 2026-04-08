@@ -43,17 +43,21 @@ export const identitySchema = {
   additionalProperties: true,
 } as const;
 
+// NOTE: `validUntil` is intentionally NOT a credentialSubject property here.
+// The certification expiry IS the credential expiry — they are the same date,
+// and modeling them separately invited collisions with the W3C credentials-v2
+// VC-level `validUntil`.  Health credentials should set `validUntil` on the
+// credential itself (via the existing UI field) instead of on the subject.
 export const healthSchema = {
   $id: "https://opencred.dev/schemas/health/v1",
   $schema: "http://json-schema.org/draft-07/schema#",
   title: "Health Credential",
   type: "object",
-  required: ["name", "certification", "issuingBody", "validUntil"],
+  required: ["name", "certification", "issuingBody"],
   properties: {
     name: { type: "string", minLength: 1 },
     certification: { type: "string", minLength: 1 },
     issuingBody: { type: "string", minLength: 1 },
-    validUntil: { type: "string", format: "date" },
   },
   additionalProperties: true,
 } as const;

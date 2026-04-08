@@ -21,9 +21,7 @@ export interface FieldDefinition {
 // ---------------------------------------------------------------------------
 
 /** Convert visual field builder output to a JSON Schema. */
-export function fieldsToJsonSchema(
-  fields: FieldDefinition[],
-): Record<string, unknown> {
+export function fieldsToJsonSchema(fields: FieldDefinition[]): Record<string, unknown> {
   const properties: Record<string, Record<string, unknown>> = {};
   const required: string[] = [];
 

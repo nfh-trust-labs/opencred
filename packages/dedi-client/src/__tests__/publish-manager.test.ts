@@ -99,10 +99,9 @@ describe("DeDiPublishManager", () => {
       vi.mocked(client.publishDID).mockResolvedValue(didResult);
 
       const manager = new DeDiPublishManager(client);
-      const result = await manager.publishDIDDocument(
-        "did:web:example.com",
-        { id: "did:web:example.com" },
-      );
+      const result = await manager.publishDIDDocument("did:web:example.com", {
+        id: "did:web:example.com",
+      });
 
       expect(result).toEqual(didResult);
     });
@@ -169,23 +168,29 @@ describe("createPublishManager", () => {
 
   it("returns DeDiPublishManager when config and logger are provided", () => {
     const testLogger = { debug() {}, warn() {}, error() {} };
-    const result = createPublishManager({
-      baseUrl: "https://dedi.example.com",
-      timeoutMs: 5000,
-      maxRetries: 0,
-      circuitBreakerThreshold: 5,
-      auth: { type: "api-key", apiKey: "dk_test" },
-    }, undefined, testLogger);
+    const result = createPublishManager(
+      {
+        baseUrl: "https://dedi.example.com",
+        timeoutMs: 5000,
+        maxRetries: 0,
+        circuitBreakerThreshold: 5,
+        auth: { type: "api-key", apiKey: "dk_test" },
+      },
+      undefined,
+      testLogger,
+    );
     expect(result).toBeInstanceOf(DeDiPublishManager);
   });
 
   it("throws when config is provided but logger is missing", () => {
-    expect(() => createPublishManager({
-      baseUrl: "https://dedi.example.com",
-      timeoutMs: 5000,
-      maxRetries: 0,
-      circuitBreakerThreshold: 5,
-      auth: { type: "api-key", apiKey: "dk_test" },
-    })).toThrow("requires a logger");
+    expect(() =>
+      createPublishManager({
+        baseUrl: "https://dedi.example.com",
+        timeoutMs: 5000,
+        maxRetries: 0,
+        circuitBreakerThreshold: 5,
+        auth: { type: "api-key", apiKey: "dk_test" },
+      }),
+    ).toThrow("requires a logger");
   });
 });

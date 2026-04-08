@@ -29,10 +29,7 @@ const DELEGATION_DETAIL_KEYS = [
 ] as const;
 
 function validateDelegation(delegation: DelegationRecord): void {
-  if (
-    delegation.scope.credentialTypes.length === 0 &&
-    delegation.scope.namespaces.length === 0
-  ) {
+  if (delegation.scope.credentialTypes.length === 0 && delegation.scope.namespaces.length === 0) {
     throw new DeDiClientError("Delegation scope must not be empty", 400);
   }
   const from = new Date(delegation.validFrom);
@@ -48,22 +45,14 @@ function validateDelegation(delegation: DelegationRecord): void {
   }
 }
 
-function assertDelegationShape(
-  detail: unknown,
-): asserts detail is DelegationRecord {
+function assertDelegationShape(detail: unknown): asserts detail is DelegationRecord {
   if (detail == null || typeof detail !== "object") {
-    throw new DeDiClientError(
-      "Delegation detail is missing or not an object",
-      502,
-    );
+    throw new DeDiClientError("Delegation detail is missing or not an object", 502);
   }
   const rec = detail as Record<string, unknown>;
   for (const key of DELEGATION_DETAIL_KEYS) {
     if (!(key in rec)) {
-      throw new DeDiClientError(
-        `Delegation detail missing required field: ${key}`,
-        502,
-      );
+      throw new DeDiClientError(`Delegation detail missing required field: ${key}`, 502);
     }
   }
   if (rec["scope"] == null || typeof rec["scope"] !== "object" || Array.isArray(rec["scope"])) {
@@ -74,10 +63,7 @@ function assertDelegationShape(
   }
   const scope = rec["scope"] as Record<string, unknown>;
   if (!Array.isArray(scope["credentialTypes"])) {
-    throw new DeDiClientError(
-      "Delegation scope field 'credentialTypes' must be an array",
-      502,
-    );
+    throw new DeDiClientError("Delegation scope field 'credentialTypes' must be an array", 502);
   }
   if (!scope["credentialTypes"].every((v: unknown) => typeof v === "string")) {
     throw new DeDiClientError(
@@ -86,122 +72,65 @@ function assertDelegationShape(
     );
   }
   if (!Array.isArray(scope["namespaces"])) {
-    throw new DeDiClientError(
-      "Delegation scope field 'namespaces' must be an array",
-      502,
-    );
+    throw new DeDiClientError("Delegation scope field 'namespaces' must be an array", 502);
   }
   if (!scope["namespaces"].every((v: unknown) => typeof v === "string")) {
-    throw new DeDiClientError(
-      "Delegation scope field 'namespaces' must contain only strings",
-      502,
-    );
+    throw new DeDiClientError("Delegation scope field 'namespaces' must contain only strings", 502);
   }
 }
 
-function assertRevocationHashShape(
-  detail: unknown,
-): asserts detail is RevocationHashRecord {
+function assertRevocationHashShape(detail: unknown): asserts detail is RevocationHashRecord {
   if (detail == null || typeof detail !== "object") {
-    throw new DeDiClientError(
-      "Revocation hash detail is missing or not an object",
-      502,
-    );
+    throw new DeDiClientError("Revocation hash detail is missing or not an object", 502);
   }
   const rec = detail as Record<string, unknown>;
   if (typeof rec["hash"] !== "string") {
-    throw new DeDiClientError(
-      "Revocation hash detail missing required field: hash",
-      502,
-    );
+    throw new DeDiClientError("Revocation hash detail missing required field: hash", 502);
   }
   if (typeof rec["revoked"] !== "boolean") {
-    throw new DeDiClientError(
-      "Revocation hash detail missing required field: revoked",
-      502,
-    );
+    throw new DeDiClientError("Revocation hash detail missing required field: revoked", 502);
   }
   if (rec["revoked"] === true && typeof rec["revokedAt"] !== "string") {
-    throw new DeDiClientError(
-      "Revocation hash detail missing required field: revokedAt",
-      502,
-    );
+    throw new DeDiClientError("Revocation hash detail missing required field: revokedAt", 502);
   }
 }
 
-function assertDIDRecordShape(
-  detail: unknown,
-): asserts detail is DIDRecord {
+function assertDIDRecordShape(detail: unknown): asserts detail is DIDRecord {
   if (detail == null || typeof detail !== "object") {
-    throw new DeDiClientError(
-      "DID record detail is missing or not an object",
-      502,
-    );
+    throw new DeDiClientError("DID record detail is missing or not an object", 502);
   }
   const rec = detail as Record<string, unknown>;
   if (typeof rec["did"] !== "string") {
-    throw new DeDiClientError(
-      "DID record detail missing required field: did",
-      502,
-    );
+    throw new DeDiClientError("DID record detail missing required field: did", 502);
   }
   if (!("document" in rec)) {
-    throw new DeDiClientError(
-      "DID record detail missing required field: document",
-      502,
-    );
+    throw new DeDiClientError("DID record detail missing required field: document", 502);
   }
   if (typeof rec["resolvedAt"] !== "string") {
-    throw new DeDiClientError(
-      "DID record detail missing required field: resolvedAt",
-      502,
-    );
+    throw new DeDiClientError("DID record detail missing required field: resolvedAt", 502);
   }
 }
 
-const SCHEMA_RECORD_KEYS = [
-  "schemaId",
-  "version",
-  "schema",
-  "checksum",
-  "publishedAt",
-] as const;
+const SCHEMA_RECORD_KEYS = ["schemaId", "version", "schema", "checksum", "publishedAt"] as const;
 
-function assertSchemaRecordShape(
-  detail: unknown,
-): asserts detail is SchemaRecord {
+function assertSchemaRecordShape(detail: unknown): asserts detail is SchemaRecord {
   if (detail == null || typeof detail !== "object") {
-    throw new DeDiClientError(
-      "Schema record detail is missing or not an object",
-      502,
-    );
+    throw new DeDiClientError("Schema record detail is missing or not an object", 502);
   }
   const rec = detail as Record<string, unknown>;
   for (const key of SCHEMA_RECORD_KEYS) {
     if (!(key in rec)) {
-      throw new DeDiClientError(
-        `Schema record detail missing required field: ${key}`,
-        502,
-      );
+      throw new DeDiClientError(`Schema record detail missing required field: ${key}`, 502);
     }
   }
   if (typeof rec["schemaId"] !== "string") {
-    throw new DeDiClientError(
-      "Schema record field 'schemaId' must be a string",
-      502,
-    );
+    throw new DeDiClientError("Schema record field 'schemaId' must be a string", 502);
   }
   if (typeof rec["version"] !== "string") {
-    throw new DeDiClientError(
-      "Schema record field 'version' must be a string",
-      502,
-    );
+    throw new DeDiClientError("Schema record field 'version' must be a string", 502);
   }
   if (rec["schema"] == null || typeof rec["schema"] !== "object") {
-    throw new DeDiClientError(
-      "Schema record field 'schema' must be an object",
-      502,
-    );
+    throw new DeDiClientError("Schema record field 'schema' must be an object", 502);
   }
 }
 
@@ -220,10 +149,7 @@ export class DeDiClient {
     return this.api;
   }
 
-  async publishRevocationHash(
-    hash: string,
-    namespace?: string,
-  ): Promise<RevocationHashRecord> {
+  async publishRevocationHash(hash: string, namespace?: string): Promise<RevocationHashRecord> {
     const ns = this.resolveNamespace(namespace);
     const revokedAt = new Date().toISOString();
     const record = await this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, {
@@ -235,10 +161,7 @@ export class DeDiClient {
     return record.detail;
   }
 
-  async queryRevocationHash(
-    hash: string,
-    namespace?: string,
-  ): Promise<RevocationHashRecord> {
+  async queryRevocationHash(hash: string, namespace?: string): Promise<RevocationHashRecord> {
     const ns = this.resolveNamespace(namespace);
 
     const result = await this.api.search(ns, {
@@ -255,11 +178,7 @@ export class DeDiClient {
     return detail;
   }
 
-  async publishDID(
-    did: string,
-    document: unknown,
-    namespace?: string,
-  ): Promise<PublishResult> {
+  async publishDID(did: string, document: unknown, namespace?: string): Promise<PublishResult> {
     const ns = this.resolveNamespace(namespace);
     const recordName = didToRecordName(did);
     const detail: DIDRecord = {
@@ -279,10 +198,7 @@ export class DeDiClient {
     return record.detail;
   }
 
-  async publishSchema(
-    schema: SchemaRecord,
-    namespace?: string,
-  ): Promise<PublishResult> {
+  async publishSchema(schema: SchemaRecord, namespace?: string): Promise<PublishResult> {
     const ns = this.resolveNamespace(namespace);
     const recordName = schemaToRecordName(schema.schemaId, schema.version);
     await this.api.publishRecord(ns, SCHEMA_REGISTRY, recordName, schema);
@@ -301,10 +217,7 @@ export class DeDiClient {
     return record.detail;
   }
 
-  async publishContext(
-    record: ContextRecord,
-    namespace?: string,
-  ): Promise<PublishResult> {
+  async publishContext(record: ContextRecord, namespace?: string): Promise<PublishResult> {
     const ns = this.resolveNamespace(namespace);
     const recordName = contextToRecordName(record.schemaId, record.version);
     await this.api.publishRecord(ns, CONTEXT_REGISTRY, recordName, record);
@@ -329,26 +242,14 @@ export class DeDiClient {
   ): Promise<DelegationRecord> {
     validateDelegation(delegation);
     const ns = this.resolveNamespace(namespace);
-    const record = await this.api.publishRecord(
-      ns,
-      DELEGATION_REGISTRY,
-      delegation.id,
-      delegation,
-    );
+    const record = await this.api.publishRecord(ns, DELEGATION_REGISTRY, delegation.id, delegation);
     assertDelegationShape(record.detail);
     return record.detail;
   }
 
-  async resolveDelegation(
-    delegationId: string,
-    namespace?: string,
-  ): Promise<DelegationRecord> {
+  async resolveDelegation(delegationId: string, namespace?: string): Promise<DelegationRecord> {
     const ns = this.resolveNamespace(namespace);
-    const record = await this.api.lookupRecord(
-      ns,
-      DELEGATION_REGISTRY,
-      delegationId,
-    );
+    const record = await this.api.lookupRecord(ns, DELEGATION_REGISTRY, delegationId);
     assertDelegationShape(record.detail);
     return record.detail;
   }
@@ -356,78 +257,72 @@ export class DeDiClient {
   async ensureRegistries(namespace: string): Promise<void> {
     try {
       const nsResult = await this.api.createNamespace(namespace, "OpenCred namespace");
-      this.logger.debug("Namespace created", { namespace, result: JSON.stringify(nsResult).slice(0, 200) });
+      this.logger.debug("Namespace created", {
+        namespace,
+        result: JSON.stringify(nsResult).slice(0, 200),
+      });
     } catch (nsErr) {
       const code = nsErr instanceof DeDiClientError ? nsErr.statusCode : 0;
-      this.logger.error("Namespace creation failed", { namespace, code, error: nsErr instanceof Error ? nsErr.message : String(nsErr) });
+      this.logger.error("Namespace creation failed", {
+        namespace,
+        code,
+        error: nsErr instanceof Error ? nsErr.message : String(nsErr),
+      });
       if (code !== 409) throw nsErr; // Only ignore "already exists"
     }
 
     await Promise.all([
       ignoreConflict(() =>
         this.api.createRegistry(namespace, REVOCATION_REGISTRY, {
-          "$schema": "http://json-schema.org/draft-07/schema#",
-          "type": "object",
-          "description": "OpenCred revocation list",
-          "properties": {
-            "hash": { "type": "string" },
-            "revoked": { "type": "boolean" },
-            "revokedAt": { "type": "string" },
+          $schema: "http://json-schema.org/draft-07/schema#",
+          type: "object",
+          description: "OpenCred revocation list",
+          properties: {
+            hash: { type: "string" },
+            revoked: { type: "boolean" },
+            revokedAt: { type: "string" },
           },
-          "required": ["hash", "revoked"],
+          required: ["hash", "revoked"],
         }),
       ),
       ignoreConflict(() =>
         this.api.createRegistry(namespace, PUBLIC_KEY_REGISTRY, {
-          "$schema": "http://json-schema.org/draft-07/schema#",
-          "type": "object",
-          "description": "OpenCred public key registry",
-          "properties": {
-            "did": { "type": "string" },
-            "document": { "type": "object" },
-            "resolvedAt": { "type": "string" },
+          $schema: "http://json-schema.org/draft-07/schema#",
+          type: "object",
+          description: "OpenCred public key registry",
+          properties: {
+            did: { type: "string" },
+            document: { type: "object" },
+            resolvedAt: { type: "string" },
           },
-          "required": ["did", "document"],
+          required: ["did", "document"],
         }),
       ),
       ignoreConflict(() =>
         this.api.createRegistry(namespace, SCHEMA_REGISTRY, {
-          "$schema": "http://json-schema.org/draft-07/schema#",
-          "type": "object",
-          "description": "OpenCred credential schema catalog",
-          "properties": {
-            "schemaId": { "type": "string" },
-            "version": { "type": "string" },
-            "schema": { "type": "object" },
-            "checksum": { "type": "string" },
-            "publishedAt": { "type": "string" },
+          $schema: "http://json-schema.org/draft-07/schema#",
+          type: "object",
+          description: "OpenCred credential schema catalog",
+          properties: {
+            schemaId: { type: "string" },
+            version: { type: "string" },
+            schema: { type: "object" },
+            checksum: { type: "string" },
+            publishedAt: { type: "string" },
           },
-          "required": ["schemaId", "version", "schema"],
+          required: ["schemaId", "version", "schema"],
         }),
       ),
-      ignoreConflict(() =>
-        this.api.createRegistry(namespace, CONTEXT_REGISTRY, {
-          "$schema": "http://json-schema.org/draft-07/schema#",
-          "type": "object",
-          "description": "OpenCred JSON-LD context registry",
-          "properties": {
-            "schemaId": { "type": "string" },
-            "version": { "type": "string" },
-            "context": { "type": "object" },
-          },
-          "required": ["schemaId", "version", "context"],
-        }),
-      ),
+      // CONTEXT_REGISTRY uses "custom" tag (no JSON schema) because JSON-LD
+      // context documents are dynamic and don't fit a fixed schema.
+      ignoreConflict(() => this.api.createRegistry(namespace, CONTEXT_REGISTRY, {}, "custom")),
     ]);
   }
 
   private resolveNamespace(explicit?: string): string {
     const ns = explicit ?? this.defaultNamespace;
     if (!ns) {
-      throw new DeDiClientError(
-        "No namespace provided and no defaultNamespace configured",
-        400,
-      );
+      throw new DeDiClientError("No namespace provided and no defaultNamespace configured", 400);
     }
     return ns;
   }
@@ -446,48 +341,26 @@ function contextToRecordName(schemaId: string, version: string): string {
   return `${schemaId}-ctx-v${version}`;
 }
 
-const CONTEXT_RECORD_KEYS = [
-  "schemaId",
-  "version",
-  "context",
-  "publishedAt",
-] as const;
+const CONTEXT_RECORD_KEYS = ["schemaId", "version", "context", "publishedAt"] as const;
 
-function assertContextRecordShape(
-  detail: unknown,
-): asserts detail is ContextRecord {
+function assertContextRecordShape(detail: unknown): asserts detail is ContextRecord {
   if (detail == null || typeof detail !== "object") {
-    throw new DeDiClientError(
-      "Context record detail is missing or not an object",
-      502,
-    );
+    throw new DeDiClientError("Context record detail is missing or not an object", 502);
   }
   const rec = detail as Record<string, unknown>;
   for (const key of CONTEXT_RECORD_KEYS) {
     if (!(key in rec)) {
-      throw new DeDiClientError(
-        `Context record detail missing required field: ${key}`,
-        502,
-      );
+      throw new DeDiClientError(`Context record detail missing required field: ${key}`, 502);
     }
   }
   if (typeof rec["schemaId"] !== "string") {
-    throw new DeDiClientError(
-      "Context record field 'schemaId' must be a string",
-      502,
-    );
+    throw new DeDiClientError("Context record field 'schemaId' must be a string", 502);
   }
   if (typeof rec["version"] !== "string") {
-    throw new DeDiClientError(
-      "Context record field 'version' must be a string",
-      502,
-    );
+    throw new DeDiClientError("Context record field 'version' must be a string", 502);
   }
   if (rec["context"] == null || typeof rec["context"] !== "object") {
-    throw new DeDiClientError(
-      "Context record field 'context' must be an object",
-      502,
-    );
+    throw new DeDiClientError("Context record field 'context' must be an object", 502);
   }
 }
 

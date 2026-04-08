@@ -272,8 +272,7 @@ export async function publishPendingRevocations(
       updateQueueItemStatus(item.queueId, "published");
       results.push({ queueId: item.queueId, success: true });
     } catch (error) {
-      const errorMsg =
-        error instanceof Error ? error.message : "Publication failed";
+      const errorMsg = error instanceof Error ? error.message : "Publication failed";
       updateQueueItemStatus(item.queueId, "failed", errorMsg);
       results.push({ queueId: item.queueId, success: false, error: errorMsg });
     }

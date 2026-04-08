@@ -45,9 +45,7 @@ interface VerificationHistoryEntry {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function statusToBadgeVariant(
-  status: VerificationStatus,
-): "success" | "error" | "warning" {
+function statusToBadgeVariant(status: VerificationStatus): "success" | "error" | "warning" {
   switch (status) {
     case "VALID":
       return "success";
@@ -61,19 +59,17 @@ function statusToBadgeVariant(
 
 function deriveStatus(valid: boolean, checks: VerificationCheck[]): VerificationStatus {
   if (valid) return "VALID";
-  const hasExpired = checks.some(
-    (c) => !c.passed && c.name.toLowerCase().includes("expir"),
-  );
+  const hasExpired = checks.some((c) => !c.passed && c.name.toLowerCase().includes("expir"));
   if (hasExpired) return "EXPIRED";
   return "INVALID";
 }
 
 const CHECK_HINTS: Record<string, string> = {
-  'signature': 'Confirms the credential was digitally sealed by the issuer',
-  'not-before': 'The credential\'s start date has passed',
-  'expiry': 'The credential has not expired',
-  'revocation': 'The credential has not been revoked',
-  'context': 'The credential\'s context is valid and resolvable',
+  signature: "Confirms the credential was digitally sealed by the issuer",
+  "not-before": "The credential's start date has passed",
+  expiry: "The credential has not expired",
+  revocation: "The credential has not been revoked",
+  context: "The credential's context is valid and resolvable",
 };
 
 function getCheckHint(checkName: string): string | undefined {
@@ -87,10 +83,17 @@ function getCheckHint(checkName: string): string | undefined {
 function getErrorHint(message: string): string | null {
   if (!message) return null;
   const lower = message.toLowerCase();
-  if (lower.includes("no proof found") || lower.includes("missing a proof") || lower.includes("proof is missing")) {
+  if (
+    lower.includes("no proof found") ||
+    lower.includes("missing a proof") ||
+    lower.includes("proof is missing")
+  ) {
     return "This document is missing a digital seal. Make sure you received the complete credential file.";
   }
-  if (lower.includes("context") && (lower.includes("missing") || lower.includes("not found") || lower.includes("could not"))) {
+  if (
+    lower.includes("context") &&
+    (lower.includes("missing") || lower.includes("not found") || lower.includes("could not"))
+  ) {
     return "The credential references a context that could not be found. This may mean the issuer's context is not published.";
   }
   if (lower.includes("failed") || lower.includes("invalid") || lower.includes("error")) {
@@ -109,18 +112,6 @@ function extractIssuerDid(credentialJson: string): string {
     // not valid JSON
   }
   return "Unknown";
-}
-
-/** Extract a summary of the credential subject for display. */
-function extractSubjectSummary(credentialJson: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(credentialJson);
-    const subject = parsed.credentialSubject;
-    if (subject && typeof subject === "object") return subject as Record<string, unknown>;
-  } catch {
-    // not valid JSON
-  }
-  return null;
 }
 
 /** Generate a unique ID for history entries. */
@@ -160,12 +151,18 @@ function buildReport(
 ): string {
   // Parse once and derive issuer + subject from the parsed object
   let parsed: Record<string, unknown> | null = null;
-  try { parsed = JSON.parse(credential) as Record<string, unknown>; } catch { /* ignore */ }
+  try {
+    parsed = JSON.parse(credential) as Record<string, unknown>;
+  } catch {
+    /* ignore */
+  }
 
   const issuer = parsed
-    ? (typeof parsed.issuer === "string" ? parsed.issuer : (parsed.issuer as Record<string, unknown> | undefined)?.id as string ?? "Unknown")
+    ? typeof parsed.issuer === "string"
+      ? parsed.issuer
+      : (((parsed.issuer as Record<string, unknown> | undefined)?.id as string) ?? "Unknown")
     : "Unknown";
-  const subject = parsed?.credentialSubject as Record<string, unknown> | null ?? null;
+  const subject = (parsed?.credentialSubject as Record<string, unknown> | null) ?? null;
 
   const lines: string[] = [];
   lines.push("===============================================");
@@ -226,9 +223,10 @@ function buildReport(
       lines.push(pretty);
     }
   } catch {
-    const truncated = credential.length > 3000
-      ? credential.slice(0, 3000) + `\n... (${credential.length - 3000} characters omitted)`
-      : credential;
+    const truncated =
+      credential.length > 3000
+        ? credential.slice(0, 3000) + `\n... (${credential.length - 3000} characters omitted)`
+        : credential;
     lines.push(truncated);
   }
 
@@ -303,9 +301,7 @@ export function VerifyPage() {
     const file = files[0];
     // Accept .json, .jsonld, or any file that looks like JSON
     const validExtensions = [".json", ".jsonld"];
-    const hasValidExt = validExtensions.some((ext) =>
-      file.name.toLowerCase().endsWith(ext),
-    );
+    const hasValidExt = validExtensions.some((ext) => file.name.toLowerCase().endsWith(ext));
 
     if (!hasValidExt) {
       // Silently ignore non-JSON files
@@ -461,8 +457,7 @@ export function VerifyPage() {
   // Derived state
   // ------------------------------------------------------------------
 
-  const status: VerificationStatus | null =
-    valid !== null ? deriveStatus(valid, checks) : null;
+  const status: VerificationStatus | null = valid !== null ? deriveStatus(valid, checks) : null;
 
   // ------------------------------------------------------------------
   // Render
@@ -516,24 +511,17 @@ export function VerifyPage() {
             }}
             placeholder="Paste credential text here, drag a .json file, or use 'Upload File'"
             className={`block w-full rounded-md border px-3 py-2 font-mono text-xs shadow-sm transition-colors duration-150 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
-              isDragOver
-                ? "border-2 border-dashed border-blue-400 bg-blue-50"
-                : "border-gray-300"
+              isDragOver ? "border-2 border-dashed border-blue-400 bg-blue-50" : "border-gray-300"
             }`}
           />
           {isDragOver && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-blue-50/80">
-              <p className="text-sm font-medium text-blue-600">
-                Drop credential file here
-              </p>
+              <p className="text-sm font-medium text-blue-600">Drop credential file here</p>
             </div>
           )}
         </div>
 
-        <Button
-          onClick={() => void handleVerify()}
-          disabled={!credential.trim() || loading}
-        >
+        <Button onClick={() => void handleVerify()} disabled={!credential.trim() || loading}>
           {loading ? "Verifying..." : "Verify"}
         </Button>
       </Card>
@@ -587,9 +575,7 @@ export function VerifyPage() {
             {message}
           </p>
           {status !== "VALID" && message && getErrorHint(message) && (
-            <p className="mt-1 text-xs text-gray-500">
-              {getErrorHint(message)}
-            </p>
+            <p className="mt-1 text-xs text-gray-500">{getErrorHint(message)}</p>
           )}
         </Card>
       )}
@@ -605,9 +591,7 @@ export function VerifyPage() {
                 <div
                   key={i}
                   className={`flex items-start gap-3 rounded-md border px-3 py-2.5 ${
-                    check.passed
-                      ? "border-green-200 bg-green-50"
-                      : "border-red-200 bg-red-50"
+                    check.passed ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
                   }`}
                 >
                   <span
@@ -618,15 +602,9 @@ export function VerifyPage() {
                     {check.passed ? "PASS" : "FAIL"}
                   </span>
                   <div className="min-w-0">
-                    <span className="text-xs font-medium text-gray-700">
-                      {check.name}
-                    </span>
-                    {hint && (
-                      <p className="mt-0.5 text-xs text-gray-400">{hint}</p>
-                    )}
-                    {check.detail && (
-                      <p className="mt-0.5 text-xs text-gray-500">{check.detail}</p>
-                    )}
+                    <span className="text-xs font-medium text-gray-700">{check.name}</span>
+                    {hint && <p className="mt-0.5 text-xs text-gray-400">{hint}</p>}
+                    {check.detail && <p className="mt-0.5 text-xs text-gray-500">{check.detail}</p>}
                   </div>
                 </div>
               );
@@ -639,8 +617,8 @@ export function VerifyPage() {
       {isOffline && valid !== null && (
         <Card className="border-amber-200 bg-amber-50">
           <p className="text-xs text-amber-700">
-            You are offline. Only signature and date checks were performed. Revocation
-            status could not be verified.
+            You are offline. Only signature and date checks were performed. Revocation status could
+            not be verified.
           </p>
         </Card>
       )}

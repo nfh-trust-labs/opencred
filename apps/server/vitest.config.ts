@@ -7,7 +7,7 @@ export default defineConfig({
     alias: {
       // pkcs11js requires a native binary that may not be available in test env.
       // The server doesn't use PKCS#11 — stub it out.
-      "pkcs11js": new URL("src/__tests__/stubs/pkcs11js.ts", import.meta.url).pathname,
+      pkcs11js: new URL("src/__tests__/stubs/pkcs11js.ts", import.meta.url).pathname,
     },
   },
 });

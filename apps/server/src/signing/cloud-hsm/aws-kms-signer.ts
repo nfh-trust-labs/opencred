@@ -101,9 +101,7 @@ export async function createAwsKmsSigner(keyArn: string): Promise<Signer> {
     metadata,
     async sign(data: Uint8Array): Promise<Uint8Array> {
       // Hash the data before sending to KMS (KMS expects a digest for DIGEST message type)
-      const digest = algorithm === "P-384"
-        ? sha384(data)
-        : sha256(data);
+      const digest = algorithm === "P-384" ? sha384(data) : sha256(data);
 
       const signRes = await client.send(
         new SignCommand({

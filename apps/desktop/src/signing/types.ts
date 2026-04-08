@@ -14,10 +14,7 @@ export const DID_WEB_DEFAULT_KEY_FRAGMENT = "#key-0";
  * the well-known key fragment (`#key-0`).  For all other DID methods the
  * signer's own `id` (typically a did:key URI) is used directly.
  */
-export function deriveVerificationMethod(
-  issuerDid: string | undefined,
-  signerId: string,
-): string {
+export function deriveVerificationMethod(issuerDid: string | undefined, signerId: string): string {
   return issuerDid?.startsWith("did:web:")
     ? `${issuerDid}${DID_WEB_DEFAULT_KEY_FRAGMENT}`
     : signerId;

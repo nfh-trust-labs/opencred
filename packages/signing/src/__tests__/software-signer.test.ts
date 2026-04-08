@@ -15,7 +15,9 @@ const FIXTURES_DIR = resolve(import.meta.dirname, "../../test/fixtures");
 
 describe("detectKeyFormat", () => {
   it("should detect PEM format", () => {
-    const content = Buffer.from("-----BEGIN EC PRIVATE KEY-----\ndata\n-----END EC PRIVATE KEY-----");
+    const content = Buffer.from(
+      "-----BEGIN EC PRIVATE KEY-----\ndata\n-----END EC PRIVATE KEY-----",
+    );
     expect(detectKeyFormat(content)).toBe("pem");
   });
 
@@ -200,7 +202,12 @@ describe("buildSignerFromPfx", () => {
 describe("createSoftwareSignerFromBuffer", () => {
   it("should create signer from PFX buffer with password and hint", () => {
     const buffer = readFileSync(resolve(FIXTURES_DIR, "test-ec256.pfx"));
-    const { signer, format } = createSoftwareSignerFromBuffer(buffer, "ec-pfx", "test123", "cert.pfx");
+    const { signer, format } = createSoftwareSignerFromBuffer(
+      buffer,
+      "ec-pfx",
+      "test123",
+      "cert.pfx",
+    );
 
     expect(format).toBe("pfx");
     expect(signer.algorithm).toBe("P-256");

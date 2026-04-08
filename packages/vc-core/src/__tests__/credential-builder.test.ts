@@ -25,7 +25,8 @@ describe("CredentialBuilder", () => {
     id: "https://dedi.global/dedi/lookup/university.example/vc-revocation-registry/abc123",
     type: "dedi",
     statusPurpose: "revocation",
-    statusListCredential: "https://dedi.global/dedi/query/university.example/vc-revocation-registry",
+    statusListCredential:
+      "https://dedi.global/dedi/query/university.example/vc-revocation-registry",
   };
 
   function buildMinimalCredential() {
@@ -688,7 +689,8 @@ describe("CredentialBuilder", () => {
           id: "https://dedi.global/dedi/lookup/university.example/vc-revocation-registry/abc123",
           type: "dedi",
           statusPurpose: "revocation",
-          statusListCredential: "https://dedi.global/dedi/query/university.example/vc-revocation-registry",
+          statusListCredential:
+            "https://dedi.global/dedi/query/university.example/vc-revocation-registry",
         })
         .addContext(OPENCRED_DELEGATION_V1_CONTEXT)
         .build();
@@ -716,7 +718,8 @@ describe("CredentialBuilder", () => {
         id: "https://dedi.global/dedi/lookup/university.example/vc-revocation-registry/abc123",
         type: "dedi",
         statusPurpose: "revocation",
-        statusListCredential: "https://dedi.global/dedi/query/university.example/vc-revocation-registry",
+        statusListCredential:
+          "https://dedi.global/dedi/query/university.example/vc-revocation-registry",
       });
       // Unsigned — no proof
       expect(vc).not.toHaveProperty("proof");
@@ -745,9 +748,7 @@ describe("Document Loader", () => {
   it("should reject unknown/remote context URLs", () => {
     const loader = createDocumentLoader();
 
-    expect(() => loader("https://malicious.example/context")).toThrow(
-      /JSON-LD context not found/,
-    );
+    expect(() => loader("https://malicious.example/context")).toThrow(/JSON-LD context not found/);
   });
 
   it("should list bundled context URLs", () => {

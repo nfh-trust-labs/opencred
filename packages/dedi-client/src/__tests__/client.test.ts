@@ -39,9 +39,7 @@ function mockApi(): InstanceType<typeof DeDiApiClient> {
   return instances[instances.length - 1]!;
 }
 
-function validDelegation(
-  overrides?: Partial<DelegationRecord>,
-): DelegationRecord {
+function validDelegation(overrides?: Partial<DelegationRecord>): DelegationRecord {
   return {
     id: "del-1",
     issuerDid: "did:key:issuer",
@@ -69,10 +67,7 @@ describe("DeDiClient (adapter)", () => {
 
       await client.queryRevocationHash("abc");
 
-      expect(api.search).toHaveBeenCalledWith(
-        "example.com",
-        expect.any(Object),
-      );
+      expect(api.search).toHaveBeenCalledWith("example.com", expect.any(Object));
     });
 
     it("uses explicit namespace over defaultNamespace", async () => {
@@ -82,17 +77,12 @@ describe("DeDiClient (adapter)", () => {
 
       await client.queryRevocationHash("abc", "explicit.com");
 
-      expect(api.search).toHaveBeenCalledWith(
-        "explicit.com",
-        expect.any(Object),
-      );
+      expect(api.search).toHaveBeenCalledWith("explicit.com", expect.any(Object));
     });
 
     it("throws when no namespace available", async () => {
       const client = createClient(); // no default
-      await expect(client.queryRevocationHash("abc")).rejects.toThrow(
-        "No namespace provided",
-      );
+      await expect(client.queryRevocationHash("abc")).rejects.toThrow("No namespace provided");
     });
   });
 
@@ -125,9 +115,7 @@ describe("DeDiClient (adapter)", () => {
         "abc",
         expect.objectContaining({ hash: "abc", revoked: true }),
       );
-      expect(result).toEqual(
-        expect.objectContaining({ hash: "abc", revoked: true }),
-      );
+      expect(result).toEqual(expect.objectContaining({ hash: "abc", revoked: true }));
     });
 
     it("throws when API returns invalid revocation detail", async () => {
@@ -182,9 +170,7 @@ describe("DeDiClient (adapter)", () => {
         registry_name: REVOCATION_REGISTRY,
         "detail.hash": "abc",
       });
-      expect(result).toEqual(
-        expect.objectContaining({ hash: "abc", revoked: true }),
-      );
+      expect(result).toEqual(expect.objectContaining({ hash: "abc", revoked: true }));
     });
 
     it("returns { revoked: false } when hash not found", async () => {
@@ -200,25 +186,17 @@ describe("DeDiClient (adapter)", () => {
     it("throws on 404 instead of treating as not-revoked", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockRejectedValue(
-        new DeDiClientError("DeDi API error: 404", 404),
-      );
+      vi.mocked(api.search).mockRejectedValue(new DeDiClientError("DeDi API error: 404", 404));
 
-      await expect(client.queryRevocationHash("missing")).rejects.toThrow(
-        DeDiClientError,
-      );
+      await expect(client.queryRevocationHash("missing")).rejects.toThrow(DeDiClientError);
     });
 
     it("re-throws non-404 errors", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockRejectedValue(
-        new DeDiClientError("DeDi API error: 500", 502),
-      );
+      vi.mocked(api.search).mockRejectedValue(new DeDiClientError("DeDi API error: 500", 502));
 
-      await expect(client.queryRevocationHash("hash")).rejects.toThrow(
-        "DeDi API error: 500",
-      );
+      await expect(client.queryRevocationHash("hash")).rejects.toThrow("DeDi API error: 500");
     });
 
     it("throws when revoked record is missing revokedAt", async () => {
@@ -381,7 +359,10 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       const delegation = validDelegation({
-        scope: { credentialTypes: ["UniversityDegreeCredential", "DiplomaCredential"], namespaces: ["education"] },
+        scope: {
+          credentialTypes: ["UniversityDegreeCredential", "DiplomaCredential"],
+          namespaces: ["education"],
+        },
       });
 
       vi.mocked(api.publishRecord).mockResolvedValue({
@@ -431,11 +412,7 @@ describe("DeDiClient (adapter)", () => {
 
       const result = await client.resolveDelegation("del-1");
 
-      expect(api.lookupRecord).toHaveBeenCalledWith(
-        "example.com",
-        DELEGATION_REGISTRY,
-        "del-1",
-      );
+      expect(api.lookupRecord).toHaveBeenCalledWith("example.com", DELEGATION_REGISTRY, "del-1");
       expect(result).toEqual(delegation);
     });
 
@@ -711,25 +688,28 @@ describe("DeDiClient (adapter)", () => {
 
       await client.ensureRegistries("example.com");
 
-      expect(api.createNamespace).toHaveBeenCalledWith(
-        "example.com",
-        expect.any(String),
-      );
+      expect(api.createNamespace).toHaveBeenCalledWith("example.com", expect.any(String));
       expect(api.createRegistry).toHaveBeenCalledTimes(4);
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
         REVOCATION_REGISTRY,
-        expect.objectContaining({ properties: expect.objectContaining({ hash: { type: "string" } }) }),
+        expect.objectContaining({
+          properties: expect.objectContaining({ hash: { type: "string" } }),
+        }),
       );
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
         PUBLIC_KEY_REGISTRY,
-        expect.objectContaining({ properties: expect.objectContaining({ did: { type: "string" } }) }),
+        expect.objectContaining({
+          properties: expect.objectContaining({ did: { type: "string" } }),
+        }),
       );
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
         SCHEMA_REGISTRY,
-        expect.objectContaining({ properties: expect.objectContaining({ schemaId: { type: "string" } }) }),
+        expect.objectContaining({
+          properties: expect.objectContaining({ schemaId: { type: "string" } }),
+        }),
       );
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
@@ -750,9 +730,7 @@ describe("DeDiClient (adapter)", () => {
       );
 
       // Should not throw
-      await expect(
-        client.ensureRegistries("example.com"),
-      ).resolves.toBeUndefined();
+      await expect(client.ensureRegistries("example.com")).resolves.toBeUndefined();
     });
 
     it("re-throws non-409 errors", async () => {
@@ -762,9 +740,7 @@ describe("DeDiClient (adapter)", () => {
         new DeDiClientError("DeDi API error: 500", 502),
       );
 
-      await expect(client.ensureRegistries("example.com")).rejects.toThrow(
-        "DeDi API error: 500",
-      );
+      await expect(client.ensureRegistries("example.com")).rejects.toThrow("DeDi API error: 500");
     });
   });
 
@@ -808,7 +784,11 @@ describe("DeDiClient (adapter)", () => {
         name: "did-web-example.com",
         registry: PUBLIC_KEY_REGISTRY,
         namespace: "example.com",
-        detail: { did: "did:web:example.com", document: didDocument, resolvedAt: "2026-03-25T00:00:00Z" },
+        detail: {
+          did: "did:web:example.com",
+          document: didDocument,
+          resolvedAt: "2026-03-25T00:00:00Z",
+        },
         state: "live",
         version: 1,
         created_at: "",
@@ -894,11 +874,7 @@ describe("DeDiClient (adapter)", () => {
 
       const result = await client.resolveSchema("education", "1");
 
-      expect(api.lookupRecord).toHaveBeenCalledWith(
-        "example.com",
-        SCHEMA_REGISTRY,
-        "education-v1",
-      );
+      expect(api.lookupRecord).toHaveBeenCalledWith("example.com", SCHEMA_REGISTRY, "education-v1");
       expect(result.schemaId).toBe("education");
     });
 

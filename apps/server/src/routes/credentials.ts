@@ -68,7 +68,9 @@ const issueRequestSchema = z.object({
   selectiveDisclosureClaims: z.array(z.string()).optional(),
   revocationRegistryUrl: z.string().url().optional(),
   credentialSchemaUrl: z.string().url().optional(),
-  packageFormats: z.array(z.enum(["qr-png", "qr-svg", "pdf", "json-ld", "json-compact"])).optional(),
+  packageFormats: z
+    .array(z.enum(["qr-png", "qr-svg", "pdf", "json-ld", "json-compact"]))
+    .optional(),
 });
 
 const verifyRequestSchema = z.object({
@@ -96,6 +98,16 @@ credentials.post("/credentials/issue", async (c) => {
   }
   builder.setCredentialSubject(subject);
 
+  // Add JSON-LD context for Data Integrity proofs (required for RDFC-1.0
+  // canonicalization with safe mode). VC-JWT and SD-JWT-VC don't need this —
+  // fields are preserved as-is in the JWT payload.
+  if (parsed.proofFormat === "data-integrity") {
+    const builtInContextUrl = getRegistry().getContextForType(parsed.schemaId);
+    if (builtInContextUrl) {
+      builder.addContext(builtInContextUrl);
+    }
+  }
+
   if (parsed.additionalTypes) {
     for (const type of parsed.additionalTypes) {
       builder.addType(type);
@@ -117,9 +129,36 @@ credentials.post("/credentials/issue", async (c) => {
       statusListCredential,
     });
   }
-  if (parsed.credentialSchemaUrl) {
-    builder.setSchema({ id: parsed.credentialSchemaUrl, type: "JsonSchema" });
-  }
+  // Set credentialSchema link. Per W3C VCDM 2.0 §4.10, every issued
+  // credential SHOULD reference the JSON Schema it conforms to. Priority
+  // mirrors the desktop path (see `apps/desktop/src/signing/local-signing-flow.ts`
+  // and `apps/desktop/src/main/ipc-handlers.ts handleBuildAndSign`):
+  //   1. explicit credentialSchemaUrl from the request
+  //   2. the schema's own `$id` when it has one
+  //   3. a data-URI containing the base64-encoded schema as a last resort,
+  //      so the credential is never silently shipped without a schema
+  //      reference.
+  const credentialSchemaId = ((): string => {
+    if (parsed.credentialSchemaUrl) {
+      return parsed.credentialSchemaUrl;
+    }
+    let schemaObject: Record<string, unknown> = {};
+    try {
+      const def = getRegistry().getSchema(parsed.schemaId);
+      schemaObject = def.schema as Record<string, unknown>;
+      const id = (schemaObject as { $id?: unknown }).$id;
+      if (typeof id === "string" && id.length > 0) {
+        return id;
+      }
+    } catch {
+      // Schema not in the registry (e.g. inline/custom). Fall through to
+      // the data-URI fallback with whatever we have — an empty object is
+      // still a well-formed JSON Schema document.
+    }
+    const base64 = Buffer.from(JSON.stringify(schemaObject), "utf8").toString("base64");
+    return `data:application/schema+json;base64,${base64}`;
+  })();
+  builder.setSchema({ id: credentialSchemaId, type: "JsonSchema" });
 
   const unsigned = builder.build();
 
@@ -201,7 +240,15 @@ credentials.post("/credentials/issue", async (c) => {
   }
 
   // Package if formats requested (only for JSON-based credentials, not compact tokens)
-  let packagedOutputs: Array<{ format: string; data: string; mimeType: string; suggestedFileName: string; encoding: string }> | undefined;
+  let packagedOutputs:
+    | Array<{
+        format: string;
+        data: string;
+        mimeType: string;
+        suggestedFileName: string;
+        encoding: string;
+      }>
+    | undefined;
   if (!isCompactToken && parsed.packageFormats && parsed.packageFormats.length > 0) {
     const credential = JSON.parse(signedOutput) as Parameters<typeof packageCredential>[0];
     const result = await packageCredential(credential, parsed.packageFormats as PackageFormat[]);
@@ -231,7 +278,8 @@ credentials.post("/credentials/verify", async (c) => {
   const credential = JSON.parse(parsed.credential);
 
   // Verify using composite DID resolver (supports did:key, did:jwk, did:web)
-  const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } = await import("@opencred/did");
+  const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
+    await import("@opencred/did");
   const { verifyCredential } = await import("@opencred/verification");
 
   const compositeResolver = new CompositeDIDResolver(
@@ -250,7 +298,8 @@ credentials.post("/credentials/verify", async (c) => {
     valid: verificationResult.verified,
     message: verificationResult.verified
       ? "Credential is valid."
-      : (verificationResult.checks.find((check) => !check.passed)?.detail ?? "Verification failed."),
+      : (verificationResult.checks.find((check) => !check.passed)?.detail ??
+        "Verification failed."),
     checks: verificationResult.checks,
   });
 });

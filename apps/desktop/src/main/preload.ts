@@ -214,8 +214,9 @@ const api: OpenCredDesktopAPI = {
   dediPublishDID: (request: DeDiPublishDIDRequest): Promise<DeDiPublishResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.DEDI_PUBLISH_DID, request),
 
-  dediPublishSchema: (request: import("../shared/ipc-types.js").DeDiPublishSchemaRequest): Promise<DeDiPublishResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.DEDI_PUBLISH_SCHEMA, request),
+  dediPublishSchema: (
+    request: import("../shared/ipc-types.js").DeDiPublishSchemaRequest,
+  ): Promise<DeDiPublishResponse> => ipcRenderer.invoke(IPC_CHANNELS.DEDI_PUBLISH_SCHEMA, request),
 
   dediEnsureRegistries: (): Promise<DeDiEnsureRegistriesResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.DEDI_ENSURE_REGISTRIES),
@@ -227,17 +228,22 @@ const api: OpenCredDesktopAPI = {
   recentTemplatesList: (): Promise<import("../shared/ipc-types.js").RecentTemplatesListResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.RECENT_TEMPLATES_LIST),
 
-  recentTemplatesRecord: (request: import("../shared/ipc-types.js").RecentTemplateRecordRequest): Promise<void> =>
-    ipcRenderer.invoke(IPC_CHANNELS.RECENT_TEMPLATES_RECORD, request),
+  recentTemplatesRecord: (
+    request: import("../shared/ipc-types.js").RecentTemplateRecordRequest,
+  ): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.RECENT_TEMPLATES_RECORD, request),
 
   // Credential history (deprecated)
   credentialHistoryList: (): Promise<CredentialHistoryListResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.CREDENTIAL_HISTORY_LIST),
 
-  credentialHistoryAdd: (request: CredentialHistoryAddRequest): Promise<CredentialHistoryAddRequest & { id: string; issuedAt: string }> =>
+  credentialHistoryAdd: (
+    request: CredentialHistoryAddRequest,
+  ): Promise<CredentialHistoryAddRequest & { id: string; issuedAt: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.CREDENTIAL_HISTORY_ADD, request),
 
-  credentialHistoryDelete: (request: CredentialHistoryDeleteRequest): Promise<CredentialHistoryDeleteResponse> =>
+  credentialHistoryDelete: (
+    request: CredentialHistoryDeleteRequest,
+  ): Promise<CredentialHistoryDeleteResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.CREDENTIAL_HISTORY_DELETE, request),
 
   // Schema URL fetch
@@ -262,8 +268,7 @@ const api: OpenCredDesktopAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.SET_CONFIG, { key, value }),
 
   // System / diagnostics
-  getSystemInfo: (): Promise<SystemInfoResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_INFO),
+  getSystemInfo: (): Promise<SystemInfoResponse> => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_INFO),
 
   getRecentLogs: (lines?: number): Promise<LogTailResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.LOG_TAIL, { lines }),

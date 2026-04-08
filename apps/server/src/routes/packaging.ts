@@ -35,7 +35,7 @@ packaging.post("/credentials/package", async (c) => {
     data: Buffer.isBuffer(output.data) ? output.data.toString("base64") : output.data,
     mimeType: output.mimeType,
     suggestedFileName: output.suggestedFileName,
-    encoding: Buffer.isBuffer(output.data) ? "base64" as const : "utf-8" as const,
+    encoding: Buffer.isBuffer(output.data) ? ("base64" as const) : ("utf-8" as const),
   }));
 
   return c.json({ outputs, errors: result.errors });

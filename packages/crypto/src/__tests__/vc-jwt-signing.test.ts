@@ -2,11 +2,7 @@ import { describe, it, expect } from "vitest";
 import { generateKeyPairSync, createSign, type KeyObject } from "node:crypto";
 import * as jose from "jose";
 import type { SigningKey, SigningAlgorithm } from "../types.js";
-import {
-  signCredentialVcJwt,
-  prepareVcJwtProof,
-  completeVcJwtProof,
-} from "../vc-jwt-signing.js";
+import { signCredentialVcJwt, prepareVcJwtProof, completeVcJwtProof } from "../vc-jwt-signing.js";
 
 function generateEcKeyPair(curve = "P-256"): { privateKey: KeyObject; publicKey: KeyObject } {
   return generateKeyPairSync("ec", { namedCurve: curve });
@@ -171,7 +167,9 @@ describe("signCredentialVcJwt", () => {
   it("should handle issuer as object with id", async () => {
     const keys = generateEcKeyPair("P-256");
     const signingKey = createSigningKey(verificationMethod, "P-256", keys);
-    const jwt = await signCredentialVcJwt(unsignedVCObjectIssuer, signingKey, { verificationMethod });
+    const jwt = await signCredentialVcJwt(unsignedVCObjectIssuer, signingKey, {
+      verificationMethod,
+    });
 
     const payload = jose.decodeJwt(jwt);
     expect(payload.iss).toBe("did:key:zTestIssuer");
@@ -180,7 +178,9 @@ describe("signCredentialVcJwt", () => {
   it("should omit sub when credentialSubject has no id", async () => {
     const keys = generateEcKeyPair("P-256");
     const signingKey = createSigningKey(verificationMethod, "P-256", keys);
-    const jwt = await signCredentialVcJwt(unsignedVCObjectIssuer, signingKey, { verificationMethod });
+    const jwt = await signCredentialVcJwt(unsignedVCObjectIssuer, signingKey, {
+      verificationMethod,
+    });
 
     const payload = jose.decodeJwt(jwt);
     expect(payload.sub).toBeUndefined();
@@ -303,9 +303,7 @@ describe("completeVcJwtProof", () => {
   });
 
   it("should throw for invalid signing input (no dot separator)", () => {
-    expect(() => completeVcJwtProof("nodot", new Uint8Array([1]))).toThrow(
-      "Invalid signing input",
-    );
+    expect(() => completeVcJwtProof("nodot", new Uint8Array([1]))).toThrow("Invalid signing input");
   });
 });
 

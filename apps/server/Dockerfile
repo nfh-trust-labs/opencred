@@ -16,7 +16,7 @@
 
 # Pin base image digest for reproducible builds.
 # Periodically update: docker pull node:20-alpine && docker inspect --format='{{index .RepoDigests 0}}' node:20-alpine
-FROM node:20-alpine@sha256:b5b9467fe7b33aad47f1c3355e3a492f57487e58e95e3411b0f5d4c1c1948239 AS builder
+FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS builder
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@9 --activate
@@ -28,15 +28,14 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/server/package.json apps/server/package.json
 COPY packages/crypto/package.json packages/crypto/package.json
 COPY packages/did/package.json packages/did/package.json
-COPY packages/key-attestation/package.json packages/key-attestation/package.json
 COPY packages/schema-engine/package.json packages/schema-engine/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/signing/package.json packages/signing/package.json
 COPY packages/vc-core/package.json packages/vc-core/package.json
 COPY packages/verification/package.json packages/verification/package.json
 COPY packages/templates/package.json packages/templates/package.json
-COPY packages/domain-verification/package.json packages/domain-verification/package.json
 COPY packages/ca-adapter/package.json packages/ca-adapter/package.json
+COPY packages/dedi-client/package.json packages/dedi-client/package.json
 
 # Install all dependencies (including dev for building)
 RUN pnpm install --frozen-lockfile
@@ -54,7 +53,7 @@ RUN pnpm prune --prod
 # ==============================================================================
 # Runtime stage — minimal image with only production artifacts
 # ==============================================================================
-FROM node:20-alpine@sha256:b5b9467fe7b33aad47f1c3355e3a492f57487e58e95e3411b0f5d4c1c1948239
+FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
 
 # Security: run as non-root user (node user is built into node:alpine)
 USER node

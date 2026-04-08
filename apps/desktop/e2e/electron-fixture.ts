@@ -16,19 +16,7 @@
  * tests real IPC, signing, and file operations.
  */
 
-import {
-  test as base,
-  expect,
-  type Page,
-  type BrowserContext,
-} from "@playwright/test";
-import * as path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const DESKTOP_ROOT = path.resolve(__dirname, "..");
-const PROJECT_ROOT = path.resolve(DESKTOP_ROOT, "..", "..");
+import { test as base, expect, type Page } from "@playwright/test";
 
 export type TestFixtures = {
   openCredPage: Page;

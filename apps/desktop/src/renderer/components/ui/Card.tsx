@@ -17,9 +17,5 @@ interface CardProps {
 
 export function Card({ children, className = "", variant = "default" }: CardProps) {
   const base = variant === "neutral" ? "oc-card-neutral" : "oc-card";
-  return (
-    <div className={`${base} ${className}`}>
-      {children}
-    </div>
-  );
+  return <div className={`${base} ${className}`}>{children}</div>;
 }

@@ -2,12 +2,7 @@
  * E2E: Key rotation reminder — badge, banner, dismiss, and did:web warning.
  */
 
-import {
-  test,
-  expect,
-  waitForAppReady,
-  skipOnboarding,
-} from "./electron-fixture";
+import { test, expect, waitForAppReady, skipOnboarding } from "./electron-fixture";
 
 test.describe("Key Rotation Reminder", () => {
   test("no badge when key is fresh", async ({ openCredPage: page }) => {
@@ -19,15 +14,11 @@ test.describe("Key Rotation Reminder", () => {
     await expect(badge).not.toBeVisible();
   });
 
-  test("badge appears when key is 91+ days old", async ({
-    openCredPage: page,
-  }) => {
+  test("badge appears when key is 91+ days old", async ({ openCredPage: page }) => {
     await waitForAppReady(page);
 
     // Inject a key with createdAt set to 91 days ago
-    const ninetyOneDaysAgo = new Date(
-      Date.now() - 91 * 24 * 60 * 60 * 1000,
-    ).toISOString();
+    const ninetyOneDaysAgo = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000).toISOString();
 
     await page.addInitScript(`
       if (window.opencred) {
@@ -69,9 +60,7 @@ test.describe("Key Rotation Reminder", () => {
     await waitForAppReady(page);
 
     // Inject old key
-    const ninetyOneDaysAgo = new Date(
-      Date.now() - 91 * 24 * 60 * 60 * 1000,
-    ).toISOString();
+    const ninetyOneDaysAgo = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000).toISOString();
 
     await page.addInitScript(`
       if (window.opencred) {
@@ -125,9 +114,7 @@ test.describe("Key Rotation Reminder", () => {
     await expect(badge).not.toBeVisible();
   });
 
-  test("did:web warning in credential builder", async ({
-    openCredPage: page,
-  }) => {
+  test("did:web warning in credential builder", async ({ openCredPage: page }) => {
     await waitForAppReady(page);
 
     // Set up a self-generated key with no DeDi configured
@@ -164,28 +151,23 @@ test.describe("Key Rotation Reminder", () => {
 
       // Check for the did:web publication warning
       const warning = page.locator("text=hasn't been published");
-      const warningVisible = await warning
-        .isVisible({ timeout: 3_000 })
-        .catch(() => false);
+      const warningVisible = await warning.isVisible({ timeout: 3_000 }).catch(() => false);
 
       if (warningVisible) {
         await expect(warning).toBeVisible();
 
         // Verify issuance still works (warn but allow) — select a schema
-        const schemaSelect = page
-          .locator("select")
-          .or(page.locator('[role="combobox"]'))
-          .first();
+        const schemaSelect = page.locator("select").or(page.locator('[role="combobox"]')).first();
         if (await schemaSelect.isVisible().catch(() => false)) {
           await schemaSelect.selectOption({ index: 1 }).catch(() => {});
         }
 
         // The builder should still be functional
         await expect(
-          page
-            .locator("button:has-text('Issue')")
-            .or(page.locator("button:has-text('Sign')")),
-        ).toBeVisible({ timeout: 3_000 }).catch(() => {});
+          page.locator("button:has-text('Issue')").or(page.locator("button:has-text('Sign')")),
+        )
+          .toBeVisible({ timeout: 3_000 })
+          .catch(() => {});
       }
     }
   });

@@ -60,10 +60,7 @@ function algorithmToAzureSignAlg(alg: SigningAlgorithm): string {
 /**
  * Create a Signer backed by Azure Key Vault.
  */
-export async function createAzureKvSigner(
-  vaultUrl: string,
-  keyName: string,
-): Promise<Signer> {
+export async function createAzureKvSigner(vaultUrl: string, keyName: string): Promise<Signer> {
   const credential = new DefaultAzureCredential();
   const keyClient = new KeyClient(vaultUrl, credential);
 
@@ -104,9 +101,7 @@ export async function createAzureKvSigner(
     metadata,
     async sign(data: Uint8Array): Promise<Uint8Array> {
       // Azure sign expects a digest
-      const digest = algorithm === "P-384"
-        ? sha384(data)
-        : sha256(data);
+      const digest = algorithm === "P-384" ? sha384(data) : sha256(data);
 
       const result = await cryptoClient.sign(azureAlg, digest);
       return new Uint8Array(result.result);

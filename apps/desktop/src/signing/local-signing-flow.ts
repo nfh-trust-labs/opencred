@@ -196,10 +196,7 @@ export async function buildAndSign(
     const credentialId = `urn:uuid:${credentialUuid}`;
     builder.setId(credentialId);
 
-    const revocationHash = crypto
-      .createHash("sha256")
-      .update(credentialUuid)
-      .digest("hex");
+    const revocationHash = crypto.createHash("sha256").update(credentialUuid).digest("hex");
     const statusListCredential = options.revocationRegistryUrl;
     const lookupUrl = statusListCredential.replace("/dedi/query/", "/dedi/lookup/");
     builder.setCredentialStatus({
@@ -210,9 +207,32 @@ export async function buildAndSign(
     });
   }
 
-  // Set credential schema link
-  if (options.credentialSchemaUrl) {
-    builder.setSchema({ id: options.credentialSchemaUrl, type: "JsonSchema" });
+  // Set credential schema link.
+  //
+  // Per W3C VCDM 2.0, every issued credential SHOULD carry a `credentialSchema`
+  // field referencing the JSON Schema it conforms to. We populate this for
+  // every built-in schema using the priority:
+  //   1. user-provided `credentialSchemaUrl` (e.g. an upgraded permanent URL)
+  //   2. the schema's own `$id` (the placeholder URL on built-in schemas —
+  //      issuers can update this later by passing `credentialSchemaUrl`)
+  //
+  // Custom (inline) schemas use a separate path in handleBuildAndSign which
+  // also handles the data-URI fallback.
+  const credentialSchemaIdFromBuiltIn = (() => {
+    if (options.credentialSchemaUrl) {
+      return options.credentialSchemaUrl;
+    }
+    try {
+      const def = getRegistry().getSchema(options.schemaId);
+      const id = (def.schema as { $id?: unknown }).$id;
+      return typeof id === "string" && id.length > 0 ? id : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  if (credentialSchemaIdFromBuiltIn) {
+    builder.setSchema({ id: credentialSchemaIdFromBuiltIn, type: "JsonSchema" });
   }
 
   const unsignedCredential = builder.build();
@@ -221,8 +241,7 @@ export async function buildAndSign(
   const format = proofFormat;
 
   // Derive vct for SD-JWT-VC from additional types or schema ID
-  const vct =
-    options.additionalTypes?.[0] ?? options.schemaId;
+  const vct = options.additionalTypes?.[0] ?? options.schemaId;
 
   // For did:web issuers, the verificationMethod in the proof should use the
   // did:web DID's verification method ID, not the signer's did:key-based ID
@@ -231,6 +250,11 @@ export async function buildAndSign(
   let signedOutput: string;
   let isCompactToken: boolean;
 
+  // Custom JSON-LD contexts are served by the shared document loader from
+  // a per-URL cache populated at schema-save time. Conflicts on the same
+  // URL are rejected at save time by content-hash comparison (see
+  // `handleCustomSchemaSave`), so canonicalization can rely on the
+  // URL → document mapping being stable without per-schema scoping.
   try {
     const result = await signWithFormat(signer, unsignedCredential, format, {
       verificationMethod,
@@ -255,7 +279,6 @@ export async function buildAndSign(
       const proof = signedCredential.proof as Record<string, unknown>;
       proof.x5c = signer.metadata.certificateChain.map(pemToBase64Der);
     }
-
 
     signedOutput = JSON.stringify(signedCredential);
   }

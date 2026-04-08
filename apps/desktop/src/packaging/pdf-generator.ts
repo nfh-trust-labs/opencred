@@ -30,13 +30,13 @@ const PAGE_RIGHT = 595.28 - PAGE_MARGIN;
 const QR_SIZE = 120;
 
 // Colors
-const COLOR_PRIMARY = "#1a365d";    // Dark navy for headings
-const COLOR_SECONDARY = "#2d5986";  // Medium blue for subheadings
-const COLOR_ACCENT = "#3182ce";     // Blue accent for lines
-const COLOR_TEXT = "#1a202c";       // Dark text
-const COLOR_LABEL = "#718096";      // Gray labels
-const COLOR_MUTED = "#a0aec0";     // Light gray
-const COLOR_BORDER = "#2d5986";     // Border color
+const COLOR_PRIMARY = "#1a365d"; // Dark navy for headings
+const COLOR_SECONDARY = "#2d5986"; // Medium blue for subheadings
+const COLOR_ACCENT = "#3182ce"; // Blue accent for lines
+const COLOR_TEXT = "#1a202c"; // Dark text
+const COLOR_LABEL = "#718096"; // Gray labels
+const COLOR_MUTED = "#a0aec0"; // Light gray
+const COLOR_BORDER = "#2d5986"; // Border color
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,18 +55,14 @@ function formatDate(isoDate: string): string {
 }
 
 function formatLabel(key: string): string {
-  return key
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/^./, (c) => c.toUpperCase());
+  return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
 }
 
 function getCredentialTitle(credential: VerifiableCredential): string {
   const types = Array.isArray(credential.type) ? credential.type : [String(credential.type)];
   const meaningful = types.filter((t) => t !== "VerifiableCredential");
   if (meaningful.length > 0) {
-    return meaningful
-      .map((t) => t.replace(/([a-z])([A-Z])/g, "$1 $2"))
-      .join(", ");
+    return meaningful.map((t) => t.replace(/([a-z])([A-Z])/g, "$1 $2")).join(", ");
   }
   return "Verifiable Credential";
 }
@@ -81,14 +77,23 @@ function drawHorizontalRule(
   color = COLOR_ACCENT,
   width = 1,
 ): void {
-  doc.strokeColor(color).lineWidth(width).moveTo(CONTENT_LEFT, y).lineTo(PAGE_RIGHT - 15, y).stroke();
+  doc
+    .strokeColor(color)
+    .lineWidth(width)
+    .moveTo(CONTENT_LEFT, y)
+    .lineTo(PAGE_RIGHT - 15, y)
+    .stroke();
 }
 
 function drawSectionHeader(doc: PDFKit.PDFDocument, title: string): void {
   const y = doc.y;
   drawHorizontalRule(doc, y, COLOR_MUTED, 0.5);
   doc.moveDown(0.6);
-  doc.font("Helvetica-Bold").fontSize(9).fillColor(COLOR_SECONDARY).text(title.toUpperCase(), CONTENT_LEFT);
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(9)
+    .fillColor(COLOR_SECONDARY)
+    .text(title.toUpperCase(), CONTENT_LEFT);
   doc.moveDown(0.4);
 }
 
@@ -103,9 +108,13 @@ function drawLabelValue(
     width: labelWidth,
     continued: false,
   });
-  doc.font("Helvetica").fontSize(9).fillColor(COLOR_TEXT).text(value, CONTENT_LEFT + labelWidth, y, {
-    width: CONTENT_WIDTH - labelWidth,
-  });
+  doc
+    .font("Helvetica")
+    .fontSize(9)
+    .fillColor(COLOR_TEXT)
+    .text(value, CONTENT_LEFT + labelWidth, y, {
+      width: CONTENT_WIDTH - labelWidth,
+    });
   // Move to whichever is lower (label or wrapped value)
   doc.y = Math.max(doc.y, y + 14);
 }
@@ -162,14 +171,24 @@ export async function generatePdf(credential: VerifiableCredential): Promise<Buf
       // Certificate border
       // ---------------------------------------------------------------
       doc
-        .rect(PAGE_MARGIN - 5, PAGE_MARGIN - 5, 595.28 - 2 * PAGE_MARGIN + 10, 841.89 - 2 * PAGE_MARGIN + 10)
+        .rect(
+          PAGE_MARGIN - 5,
+          PAGE_MARGIN - 5,
+          595.28 - 2 * PAGE_MARGIN + 10,
+          841.89 - 2 * PAGE_MARGIN + 10,
+        )
         .strokeColor(COLOR_BORDER)
         .lineWidth(2)
         .stroke();
 
       // Inner decorative border
       doc
-        .rect(PAGE_MARGIN + 3, PAGE_MARGIN + 3, 595.28 - 2 * PAGE_MARGIN - 6, 841.89 - 2 * PAGE_MARGIN - 6)
+        .rect(
+          PAGE_MARGIN + 3,
+          PAGE_MARGIN + 3,
+          595.28 - 2 * PAGE_MARGIN - 6,
+          841.89 - 2 * PAGE_MARGIN - 6,
+        )
         .strokeColor(COLOR_MUTED)
         .lineWidth(0.5)
         .stroke();
@@ -261,10 +280,16 @@ export async function generatePdf(credential: VerifiableCredential): Promise<Buf
       }
 
       // Validity dates (compact, in the left column)
-      doc.font("Helvetica").fontSize(9).fillColor(COLOR_LABEL).text("VALIDITY PERIOD", CONTENT_LEFT);
+      doc
+        .font("Helvetica")
+        .fontSize(9)
+        .fillColor(COLOR_LABEL)
+        .text("VALIDITY PERIOD", CONTENT_LEFT);
       doc.moveDown(0.2);
       const validFromStr = formatDate(credential.validFrom);
-      const validUntilStr = credential.validUntil ? formatDate(credential.validUntil) : "No expiration";
+      const validUntilStr = credential.validUntil
+        ? formatDate(credential.validUntil)
+        : "No expiration";
       doc
         .font("Helvetica")
         .fontSize(10)
@@ -374,12 +399,10 @@ export async function generatePdf(credential: VerifiableCredential): Promise<Buf
         .font("Helvetica")
         .fontSize(6)
         .fillColor(COLOR_MUTED)
-        .text(
-          `Generated: ${formatDate(new Date().toISOString())}`,
-          CONTENT_LEFT,
-          doc.y,
-          { width: CONTENT_WIDTH, align: "center" },
-        );
+        .text(`Generated: ${formatDate(new Date().toISOString())}`, CONTENT_LEFT, doc.y, {
+          width: CONTENT_WIDTH,
+          align: "center",
+        });
 
       doc.end();
     } catch (error) {

@@ -14,7 +14,12 @@
 import { createPublicKey, type KeyObject } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
 import { derToRaw } from "@opencred/crypto";
-import { deriveDidKeyId, computeKeyFingerprint, encodeDidJwk, didJwkVerificationMethodId } from "@opencred/did";
+import {
+  deriveDidKeyId,
+  computeKeyFingerprint,
+  encodeDidJwk,
+  didJwkVerificationMethodId,
+} from "@opencred/did";
 import type { SigningAlgorithm } from "@opencred/crypto";
 
 /**
@@ -50,12 +55,13 @@ const P384_RAW_SIGNATURE_LENGTH = 96;
  */
 export function publicKeyFromEcPoint(ecPoint: Uint8Array): KeyObject {
   if (ecPoint[0] !== 0x04) {
-    throw new CryptoError(
-      "Invalid EC point: must start with 0x04 (uncompressed point prefix)",
-    );
+    throw new CryptoError("Invalid EC point: must start with 0x04 (uncompressed point prefix)");
   }
 
-  if (ecPoint.length !== P256_UNCOMPRESSED_POINT_LENGTH && ecPoint.length !== P384_UNCOMPRESSED_POINT_LENGTH) {
+  if (
+    ecPoint.length !== P256_UNCOMPRESSED_POINT_LENGTH &&
+    ecPoint.length !== P384_UNCOMPRESSED_POINT_LENGTH
+  ) {
     throw new CryptoError(
       `Invalid EC point: expected 65-byte (P-256) or 97-byte (P-384) uncompressed point, got ${ecPoint.length} bytes`,
     );
@@ -212,14 +218,20 @@ export function derCertToPem(derCert: Uint8Array): string {
  * @returns Normalized signature bytes.
  * @throws {CryptoError} if an EC signature cannot be interpreted.
  */
-export function normalizeSignature(signature: Uint8Array, keyType: "EC" | "RSA" = "EC"): Uint8Array {
+export function normalizeSignature(
+  signature: Uint8Array,
+  keyType: "EC" | "RSA" = "EC",
+): Uint8Array {
   // RSA signatures pass through without normalization
   if (keyType === "RSA") {
     return signature;
   }
 
   // EC: check for raw r||s format (P-256 = 64 bytes, P-384 = 96 bytes)
-  if (signature.length === P256_RAW_SIGNATURE_LENGTH || signature.length === P384_RAW_SIGNATURE_LENGTH) {
+  if (
+    signature.length === P256_RAW_SIGNATURE_LENGTH ||
+    signature.length === P384_RAW_SIGNATURE_LENGTH
+  ) {
     return signature;
   }
 

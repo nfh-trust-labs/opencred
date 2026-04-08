@@ -13,11 +13,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CredentialBuilder } from "@opencred/vc-core";
 import { createRegistry, Validator } from "@opencred/schema-engine";
-import {
-  prepareVcJwtProof,
-  completeVcJwtProof,
-  sha256Hex,
-} from "@opencred/crypto";
+import { prepareVcJwtProof, completeVcJwtProof, sha256Hex } from "@opencred/crypto";
 import { generateTestKey } from "./helpers.js";
 import type { TestKeyPair } from "./helpers.js";
 import { parseCsv } from "../batch/csv-parser.js";
@@ -204,9 +200,10 @@ describe("CLI batch logic", () => {
     for (const row of progress.rows) {
       if (row.status === "success" && row.credential) {
         const filename = `credential-${row.rowIndex}.json`;
-        const content = typeof row.credential === "string"
-          ? row.credential
-          : JSON.stringify(row.credential, null, 2);
+        const content =
+          typeof row.credential === "string"
+            ? row.credential
+            : JSON.stringify(row.credential, null, 2);
         writeFileSync(join(outputDir, filename), content, "utf-8");
         written++;
       }

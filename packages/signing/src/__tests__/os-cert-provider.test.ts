@@ -16,10 +16,7 @@
 import { describe, it, expect } from "vitest";
 import { CryptoError } from "@opencred/shared";
 import { createMacOsCertProvider, type MacOsNativeAddon } from "../macos-cert-provider.js";
-import {
-  createWindowsCertProvider,
-  type WindowsNativeAddon,
-} from "../windows-cert-provider.js";
+import { createWindowsCertProvider, type WindowsNativeAddon } from "../windows-cert-provider.js";
 import type { OsCertInfo } from "../os-cert-types.js";
 
 // ---------------------------------------------------------------------------

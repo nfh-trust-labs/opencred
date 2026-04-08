@@ -108,27 +108,19 @@ describe("NoopCaAdapter", () => {
   });
 
   it("requestDSC throws CaAdapterNotConfiguredError", async () => {
-    await expect(adapter.requestDSC(validDscRequest)).rejects.toThrow(
-      CaAdapterNotConfiguredError,
-    );
+    await expect(adapter.requestDSC(validDscRequest)).rejects.toThrow(CaAdapterNotConfiguredError);
   });
 
   it("requestDSC error message mentions extension point", async () => {
-    await expect(adapter.requestDSC(validDscRequest)).rejects.toThrow(
-      /extension point/i,
-    );
+    await expect(adapter.requestDSC(validDscRequest)).rejects.toThrow(/extension point/i);
   });
 
   it("checkStatus throws CaAdapterNotConfiguredError", async () => {
-    await expect(adapter.checkStatus("any-id")).rejects.toThrow(
-      CaAdapterNotConfiguredError,
-    );
+    await expect(adapter.checkStatus("any-id")).rejects.toThrow(CaAdapterNotConfiguredError);
   });
 
   it("checkStatus error message mentions extension point", async () => {
-    await expect(adapter.checkStatus("any-id")).rejects.toThrow(
-      /extension point/i,
-    );
+    await expect(adapter.checkStatus("any-id")).rejects.toThrow(/extension point/i);
   });
 });
 
@@ -148,15 +140,11 @@ describe("createCaAdapter", () => {
   });
 
   it("throws CaAdapterError for unknown adapter type", () => {
-    expect(() => createCaAdapter({ type: "unknown-ca" })).toThrow(
-      CaAdapterError,
-    );
+    expect(() => createCaAdapter({ type: "unknown-ca" })).toThrow(CaAdapterError);
   });
 
   it("error message includes the unknown type name", () => {
-    expect(() => createCaAdapter({ type: "acme-corp" })).toThrow(
-      /acme-corp/,
-    );
+    expect(() => createCaAdapter({ type: "acme-corp" })).toThrow(/acme-corp/);
   });
 });
 
@@ -246,15 +234,12 @@ describe("CertificateAuthorityAdapter contract", () => {
   it("checkStatus throws CaRequestNotFoundError for unknown requestId", async () => {
     const adapter = new MockCaAdapter();
 
-    await expect(adapter.checkStatus("nonexistent")).rejects.toThrow(
-      CaRequestNotFoundError,
-    );
+    await expect(adapter.checkStatus("nonexistent")).rejects.toThrow(CaRequestNotFoundError);
   });
 
   it("full flow: request -> pending -> issued with certificate", async () => {
     const adapter = new MockCaAdapter();
-    const fakeCert =
-      "-----BEGIN CERTIFICATE-----\nMIIBfake...\n-----END CERTIFICATE-----";
+    const fakeCert = "-----BEGIN CERTIFICATE-----\nMIIBfake...\n-----END CERTIFICATE-----";
 
     // Step 1: Request a DSC
     const result = await adapter.requestDSC(validDscRequest);
@@ -278,10 +263,7 @@ describe("CertificateAuthorityAdapter contract", () => {
     const adapter = new MockCaAdapter();
 
     const result = await adapter.requestDSC(validDscRequest);
-    adapter.simulateRejection(
-      result.requestId,
-      "Organization not verified",
-    );
+    adapter.simulateRejection(result.requestId, "Organization not verified");
 
     const rejected = await adapter.checkStatus(result.requestId);
     expect(rejected.status).toBe("rejected");
@@ -328,9 +310,12 @@ describe("Type validation", () => {
   });
 
   it("DscRequestStatusCode covers all valid values", () => {
-    const statuses: Array<
-      import("../types.js").DscRequestStatusCode
-    > = ["pending", "approved", "rejected", "issued"];
+    const statuses: Array<import("../types.js").DscRequestStatusCode> = [
+      "pending",
+      "approved",
+      "rejected",
+      "issued",
+    ];
     expect(statuses).toHaveLength(4);
   });
 

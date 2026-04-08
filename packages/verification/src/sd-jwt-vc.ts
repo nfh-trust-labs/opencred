@@ -197,12 +197,7 @@ export async function verifySdJwtVc(
 
     // #129: Verify Key Binding JWT if present
     if (keyBindingJwt) {
-      const kbCheck = await verifyKeyBindingJwt(
-        keyBindingJwt,
-        payload,
-        sdJwtVc,
-        options,
-      );
+      const kbCheck = await verifyKeyBindingJwt(keyBindingJwt, payload, sdJwtVc, options);
       if (!kbCheck.passed) {
         return {
           check: kbCheck,
@@ -336,9 +331,10 @@ async function verifyKeyBindingJwt(
 
     return { name: "key_binding", passed: true };
   } catch (error) {
-    const detail = error instanceof Error
-      ? `Key Binding JWT verification failed: ${error.message}`
-      : "Key Binding JWT verification failed";
+    const detail =
+      error instanceof Error
+        ? `Key Binding JWT verification failed: ${error.message}`
+        : "Key Binding JWT verification failed";
     return { name: "key_binding", passed: false, detail };
   }
 }

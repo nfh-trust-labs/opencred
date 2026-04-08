@@ -1,9 +1,4 @@
-import {
-  generateKeyPairSync,
-  createPrivateKey,
-  createPublicKey,
-  createSign,
-} from "node:crypto";
+import { generateKeyPairSync, createPrivateKey, createPublicKey, createSign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { CryptoError } from "@opencred/shared";
 import { deriveDidKeyId } from "@opencred/did";
