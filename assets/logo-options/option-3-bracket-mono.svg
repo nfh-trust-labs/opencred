@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 128">
+  <rect width="200" height="128" rx="4" fill="#fafaf9"/>
+  <text x="100" y="84" font-family="IBM Plex Mono, SF Mono, monospace" font-size="56" text-anchor="middle">
+    <tspan fill="#0057FF">[</tspan><tspan fill="#1a1a1a">oc</tspan><tspan fill="#0057FF">]</tspan>
+  </text>
+</svg>
