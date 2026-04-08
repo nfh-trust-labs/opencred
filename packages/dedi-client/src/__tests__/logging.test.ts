@@ -1,4 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// Mock node:dns so tests do not perform real DNS lookups. The default
+// mock resolves every hostname to a public IPv4 address; tests that
+// exercise SSRF behaviour override this via vi.mocked() or spyOn.
+vi.mock("node:dns", () => ({
+  promises: {
+    resolve4: vi.fn().mockResolvedValue(["93.184.216.34"]),
+    resolve6: vi.fn().mockResolvedValue([]),
+  },
+}));
 import { DeDiClientError } from "@opencred/shared";
 import { DeDiApiClient } from "../api/api-client.js";
 import { DeDiClient } from "../adapter/client.js";

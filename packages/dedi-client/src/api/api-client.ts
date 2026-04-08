@@ -1,4 +1,6 @@
-import { DeDiClientError } from "@opencred/shared";
+import { promises as dns } from "node:dns";
+import { isIP } from "node:net";
+import { DeDiClientError, isPrivateIP } from "@opencred/shared";
 import { CircuitBreaker } from "../circuit-breaker.js";
 import type { DeDiLogger } from "../logger.js";
 import { noopLogger } from "../logger.js";
@@ -22,6 +24,14 @@ import type {
   DeDiStats,
 } from "./types.js";
 
+/**
+ * Hard cap on per-request timeout. CLAUDE.md invariant #7 mandates a
+ * 10-second ceiling on any fetch that may reach an issuer-configured
+ * host, so a misconfigured `timeoutMs` cannot be weaponised to hold
+ * sockets open against internal services.
+ */
+const MAX_REQUEST_TIMEOUT_MS = 10_000;
+
 export interface DeDiApiClientConfig {
   baseUrl: string;
   timeoutMs: number;
@@ -36,6 +46,7 @@ export class DeDiApiClient {
   private readonly tokenManager: DeDiTokenManager;
   private readonly circuitBreaker: CircuitBreaker;
   private readonly logger: DeDiLogger;
+  private readonly effectiveTimeoutMs: number;
 
   constructor(config: DeDiApiClientConfig) {
     if (config.timeoutMs <= 0) {
@@ -48,17 +59,42 @@ export class DeDiApiClient {
       throw new DeDiClientError("circuitBreakerThreshold must be positive", 400);
     }
 
-    // Enforce HTTPS in production to prevent credentials transmitting in plaintext (#152)
-    const url = new URL(config.baseUrl);
-    if (
-      url.protocol !== "https:" &&
-      process.env.NODE_ENV !== "development" &&
-      process.env.NODE_ENV !== "test"
-    ) {
-      throw new DeDiClientError("DeDi baseUrl must use HTTPS in production", 400);
+    // Parse and validate the base URL up front. This is a synchronous
+    // sanity check. The async DNS-based SSRF check happens at request
+    // time in `doFetch`, because the DNS record for the configured
+    // host can change between construction and the first request
+    // (DNS rebinding).
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(config.baseUrl);
+    } catch {
+      throw new DeDiClientError("DeDi baseUrl is not a valid URL", 400);
+    }
+
+    // Enforce HTTPS unconditionally. The previous NODE_ENV bypass
+    // was a footgun: anyone who could set environment variables on
+    // the issuer machine could downgrade every DeDi request to
+    // plaintext. Tests and development environments must use
+    // `https://` URLs; they stub `globalThis.fetch` and DNS
+    // resolution (see test helpers) so they never need plain HTTP.
+    if (parsedUrl.protocol !== "https:") {
+      throw new DeDiClientError("DeDi baseUrl must use HTTPS", 400);
+    }
+
+    // Synchronous SSRF check: if the hostname is already a literal
+    // IP, reject it now if it falls in a private range. For DNS-
+    // resolved hostnames, the check is repeated asynchronously on
+    // every request against the freshly-resolved address.
+    const hostname = stripIpv6Brackets(parsedUrl.hostname);
+    if (isIP(hostname) !== 0 && isPrivateIP(hostname)) {
+      throw new DeDiClientError(
+        "DeDi baseUrl must not target a private, loopback, or link-local IP",
+        400,
+      );
     }
 
     this.config = config;
+    this.effectiveTimeoutMs = Math.min(config.timeoutMs, MAX_REQUEST_TIMEOUT_MS);
     this.logger = config.logger ?? noopLogger;
     this.tokenManager = new DeDiTokenManager({
       baseUrl: config.baseUrl,
@@ -254,14 +290,18 @@ export class DeDiApiClient {
           const token = await this.tokenManager.getToken();
 
           const url = `${this.config.baseUrl}/dedi/bulk-upload`;
+          // Re-check SSRF on every request — DNS records can change
+          // between construction and the first call (rebinding).
+          await this.assertHostIsPublic(url);
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), this.config.timeoutMs);
+          const timeoutId = setTimeout(() => controller.abort(), this.effectiveTimeoutMs);
 
           try {
             const response = await globalThis.fetch(url, {
               method: "POST",
               headers: { Authorization: `Bearer ${token}` },
               body: formData,
+              redirect: "error",
               signal: controller.signal,
             });
 
@@ -277,7 +317,7 @@ export class DeDiApiClient {
             if (error instanceof DeDiClientError) throw error;
             if (error instanceof DOMException && error.name === "AbortError") {
               throw new DeDiClientError(
-                `DeDi API request timed out after ${this.config.timeoutMs}ms`,
+                `DeDi API request timed out after ${this.effectiveTimeoutMs}ms`,
                 504,
               );
             }
@@ -388,14 +428,17 @@ export class DeDiApiClient {
 
   private async doFetch(path: string, init?: RequestInit): Promise<Response> {
     const url = `${this.config.baseUrl}${path}`;
+    // SSRF re-check on every request — see `bulkUpload` for rationale.
+    await this.assertHostIsPublic(url);
     const token = await this.tokenManager.getToken();
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.config.timeoutMs);
+    const timeoutId = setTimeout(() => controller.abort(), this.effectiveTimeoutMs);
 
     try {
       return await globalThis.fetch(url, {
         ...init,
         signal: controller.signal,
+        redirect: "error",
         headers: {
           ...(init?.body ? { "Content-Type": "application/json" } : {}),
           Accept: "application/json",
@@ -409,7 +452,7 @@ export class DeDiApiClient {
       }
       if (error instanceof DOMException && error.name === "AbortError") {
         throw new DeDiClientError(
-          `DeDi API request timed out after ${this.config.timeoutMs}ms`,
+          `DeDi API request timed out after ${this.effectiveTimeoutMs}ms`,
           504,
         );
       }
@@ -421,6 +464,71 @@ export class DeDiApiClient {
       clearTimeout(timeoutId);
     }
   }
+
+  /**
+   * SSRF guard: resolve the hostname of the fully-qualified request
+   * URL and refuse to proceed if any returned address is private,
+   * loopback, or link-local. Run on every request (not just at
+   * construction) so that DNS rebinding between calls cannot sneak
+   * traffic into internal networks.
+   */
+  private async assertHostIsPublic(requestUrl: string): Promise<void> {
+    let parsed: URL;
+    try {
+      parsed = new URL(requestUrl);
+    } catch {
+      throw new DeDiClientError("DeDi request URL is malformed", 400);
+    }
+
+    const hostname = stripIpv6Brackets(parsed.hostname);
+
+    // Literal IP — no DNS lookup, check directly.
+    if (isIP(hostname) !== 0) {
+      if (isPrivateIP(hostname)) {
+        throw new DeDiClientError(
+          "DeDi baseUrl must not target a private, loopback, or link-local IP",
+          400,
+        );
+      }
+      return;
+    }
+
+    // Hostname — resolve both A and AAAA records and require every
+    // returned IP to be public. A single private record is enough
+    // to reject the request.
+    const [v4Result, v6Result] = await Promise.allSettled([
+      dns.resolve4(hostname),
+      dns.resolve6(hostname),
+    ]);
+    const addresses = [
+      ...(v4Result.status === "fulfilled" ? v4Result.value : []),
+      ...(v6Result.status === "fulfilled" ? v6Result.value : []),
+    ];
+
+    if (addresses.length === 0) {
+      throw new DeDiClientError(`DeDi host did not resolve: ${hostname}`, 502);
+    }
+
+    for (const ip of addresses) {
+      if (isPrivateIP(ip)) {
+        throw new DeDiClientError(
+          "DeDi baseUrl must not target a private, loopback, or link-local IP",
+          400,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * IPv6 hostnames parsed by `URL` retain their surrounding brackets
+ * in `url.hostname`. `isIP`/`isPrivateIP` expect bare addresses.
+ */
+function stripIpv6Brackets(hostname: string): string {
+  if (hostname.startsWith("[") && hostname.endsWith("]")) {
+    return hostname.slice(1, -1);
+  }
+  return hostname;
 }
 
 function enc(value: string): string {
