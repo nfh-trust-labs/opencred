@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node scripts/fetch-and-embed-schemas.mjs && tsc",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },

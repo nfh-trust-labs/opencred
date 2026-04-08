@@ -1,79 +1,26 @@
 export type {
   SchemaDefinition,
+  SchemaSource,
   ValidationResult,
   ValidationFieldError,
   SchemaManifest,
   SchemaManifestEntry,
-  SchemaUpdateResult,
 } from "./types.js";
 export { SchemaRegistry } from "./schema-registry.js";
 export { Validator } from "./validator.js";
-export {
-  checkForSchemaUpdates,
-  downloadSchema,
-  loadCachedSchemas,
-  saveSchemasToCache,
-  validateSchemaChecksum,
-} from "./updater.js";
-export {
-  educationSchema,
-  employmentSchema,
-  identitySchema,
-  healthSchema,
-  businessSchema,
-} from "./schemas/index.js";
 
 import { SchemaRegistry } from "./schema-registry.js";
-import {
-  educationSchema,
-  employmentSchema,
-  identitySchema,
-  healthSchema,
-  businessSchema,
-} from "./schemas/index.js";
-
+import { createBuiltInRegistry } from "./generated-registry.js";
 import type { SchemaManifest } from "./types.js";
 
+/**
+ * Create a registry pre-populated with every bundled credential schema.
+ * Schemas are loaded from the build-time generated module (schema-data.ts +
+ * generated-registry.ts), which is produced by scripts/fetch-and-embed-schemas.mjs
+ * during `pnpm build`. The runtime never fetches schemas remotely.
+ */
 export function createRegistry(): SchemaRegistry {
-  const registry = new SchemaRegistry();
-
-  registry.registerSchema(
-    "education",
-    educationSchema,
-    "https://schema.nfh.global/contexts/education/v1",
-    "1.0.0",
-    "2025-05-01T00:00:00Z",
-  );
-  registry.registerSchema(
-    "employment",
-    employmentSchema,
-    "https://schema.nfh.global/contexts/employment/v1",
-    "1.0.0",
-    "2025-05-01T00:00:00Z",
-  );
-  registry.registerSchema(
-    "identity",
-    identitySchema,
-    "https://schema.nfh.global/contexts/identity/v1",
-    "1.0.0",
-    "2025-05-01T00:00:00Z",
-  );
-  registry.registerSchema(
-    "health",
-    healthSchema,
-    "https://schema.nfh.global/contexts/health/v1",
-    "1.0.0",
-    "2025-05-01T00:00:00Z",
-  );
-  registry.registerSchema(
-    "business",
-    businessSchema,
-    "https://schema.nfh.global/contexts/business/v1",
-    "1.0.0",
-    "2025-05-01T00:00:00Z",
-  );
-
-  return registry;
+  return createBuiltInRegistry();
 }
 
 /**
@@ -81,6 +28,5 @@ export function createRegistry(): SchemaRegistry {
  * Convenience wrapper that creates a registry and returns its manifest.
  */
 export function getSchemaManifest(): SchemaManifest {
-  const registry = createRegistry();
-  return registry.getManifest();
+  return createRegistry().getManifest();
 }
