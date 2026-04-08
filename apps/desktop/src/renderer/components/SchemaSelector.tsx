@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { formatSchemaLabel } from "../utils/schema-label.js";
 
 interface SchemaField {
   name: string;
@@ -41,16 +42,6 @@ function extractFields(schema: Record<string, unknown>): SchemaField[] {
   }));
 }
 
-/** Map schema IDs to user-friendly display labels. */
-const SCHEMA_LABELS: Record<string, string> = {
-  education: "Education Credential",
-  employment: "Employment Credential",
-  identity: "Identity Credential",
-  health: "Health Credential",
-  business: "Business Credential",
-  "energy-prosumer": "Energy Prosumer",
-};
-
 export function SchemaSelector({ onSchemaSelect, selectedSchema }: Props) {
   const [schemaOptions, setSchemaOptions] = useState<SchemaOption[]>([]);
   const [selected, setSelected] = useState<string>(selectedSchema ?? "");
@@ -67,7 +58,7 @@ export function SchemaSelector({ onSchemaSelect, selectedSchema }: Props) {
       const options: SchemaOption[] = [
         ...builtInResponse.schemas.map((id) => ({
           id,
-          label: SCHEMA_LABELS[id] ?? id,
+          label: formatSchemaLabel(id),
           isCustom: false,
         })),
         ...customResponse.schemas.map((cs) => ({

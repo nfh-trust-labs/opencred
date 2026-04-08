@@ -17,6 +17,7 @@ import type { KeyMetadata } from "../../shared/ipc-types";
 import { Badge } from "./ui/Badge";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
+import { formatSchemaLabel } from "../utils/schema-label.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,15 +33,6 @@ interface SchemaField {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Map schema IDs to user-friendly display labels. */
-const SCHEMA_LABELS: Record<string, string> = {
-  education: "Education Credential",
-  employment: "Employment Credential",
-  identity: "Identity Credential",
-  health: "Health Credential",
-  business: "Business Credential",
-};
 
 /** Extract field information from a JSON Schema definition. */
 function extractFields(schema: Record<string, unknown>): SchemaField[] {
@@ -497,7 +489,7 @@ export function IssuePage() {
             <option value="">Select a credential type...</option>
             {schemas.map((id) => (
               <option key={id} value={id}>
-                {SCHEMA_LABELS[id] ?? id}
+                {formatSchemaLabel(id)}
               </option>
             ))}
           </select>

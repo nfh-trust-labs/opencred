@@ -17,6 +17,7 @@ import { BatchIssuance } from "./BatchIssuance";
 import { BlankCredentialBuilder } from "./BlankCredentialBuilder";
 import { MoreOptions } from "./MoreOptions";
 import { formatKeyDate } from "../utils/format";
+import { formatSchemaLabel } from "../utils/schema-label.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,15 +42,6 @@ interface Props {
 // ---------------------------------------------------------------------------
 // Helpers (reused from IssuePage)
 // ---------------------------------------------------------------------------
-
-const SCHEMA_LABELS: Record<string, string> = {
-  education: "Education Credential",
-  employment: "Employment Credential",
-  identity: "Identity Credential",
-  health: "Health Credential",
-  business: "Business Credential",
-  "energy-prosumer": "Energy Prosumer",
-};
 
 function extractFields(schema: Record<string, unknown>): SchemaField[] {
   const properties = schema["properties"] as Record<string, Record<string, unknown>> | undefined;
@@ -972,7 +964,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
     }
 
     // Built-in schema
-    setSchemaName(SCHEMA_LABELS[schemaId] ?? schemaId);
+    setSchemaName(formatSchemaLabel(schemaId));
     try {
       const response = await window.opencred.getSchema({ schemaId });
       setSchemaFields(extractFields(response.schema));
