@@ -169,17 +169,56 @@ static bool IsKeyExportable(PCCERT_CONTEXT certCtx) {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: Parse a single hex character into its nibble value.
+// Returns the value in [0,15] for valid [0-9a-fA-F], or -1 otherwise.
+// ---------------------------------------------------------------------------
+static int HexCharToNibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+    if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+    return -1;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Decode a 64-character hex SHA-256 thumbprint into 32 bytes.
+// Returns true on success, false if the input contains any non-hex character
+// or has the wrong length. On failure the output buffer is left zeroed.
+//
+// SECURITY: Replaces an earlier sscanf-based implementation that would leave
+// hashBytes partially uninitialised on non-hex input, leaking stack memory
+// into the certificate store search blob. This function validates every
+// character explicitly and never reads past the input buffer (no NUL scan
+// beyond the 64 expected characters).
+// ---------------------------------------------------------------------------
+static bool DecodeHexThumbprint(const std::string &thumbprint, BYTE (&hashBytes)[32]) {
+    ZeroMemory(hashBytes, sizeof(hashBytes));
+
+    if (thumbprint.size() != 64) return false;
+
+    const char *data = thumbprint.c_str();
+    for (size_t i = 0; i < 32; i++) {
+        int hi = HexCharToNibble(data[i * 2]);
+        int lo = HexCharToNibble(data[i * 2 + 1]);
+        if (hi < 0 || lo < 0) {
+            ZeroMemory(hashBytes, sizeof(hashBytes));
+            return false;
+        }
+        hashBytes[i] = (BYTE)((hi << 4) | lo);
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // Helper: Find certificate by thumbprint
 // ---------------------------------------------------------------------------
 static PCCERT_CONTEXT FindCertByThumbprint(HCERTSTORE store, const std::string &thumbprint) {
-    // Convert hex thumbprint to bytes
-    if (thumbprint.size() != 64) return nullptr;
-
+    // Convert hex thumbprint to bytes. DecodeHexThumbprint validates both
+    // length (== 64) and character set ([0-9a-fA-F]) before populating the
+    // search blob so we never hand uninitialised stack memory to
+    // CertFindCertificateInStore.
     BYTE hashBytes[32];
-    for (int i = 0; i < 32; i++) {
-        unsigned int byte;
-        sscanf(thumbprint.c_str() + i * 2, "%02x", &byte);
-        hashBytes[i] = (BYTE)byte;
+    if (!DecodeHexThumbprint(thumbprint, hashBytes)) {
+        return nullptr;
     }
 
     CRYPT_HASH_BLOB hashBlob;

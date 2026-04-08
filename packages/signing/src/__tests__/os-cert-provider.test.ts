@@ -16,7 +16,11 @@
 import { describe, it, expect } from "vitest";
 import { CryptoError } from "@opencred/shared";
 import { createMacOsCertProvider, type MacOsNativeAddon } from "../macos-cert-provider.js";
-import { createWindowsCertProvider, type WindowsNativeAddon } from "../windows-cert-provider.js";
+import {
+  createWindowsCertProvider,
+  isValidThumbprint,
+  type WindowsNativeAddon,
+} from "../windows-cert-provider.js";
 import type { OsCertInfo } from "../os-cert-types.js";
 
 // ---------------------------------------------------------------------------
@@ -385,7 +389,10 @@ describe("Windows Certificate Provider", () => {
       const testData = new Uint8Array(64);
       testData.fill(0xef);
 
-      const signature = await provider.sign("win-cert-001", testData);
+      const signature = await provider.sign(
+        "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+        testData,
+      );
       expect(signature).toBeInstanceOf(Uint8Array);
       expect(signature.length).toBe(64);
     });
@@ -394,7 +401,9 @@ describe("Windows Certificate Provider", () => {
       const addon = createMockWindowsAddon();
       const provider = createWindowsCertProvider(addon);
 
-      const publicKey = await provider.getPublicKey("win-cert-001");
+      const publicKey = await provider.getPublicKey(
+        "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+      );
       expect(publicKey).toBeInstanceOf(Uint8Array);
       expect(publicKey.length).toBe(33);
       expect(publicKey[0]).toBe(0x02);
@@ -415,20 +424,24 @@ describe("Windows Certificate Provider", () => {
       const provider = createWindowsCertProvider(addon);
 
       const testData = new Uint8Array(32);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(CryptoError);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(
-        /Windows CNG signing operation failed/,
-      );
+      await expect(
+        provider.sign("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff", testData),
+      ).rejects.toThrow(CryptoError);
+      await expect(
+        provider.sign("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff", testData),
+      ).rejects.toThrow(/Windows CNG signing operation failed/);
     });
 
     it("should throw CryptoError on getPublicKey failure", async () => {
       const addon = createMockWindowsAddon({ throwOnGetPublicKey: true });
       const provider = createWindowsCertProvider(addon);
 
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(CryptoError);
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(
-        /Failed to extract public key from Windows certificate/,
-      );
+      await expect(
+        provider.getPublicKey("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"),
+      ).rejects.toThrow(CryptoError);
+      await expect(
+        provider.getPublicKey("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"),
+      ).rejects.toThrow(/Failed to extract public key from Windows certificate/);
     });
 
     it("should throw CryptoError for empty certificateId on sign", async () => {
@@ -455,13 +468,17 @@ describe("Windows Certificate Provider", () => {
       const provider = createWindowsCertProvider(null);
 
       const testData = new Uint8Array(32);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(CryptoError);
+      await expect(
+        provider.sign("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff", testData),
+      ).rejects.toThrow(CryptoError);
     });
 
     it("should throw CryptoError on getPublicKey", async () => {
       const provider = createWindowsCertProvider(null);
 
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(CryptoError);
+      await expect(
+        provider.getPublicKey("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"),
+      ).rejects.toThrow(CryptoError);
     });
   });
 
@@ -475,8 +492,12 @@ describe("Windows Certificate Provider", () => {
       const provider = createWindowsCertProvider(addon);
 
       const testData = new Uint8Array(32);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(CryptoError);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(/empty signature/);
+      await expect(
+        provider.sign("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff", testData),
+      ).rejects.toThrow(CryptoError);
+      await expect(
+        provider.sign("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff", testData),
+      ).rejects.toThrow(/empty signature/);
     });
 
     it("should reject empty public keys", async () => {
@@ -487,8 +508,104 @@ describe("Windows Certificate Provider", () => {
       };
       const provider = createWindowsCertProvider(addon);
 
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(CryptoError);
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(/empty public key/);
+      await expect(
+        provider.getPublicKey("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"),
+      ).rejects.toThrow(CryptoError);
+      await expect(
+        provider.getPublicKey("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"),
+      ).rejects.toThrow(/empty public key/);
+    });
+  });
+
+  describe("thumbprint validation (defence-in-depth for windows-cng.cpp)", () => {
+    it("should reject a thumbprint that is too short", async () => {
+      const addon = createMockWindowsAddon();
+      const provider = createWindowsCertProvider(addon);
+
+      const testData = new Uint8Array(32);
+      await expect(provider.sign("abcd1234", testData)).rejects.toThrow(CryptoError);
+      await expect(provider.sign("abcd1234", testData)).rejects.toThrow(
+        /Invalid certificate thumbprint format/,
+      );
+    });
+
+    it("should reject a thumbprint that is too long", async () => {
+      const addon = createMockWindowsAddon();
+      const provider = createWindowsCertProvider(addon);
+
+      const testData = new Uint8Array(32);
+      const tooLong = "a".repeat(65);
+      await expect(provider.sign(tooLong, testData)).rejects.toThrow(
+        /Invalid certificate thumbprint format/,
+      );
+    });
+
+    it("should reject a 64-char thumbprint containing a non-hex character", async () => {
+      const addon = createMockWindowsAddon();
+      const provider = createWindowsCertProvider(addon);
+
+      const testData = new Uint8Array(32);
+      // 63 hex chars + one non-hex (z) — exactly 64 chars total so the length
+      // check alone would not catch it. Mirrors the unchecked sscanf case in the C++ addon.
+      const badHex = "z" + "a".repeat(63);
+      await expect(provider.sign(badHex, testData)).rejects.toThrow(
+        /Invalid certificate thumbprint format/,
+      );
+      await expect(provider.getPublicKey(badHex)).rejects.toThrow(
+        /Invalid certificate thumbprint format/,
+      );
+    });
+
+    it("should reject a 64-char thumbprint containing an embedded NUL", async () => {
+      const addon = createMockWindowsAddon();
+      const provider = createWindowsCertProvider(addon);
+
+      const testData = new Uint8Array(32);
+      const withNul = "a".repeat(32) + "\u0000" + "a".repeat(31);
+      await expect(provider.sign(withNul, testData)).rejects.toThrow(
+        /Invalid certificate thumbprint format/,
+      );
+    });
+
+    it("should reject a thumbprint containing a non-ASCII character", async () => {
+      const addon = createMockWindowsAddon();
+      const provider = createWindowsCertProvider(addon);
+
+      // Cyrillic \u0430 looks like ASCII \u0061 but is not in [0-9a-fA-F].
+      const testData = new Uint8Array(32);
+      const badChar = "\u0430" + "a".repeat(63);
+      await expect(provider.sign(badChar, testData)).rejects.toThrow(
+        /Invalid certificate thumbprint format/,
+      );
+    });
+
+    it("should accept both lowercase and uppercase hex thumbprints", async () => {
+      const addon = createMockWindowsAddon();
+      const provider = createWindowsCertProvider(addon);
+
+      const testData = new Uint8Array(32);
+      const lower = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+      const upper = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
+      const mixed = "0123456789AbCdEf0123456789AbCdEf0123456789AbCdEf0123456789AbCdEf";
+
+      await expect(provider.sign(lower, testData)).resolves.toBeInstanceOf(Uint8Array);
+      await expect(provider.sign(upper, testData)).resolves.toBeInstanceOf(Uint8Array);
+      await expect(provider.sign(mixed, testData)).resolves.toBeInstanceOf(Uint8Array);
+    });
+
+    it("should drop malformed thumbprints in getCertificateChain without calling addon", async () => {
+      let called = false;
+      const addon = createMockWindowsAddon({ certChain: mockCertChain });
+      const origChain = addon.getCertificateChain!;
+      addon.getCertificateChain = (id: string) => {
+        called = true;
+        return origChain(id);
+      };
+      const provider = createWindowsCertProvider(addon);
+
+      const chain = await provider.getCertificateChain!("cert-001");
+      expect(chain).toEqual([]);
+      expect(called).toBe(false);
     });
   });
 
@@ -497,7 +614,9 @@ describe("Windows Certificate Provider", () => {
       const addon = createMockWindowsAddon({ certChain: mockCertChain });
       const provider = createWindowsCertProvider(addon);
 
-      const chain = await provider.getCertificateChain!("win-cert-001");
+      const chain = await provider.getCertificateChain!(
+        "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+      );
       expect(chain).toEqual(mockCertChain);
       expect(chain).toHaveLength(2);
     });
@@ -506,7 +625,9 @@ describe("Windows Certificate Provider", () => {
       const addon = createMockWindowsAddon(); // No getCertificateChain
       const provider = createWindowsCertProvider(addon);
 
-      const chain = await provider.getCertificateChain!("win-cert-001");
+      const chain = await provider.getCertificateChain!(
+        "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+      );
       expect(chain).toEqual([]);
     });
 
@@ -514,8 +635,59 @@ describe("Windows Certificate Provider", () => {
       const addon = createMockWindowsAddon({ throwOnGetCertChain: true });
       const provider = createWindowsCertProvider(addon);
 
-      const chain = await provider.getCertificateChain!("win-cert-001");
+      const chain = await provider.getCertificateChain!(
+        "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+      );
       expect(chain).toEqual([]);
+    });
+  });
+
+  describe("isValidThumbprint helper", () => {
+    it("should accept 64-char lowercase hex", () => {
+      expect(
+        isValidThumbprint("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+      ).toBe(true);
+    });
+
+    it("should accept 64-char uppercase hex", () => {
+      expect(
+        isValidThumbprint("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"),
+      ).toBe(true);
+    });
+
+    it("should reject strings that are too short", () => {
+      expect(isValidThumbprint("abcd")).toBe(false);
+      expect(isValidThumbprint("")).toBe(false);
+    });
+
+    it("should reject strings that are too long", () => {
+      expect(isValidThumbprint("a".repeat(65))).toBe(false);
+      expect(isValidThumbprint("a".repeat(128))).toBe(false);
+    });
+
+    it("should reject 64-char strings with non-hex characters", () => {
+      // 63 hex + one non-hex
+      expect(isValidThumbprint("z" + "a".repeat(63))).toBe(false);
+      expect(isValidThumbprint("g" + "a".repeat(63))).toBe(false);
+      expect(isValidThumbprint("-" + "a".repeat(63))).toBe(false);
+      expect(isValidThumbprint(" " + "a".repeat(63))).toBe(false);
+    });
+
+    it("should reject embedded NUL characters", () => {
+      expect(isValidThumbprint("a".repeat(32) + "\u0000" + "a".repeat(31))).toBe(false);
+    });
+
+    it("should reject non-string inputs", () => {
+      expect(isValidThumbprint(null)).toBe(false);
+      expect(isValidThumbprint(undefined)).toBe(false);
+      expect(isValidThumbprint(123)).toBe(false);
+      expect(isValidThumbprint([])).toBe(false);
+      expect(isValidThumbprint({})).toBe(false);
+    });
+
+    it("should reject non-ASCII lookalikes", () => {
+      // Cyrillic \u0430 is not in [0-9a-fA-F] even though it looks like ASCII \u0061.
+      expect(isValidThumbprint("\u0430" + "a".repeat(63))).toBe(false);
     });
   });
 });

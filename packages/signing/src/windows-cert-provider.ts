@@ -61,6 +61,33 @@ import type { OsCertProvider, OsCertInfo } from "./os-cert-types.js";
 const require = createRequire(import.meta.url);
 
 /**
+ * SHA-256 thumbprint validation regex.
+ *
+ * Windows CNG identifies signing certificates by the SHA-256 hash of their
+ * DER encoding, serialised as a 64-character hex string. Any value that does
+ * not match exactly is rejected at the JavaScript boundary so that malformed
+ * thumbprints never reach the native addon.
+ *
+ * SECURITY: This is the JavaScript half of a defence-in-depth check. The
+ * native addon (windows-cng.cpp :: DecodeHexThumbprint) performs the same
+ * validation in C++ before populating the certificate store search blob, so
+ * neither layer trusts the other.
+ */
+const THUMBPRINT_REGEX = /^[0-9a-fA-F]{64}$/;
+
+/**
+ * Validate that a certificate ID is a well-formed SHA-256 thumbprint.
+ * Exported for use in tests; also exercised implicitly by the provider
+ * methods below.
+ *
+ * @param certificateId - The value to validate.
+ * @returns true if the value is a 64-character hex string.
+ */
+export function isValidThumbprint(certificateId: unknown): certificateId is string {
+  return typeof certificateId === "string" && THUMBPRINT_REGEX.test(certificateId);
+}
+
+/**
  * Interface for the native Windows CNG addon module.
  *
  * When a real N-API addon is built, it should export these functions.
@@ -161,6 +188,12 @@ export function createWindowsCertProvider(nativeAddon?: WindowsNativeAddon | nul
         throw new CryptoError("Certificate ID is required for signing");
       }
 
+      if (!isValidThumbprint(certificateId)) {
+        // Reject malformed thumbprints before calling into the native addon.
+        // SECURITY: defence-in-depth for windows-cng.cpp :: DecodeHexThumbprint.
+        throw new CryptoError("Invalid certificate thumbprint format");
+      }
+
       try {
         const result = addon.signWithCertificate(certificateId, Buffer.from(data));
         const signature = new Uint8Array(result);
@@ -185,6 +218,11 @@ export function createWindowsCertProvider(nativeAddon?: WindowsNativeAddon | nul
         throw new CryptoError("Certificate ID is required");
       }
 
+      if (!isValidThumbprint(certificateId)) {
+        // Reject malformed thumbprints before calling into the native addon.
+        throw new CryptoError("Invalid certificate thumbprint format");
+      }
+
       try {
         const result = addon.getPublicKey(certificateId);
         const publicKey = new Uint8Array(result);
@@ -202,6 +240,10 @@ export function createWindowsCertProvider(nativeAddon?: WindowsNativeAddon | nul
 
     async getCertificateChain(certificateId: string): Promise<string[]> {
       if (!addon?.getCertificateChain) {
+        return [];
+      }
+      if (!isValidThumbprint(certificateId)) {
+        // Reject malformed thumbprints before calling into the native addon.
         return [];
       }
       try {
