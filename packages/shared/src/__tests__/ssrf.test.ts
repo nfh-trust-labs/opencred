@@ -35,12 +35,39 @@ describe("isPrivateIP", () => {
     expect(isPrivateIP(ip)).toBe(expected);
   });
 
+  // IPv4 CGNAT / benchmark / multicast / reserved ranges
+  it.each([
+    ["100.64.0.1", true], // CGNAT (RFC 6598)
+    ["100.127.255.255", true], // CGNAT upper bound
+    ["198.18.0.1", true], // benchmark testing (RFC 2544)
+    ["198.19.255.255", true], // benchmark testing upper bound
+    ["224.0.0.1", true], // multicast (RFC 5771)
+    ["239.255.255.255", true], // multicast upper bound
+    ["240.0.0.1", true], // reserved/future (RFC 1112)
+    ["255.255.255.255", true], // reserved/future upper bound
+  ])("IPv4 extended-private %s → %s", (ip, expected) => {
+    expect(isPrivateIP(ip)).toBe(expected);
+  });
+
+  // IPs just outside the extended ranges — must remain public
+  it.each([
+    ["100.63.255.255", false], // just below CGNAT
+    ["100.128.0.0", false], // just above CGNAT
+    ["198.17.255.255", false], // just below benchmark range
+    ["198.20.0.0", false], // just above benchmark range
+    ["223.255.255.255", false], // just below multicast
+  ])("IPv4 extended-public %s → %s", (ip, expected) => {
+    expect(isPrivateIP(ip)).toBe(expected);
+  });
+
   // IPv6 private ranges
   it.each([
     ["::1", true],
     ["fc00::1", true],
     ["fd12::1", true],
     ["fe80::1", true],
+    ["ff00::1", true], // multicast
+    ["ff02::1", true], // link-local multicast (all nodes)
   ])("IPv6 %s → %s", (ip, expected) => {
     expect(isPrivateIP(ip)).toBe(expected);
   });

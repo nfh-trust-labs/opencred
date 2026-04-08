@@ -27,6 +27,10 @@ const PRIVATE_IPV4_PREFIXES = ["10.", "127.", "0.", "169.254."] as const;
  * - 169.254.0.0/16 (link-local)
  * - 172.16.0.0/12 (RFC 1918)
  * - 192.168.0.0/16 (RFC 1918)
+ * - 100.64.0.0/10 (CGNAT, RFC 6598)
+ * - 198.18.0.0/15 (benchmark testing, RFC 2544)
+ * - 224.0.0.0/4 (multicast, RFC 5771)
+ * - 240.0.0.0/4 (reserved/future, RFC 1112)
  */
 function isPrivateIPv4(ip: string): boolean {
   for (const prefix of PRIVATE_IPV4_PREFIXES) {
@@ -42,6 +46,23 @@ function isPrivateIPv4(ip: string): boolean {
   // 192.168.0.0/16
   if (ip.startsWith("192.168.")) return true;
 
+  // 100.64.0.0/10 (CGNAT, RFC 6598) — 100.64.0.0 - 100.127.255.255
+  if (ip.startsWith("100.")) {
+    const secondOctet = parseInt(ip.split(".")[1], 10);
+    if (secondOctet >= 64 && secondOctet <= 127) return true;
+  }
+
+  // 198.18.0.0/15 (benchmark testing, RFC 2544) — 198.18.0.0 - 198.19.255.255
+  if (ip.startsWith("198.")) {
+    const secondOctet = parseInt(ip.split(".")[1], 10);
+    if (secondOctet === 18 || secondOctet === 19) return true;
+  }
+
+  // 224.0.0.0/4 (multicast, RFC 5771) and 240.0.0.0/4 (reserved, RFC 1112)
+  // First octet 224-255 covers both ranges.
+  const firstOctet = parseInt(ip.split(".")[0], 10);
+  if (firstOctet >= 224 && firstOctet <= 255) return true;
+
   return false;
 }
 
@@ -52,12 +73,14 @@ function isPrivateIPv4(ip: string): boolean {
  * - ::1 (loopback)
  * - fc00::/7 (unique local, covers fc00:: through fdff::)
  * - fe80::/10 (link-local)
+ * - ff00::/8 (multicast)
  */
 function isPrivateIPv6(ip: string): boolean {
   const normalized = ip.toLowerCase();
   if (normalized === "::1") return true;
   if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
   if (normalized.startsWith("fe80:")) return true;
+  if (normalized.startsWith("ff")) return true;
 
   // IPv4-mapped IPv6 — two forms:
   // 1. Dotted: ::ffff:192.168.1.1
