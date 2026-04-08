@@ -515,4 +515,3 @@ describe("verifyCredential — X.509 chain check wiring (#316)", () => {
     expect(x509Check?.passed).toBe(false);
   });
 });
-

@@ -216,10 +216,7 @@ function checkKeyBinding(leafCert: X509Certificate, didPublicKey: KeyObject): bo
  * Validate the certificate chain's temporal bounds at a specific point in time.
  * Each certificate must be valid (not before / not after) at the given time.
  */
-function checkChainTemporal(
-  certs: X509Certificate[],
-  proofTime: Date,
-): string | null {
+function checkChainTemporal(certs: X509Certificate[], proofTime: Date): string | null {
   for (let i = 0; i < certs.length; i++) {
     const cert = certs[i];
     const notBefore = new Date(cert.validFrom);
@@ -370,7 +367,8 @@ export async function checkX509Chain(
     return {
       name: "x509-chain",
       passed: false,
-      detail: "Credential has x5c but no proof.verificationMethod — cannot bind certificate to issuer",
+      detail:
+        "Credential has x5c but no proof.verificationMethod — cannot bind certificate to issuer",
     };
   }
 
@@ -379,14 +377,16 @@ export async function checkX509Chain(
     return {
       name: "x509-chain",
       passed: false,
-      detail: "Unable to confirm leaf certificate matches credential issuer (DID could not be resolved or has no matching verification method)",
+      detail:
+        "Unable to confirm leaf certificate matches credential issuer (DID could not be resolved or has no matching verification method)",
     };
   }
   if (!checkKeyBinding(certs[0], didPubKey)) {
     return {
       name: "x509-chain",
       passed: false,
-      detail: "X.509 chain invalid: leaf certificate public key does not match the signing DID's public key",
+      detail:
+        "X.509 chain invalid: leaf certificate public key does not match the signing DID's public key",
     };
   }
 
@@ -411,7 +411,8 @@ export async function checkX509Chain(
     return {
       name: "x509-chain",
       passed: false,
-      detail: "X.509 chain check requires a configured trust anchor (set CSCA_TRUST_STORE_PATH or pass trustAnchors to the verifier)",
+      detail:
+        "X.509 chain check requires a configured trust anchor (set CSCA_TRUST_STORE_PATH or pass trustAnchors to the verifier)",
     };
   }
 

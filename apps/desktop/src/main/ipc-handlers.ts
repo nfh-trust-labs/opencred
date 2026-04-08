@@ -692,8 +692,11 @@ async function handleVerifyCredential(
         | Record<string, unknown>
         | undefined) ?? {};
     const cscaTrustStorePath =
-      process.env.CSCA_TRUST_STORE_PATH ?? (verifyPrefs["cscaTrustStorePath"] as string | undefined);
-    const trustAnchors = cscaTrustStorePath ? await loadCscaTrustStore(cscaTrustStorePath) : undefined;
+      process.env.CSCA_TRUST_STORE_PATH ??
+      (verifyPrefs["cscaTrustStorePath"] as string | undefined);
+    const trustAnchors = cscaTrustStorePath
+      ? await loadCscaTrustStore(cscaTrustStorePath)
+      : undefined;
 
     const verificationResult = await verifyCredential(verificationInput, {
       didResolver: compositeResolver,
