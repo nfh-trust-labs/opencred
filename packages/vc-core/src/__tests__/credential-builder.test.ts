@@ -756,6 +756,11 @@ describe("Document Loader", () => {
 
     expect(urls).toContain(W3C_CREDENTIALS_V2_CONTEXT);
     expect(urls).toContain(DATA_INTEGRITY_V1_CONTEXT);
-    expect(urls.size).toBe(8);
+    // v1 schema library: 3 base (W3C credentials/data-integrity + OpenCred
+    // delegation) + 2 upstream (Open Badges 3.0, Traceability v1) + 8
+    // OpenCred-defined credential contexts (electricity, immunization,
+    // prescription, test-result, insurance-policy, functional-identity,
+    // employment-offer-letter, business-entity).
+    expect(urls.size).toBe(13);
   });
 });

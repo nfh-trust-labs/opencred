@@ -116,7 +116,7 @@ describe("buildAndSign — full offline round-trip", () => {
 
     // Verify the unsigned credential structure
     expect(unsignedCredential).toBeDefined();
-    expect(unsignedCredential.issuer).toBe("did:web:university.example");
+    expect(unsignedCredential.issuer).toBe("did:web:authority.example");
     expect(unsignedCredential.credentialSubject.name).toBe("Jane Doe");
   });
 

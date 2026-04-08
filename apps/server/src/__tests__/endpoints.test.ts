@@ -7,7 +7,7 @@ import {
   createTestApp,
   generateTestKey,
   VALID_ISSUE_REQUEST,
-  EDUCATION_SUBJECT,
+  FUNCTIONAL_IDENTITY_SUBJECT,
 } from "./helpers.js";
 import { setActiveSigner } from "../signing/key-manager.js";
 import type { Hono } from "hono";
@@ -220,7 +220,7 @@ describe("POST /credentials/revocation-hash", () => {
           "@context": ["https://www.w3.org/ns/credentials/v2"],
           type: ["VerifiableCredential"],
           issuer: "did:key:test",
-          credentialSubject: EDUCATION_SUBJECT,
+          credentialSubject: FUNCTIONAL_IDENTITY_SUBJECT,
         },
       }),
     });

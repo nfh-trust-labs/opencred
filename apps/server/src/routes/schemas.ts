@@ -35,7 +35,11 @@ schemas.get("/schemas", (c) => {
   return c.json({ schemas: schemaList });
 });
 
-schemas.get("/schemas/:id", (c) => {
+// Schema IDs in the v1 catalogue contain slashes (e.g. "functional-identity/v1",
+// "traceability/commercial-invoice/v1", "dif/verified-person/v1"). Hono's
+// default `:id` param does not match across `/`, so we use a regex param
+// (`{.+}`) that captures the rest of the path.
+schemas.get("/schemas/:id{.+}", (c) => {
   const reg = getRegistry();
   const id = c.req.param("id");
 
