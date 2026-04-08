@@ -271,6 +271,61 @@ credentials.post("/credentials/issue", async (c) => {
 
 // --- Verify endpoint ---
 
+/**
+ * Sanitize a verification result for inclusion in an HTTP response.
+ *
+ * SECURITY: Per CLAUDE.md invariant #5 ("No secrets in error responses"), the
+ * server response MUST NOT include the raw `detail` strings produced by the
+ * verification engine. Those strings are intended for trusted, local callers
+ * (e.g. the desktop client where the user owns both sides) and may contain:
+ *   - the operator's CSCA trust anchor subject DN (internal config);
+ *   - underlying X.509 / crypto parser error messages;
+ *   - file-system or path-shaped state strings.
+ *
+ * An unauthenticated remote caller to /credentials/verify has no business
+ * seeing any of that. We drop `detail` entirely and expose only the stable
+ * `name` + `passed` fields, plus the top-level `code` enum which already has
+ * a fixed vocabulary (VALID / REVOKED / EXPIRED / INVALID / UNRESOLVABLE /
+ * CONTEXT_MISSING) suitable for external consumption.
+ *
+ * This helper is scoped to the server route. The desktop IPC handler returns
+ * the full result shape (with `detail`) — desktop users have full trust and
+ * need the extra context to debug failures.
+ *
+ * Exported only for unit testing — do not import from elsewhere in the
+ * server. The contract is "strip detail", not "reformat checks".
+ */
+export function sanitizeChecksForServerResponse(
+  checks: ReadonlyArray<{ name: string; passed: boolean; detail?: string }>,
+): Array<{ name: string; passed: boolean }> {
+  return checks.map(({ name, passed }) => ({ name, passed }));
+}
+
+/**
+ * Build the sanitized verify-endpoint response body from a raw verification
+ * result. Extracted so unit tests can drive it without spinning up the full
+ * route — see the "response sanitization" block in `endpoints.test.ts`.
+ *
+ * SECURITY: see `sanitizeChecksForServerResponse` above.
+ */
+export function buildVerifyResponseBody(result: {
+  verified: boolean;
+  code: string;
+  checks: ReadonlyArray<{ name: string; passed: boolean; detail?: string }>;
+}): {
+  valid: boolean;
+  code: string;
+  message: string;
+  checks: Array<{ name: string; passed: boolean }>;
+} {
+  return {
+    valid: result.verified,
+    code: result.code,
+    message: result.verified ? "Credential is valid." : "Verification failed.",
+    checks: sanitizeChecksForServerResponse(result.checks),
+  };
+}
+
 credentials.post("/credentials/verify", async (c) => {
   const body = await c.req.json();
   const parsed = verifyRequestSchema.parse(body);
@@ -303,14 +358,13 @@ credentials.post("/credentials/verify", async (c) => {
     trustAnchors,
   });
 
-  return c.json({
-    valid: verificationResult.verified,
-    message: verificationResult.verified
-      ? "Credential is valid."
-      : (verificationResult.checks.find((check) => !check.passed)?.detail ??
-        "Verification failed."),
-    checks: verificationResult.checks,
-  });
+  // SECURITY: Do not leak `detail` strings or the name of the first failed
+  // check in the response message — those can include operator config (e.g.
+  // CSCA subject DN) or parser errors. Callers get the stable top-level
+  // `code` enum for programmatic handling instead. See
+  // `sanitizeChecksForServerResponse` / `buildVerifyResponseBody` above for
+  // the rationale.
+  return c.json(buildVerifyResponseBody(verificationResult));
 });
 
 export { credentials };
