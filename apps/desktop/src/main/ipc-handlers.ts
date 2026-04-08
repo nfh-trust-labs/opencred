@@ -122,10 +122,6 @@ import { BATCH_ROW_LIMIT } from "../shared/constants.js";
 import { DeDiPublishManager, createPublishManager, CONTEXT_REGISTRY, SCHEMA_REGISTRY } from "@opencred/dedi-client";
 import type { ContextRecord } from "@opencred/dedi-client";
 import { generateInlineContext } from "@opencred/vc-core";
-import {
-  runWithActiveSchemaContext,
-  deriveScopeForCredential,
-} from "./document-loader-with-cache.js";
 
 // ---------------------------------------------------------------------------
 // In-memory registries
@@ -475,20 +471,15 @@ async function handleBuildAndSign(
       // did:web DID's key, not the signer's internal did:key-based ID.
       const verificationMethod = deriveVerificationMethod(request.issuerDid, signer.id);
 
-      // Scope cached custom JSON-LD contexts to the in-flight schema for the
-      // duration of the signing call. This is the same defence as in
-      // local-signing-flow.ts `buildAndSign` — we inline the same pattern
-      // here because this path bypasses `buildAndSign` entirely. See
-      // `document-loader-with-cache.ts` for the full rationale.
-      const result = await runWithActiveSchemaContext(
-        request.schemaId ? [request.schemaId] : [],
-        () =>
-          signWithFormat(signer, unsigned, proofFormat, {
-            verificationMethod,
-            selectiveDisclosureClaims: request.selectiveDisclosureClaims,
-            vct,
-          }),
-      );
+      // Custom JSON-LD contexts are served by the shared document loader
+      // from a per-URL cache. The cache write path (handleCustomSchemaSave)
+      // rejects conflicts on content hash, so canonicalization can rely on
+      // the URL → document mapping being stable without per-call scoping.
+      const result = await signWithFormat(signer, unsigned, proofFormat, {
+        verificationMethod,
+        selectiveDisclosureClaims: request.selectiveDisclosureClaims,
+        vct,
+      });
       signedCredentialJson = result.signedOutput;
       isCompactToken = result.isCompactToken;
     } else {
@@ -643,29 +634,13 @@ async function handleVerifyCredential(
       ]),
     );
 
-    // Scope cached custom JSON-LD contexts to the schemas the credential
-    // actually claims to use. We derive the scope from the credential's
-    // `@context` array — for any URL in there that matches a custom
-    // schema's saved `dediContextUrl`, that schema is "in scope". This
-    // means: the verifier only honours contexts it has explicitly
-    // imported AND that the credential is referencing.
-    //
-    // For VC-JWT credentials we pass `verificationInput` (a string) so
-    // there is no `@context` to inspect — `deriveScopeForCredential` only
-    // looks at object inputs and returns an empty scope for strings,
-    // which is correct: VC-JWT does not run JSON-LD canonicalization.
-    const scopeSchemaIds =
-      typeof verificationInput === "object"
-        ? deriveScopeForCredential(verificationInput as Record<string, unknown>)
-        : [];
-
-    const verificationResult = await runWithActiveSchemaContext(
-      scopeSchemaIds,
-      () =>
-        verifyCredential(verificationInput, {
-          didResolver: compositeResolver,
-        }),
-    );
+    // Custom JSON-LD contexts are served by the shared document loader
+    // from a per-URL cache populated at schema-save time. Conflicts on the
+    // same URL are rejected at save time by content-hash comparison, so
+    // verification can rely on the URL → document mapping being stable.
+    const verificationResult = await verifyCredential(verificationInput, {
+      didResolver: compositeResolver,
+    });
 
     logger.info("Credential verified", { valid: verificationResult.verified, code: verificationResult.code });
     return {
@@ -1728,6 +1703,46 @@ function customSchemaSaveSuccess(entry: CustomSchemaEntry): CustomSchemaSaveResp
 }
 
 /**
+ * Compute the canonical content hash of a fetched JSON-LD context document.
+ * Two documents that serialise to the same JSON string hash to the same
+ * value — good enough to detect conflicts where one URL is caching two
+ * different bodies.
+ */
+function computeContextDocumentHash(document: Record<string, unknown>): string {
+  return createHash("sha256").update(JSON.stringify(document)).digest("hex");
+}
+
+/**
+ * Walk all stored custom schemas and return the first one (other than
+ * `selfId`) whose `dediContextUrl` matches `url` AND whose stored
+ * `cachedContextDocumentHash` differs from `newHash`. Entries with an
+ * absent hash are treated as "match anything" so pre-existing data
+ * written before the hash field was added does not trip the check —
+ * the next time that legacy entry is re-saved it will acquire a hash
+ * and start participating in conflict detection normally.
+ */
+function findContextHashConflict(
+  schemas: readonly CustomSchemaEntry[],
+  url: string,
+  newHash: string,
+  selfId: string | undefined,
+): CustomSchemaEntry | undefined {
+  for (const entry of schemas) {
+    if (entry.id === selfId) continue;
+    if (entry.dediContextUrl !== url) continue;
+    // Legacy entries (written before the hash field existed) are treated
+    // as matching — we cannot tell whether their document equals the new
+    // one, and refusing the save would strand the user. See the field
+    // doc in `store.ts` for rationale.
+    if (entry.cachedContextDocumentHash == null) continue;
+    if (entry.cachedContextDocumentHash !== newHash) {
+      return entry;
+    }
+  }
+  return undefined;
+}
+
+/**
  * CUSTOM_SCHEMA_SAVE — create or update a custom schema.
  *
  * If the request includes a JSON-LD context URL (or the schema gets a
@@ -1737,9 +1752,17 @@ function customSchemaSaveSuccess(entry: CustomSchemaEntry): CustomSchemaSaveResp
  * requests, allowing strict canonicalization (`safe: true`) to succeed.
  *
  * SECURITY: the fetch is gated by `fetchJsonLdContextDocument`, which
- * enforces HTTPS-only, SSRF protection, no redirects, and a 10-second
- * timeout. If the fetch fails, the schema is still saved but the response
- * carries an error so the UI can surface "could not fetch context".
+ * enforces HTTPS-only, no redirects, a 1 MiB body cap, a 10-second
+ * overall timeout, and strict JSON-LD shape validation. If the fetch
+ * fails, the schema is still saved but the response carries an error so
+ * the UI can surface "could not fetch context".
+ *
+ * Per JSON-LD 1.1 §3.1 a context URL is a global identifier — the same
+ * URL must always resolve to the same document. If a previously-saved
+ * schema already cached a different body under the same URL, this
+ * handler refuses the save and returns a conflict error. This keeps the
+ * shared URL → document cache consistent with the spec without needing
+ * per-schema execution-context scoping around canonicalization.
  */
 async function handleCustomSchemaSave(
   _event: IpcMainInvokeEvent,
@@ -1774,7 +1797,29 @@ async function handleCustomSchemaSave(
       if (targetContextUrl && !updated.cachedContextDocument) {
         const result = await fetchJsonLdContextDocument(targetContextUrl);
         if (result.document) {
+          const newHash = computeContextDocumentHash(result.document);
+          const conflict = findContextHashConflict(
+            schemas,
+            targetContextUrl,
+            newHash,
+            updated.id,
+          );
+          if (conflict) {
+            logger.warn("Custom schema context hash conflict (update)", {
+              schemaId: updated.id,
+              conflictingSchemaId: conflict.id,
+              url: targetContextUrl,
+            });
+            const response = customSchemaSaveSuccess(updated);
+            response.contextCached = false;
+            response.error =
+              `Context URL ${targetContextUrl} is already cached with a ` +
+              `different content hash by schema '${conflict.name}'. ` +
+              `Refusing to overwrite — JSON-LD context URLs must be global.`;
+            return response;
+          }
           updated.cachedContextDocument = result.document;
+          updated.cachedContextDocumentHash = newHash;
           updated.cachedContextFetchedAt = new Date().toISOString();
         } else {
           fetchError = result.error;
@@ -1859,7 +1904,32 @@ async function handleCustomSchemaSave(
   if (entry.dediContextUrl && !entry.cachedContextDocument) {
     const result = await fetchJsonLdContextDocument(entry.dediContextUrl);
     if (result.document) {
+      const newHash = computeContextDocumentHash(result.document);
+      const conflict = findContextHashConflict(
+        schemas,
+        entry.dediContextUrl,
+        newHash,
+        entry.id,
+      );
+      if (conflict) {
+        logger.warn("Custom schema context hash conflict (create)", {
+          schemaId: entry.id,
+          conflictingSchemaId: conflict.id,
+          url: entry.dediContextUrl,
+        });
+        // Refuse the save entirely — we don't want to persist a schema
+        // with an unresolvable context. The response mirrors other
+        // "fetch failed" outcomes so the UI renders a consistent shape.
+        const response = customSchemaSaveSuccess(entry);
+        response.contextCached = false;
+        response.error =
+          `Context URL ${entry.dediContextUrl} is already cached with a ` +
+          `different content hash by schema '${conflict.name}'. ` +
+          `Refusing to overwrite — JSON-LD context URLs must be global.`;
+        return response;
+      }
       entry.cachedContextDocument = result.document;
+      entry.cachedContextDocumentHash = newHash;
       entry.cachedContextFetchedAt = new Date().toISOString();
     } else {
       fetchError = result.error;

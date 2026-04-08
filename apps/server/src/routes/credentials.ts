@@ -127,9 +127,38 @@ credentials.post("/credentials/issue", async (c) => {
       statusListCredential,
     });
   }
-  if (parsed.credentialSchemaUrl) {
-    builder.setSchema({ id: parsed.credentialSchemaUrl, type: "JsonSchema" });
-  }
+  // Set credentialSchema link. Per W3C VCDM 2.0 §4.10, every issued
+  // credential SHOULD reference the JSON Schema it conforms to. Priority
+  // mirrors the desktop path (see `apps/desktop/src/signing/local-signing-flow.ts`
+  // and `apps/desktop/src/main/ipc-handlers.ts handleBuildAndSign`):
+  //   1. explicit credentialSchemaUrl from the request
+  //   2. the schema's own `$id` when it has one
+  //   3. a data-URI containing the base64-encoded schema as a last resort,
+  //      so the credential is never silently shipped without a schema
+  //      reference.
+  const credentialSchemaId = ((): string => {
+    if (parsed.credentialSchemaUrl) {
+      return parsed.credentialSchemaUrl;
+    }
+    let schemaObject: Record<string, unknown> = {};
+    try {
+      const def = getRegistry().getSchema(parsed.schemaId);
+      schemaObject = def.schema as Record<string, unknown>;
+      const id = (schemaObject as { $id?: unknown }).$id;
+      if (typeof id === "string" && id.length > 0) {
+        return id;
+      }
+    } catch {
+      // Schema not in the registry (e.g. inline/custom). Fall through to
+      // the data-URI fallback with whatever we have — an empty object is
+      // still a well-formed JSON Schema document.
+    }
+    const base64 = Buffer.from(JSON.stringify(schemaObject), "utf8").toString(
+      "base64",
+    );
+    return `data:application/schema+json;base64,${base64}`;
+  })();
+  builder.setSchema({ id: credentialSchemaId, type: "JsonSchema" });
 
   const unsigned = builder.build();
 

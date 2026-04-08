@@ -1,7 +1,7 @@
 /**
- * Tests for the custom-schema JSON-LD context fetching + caching flow,
- * the wrapped (per-schema-scoped) document loader, and the safety limits
- * applied to user-provided context URLs.
+ * Tests for the custom-schema JSON-LD context fetching + caching flow, the
+ * shared URL → document loader, and the safety limits applied to
+ * user-provided context URLs.
  *
  * Threat model note: the context URL is *user-pasted* in the custom-schema
  * setup form. SSRF gymnastics would be security theatre here (the user can
@@ -10,6 +10,12 @@
  * enforces what actually protects the user from their own paste:
  * HTTPS-only, no redirects, ~1 MiB body cap, hard 10s timeout, and strict
  * JSON-LD shape validation. These tests cover all of those.
+ *
+ * Content-hash rejection: per JSON-LD 1.1 §3.1 a context URL is a global
+ * identifier — the same URL must always resolve to the same document. The
+ * save handler enforces this by computing the SHA-256 of each fetched
+ * context body and refusing to accept a new schema whose URL is already
+ * cached with a different hash. These tests cover that enforcement.
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
@@ -113,8 +119,6 @@ const {
   uninstallCustomContextResolver,
   lookupCachedCustomContext,
   findCachedCustomContext,
-  runWithActiveSchemaContext,
-  deriveScopeForCredential,
 } = await import("../main/document-loader-with-cache.js");
 
 // ---------------------------------------------------------------------------
@@ -391,10 +395,10 @@ describe("Custom schema context fetching", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Per-schema scope on the cached context lookup
+// Cached context lookup (URL → document, no scoping)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("Per-schema scope on cached context lookup", () => {
+describe("Cached context lookup", () => {
   beforeEach(() => {
     storeData["customSchemas"] = [
       {
@@ -419,41 +423,20 @@ describe("Per-schema scope on cached context lookup", () => {
   });
 
   it("returns undefined for unknown URLs", () => {
-    runWithActiveSchemaContext(["custom:schema-a"], () => {
-      expect(lookupCachedCustomContext("https://nope.example/ctx")).toBeUndefined();
-    });
+    expect(lookupCachedCustomContext("https://nope.example/ctx")).toBeUndefined();
   });
 
-  it("returns undefined when no scope is active (safe default)", () => {
-    // Outside any runWithActiveSchemaContext block, the cache is invisible.
-    expect(lookupCachedCustomContext("https://schema.example/contexts/a")).toBeUndefined();
+  it("returns the cached context for a known URL", () => {
+    // JSON-LD 1.1 §3.1: a context URL is a global identifier. The lookup
+    // is a simple URL → document mapping — no per-schema scoping.
+    const cached = lookupCachedCustomContext("https://schema.example/contexts/a");
+    expect(cached).toEqual({ "@context": { "@vocab": "https://example.org/a#" } });
   });
 
-  it("returns the cached context for an in-scope schema URL", () => {
-    runWithActiveSchemaContext(["custom:schema-a"], () => {
-      const cached = lookupCachedCustomContext("https://schema.example/contexts/a");
-      expect(cached).toEqual({ "@context": { "@vocab": "https://example.org/a#" } });
-    });
-  });
-
-  it("does NOT serve schema A's cached context when only schema B is in scope", () => {
-    // Defence-in-depth: even though schema A has cached context X, while
-    // we're issuing/verifying schema B that cache must NOT be visible.
-    runWithActiveSchemaContext(["custom:schema-b"], () => {
-      expect(
-        lookupCachedCustomContext("https://schema.example/contexts/a"),
-      ).toBeUndefined();
-      expect(
-        lookupCachedCustomContext("https://schema.example/contexts/b"),
-      ).toBeDefined();
-    });
-  });
-
-  it("findCachedCustomContext bypasses scope (diagnostic-only)", () => {
-    // The diagnostic helper deliberately ignores the scope so the
-    // schema-management UI can answer "is this URL cached anywhere?"
+  it("findCachedCustomContext returns the owning schema id alongside the document", () => {
     const found = findCachedCustomContext("https://schema.example/contexts/a");
     expect(found?.schemaId).toBe("custom:schema-a");
+    expect(found?.document).toEqual({ "@context": { "@vocab": "https://example.org/a#" } });
   });
 
   it("falls through bundled contexts before custom ones", async () => {
@@ -467,75 +450,115 @@ describe("Per-schema scope on cached context lookup", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// deriveScopeForCredential
+// Content-hash rejection on save
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("deriveScopeForCredential", () => {
-  beforeEach(() => {
+describe("Content-hash rejection on custom-schema save", () => {
+  const CONFLICT_URL = "https://schema.example/contexts/shared";
+
+  const contextA = {
+    "@context": {
+      "@version": 1.1,
+      "@vocab": "https://example.org/a#",
+    },
+  };
+  const contextB = {
+    "@context": {
+      "@version": 1.1,
+      "@vocab": "https://example.org/b#",
+    },
+  };
+
+  it("saves a second schema with the same context URL when the cached content matches", async () => {
+    // Both saves see the same body from the server (same hash) — this is
+    // the happy path: the URL is truly global and both schemas can use it.
+    globalThis.fetch = jsonResponseMock(contextA);
+
+    const first = await callCustomSchemaSave({
+      name: "Shared Context A",
+      schema: { type: "object", properties: { name: { type: "string" } } },
+      contextUrl: CONFLICT_URL,
+    });
+    expect(first.success).toBe(true);
+    expect(first.contextCached).toBe(true);
+
+    const second = await callCustomSchemaSave({
+      name: "Shared Context B",
+      schema: { type: "object", properties: { age: { type: "number" } } },
+      contextUrl: CONFLICT_URL,
+    });
+    restoreFetch();
+
+    expect(second.success).toBe(true);
+    expect(second.contextCached).toBe(true);
+    expect(second.error).toBeUndefined();
+
+    // Both schemas are persisted.
+    const stored = storeData["customSchemas"] as Array<Record<string, unknown>>;
+    expect(stored).toHaveLength(2);
+  });
+
+  it("rejects a second schema with the same context URL when the cached content differs", async () => {
+    // First save stores contextA. Second save fetches contextB for the
+    // same URL — a JSON-LD 1.1 §3.1 violation — and must be rejected.
+    globalThis.fetch = jsonResponseMock(contextA);
+    const first = await callCustomSchemaSave({
+      name: "First Owner",
+      schema: { type: "object", properties: { name: { type: "string" } } },
+      contextUrl: CONFLICT_URL,
+    });
+    expect(first.success).toBe(true);
+    expect(first.contextCached).toBe(true);
+
+    globalThis.fetch = jsonResponseMock(contextB);
+    const second = await callCustomSchemaSave({
+      name: "Conflicting Second",
+      schema: { type: "object", properties: { age: { type: "number" } } },
+      contextUrl: CONFLICT_URL,
+    });
+    restoreFetch();
+
+    // The save returns success:true (the handler's envelope convention)
+    // but flags the context as NOT cached and surfaces a conflict error.
+    expect(second.success).toBe(true);
+    expect(second.contextCached).toBe(false);
+    expect(second.error).toMatch(/First Owner/);
+    expect(second.error).toMatch(/different content hash|global/i);
+
+    // The cache must still resolve to the ORIGINAL content — the new body
+    // must not leak into the URL → document map.
+    const resolved = lookupCachedCustomContext(CONFLICT_URL);
+    expect(resolved).toEqual(contextA);
+  });
+
+  it("ignores legacy cache entries that predate the hash field", async () => {
+    // An entry written before `cachedContextDocumentHash` existed is
+    // treated as "match anything" to avoid breaking existing installs.
     storeData["customSchemas"] = [
       {
-        id: "custom:imported-1",
-        name: "Imported 1",
+        id: "custom:legacy",
+        name: "Legacy Schema",
         schema: { type: "object" },
         createdAt: "2026-01-01T00:00:00Z",
-        dediContextUrl: "https://schema.example/imported-1",
-        cachedContextDocument: { "@context": {} },
-      },
-      {
-        id: "custom:imported-2",
-        name: "Imported 2",
-        schema: { type: "object" },
-        createdAt: "2026-01-01T00:00:00Z",
-        dediContextUrl: "https://schema.example/imported-2",
-        cachedContextDocument: { "@context": {} },
+        dediContextUrl: CONFLICT_URL,
+        cachedContextDocument: contextA,
+        cachedContextFetchedAt: "2026-01-01T00:00:00Z",
+        // cachedContextDocumentHash intentionally absent
       },
     ];
-  });
 
-  it("returns the schema id when @context references its URL", () => {
-    const scope = deriveScopeForCredential({
-      "@context": [
-        "https://www.w3.org/ns/credentials/v2",
-        "https://schema.example/imported-1",
-      ],
+    globalThis.fetch = jsonResponseMock(contextB);
+    const result = await callCustomSchemaSave({
+      name: "New Schema",
+      schema: { type: "object", properties: { age: { type: "number" } } },
+      contextUrl: CONFLICT_URL,
     });
-    expect(scope).toEqual(["custom:imported-1"]);
-  });
+    restoreFetch();
 
-  it("returns multiple schema ids when @context references multiple", () => {
-    const scope = deriveScopeForCredential({
-      "@context": [
-        "https://www.w3.org/ns/credentials/v2",
-        "https://schema.example/imported-1",
-        "https://schema.example/imported-2",
-      ],
-    });
-    expect(scope.sort()).toEqual(["custom:imported-1", "custom:imported-2"]);
-  });
-
-  it("returns an empty array when no custom URL is referenced", () => {
-    const scope = deriveScopeForCredential({
-      "@context": ["https://www.w3.org/ns/credentials/v2"],
-    });
-    expect(scope).toEqual([]);
-  });
-
-  it("returns an empty array when @context is missing", () => {
-    expect(deriveScopeForCredential({})).toEqual([]);
-  });
-
-  it("returns an empty array when @context is a single string", () => {
-    const scope = deriveScopeForCredential({
-      "@context": "https://www.w3.org/ns/credentials/v2",
-    });
-    expect(scope).toEqual([]);
-  });
-
-  it("includes a schema referenced by a single-string @context", () => {
-    const scope = deriveScopeForCredential({
-      "@context": "https://schema.example/imported-1",
-    });
-    expect(scope).toEqual(["custom:imported-1"]);
+    // No hash on the legacy entry → no conflict, new schema is accepted.
+    expect(result.success).toBe(true);
+    expect(result.contextCached).toBe(true);
+    expect(result.error).toBeUndefined();
   });
 });
 

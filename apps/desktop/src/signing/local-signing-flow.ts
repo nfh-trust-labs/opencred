@@ -28,7 +28,6 @@ import { signWithFormat } from "./proof-format-router.js";
 import type { UiProofFormat } from "../shared/ipc-types.js";
 import { deriveVerificationMethod } from "./types.js";
 import type { Signer } from "./types.js";
-import { runWithActiveSchemaContext } from "../main/document-loader-with-cache.js";
 
 /**
  * Convert a PEM-encoded certificate to base64-encoded DER (for x5c).
@@ -255,20 +254,17 @@ export async function buildAndSign(
   let signedOutput: string;
   let isCompactToken: boolean;
 
-  // Scope cached custom JSON-LD contexts to *this* schema for the duration
-  // of the signing call. The wrapped document loader will only resolve
-  // cached contexts that were saved against `options.schemaId`, so even if
-  // the user has imported other custom schemas referencing the same URLs,
-  // none of them can leak into this credential's canonicalization. See
-  // `document-loader-with-cache.ts` for the full rationale.
+  // Custom JSON-LD contexts are served by the shared document loader from
+  // a per-URL cache populated at schema-save time. Conflicts on the same
+  // URL are rejected at save time by content-hash comparison (see
+  // `handleCustomSchemaSave`), so canonicalization can rely on the
+  // URL → document mapping being stable without per-schema scoping.
   try {
-    const result = await runWithActiveSchemaContext([options.schemaId], () =>
-      signWithFormat(signer, unsignedCredential, format, {
-        verificationMethod,
-        selectiveDisclosureClaims: options.selectiveDisclosureClaims,
-        vct,
-      }),
-    );
+    const result = await signWithFormat(signer, unsignedCredential, format, {
+      verificationMethod,
+      selectiveDisclosureClaims: options.selectiveDisclosureClaims,
+      vct,
+    });
     signedOutput = result.signedOutput;
     isCompactToken = result.isCompactToken;
   } catch (error) {

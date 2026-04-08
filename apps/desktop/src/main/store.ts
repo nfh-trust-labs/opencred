@@ -58,6 +58,14 @@ export interface CustomSchemaEntry {
   cachedContextDocument?: Record<string, unknown>;
   /** ISO 8601 timestamp at which the context document was fetched. */
   cachedContextFetchedAt?: string;
+  /**
+   * SHA-256 hex digest of `JSON.stringify(cachedContextDocument)`. Used by
+   * `handleCustomSchemaSave` to detect context-URL collisions: per JSON-LD
+   * 1.1 §3.1 a URL is a global identifier, so two schemas that claim the
+   * same URL but hash to different bodies are refused at save time. Older
+   * entries written before this field existed may have the hash absent.
+   */
+  cachedContextDocumentHash?: string;
 }
 
 /** A recently used credential template (no credential data stored). */
