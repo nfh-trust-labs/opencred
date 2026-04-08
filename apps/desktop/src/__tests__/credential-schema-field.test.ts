@@ -175,13 +175,12 @@ describe("credentialSchema field — built-in schemas", () => {
 
     const result = await callBuildAndSign({
       keyId,
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: "did:key:z6Mktest",
       credentialSubject: {
         name: "Jane",
-        degree: "BS",
-        institution: "MIT",
-        dateConferred: "2025-06-15",
+        role: "Medical Practitioner",
+        validFrom: "2025-06-15T00:00:00Z",
       },
       validFrom: "2025-01-01T00:00:00Z",
       proofFormat: "vc-jwt",
@@ -190,7 +189,7 @@ describe("credentialSchema field — built-in schemas", () => {
     expect(result.success).toBe(true);
     const signed = JSON.parse(result.signedCredential!);
     expect(signed.credentialSchema).toEqual({
-      id: "https://opencred.dev/schemas/education/v1",
+      id: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/functional-identity/v1/schema.json",
       type: "JsonSchema",
     });
   });
@@ -200,47 +199,35 @@ describe("credentialSchema field — built-in schemas", () => {
 
     const result = await callBuildAndSign({
       keyId,
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: "did:key:z6Mktest",
       credentialSubject: {
         name: "Jane",
-        degree: "BS",
-        institution: "MIT",
-        dateConferred: "2025-06-15",
+        role: "Medical Practitioner",
+        validFrom: "2025-06-15T00:00:00Z",
       },
       validFrom: "2025-01-01T00:00:00Z",
-      credentialSchemaUrl: "https://issuer.example/schemas/edu-v2.json",
+      credentialSchemaUrl: "https://issuer.example/schemas/functional-identity-v2.json",
       proofFormat: "vc-jwt",
     });
 
     expect(result.success).toBe(true);
     const signed = JSON.parse(result.signedCredential!);
-    expect(signed.credentialSchema.id).toBe("https://issuer.example/schemas/edu-v2.json");
+    expect(signed.credentialSchema.id).toBe(
+      "https://issuer.example/schemas/functional-identity-v2.json",
+    );
   });
 
-  it("populates credentialSchema for every built-in schema", async () => {
+  it("populates credentialSchema for v1 catalogue schemas", async () => {
     const { keyId } = await importTestKey();
 
     const cases = [
       {
-        id: "education",
-        subject: { name: "X", degree: "BS", institution: "MIT", dateConferred: "2025-01-01" },
-      },
-      {
-        id: "employment",
-        subject: { name: "X", employer: "ACME", position: "Eng", startDate: "2025-01-01" },
-      },
-      {
-        id: "identity",
-        subject: { name: "X", dateOfBirth: "1990-01-01", nationality: "US", documentNumber: "ABC" },
-      },
-      {
-        id: "business",
+        id: "functional-identity/v1",
         subject: {
-          name: "X",
-          registrationNumber: "1",
-          jurisdiction: "US",
-          incorporationDate: "2000-01-01",
+          name: "Jane",
+          role: "Medical Practitioner",
+          validFrom: "2025-01-01T00:00:00Z",
         },
       },
     ];
@@ -259,7 +246,9 @@ describe("credentialSchema field — built-in schemas", () => {
       const signed = JSON.parse(result.signedCredential!);
       expect(signed.credentialSchema).toBeDefined();
       expect(signed.credentialSchema.type).toBe("JsonSchema");
-      expect(signed.credentialSchema.id).toBe(`https://opencred.dev/schemas/${c.id}/v1`);
+      expect(signed.credentialSchema.id).toBe(
+        `https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/${c.id}/schema.json`,
+      );
     }
   });
 });

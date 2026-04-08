@@ -57,24 +57,24 @@ afterAll(() => {
 });
 
 /**
- * Helper: run a batch of education credentials and return the results.
+ * Helper: run a batch of functional-identity credentials and return the results.
  */
 async function runBatch(count: number) {
   const { signer } = createSoftwareSigner(keyPath);
 
-  const header = "name,degree,institution,dateConferred";
+  const header = "name,role,validFrom";
   const rows = Array.from(
     { length: count },
     (_, i) =>
-      `Student ${i + 1},Bachelor of Science,University ${i + 1},2025-06-${String(15 + (i % 15)).padStart(2, "0")}`,
+      `Student ${i + 1},University Student,2025-06-${String(15 + (i % 15)).padStart(2, "0")}T00:00:00Z`,
   );
   const csv = [header, ...rows].join("\n");
 
-  const parseResult = parseCsv(csv, { schemaId: "education" });
+  const parseResult = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
   const engine = createBatchEngine(signer, parseResult.rows, {
-    schemaId: "education",
-    issuerDid: "did:web:university.example",
+    schemaId: "functional-identity/v1",
+    issuerDid: "did:web:authority.example",
     validFrom: "2025-06-15T00:00:00Z",
     packageFormats: ["json-ld"],
   });
@@ -140,17 +140,17 @@ describe("exportBatchAsZip", () => {
     const { signer } = createSoftwareSigner(keyPath);
 
     const csv = [
-      "name,degree,institution,dateConferred",
-      "Jane Doe,Bachelor of Science,MIT,2025-06-15",
-      "Invalid,,,", // Will be skipped
-      "John Smith,Master of Arts,Stanford,2025-06-20",
+      "name,role,validFrom",
+      "Jane Doe,Medical Practitioner,2025-06-15T00:00:00Z",
+      "Invalid,,", // Will be skipped
+      "John Smith,Field Crop Grower,2025-06-20T00:00:00Z",
     ].join("\n");
 
-    const parseResult = parseCsv(csv, { schemaId: "education" });
+    const parseResult = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     const engine = createBatchEngine(signer, parseResult.rows, {
-      schemaId: "education",
-      issuerDid: "did:web:university.example",
+      schemaId: "functional-identity/v1",
+      issuerDid: "did:web:authority.example",
       validFrom: "2025-06-15T00:00:00Z",
       packageFormats: ["json-ld"],
     });

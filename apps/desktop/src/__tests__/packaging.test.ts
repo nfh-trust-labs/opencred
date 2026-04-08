@@ -43,13 +43,12 @@ beforeAll(async () => {
 
   // Build a small credential for QR code testing
   const result = await buildAndSign(signer, {
-    schemaId: "education",
+    schemaId: "functional-identity/v1",
     issuerDid: "did:web:test.example",
     credentialSubject: {
       name: "Test",
-      degree: "BS",
-      institution: "MIT",
-      dateConferred: "2025-01-01",
+      role: "Test Subject",
+      validFrom: "2025-01-01T00:00:00Z",
     },
     validFrom: "2025-01-01T00:00:00Z",
   });

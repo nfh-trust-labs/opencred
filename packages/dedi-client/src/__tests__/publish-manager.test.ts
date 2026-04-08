@@ -24,7 +24,7 @@ function createMockClient(): DeDiClient {
 }
 
 const testSchema: SchemaRecord = {
-  schemaId: "education",
+  schemaId: "functional-identity/v1",
   version: "1",
   schema: { type: "object" },
   checksum: "abc",
@@ -33,7 +33,7 @@ const testSchema: SchemaRecord = {
 
 const publishResult: PublishResult = {
   published: true,
-  recordName: "education-v1",
+  recordName: "functional-identity-v1",
   namespace: "example.com",
 };
 
