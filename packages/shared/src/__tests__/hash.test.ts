@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import { canonicalJsonSha256 } from "../hash.js";
 
-const sha256 = (s: string) =>
-  createHash("sha256").update(s, "utf8").digest("hex");
+const sha256 = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 
 describe("canonicalJsonSha256", () => {
   it("hashes primitives", () => {
@@ -21,16 +20,12 @@ describe("canonicalJsonSha256", () => {
   });
 
   it("preserves array order", () => {
-    expect(canonicalJsonSha256([1, 2, 3])).not.toBe(
-      canonicalJsonSha256([3, 2, 1]),
-    );
+    expect(canonicalJsonSha256([1, 2, 3])).not.toBe(canonicalJsonSha256([3, 2, 1]));
   });
 
   it("handles unicode strings", () => {
     const v = { name: "naïve 🍄 résumé" };
-    expect(canonicalJsonSha256(v)).toBe(
-      sha256('{"name":"naïve 🍄 résumé"}'),
-    );
+    expect(canonicalJsonSha256(v)).toBe(sha256('{"name":"naïve 🍄 résumé"}'));
   });
 
   it("treats -0 and 0 as equal", () => {
@@ -51,10 +46,13 @@ describe("canonicalJsonSha256", () => {
   });
 
   it("handles nested arrays and objects", () => {
-    const v = { items: [{ b: 2, a: 1 }, { d: 4, c: 3 }] };
-    expect(canonicalJsonSha256(v)).toBe(
-      sha256('{"items":[{"a":1,"b":2},{"c":3,"d":4}]}'),
-    );
+    const v = {
+      items: [
+        { b: 2, a: 1 },
+        { d: 4, c: 3 },
+      ],
+    };
+    expect(canonicalJsonSha256(v)).toBe(sha256('{"items":[{"a":1,"b":2},{"c":3,"d":4}]}'));
   });
 
   it("hashes empty object and array deterministically", () => {
@@ -63,15 +61,11 @@ describe("canonicalJsonSha256", () => {
   });
 
   it("drops undefined object values (JSON.stringify behavior)", () => {
-    expect(canonicalJsonSha256({ a: 1, b: undefined })).toBe(
-      canonicalJsonSha256({ a: 1 }),
-    );
+    expect(canonicalJsonSha256({ a: 1, b: undefined })).toBe(canonicalJsonSha256({ a: 1 }));
   });
 
   it("serializes undefined array elements as null", () => {
-    expect(canonicalJsonSha256([1, undefined, 3])).toBe(
-      canonicalJsonSha256([1, null, 3]),
-    );
+    expect(canonicalJsonSha256([1, undefined, 3])).toBe(canonicalJsonSha256([1, null, 3]));
   });
 
   it("throws on functions, symbols, bigint", () => {

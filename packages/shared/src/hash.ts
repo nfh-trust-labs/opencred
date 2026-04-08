@@ -36,17 +36,13 @@ function canonicalize(value: unknown): string | undefined {
   if (t === "undefined") return undefined;
 
   if (t === "function" || t === "symbol" || t === "bigint") {
-    throw new TypeError(
-      `canonicalJsonSha256: unsupported value of type ${t}`,
-    );
+    throw new TypeError(`canonicalJsonSha256: unsupported value of type ${t}`);
   }
 
   if (t === "number") {
     const n = value as number;
     if (!Number.isFinite(n)) {
-      throw new TypeError(
-        "canonicalJsonSha256: NaN and Infinity are not representable in JSON",
-      );
+      throw new TypeError("canonicalJsonSha256: NaN and Infinity are not representable in JSON");
     }
     // Canonicalize -0 as "0".
     if (Object.is(n, -0)) return "0";
@@ -70,9 +66,7 @@ function canonicalize(value: unknown): string | undefined {
     // Reject non-plain objects (Date, Map, Set, class instances, etc.)
     const proto = Object.getPrototypeOf(value);
     if (proto !== Object.prototype && proto !== null) {
-      throw new TypeError(
-        "canonicalJsonSha256: only plain objects are supported",
-      );
+      throw new TypeError("canonicalJsonSha256: only plain objects are supported");
     }
     const obj = value as Record<string, unknown>;
     const keys = Object.keys(obj).sort();
