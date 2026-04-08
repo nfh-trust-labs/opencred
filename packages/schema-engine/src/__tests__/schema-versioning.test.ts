@@ -42,13 +42,7 @@ afterEach(() => {
 describe("Schema version metadata", () => {
   it("SchemaDefinition includes version and lastUpdated", () => {
     const registry = new SchemaRegistry();
-    registry.registerSchema(
-      "test",
-      { type: "object" },
-      undefined,
-      "2.0.0",
-      "2025-06-01T00:00:00Z",
-    );
+    registry.registerSchema("test", { type: "object" }, undefined, "2.0.0", "2025-06-01T00:00:00Z");
     const def = registry.getSchema("test");
     expect(def.version).toBe("2.0.0");
     expect(def.lastUpdated).toBe("2025-06-01T00:00:00Z");
@@ -458,6 +452,11 @@ describe("validateSchemaChecksum", () => {
       version: "1.0.0",
       lastUpdated: "2025-05-01T00:00:00Z",
     };
-    expect(validateSchemaChecksum(def, "0000000000000000000000000000000000000000000000000000000000000000")).toBe(false);
+    expect(
+      validateSchemaChecksum(
+        def,
+        "0000000000000000000000000000000000000000000000000000000000000000",
+      ),
+    ).toBe(false);
   });
 });

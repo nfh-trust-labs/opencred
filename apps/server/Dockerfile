@@ -16,7 +16,7 @@
 
 # Pin base image digest for reproducible builds.
 # Periodically update: docker pull node:20-alpine && docker inspect --format='{{index .RepoDigests 0}}' node:20-alpine
-FROM node:20-alpine@sha256:b5b9467fe7b33aad47f1c3355e3a492f57487e58e95e3411b0f5d4c1c1948239 AS builder
+FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS builder
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@9 --activate
@@ -54,7 +54,7 @@ RUN pnpm prune --prod
 # ==============================================================================
 # Runtime stage — minimal image with only production artifacts
 # ==============================================================================
-FROM node:20-alpine@sha256:b5b9467fe7b33aad47f1c3355e3a492f57487e58e95e3411b0f5d4c1c1948239
+FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
 
 # Security: run as non-root user (node user is built into node:alpine)
 USER node

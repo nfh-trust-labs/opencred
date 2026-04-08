@@ -53,10 +53,7 @@ export class DeDiPublishManager {
    * Publish a JSON-LD context to DeDi.
    * Fire-and-forget: errors are logged, never thrown.
    */
-  async publishContext(
-    record: ContextRecord,
-    namespace?: string,
-  ): Promise<PublishResult | null> {
+  async publishContext(record: ContextRecord, namespace?: string): Promise<PublishResult | null> {
     try {
       const result = await this.client.publishContext(record, namespace);
       this.logger.debug("Context published to DeDi", {
@@ -133,7 +130,9 @@ export function createPublishManager(
 ): DeDiPublishManager | null {
   if (!config) return null;
   if (!logger) {
-    throw new Error("DeDiPublishManager requires a logger — silent error swallowing without logging is unsafe");
+    throw new Error(
+      "DeDiPublishManager requires a logger — silent error swallowing without logging is unsafe",
+    );
   }
   const client = new DeDiClient({ ...config, logger });
   return new DeDiPublishManager(client, alreadyPublished);

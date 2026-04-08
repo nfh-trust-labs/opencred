@@ -57,9 +57,9 @@ describe("DeDiApiClient", () => {
 
     it("throws DeDiClientError for http:// in production", () => {
       process.env.NODE_ENV = "production";
-      expect(
-        () => new DeDiApiClient(createConfig({ baseUrl: "http://dedi.example.com" })),
-      ).toThrow(DeDiClientError);
+      expect(() => new DeDiApiClient(createConfig({ baseUrl: "http://dedi.example.com" }))).toThrow(
+        DeDiClientError,
+      );
     });
 
     it("allows http:// in development", () => {
@@ -129,7 +129,14 @@ describe("DeDiApiClient", () => {
 
   describe("namespace endpoints", () => {
     it("createNamespace POSTs to /dedi/namespace", async () => {
-      const ns = { name: "example.com", description: "Test", state: "active", verified: false, created_at: "", updated_at: "" };
+      const ns = {
+        name: "example.com",
+        description: "Test",
+        state: "active",
+        verified: false,
+        created_at: "",
+        updated_at: "",
+      };
       mockFetch.mockResolvedValue(jsonResponse(ns));
 
       const client = new DeDiApiClient(createConfig());
@@ -139,11 +146,22 @@ describe("DeDiApiClient", () => {
       const [url, init] = mockFetch.mock.calls[0]!;
       expect(url).toBe("https://dedi.example.com/dedi/create-namespace");
       expect(init?.method).toBe("POST");
-      expect(JSON.parse(init?.body as string)).toEqual({ name: "example.com", description: "Test", meta: {} });
+      expect(JSON.parse(init?.body as string)).toEqual({
+        name: "example.com",
+        description: "Test",
+        meta: {},
+      });
     });
 
     it("lookupNamespace GETs /dedi/lookup/{ns}", async () => {
-      const ns = { name: "example.com", description: "Test", state: "active", verified: false, created_at: "", updated_at: "" };
+      const ns = {
+        name: "example.com",
+        description: "Test",
+        state: "active",
+        verified: false,
+        created_at: "",
+        updated_at: "",
+      };
       mockFetch.mockResolvedValue(jsonResponse(ns));
 
       const client = new DeDiApiClient(createConfig());
@@ -157,10 +175,23 @@ describe("DeDiApiClient", () => {
 
   describe("registry endpoints", () => {
     it("createRegistry POSTs to /dedi/{ns}/create-registry", async () => {
-      const reg = { name: "revocation_list", namespace: "example.com", schema: {}, tag: "custom", state: "active", record_count: 0, created_at: "", updated_at: "" };
+      const reg = {
+        name: "revocation_list",
+        namespace: "example.com",
+        schema: {},
+        tag: "custom",
+        state: "active",
+        record_count: 0,
+        created_at: "",
+        updated_at: "",
+      };
       mockFetch.mockResolvedValue(jsonResponse(reg));
 
-      const schema = { "$schema": "http://json-schema.org/draft-07/schema#", "type": "object", "properties": {} };
+      const schema = {
+        $schema: "http://json-schema.org/draft-07/schema#",
+        type: "object",
+        properties: {},
+      };
       const client = new DeDiApiClient(createConfig());
       await client.createRegistry("example.com", "revocation_list", schema);
 
@@ -198,7 +229,16 @@ describe("DeDiApiClient", () => {
 
   describe("record endpoints", () => {
     it("publishRecord POSTs to /dedi/{ns}/{reg}/save-record-as-draft?publish=true", async () => {
-      const record = { name: "abc", registry: "r", namespace: "ns", detail: {}, state: "live", version: 1, created_at: "", updated_at: "" };
+      const record = {
+        name: "abc",
+        registry: "r",
+        namespace: "ns",
+        detail: {},
+        state: "live",
+        version: 1,
+        created_at: "",
+        updated_at: "",
+      };
       mockFetch.mockResolvedValue(jsonResponse(record));
 
       const client = new DeDiApiClient(createConfig());
@@ -276,7 +316,9 @@ describe("DeDiApiClient", () => {
       const result = await client.generateTxt("ns", "example.com");
 
       expect(result).toEqual({ txt_record: "dedi-verify=abc" });
-      expect(mockFetch.mock.calls[0]![0]).toBe("https://dedi.example.com/dedi/generate-dns-txt/ns/example.com");
+      expect(mockFetch.mock.calls[0]![0]).toBe(
+        "https://dedi.example.com/dedi/generate-dns-txt/ns/example.com",
+      );
     });
 
     it("verifyDomain POSTs to /dedi/verify-domain", async () => {
@@ -381,14 +423,25 @@ describe("DeDiApiClient", () => {
 
   describe("bulk endpoints", () => {
     it("getJobStatus GETs /dedi/jobs/{jobId}", async () => {
-      const job = { job_id: "j1", state: "completed", total: 10, processed: 10, failed: 0, errors: [], created_at: "", updated_at: "" };
+      const job = {
+        job_id: "j1",
+        state: "completed",
+        total: 10,
+        processed: 10,
+        failed: 0,
+        errors: [],
+        created_at: "",
+        updated_at: "",
+      };
       mockFetch.mockResolvedValue(jsonResponse(job));
 
       const client = new DeDiApiClient(createConfig());
       const result = await client.getJobStatus("j1");
 
       expect(result).toEqual(job);
-      expect(mockFetch.mock.calls[0]![0]).toBe("https://dedi.example.com/dedi/bulk-upload/status/j1");
+      expect(mockFetch.mock.calls[0]![0]).toBe(
+        "https://dedi.example.com/dedi/bulk-upload/status/j1",
+      );
     });
   });
 
@@ -547,7 +600,13 @@ describe("DeDiApiClient", () => {
 
   describe("createWatch", () => {
     it("POSTs to /dedi/watch with params", async () => {
-      const sub = { subscription_id: "s1", namespace: "ns", callback_url: "https://cb.example.com", events: ["record.created"], created_at: "" };
+      const sub = {
+        subscription_id: "s1",
+        namespace: "ns",
+        callback_url: "https://cb.example.com",
+        events: ["record.created"],
+        created_at: "",
+      };
       mockFetch.mockResolvedValue(jsonResponse(sub));
 
       const client = new DeDiApiClient(createConfig());

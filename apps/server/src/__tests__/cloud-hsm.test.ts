@@ -33,10 +33,14 @@ vi.mock("@aws-sdk/client-kms", () => {
         throw new Error(`Unexpected command: ${command.constructor.name}`);
       }),
     })),
-    DescribeKeyCommand: vi.fn().mockImplementation(function (this: { constructor: { name: string } }) {
+    DescribeKeyCommand: vi.fn().mockImplementation(function (this: {
+      constructor: { name: string };
+    }) {
       Object.defineProperty(this.constructor, "name", { value: "DescribeKeyCommand" });
     }),
-    GetPublicKeyCommand: vi.fn().mockImplementation(function (this: { constructor: { name: string } }) {
+    GetPublicKeyCommand: vi.fn().mockImplementation(function (this: {
+      constructor: { name: string };
+    }) {
       Object.defineProperty(this.constructor, "name", { value: "GetPublicKeyCommand" });
     }),
     SignCommand: vi.fn().mockImplementation(function (this: { constructor: { name: string } }) {
@@ -174,10 +178,7 @@ describe("Azure Key Vault signer", () => {
   it("creates a signer with correct algorithm", async () => {
     setupEnv("azure");
     const { createAzureKvSigner } = await import("../signing/cloud-hsm/azure-kv-signer.js");
-    const signer = await createAzureKvSigner(
-      "https://test-vault.vault.azure.net",
-      "test-key",
-    );
+    const signer = await createAzureKvSigner("https://test-vault.vault.azure.net", "test-key");
 
     expect(signer.algorithm).toBe("P-256");
     expect(signer.id).toBeTruthy();
@@ -188,10 +189,7 @@ describe("Azure Key Vault signer", () => {
   it("sign() returns correct bytes from mocked Azure", async () => {
     setupEnv("azure");
     const { createAzureKvSigner } = await import("../signing/cloud-hsm/azure-kv-signer.js");
-    const signer = await createAzureKvSigner(
-      "https://test-vault.vault.azure.net",
-      "test-key",
-    );
+    const signer = await createAzureKvSigner("https://test-vault.vault.azure.net", "test-key");
 
     const data = new TextEncoder().encode("test data");
     const signature = await signer.sign(data);

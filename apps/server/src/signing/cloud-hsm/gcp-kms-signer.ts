@@ -73,9 +73,7 @@ export async function createGcpKmsSigner(keyName: string): Promise<Signer> {
     type: "software",
     metadata,
     async sign(data: Uint8Array): Promise<Uint8Array> {
-      const digest = digestField === "sha384"
-        ? sha384(data)
-        : sha256(data);
+      const digest = digestField === "sha384" ? sha384(data) : sha256(data);
 
       const [signResponse] = await client.asymmetricSign({
         name: keyName,

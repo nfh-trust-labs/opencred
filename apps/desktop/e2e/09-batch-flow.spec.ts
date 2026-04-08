@@ -71,13 +71,17 @@ test.describe("Batch Flow", () => {
     await expect(page.locator("h2:has-text('Column Mapping')")).toBeVisible({ timeout: 5_000 });
 
     // Each CSV header should have a mapping dropdown
-    const mappingSelects = page.locator("select").filter({ hasNot: page.locator("option:has-text('Select a credential type')") });
+    const mappingSelects = page
+      .locator("select")
+      .filter({ hasNot: page.locator("option:has-text('Select a credential type')") });
     const count = await mappingSelects.count();
     // There should be at least 3 mapping selects (one per CSV column)
     expect(count).toBeGreaterThanOrEqual(3);
   });
 
-  test("batch start with valid CSV shows progress and completes", async ({ openCredPage: page }) => {
+  test("batch start with valid CSV shows progress and completes", async ({
+    openCredPage: page,
+  }) => {
     await waitForAppReady(page);
     await skipOnboarding(page);
     await page.click('role=tab[name="Batch"]');
@@ -176,9 +180,7 @@ test.describe("Batch Flow", () => {
     }
 
     // Should show batch complete (cancellation triggers early completion)
-    await expect(
-      page.locator("h2:has-text('Batch Complete')")
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("h2:has-text('Batch Complete')")).toBeVisible({ timeout: 15_000 });
 
     // Verify cancellation had effect: skipped count should be > 0
     const skippedLocator = page.locator("text=/Skipped:\\s*[1-9]/");
@@ -269,7 +271,9 @@ test.describe("Batch Flow", () => {
     await page.click("button:has-text('Start New Batch')");
 
     // Should return to upload phase
-    await expect(page.locator("h2:has-text('Batch Credential Issuance')")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator("h2:has-text('Batch Credential Issuance')")).toBeVisible({
+      timeout: 5_000,
+    });
     await expect(page.locator("button:has-text('Import CSV File')")).toBeVisible();
   });
 });

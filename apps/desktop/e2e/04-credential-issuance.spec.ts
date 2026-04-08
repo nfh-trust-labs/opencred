@@ -164,9 +164,7 @@ test.describe("Credential Issuance", () => {
     const schemaSelect = page.locator("select").first();
     const schemaValues = await schemaSelect
       .locator("option[value]")
-      .evaluateAll((els) =>
-        els.map((el) => (el as HTMLOptionElement).value).filter(Boolean),
-      );
+      .evaluateAll((els) => els.map((el) => (el as HTMLOptionElement).value).filter(Boolean));
 
     for (const schemaId of schemaValues) {
       await schemaSelect.selectOption(schemaId);

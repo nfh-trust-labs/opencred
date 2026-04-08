@@ -28,7 +28,14 @@ const DEDI_BASE_URL = "https://api.dedi.global";
 
 type DeDiCardState = "idle" | "form" | "saving" | "publishing";
 
-function StatusRow({ label, active, description, action, onAction, disabled }: {
+function StatusRow({
+  label,
+  active,
+  description,
+  action,
+  onAction,
+  disabled,
+}: {
   label: string;
   active: boolean;
   description: string;
@@ -39,7 +46,9 @@ function StatusRow({ label, active, description, action, onAction, disabled }: {
   return (
     <div className="flex items-center justify-between px-3 py-2">
       <div className="flex items-center gap-2">
-        <span className={`h-2 w-2 rounded-full flex-shrink-0 ${active ? "bg-green-500" : "bg-gray-300"}`} />
+        <span
+          className={`h-2 w-2 rounded-full flex-shrink-0 ${active ? "bg-green-500" : "bg-gray-300"}`}
+        />
         <span className="text-xs font-medium text-gray-700">{label}</span>
         <span className="text-xs text-gray-400">{description}</span>
       </div>
@@ -90,8 +99,14 @@ function DeDiCard() {
   }, [loadStatus]);
 
   async function handleSave() {
-    if (!namespace.trim()) { setError("Please enter a namespace."); return; }
-    if (!apiKey) { setError("Please enter your API key."); return; }
+    if (!namespace.trim()) {
+      setError("Please enter a namespace.");
+      return;
+    }
+    if (!apiKey) {
+      setError("Please enter your API key.");
+      return;
+    }
 
     setError(null);
     setActionResult(null);
@@ -104,7 +119,11 @@ function DeDiCard() {
         credentials: { type: "api-key", apiKey },
       });
 
-      if (!result.success) { setError(result.error ?? "Failed to configure DeDi."); setState("form"); return; }
+      if (!result.success) {
+        setError(result.error ?? "Failed to configure DeDi.");
+        setState("form");
+        return;
+      }
 
       setApiKey("");
       setState("idle");
@@ -127,7 +146,10 @@ function DeDiCard() {
       await loadStatus();
       setActionResult({ type: "success", message: "Disconnected from DeDi." });
     } catch (err) {
-      setActionResult({ type: "error", message: err instanceof Error ? err.message : "Failed to disconnect." });
+      setActionResult({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to disconnect.",
+      });
     }
   }
 
@@ -139,7 +161,10 @@ function DeDiCard() {
     try {
       const { keys } = await window.opencred.listKeys();
       if (keys.length === 0) {
-        setActionResult({ type: "error", message: "No signing keys available. Import or generate a key first." });
+        setActionResult({
+          type: "error",
+          message: "No signing keys available. Import or generate a key first.",
+        });
         setState("idle");
         return;
       }
@@ -157,7 +182,10 @@ function DeDiCard() {
       });
 
       if (!exportResult.success || !exportResult.didDocument || !exportResult.did) {
-        setActionResult({ type: "error", message: exportResult.error ?? "Failed to export DID document." });
+        setActionResult({
+          type: "error",
+          message: exportResult.error ?? "Failed to export DID document.",
+        });
         setState("idle");
         return;
       }
@@ -167,16 +195,20 @@ function DeDiCard() {
         document: JSON.parse(exportResult.didDocument),
       });
 
-      setActionResult(pubResult.success
-        ? { type: "success", message: "DID published successfully." }
-        : { type: "error", message: pubResult.error ?? "Failed to publish DID." });
+      setActionResult(
+        pubResult.success
+          ? { type: "success", message: "DID published successfully." }
+          : { type: "error", message: pubResult.error ?? "Failed to publish DID." },
+      );
     } catch (err) {
-      setActionResult({ type: "error", message: err instanceof Error ? err.message : "Failed to publish DID." });
+      setActionResult({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to publish DID.",
+      });
     }
 
     setState("idle");
   }
-
 
   async function handleCreateRegistries() {
     setActionResult(null);
@@ -189,7 +221,10 @@ function DeDiCard() {
         setActionResult({ type: "error", message: result.error ?? "Failed to create registries." });
       }
     } catch (err) {
-      setActionResult({ type: "error", message: err instanceof Error ? err.message : "Failed to create registries." });
+      setActionResult({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to create registries.",
+      });
     }
   }
 
@@ -213,11 +248,13 @@ function DeDiCard() {
 
       {/* Action result feedback */}
       {actionResult && (
-        <div className={`rounded-md px-3 py-2 text-xs ${
-          actionResult.type === "success"
-            ? "bg-green-50 text-green-700 border border-green-200"
-            : "bg-red-50 text-red-700 border border-red-200"
-        }`}>
+        <div
+          className={`rounded-md px-3 py-2 text-xs ${
+            actionResult.type === "success"
+              ? "bg-green-50 text-green-700 border border-green-200"
+              : "bg-red-50 text-red-700 border border-red-200"
+          }`}
+        >
           {actionResult.message}
         </div>
       )}
@@ -228,7 +265,14 @@ function DeDiCard() {
           <p className="text-xs text-gray-500">
             Connect to DeDi to publish your DID, schemas, and revocation lists.
           </p>
-          <Button onClick={() => { setState("form"); setActionResult(null); }}>Configure</Button>
+          <Button
+            onClick={() => {
+              setState("form");
+              setActionResult(null);
+            }}
+          >
+            Configure
+          </Button>
         </>
       )}
 
@@ -241,13 +285,48 @@ function DeDiCard() {
 
           {/* Status indicators */}
           <div className="rounded-md border border-gray-200 divide-y divide-gray-100">
-            <StatusRow label="Registries" active={status.registriesReady} description="Schema, Public Key, Revocation" action={status.registriesReady ? undefined : "Create"} onAction={status.registriesReady ? undefined : () => { void handleCreateRegistries(); }} />
-            <StatusRow label="Public Key" active={false} description="Publish your DID document" action="Publish" onAction={() => void handlePublishDID()} />
-            <StatusRow label="Schemas" active={status.publishedSchemas.length > 0} description={status.publishedSchemas.length > 0 ? `${status.publishedSchemas.length} published` : "Published on first issuance"} />
+            <StatusRow
+              label="Registries"
+              active={status.registriesReady}
+              description="Schema, Public Key, Revocation"
+              action={status.registriesReady ? undefined : "Create"}
+              onAction={
+                status.registriesReady
+                  ? undefined
+                  : () => {
+                      void handleCreateRegistries();
+                    }
+              }
+            />
+            <StatusRow
+              label="Public Key"
+              active={false}
+              description="Publish your DID document"
+              action="Publish"
+              onAction={() => void handlePublishDID()}
+            />
+            <StatusRow
+              label="Schemas"
+              active={status.publishedSchemas.length > 0}
+              description={
+                status.publishedSchemas.length > 0
+                  ? `${status.publishedSchemas.length} published`
+                  : "Published on first issuance"
+              }
+            />
           </div>
 
           <div className="flex gap-2 pt-1">
-            <Button onClick={() => { setState("form"); setApiKey(""); setActionResult(null); }} size="sm">Reconfigure</Button>
+            <Button
+              onClick={() => {
+                setState("form");
+                setApiKey("");
+                setActionResult(null);
+              }}
+              size="sm"
+            >
+              Reconfigure
+            </Button>
             <button
               onClick={() => void handleDisconnect()}
               className="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
@@ -266,7 +345,10 @@ function DeDiCard() {
             <input
               type="text"
               value={namespace}
-              onChange={(e) => { setNamespace(e.target.value); setError(null); }}
+              onChange={(e) => {
+                setNamespace(e.target.value);
+                setError(null);
+              }}
               placeholder="your-domain.example"
               disabled={state === "saving"}
               className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-50"
@@ -277,7 +359,10 @@ function DeDiCard() {
             <input
               type="password"
               value={apiKey}
-              onChange={(e) => { setApiKey(e.target.value); setError(null); }}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                setError(null);
+              }}
               placeholder="Enter your DeDi API key"
               disabled={state === "saving"}
               className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-50"
@@ -292,7 +377,11 @@ function DeDiCard() {
             </Button>
             <Button
               variant="secondary"
-              onClick={() => { setState("idle"); setError(null); setActionResult(null); }}
+              onClick={() => {
+                setState("idle");
+                setError(null);
+                setActionResult(null);
+              }}
               disabled={state === "saving"}
             >
               Cancel
@@ -327,9 +416,12 @@ function UpdateCard() {
 
   useEffect(() => {
     // Get initial status
-    window.opencred.updateGetStatus().then(setStatus).catch(() => {
-      setIsDev(true);
-    });
+    window.opencred
+      .updateGetStatus()
+      .then(setStatus)
+      .catch(() => {
+        setIsDev(true);
+      });
 
     // Subscribe to live updates
     const unsub = window.opencred.onUpdateStatus(setStatus);
@@ -353,9 +445,7 @@ function UpdateCard() {
     return (
       <Card className="space-y-2">
         <h2 className="text-sm font-medium text-gray-700">Software Updates</h2>
-        <p className="text-xs text-gray-500">
-          Auto-update is not available in development mode.
-        </p>
+        <p className="text-xs text-gray-500">Auto-update is not available in development mode.</p>
       </Card>
     );
   }
@@ -409,8 +499,8 @@ function UpdateCard() {
             <span>Downloading {status.version}...</span>
             {status.progress && (
               <span>
-                {formatBytes(status.progress.transferred)} / {formatBytes(status.progress.total)}
-                {" "}({formatBytes(status.progress.bytesPerSecond)}/s)
+                {formatBytes(status.progress.transferred)} / {formatBytes(status.progress.total)} (
+                {formatBytes(status.progress.bytesPerSecond)}/s)
               </span>
             )}
           </div>
@@ -426,9 +516,7 @@ function UpdateCard() {
       {/* Available — offer download */}
       {status.available && !status.downloading && !status.downloaded && !status.error && (
         <div className="space-y-2">
-          <p className="text-xs text-gray-700">
-            Version {status.version} is available.
-          </p>
+          <p className="text-xs text-gray-700">Version {status.version} is available.</p>
           {status.releaseNotes && (
             <p className="text-xs text-gray-500 line-clamp-3">{status.releaseNotes}</p>
           )}
@@ -450,17 +538,21 @@ function UpdateCard() {
       )}
 
       {/* Up to date */}
-      {!status.checking && !status.available && !status.downloading && !status.downloaded && !status.error && (
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-gray-500">Running latest version.</p>
-          <button
-            onClick={handleCheck}
-            className="text-xs font-medium text-brand-blue hover:underline"
-          >
-            Check for Updates
-          </button>
-        </div>
-      )}
+      {!status.checking &&
+        !status.available &&
+        !status.downloading &&
+        !status.downloaded &&
+        !status.error && (
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-500">Running latest version.</p>
+            <button
+              onClick={handleCheck}
+              className="text-xs font-medium text-brand-blue hover:underline"
+            >
+              Check for Updates
+            </button>
+          </div>
+        )}
     </Card>
   );
 }
@@ -481,7 +573,10 @@ interface SettingsPageProps {
 export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
   const [isOffline, setIsOffline] = useState(false);
   const [bugReportOpen, setBugReportOpen] = useState(false);
-  const [rotationInfo, setRotationInfo] = useState<{ overdue: boolean; ageDays: number }>({ overdue: false, ageDays: 0 });
+  const [rotationInfo, setRotationInfo] = useState<{ overdue: boolean; ageDays: number }>({
+    overdue: false,
+    ageDays: 0,
+  });
   const [orgName, setOrgName] = useState("");
   const [orgNameSaved, setOrgNameSaved] = useState(false);
   const [orgNameSaving, setOrgNameSaving] = useState(false);
@@ -500,7 +595,9 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
       const response = await window.opencred.listKeys();
       if (response.keys.length === 0) return;
 
-      const dismissedUntil = await window.opencred.getConfig("keyRotationDismissedUntil") as string | undefined;
+      const dismissedUntil = (await window.opencred.getConfig("keyRotationDismissedUntil")) as
+        | string
+        | undefined;
       if (dismissedUntil && new Date(dismissedUntil) > new Date()) return;
 
       const now = Date.now();
@@ -535,9 +632,11 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
     void checkRotation();
     void (async () => {
       try {
-        const saved = await window.opencred.getConfig("organizationName") as string | undefined;
+        const saved = (await window.opencred.getConfig("organizationName")) as string | undefined;
         if (saved) setOrgName(saved);
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
     })();
   }, [checkOffline, checkRotation]);
 
@@ -548,8 +647,11 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
       await window.opencred.setConfig("organizationName", trimmed || undefined);
       setOrgNameSaved(true);
       setTimeout(() => setOrgNameSaved(false), 2000);
-    } catch { /* non-fatal */ }
-    finally { setOrgNameSaving(false); }
+    } catch {
+      /* non-fatal */
+    } finally {
+      setOrgNameSaving(false);
+    }
   }
 
   return (
@@ -562,20 +664,26 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
           <input
             type="text"
             value={orgName}
-            onChange={(e) => { setOrgName(e.target.value); setOrgNameSaved(false); }}
+            onChange={(e) => {
+              setOrgName(e.target.value);
+              setOrgNameSaved(false);
+            }}
             placeholder="e.g. Ministry of Agriculture, Govt of India"
             className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue"
           />
-          <Button
-            onClick={() => void handleSaveOrgName()}
-            disabled={orgNameSaving}
-            size="sm"
-          >
+          <Button onClick={() => void handleSaveOrgName()} disabled={orgNameSaving} size="sm">
             {orgNameSaving ? "Saving..." : "Save"}
           </Button>
           {orgNameSaved && (
             <span className="flex items-center gap-1 text-xs text-green-600">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2.5}
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
               Saved
@@ -586,17 +694,27 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
 
       {/* Key rotation warning */}
       {rotationInfo.overdue && (
-        <div
-          className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 px-4 py-3"
-        >
+        <div className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
           <div className="flex items-center gap-3">
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-200">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#92400e" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#92400e"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+                />
               </svg>
             </span>
             <p className="text-sm text-amber-800">
-              Your signing key is <strong>{rotationInfo.ageDays} days</strong> old. Consider rotating for security best practices.
+              Your signing key is <strong>{rotationInfo.ageDays} days</strong> old. Consider
+              rotating for security best practices.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -632,16 +750,14 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
       {/* 4. Network status */}
       <Card className="space-y-2">
         <h2 className="text-sm font-medium text-gray-700">Network Status</h2>
-        <p className="text-xs text-gray-400 -mt-1">Check your connectivity for online features like revocation and DeDi sync.</p>
+        <p className="text-xs text-gray-400 -mt-1">
+          Check your connectivity for online features like revocation and DeDi sync.
+        </p>
         <div className="flex items-center gap-2">
           <span
-            className={`h-2.5 w-2.5 rounded-full ${
-              isOffline ? "bg-amber-500" : "bg-green-500"
-            }`}
+            className={`h-2.5 w-2.5 rounded-full ${isOffline ? "bg-amber-500" : "bg-green-500"}`}
           />
-          <span
-            className={`text-sm ${isOffline ? "text-amber-700" : "text-green-700"}`}
-          >
+          <span className={`text-sm ${isOffline ? "text-amber-700" : "text-green-700"}`}>
             {isOffline ? "Offline" : "Online"}
           </span>
         </div>

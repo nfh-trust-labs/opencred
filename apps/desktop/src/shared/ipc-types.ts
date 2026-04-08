@@ -907,8 +907,12 @@ export interface OpenCredDesktopAPI {
 
   // Credential history (deprecated)
   credentialHistoryList: () => Promise<CredentialHistoryListResponse>;
-  credentialHistoryAdd: (request: CredentialHistoryAddRequest) => Promise<CredentialHistoryAddRequest & { id: string; issuedAt: string }>;
-  credentialHistoryDelete: (request: CredentialHistoryDeleteRequest) => Promise<CredentialHistoryDeleteResponse>;
+  credentialHistoryAdd: (
+    request: CredentialHistoryAddRequest,
+  ) => Promise<CredentialHistoryAddRequest & { id: string; issuedAt: string }>;
+  credentialHistoryDelete: (
+    request: CredentialHistoryDeleteRequest,
+  ) => Promise<CredentialHistoryDeleteResponse>;
 
   // Schema URL fetch
   schemaFetchUrl: (request: SchemaFetchUrlRequest) => Promise<SchemaFetchUrlResponse>;
@@ -937,5 +941,4 @@ export interface OpenCredDesktopAPI {
   // System / diagnostics
   getSystemInfo: () => Promise<SystemInfoResponse>;
   getRecentLogs: (lines?: number) => Promise<LogTailResponse>;
-
 }

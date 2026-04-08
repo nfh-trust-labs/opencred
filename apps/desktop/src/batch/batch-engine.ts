@@ -171,9 +171,7 @@ export function createBatchEngine(signer: Signer, parsedRows: ParsedRow[], confi
       }
 
       // Queue revocation hash if a revocation registry URL is configured
-      const credentialId = typeof result.credential === "string"
-        ? undefined
-        : result.credential.id;
+      const credentialId = typeof result.credential === "string" ? undefined : result.credential.id;
       if (config.revocationRegistryUrl && credentialId) {
         queueRevocation(credentialId, config.revocationRegistryUrl);
       }

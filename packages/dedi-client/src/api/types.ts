@@ -3,12 +3,7 @@
 
 // ── State enums ──────────────────────────────────────────────────────
 
-export type DeDiRecordState =
-  | "draft"
-  | "live"
-  | "suspended"
-  | "revoked"
-  | "expired";
+export type DeDiRecordState = "draft" | "live" | "suspended" | "revoked" | "expired";
 
 export type DeDiRegistryState = "active" | "archived" | "revoked";
 
@@ -16,7 +11,13 @@ export type DeDiNamespaceState = "active" | "archived" | "revoked";
 
 // Tag values are case-sensitive schema names from dedi.global/schemas registry.
 // "custom" indicates a registry with no fixed schema (e.g., JSON-LD contexts).
-export type DeDiRegistryTag = "custom" | "Membership" | "Public_key" | "Revoke" | "beckn_subscriber" | "beckn_subscriber_reference";
+export type DeDiRegistryTag =
+  | "custom"
+  | "Membership"
+  | "Public_key"
+  | "Revoke"
+  | "beckn_subscriber"
+  | "beckn_subscriber_reference";
 
 // ── Auth ─────────────────────────────────────────────────────────────
 
@@ -122,11 +123,7 @@ export interface DeDiVerificationStatus {
 
 // ── Bulk ─────────────────────────────────────────────────────────────
 
-export type DeDiJobState =
-  | "pending"
-  | "processing"
-  | "completed"
-  | "failed";
+export type DeDiJobState = "pending" | "processing" | "completed" | "failed";
 
 export interface DeDiJobStatus {
   job_id: string;
@@ -166,4 +163,3 @@ export interface DeDiStats {
   registries: number;
   records: number;
 }
-

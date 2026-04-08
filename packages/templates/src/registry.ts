@@ -47,9 +47,7 @@ const SCHEMA_TEMPLATES: ReadonlyArray<CredentialTemplate> = [
   },
 ];
 
-const templates = new Map<string, CredentialTemplate>([
-  ["default", DEFAULT_TEMPLATE],
-]);
+const templates = new Map<string, CredentialTemplate>([["default", DEFAULT_TEMPLATE]]);
 
 // Auto-register all schema-specific templates.
 for (const tmpl of SCHEMA_TEMPLATES) {

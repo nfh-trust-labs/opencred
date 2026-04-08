@@ -11,13 +11,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import {
-  generateKeyPairSync,
-  createPublicKey,
-  createVerify,
-  verify,
-  constants,
-} from "node:crypto";
+import { generateKeyPairSync, createPublicKey, createVerify, verify, constants } from "node:crypto";
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -98,7 +92,9 @@ describe("detectKeyFormat", () => {
 
   it('should return "pem" for PEM content even with .pfx hint', () => {
     // PEM detection takes priority over filename hint
-    const pemContent = Buffer.from("-----BEGIN PRIVATE KEY-----\nbase64data\n-----END PRIVATE KEY-----");
+    const pemContent = Buffer.from(
+      "-----BEGIN PRIVATE KEY-----\nbase64data\n-----END PRIVATE KEY-----",
+    );
     expect(detectKeyFormat(pemContent, "misleading.pfx")).toBe("pem");
   });
 
@@ -122,28 +118,28 @@ describe("detectKeyFormat", () => {
 // ----- detectKeyAlgorithm -----
 
 describe("detectKeyAlgorithm", () => {
-  it('should detect P-256 from an EC public key', () => {
+  it("should detect P-256 from an EC public key", () => {
     const pubKey = createPublicKey(ec256Pair.privateKey);
     expect(detectKeyAlgorithm(pubKey)).toBe("P-256");
   });
 
-  it('should detect P-384 from an EC public key', () => {
+  it("should detect P-384 from an EC public key", () => {
     const pubKey = createPublicKey(ec384Pair.privateKey);
     expect(detectKeyAlgorithm(pubKey)).toBe("P-384");
   });
 
-  it('should detect RSA-2048 from an RSA public key', () => {
+  it("should detect RSA-2048 from an RSA public key", () => {
     const pubKey = createPublicKey(rsa2048Pair.privateKey);
     expect(detectKeyAlgorithm(pubKey)).toBe("RSA-2048");
   });
 
-  it('should detect RSA-4096 from a 4096-bit RSA key', () => {
+  it("should detect RSA-4096 from a 4096-bit RSA key", () => {
     const rsa4096 = generateKeyPairSync("rsa", { modulusLength: 4096 });
     const pubKey = createPublicKey(rsa4096.privateKey);
     expect(detectKeyAlgorithm(pubKey)).toBe("RSA-4096");
   });
 
-  it('should detect Ed25519 from an OKP public key', () => {
+  it("should detect Ed25519 from an OKP public key", () => {
     const ed25519 = generateKeyPairSync("ed25519");
     const pubKey = createPublicKey(ed25519.privateKey);
     expect(detectKeyAlgorithm(pubKey)).toBe("Ed25519");
@@ -305,7 +301,9 @@ describe("createSoftwareSignerFromBuffer (multi-algorithm)", () => {
   });
 
   it("should create Ed25519 signer from JWK buffer", () => {
-    const { signer, format } = createSoftwareSignerFromBuffer(Buffer.from(JSON.stringify(ed25519Jwk)));
+    const { signer, format } = createSoftwareSignerFromBuffer(
+      Buffer.from(JSON.stringify(ed25519Jwk)),
+    );
 
     expect(format).toBe("jwk");
     expect(signer.algorithm).toBe("Ed25519");

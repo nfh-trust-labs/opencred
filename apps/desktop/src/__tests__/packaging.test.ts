@@ -12,7 +12,13 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { createSoftwareSigner } from "../signing/software-signer";
 import { buildAndSign } from "../signing/local-signing-flow";
-import { generateQrPng, generateQrSvg, generateQrBuffer, compressCredentialForQr, decodeQrData } from "../packaging/qr-generator";
+import {
+  generateQrPng,
+  generateQrSvg,
+  generateQrBuffer,
+  compressCredentialForQr,
+  decodeQrData,
+} from "../packaging/qr-generator";
 import { generatePdf } from "../packaging/pdf-generator";
 import { exportAsJsonLd, exportAsCompactJson, parseCredentialJson } from "../packaging/json-export";
 import { packageCredential } from "../packaging/packager";

@@ -368,9 +368,7 @@ export function completeProof(
   signatureBytes: Uint8Array,
 ): VerifiableCredential {
   if (signatureBytes.length !== 64 && signatureBytes.length !== 96) {
-    throw new CryptoError(
-      "Signature must be 64 bytes (P-256) or 96 bytes (P-384) raw r||s ECDSA",
-    );
+    throw new CryptoError("Signature must be 64 bytes (P-256) or 96 bytes (P-384) raw r||s ECDSA");
   }
 
   const proofValue = multibaseEncode(signatureBytes);

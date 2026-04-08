@@ -20,7 +20,11 @@ export async function verifyJwsProof(
   // Parse JWS header to get kid
   const parts = jwsString.split(".");
   if (parts.length !== 3) {
-    return { name: "signature", passed: false, detail: "Invalid JWS: expected 3 dot-separated parts" };
+    return {
+      name: "signature",
+      passed: false,
+      detail: "Invalid JWS: expected 3 dot-separated parts",
+    };
   }
 
   let header: Record<string, unknown>;

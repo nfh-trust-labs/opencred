@@ -135,7 +135,9 @@ export function MoreOptions({
                   disabled={fmt === "data-integrity" && isDataIntegrityDisabled}
                 >
                   {PROOF_FORMAT_LABELS[fmt]}
-                  {fmt === "data-integrity" && isDataIntegrityDisabled ? " (not available for RSA)" : ""}
+                  {fmt === "data-integrity" && isDataIntegrityDisabled
+                    ? " (not available for RSA)"
+                    : ""}
                 </option>
               ))}
             </select>
@@ -181,9 +183,7 @@ export function MoreOptions({
               disabled={disabled}
               className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
             />
-            {revocationError && (
-              <p className="mt-1 text-xs text-red-500">{revocationError}</p>
-            )}
+            {revocationError && <p className="mt-1 text-xs text-red-500">{revocationError}</p>}
           </div>
 
           {/* Credential Schema URL */}
@@ -199,9 +199,7 @@ export function MoreOptions({
               disabled={disabled}
               className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
             />
-            {schemaError && (
-              <p className="mt-1 text-xs text-red-500">{schemaError}</p>
-            )}
+            {schemaError && <p className="mt-1 text-xs text-red-500">{schemaError}</p>}
           </div>
         </div>
       )}

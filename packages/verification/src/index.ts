@@ -19,7 +19,12 @@ export {
   processDisclosures,
   extractSdJwtVcCredentialFields,
 } from "./sd-jwt-vc.js";
-export type { SdJwtVcComponents, SdJwtVcPayload, SdJwtVcVerifyOptions, Disclosure } from "./sd-jwt-vc.js";
+export type {
+  SdJwtVcComponents,
+  SdJwtVcPayload,
+  SdJwtVcVerifyOptions,
+  Disclosure,
+} from "./sd-jwt-vc.js";
 export { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
 export type { BitstringStatusListOptions } from "./checks.js";
 export { checkX509Chain } from "./x509-chain-check.js";

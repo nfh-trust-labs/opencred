@@ -80,7 +80,7 @@ const mockPublishDIDDocument = vi.fn();
 const mockEnsureRegistries = vi.fn();
 
 vi.mock("@opencred/dedi-client", async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>;
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
     createPublishManager: vi.fn(() => ({
@@ -135,10 +135,7 @@ const { privateKey: testEcKey } = generateKeyPairSync("ec", {
 beforeAll(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "opencred-ipc-test-"));
   ecKeyPath = path.join(tmpDir, "test-p256.pem");
-  fs.writeFileSync(
-    ecKeyPath,
-    testEcKey.export({ format: "pem", type: "pkcs8" }) as string,
-  );
+  fs.writeFileSync(ecKeyPath, testEcKey.export({ format: "pem", type: "pkcs8" }) as string);
 });
 
 afterAll(() => {
@@ -162,7 +159,7 @@ const fakeEvent = null as unknown; // IpcMainInvokeEvent — not used by handler
 /** Import a key and return its metadata. */
 async function importTestKey(): Promise<{ keyId: string }> {
   const handler = registeredHandlers[IPC_CHANNELS.KEY_IMPORT];
-  const result = await handler(fakeEvent, { filePath: ecKeyPath }) as {
+  const result = (await handler(fakeEvent, { filePath: ecKeyPath })) as {
     success: boolean;
     key: { id: string };
   };
@@ -204,7 +201,7 @@ describe("IPC Handler Integration Tests", () => {
   describe("Key management", () => {
     it("should import a PEM key and return metadata", async () => {
       const handler = registeredHandlers[IPC_CHANNELS.KEY_IMPORT];
-      const result = await handler(fakeEvent, { filePath: ecKeyPath }) as {
+      const result = (await handler(fakeEvent, { filePath: ecKeyPath })) as {
         success: boolean;
         key: { id: string; fingerprint: string; algorithm: string };
       };
@@ -219,7 +216,7 @@ describe("IPC Handler Integration Tests", () => {
       await importTestKey();
 
       const handler = registeredHandlers[IPC_CHANNELS.KEY_LIST];
-      const result = await handler(fakeEvent) as { keys: Array<Record<string, unknown>> };
+      const result = (await handler(fakeEvent)) as { keys: Array<Record<string, unknown>> };
 
       expect(result.keys.length).toBeGreaterThanOrEqual(1);
       expect(result.keys[0].algorithm).toBe("ECDSA P-256");
@@ -227,7 +224,7 @@ describe("IPC Handler Integration Tests", () => {
 
     it("should generate a new key pair", async () => {
       const handler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
-      const result = await handler(fakeEvent, {}) as {
+      const result = (await handler(fakeEvent, {})) as {
         success: boolean;
         key: { id: string };
       };
@@ -238,7 +235,10 @@ describe("IPC Handler Integration Tests", () => {
 
     it("should reject import of nonexistent file", async () => {
       const handler = registeredHandlers[IPC_CHANNELS.KEY_IMPORT];
-      const result = await handler(fakeEvent, { filePath: "/nonexistent/key.pem" }) as Record<string, unknown>;
+      const result = (await handler(fakeEvent, { filePath: "/nonexistent/key.pem" })) as Record<
+        string,
+        unknown
+      >;
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -530,7 +530,12 @@ describe("IPC Handler Integration Tests", () => {
         keyId: "nonexistent-key-id",
         schemaId: "education",
         issuerDid: "did:key:z6Mktest",
-        credentialSubject: { name: "Test", degree: "BS", institution: "MIT", dateConferred: "2025-01-01" },
+        credentialSubject: {
+          name: "Test",
+          degree: "BS",
+          institution: "MIT",
+          dateConferred: "2025-01-01",
+        },
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "vc-jwt",
       });
@@ -549,7 +554,12 @@ describe("IPC Handler Integration Tests", () => {
         keyId,
         schemaId: "education",
         issuerDid: "did:key:z6Mktest",
-        credentialSubject: { name: "Test", degree: "BS", institution: "MIT", dateConferred: "2025-01-01" },
+        credentialSubject: {
+          name: "Test",
+          degree: "BS",
+          institution: "MIT",
+          dateConferred: "2025-01-01",
+        },
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "data-integrity",
       });
@@ -582,7 +592,7 @@ describe("IPC Handler Integration Tests", () => {
   describe("Schema operations", () => {
     it("should list available schemas", async () => {
       const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_LIST];
-      const result = await handler(fakeEvent) as { schemas: string[] };
+      const result = (await handler(fakeEvent)) as { schemas: string[] };
 
       expect(result.schemas).toContain("education");
       expect(result.schemas).toContain("employment");
@@ -591,7 +601,10 @@ describe("IPC Handler Integration Tests", () => {
 
     it("should get a specific schema definition", async () => {
       const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_GET];
-      const result = await handler(fakeEvent, { schemaId: "education" }) as Record<string, unknown>;
+      const result = (await handler(fakeEvent, { schemaId: "education" })) as Record<
+        string,
+        unknown
+      >;
 
       expect(result.id).toBe("education");
       expect(result.schema).toBeDefined();
@@ -688,12 +701,12 @@ describe("IPC Handler Integration Tests", () => {
   describe("Revocation queue", () => {
     it("should queue a revocation and return it in status", async () => {
       const queueHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_QUEUE];
-      const queueResult = await queueHandler(fakeEvent, {
+      const queueResult = (await queueHandler(fakeEvent, {
         credentialId: "urn:uuid:test-cred-1",
         registryUrl: "https://dedi.global/revocations/test",
         revocationHash: "abc123hash",
         reason: "Testing revocation",
-      }) as { success: boolean; item: Record<string, unknown> };
+      })) as { success: boolean; item: Record<string, unknown> };
 
       expect(queueResult.success).toBe(true);
       expect(queueResult.item.credentialId).toBe("urn:uuid:test-cred-1");
@@ -701,7 +714,9 @@ describe("IPC Handler Integration Tests", () => {
 
       // Check status
       const statusHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_STATUS];
-      const statusResult = await statusHandler(fakeEvent) as { items: Array<Record<string, unknown>> };
+      const statusResult = (await statusHandler(fakeEvent)) as {
+        items: Array<Record<string, unknown>>;
+      };
 
       expect(statusResult.items.length).toBeGreaterThanOrEqual(1);
       const found = statusResult.items.find((i) => i.credentialId === "urn:uuid:test-cred-1");
@@ -720,11 +735,21 @@ describe("IPC Handler Integration Tests", () => {
       },
       {
         id: "employment",
-        subject: { name: "John Smith", employer: "Acme Corp", position: "Engineer", startDate: "2025-01-01" },
+        subject: {
+          name: "John Smith",
+          employer: "Acme Corp",
+          position: "Engineer",
+          startDate: "2025-01-01",
+        },
       },
       {
         id: "identity",
-        subject: { name: "Alice Johnson", dateOfBirth: "1990-01-01", nationality: "US", documentNumber: "A12345" },
+        subject: {
+          name: "Alice Johnson",
+          dateOfBirth: "1990-01-01",
+          nationality: "US",
+          documentNumber: "A12345",
+        },
       },
     ];
 

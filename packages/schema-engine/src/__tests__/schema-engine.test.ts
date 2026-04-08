@@ -63,7 +63,9 @@ describe("createRegistry", () => {
     expect(registry.getContextForType("identity")).toBe(
       "https://schema.nfh.global/contexts/identity/v1",
     );
-    expect(registry.getContextForType("health")).toBe("https://schema.nfh.global/contexts/health/v1");
+    expect(registry.getContextForType("health")).toBe(
+      "https://schema.nfh.global/contexts/health/v1",
+    );
     expect(registry.getContextForType("business")).toBe(
       "https://schema.nfh.global/contexts/business/v1",
     );

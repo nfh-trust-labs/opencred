@@ -196,10 +196,7 @@ export async function buildAndSign(
     const credentialId = `urn:uuid:${credentialUuid}`;
     builder.setId(credentialId);
 
-    const revocationHash = crypto
-      .createHash("sha256")
-      .update(credentialUuid)
-      .digest("hex");
+    const revocationHash = crypto.createHash("sha256").update(credentialUuid).digest("hex");
     const statusListCredential = options.revocationRegistryUrl;
     const lookupUrl = statusListCredential.replace("/dedi/query/", "/dedi/lookup/");
     builder.setCredentialStatus({
@@ -244,8 +241,7 @@ export async function buildAndSign(
   const format = proofFormat;
 
   // Derive vct for SD-JWT-VC from additional types or schema ID
-  const vct =
-    options.additionalTypes?.[0] ?? options.schemaId;
+  const vct = options.additionalTypes?.[0] ?? options.schemaId;
 
   // For did:web issuers, the verificationMethod in the proof should use the
   // did:web DID's verification method ID, not the signer's did:key-based ID
@@ -283,7 +279,6 @@ export async function buildAndSign(
       const proof = signedCredential.proof as Record<string, unknown>;
       proof.x5c = signer.metadata.certificateChain.map(pemToBase64Der);
     }
-
 
     signedOutput = JSON.stringify(signedCredential);
   }

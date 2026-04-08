@@ -1,4 +1,8 @@
-export type { Pkcs11KeyInfo, Pkcs11SlotInfo, Pkcs11Session } from "@opencred/signing/pkcs11-session";
+export type {
+  Pkcs11KeyInfo,
+  Pkcs11SlotInfo,
+  Pkcs11Session,
+} from "@opencred/signing/pkcs11-session";
 export {
   initializePkcs11,
   finalizePkcs11,

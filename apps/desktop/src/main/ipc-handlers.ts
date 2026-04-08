@@ -95,9 +95,7 @@ import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
 import { CryptoError, ValidationError, SchemaValidationError, isPrivateIP } from "@opencred/shared";
 import { SchemaRegistry } from "@opencred/schema-engine";
-import {
-  packageCredential as packageCredentialWithTemplates,
-} from "./credential-export.js";
+import { packageCredential as packageCredentialWithTemplates } from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
 import { deriveVerificationMethod } from "../signing/types.js";
 import type { Signer } from "../signing/types.js";
@@ -117,9 +115,13 @@ import {
 } from "./auto-updater.js";
 // OS cert imports are lazy to avoid requiring the native addon at startup.
 
-
 import { BATCH_ROW_LIMIT } from "../shared/constants.js";
-import { DeDiPublishManager, createPublishManager, CONTEXT_REGISTRY, SCHEMA_REGISTRY } from "@opencred/dedi-client";
+import {
+  DeDiPublishManager,
+  createPublishManager,
+  CONTEXT_REGISTRY,
+  SCHEMA_REGISTRY,
+} from "@opencred/dedi-client";
 import type { ContextRecord } from "@opencred/dedi-client";
 import { generateInlineContext } from "@opencred/vc-core";
 
@@ -140,7 +142,9 @@ const loadedPublicKeyJwks = new Map<string, Record<string, unknown>>();
  * Merge signers reloaded from persisted paths into the in-memory registries.
  * Called once at startup from index.ts after reloadPersistedSigners().
  */
-export function mergeReloadedSigners(result: import("./persisted-signer-loader.js").ReloadResult): void {
+export function mergeReloadedSigners(
+  result: import("./persisted-signer-loader.js").ReloadResult,
+): void {
   for (const [id, meta] of result.metadata) {
     importedKeys.set(id, meta);
   }
@@ -179,7 +183,11 @@ async function handleKeyImport(
   request: KeyImportRequest,
 ): Promise<KeyImportResponse> {
   try {
-    const { signer, format } = createSoftwareSigner(request.filePath, request.label, request.password);
+    const { signer, format } = createSoftwareSigner(
+      request.filePath,
+      request.label,
+      request.password,
+    );
 
     const meta: KeyMetadata = {
       id: signer.id,
@@ -193,7 +201,12 @@ async function handleKeyImport(
 
     importedKeys.set(signer.id, meta);
     loadedSigners.set(signer.id, signer);
-    logger.info("Key imported", { keyId: signer.id, fingerprint: meta.fingerprint, format, source: "file" });
+    logger.info("Key imported", {
+      keyId: signer.id,
+      fingerprint: meta.fingerprint,
+      format,
+      source: "file",
+    });
 
     // SECURITY TRADE-OFF: Persisting file paths enables auto-reload on
     // restart but means an attacker with filesystem read access can discover
@@ -206,7 +219,8 @@ async function handleKeyImport(
     if (shouldPersist) {
       const prefs =
         (store.get("preferences" as keyof typeof store.store) as Record<string, unknown>) ?? {};
-      const savedPaths = (prefs["importedKeyPaths"] as Record<string, string | PersistedSignerEntry>) ?? {};
+      const savedPaths =
+        (prefs["importedKeyPaths"] as Record<string, string | PersistedSignerEntry>) ?? {};
       savedPaths[signer.id] = { path: request.filePath, label: request.label };
       store.set("preferences" as keyof typeof store.store, {
         ...prefs,
@@ -362,7 +376,8 @@ async function handleBuildAndSign(
   if (proofFormat === "data-integrity" && signer.algorithm.startsWith("RSA")) {
     return {
       success: false,
-      error: "Data Integrity proofs require ECDSA or EdDSA keys. Your key uses RSA — please select VC-JWT or SD-JWT-VC.",
+      error:
+        "Data Integrity proofs require ECDSA or EdDSA keys. Your key uses RSA — please select VC-JWT or SD-JWT-VC.",
       errorCode: "INCOMPATIBLE_FORMAT",
       errorField: "proofFormat",
     };
@@ -412,7 +427,8 @@ async function handleBuildAndSign(
       let customSchemaEntry: CustomSchemaEntry | undefined;
       if (request.schemaId?.startsWith("custom:")) {
         const store = getStore();
-        const customSchemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+        const customSchemas =
+          (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
         customSchemaEntry = customSchemas.find((s) => s.id === request.schemaId);
       }
 
@@ -488,7 +504,8 @@ async function handleBuildAndSign(
       let inlineContext = request.inlineContext;
       if (!contextUrl && !inlineContext && request.schemaId.startsWith("custom:")) {
         const store = getStore();
-        const customSchemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+        const customSchemas =
+          (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
         const customSchema = customSchemas.find((s) => s.id === request.schemaId);
         if (customSchema?.dediContextUrl) {
           contextUrl = customSchema.dediContextUrl;
@@ -512,9 +529,10 @@ async function handleBuildAndSign(
         contextUrl,
         inlineContext,
       });
-      signedCredentialJson = typeof result.credential === "string"
-        ? result.credential
-        : JSON.stringify(result.credential);
+      signedCredentialJson =
+        typeof result.credential === "string"
+          ? result.credential
+          : JSON.stringify(result.credential);
       isCompactToken = result.isCompactToken;
     }
 
@@ -537,16 +555,28 @@ async function handleBuildAndSign(
       }));
     }
 
-    logger.info("Build and sign completed", { keyId: request.keyId, schemaId: request.schemaId, proofFormat });
+    logger.info("Build and sign completed", {
+      keyId: request.keyId,
+      schemaId: request.schemaId,
+      proofFormat,
+    });
 
     // Record template usage for the "Recently used" list
     if (request.schemaId) {
-      const schemaLabel = request.schemaId.startsWith("custom:") ? request.schemaId : request.schemaId;
+      const schemaLabel = request.schemaId.startsWith("custom:")
+        ? request.schemaId
+        : request.schemaId;
       try {
         const def = getSchemaDefinition(request.schemaId);
-        void handleRecentTemplatesRecord(null as unknown as IpcMainInvokeEvent, { schemaId: request.schemaId, schemaName: def.id });
+        void handleRecentTemplatesRecord(null as unknown as IpcMainInvokeEvent, {
+          schemaId: request.schemaId,
+          schemaName: def.id,
+        });
       } catch {
-        void handleRecentTemplatesRecord(null as unknown as IpcMainInvokeEvent, { schemaId: request.schemaId, schemaName: schemaLabel });
+        void handleRecentTemplatesRecord(null as unknown as IpcMainInvokeEvent, {
+          schemaId: request.schemaId,
+          schemaName: schemaLabel,
+        });
       }
     }
 
@@ -555,18 +585,29 @@ async function handleBuildAndSign(
     if (dediMgr && request.schemaId && !request.inlineSchema) {
       try {
         const def = getSchemaDefinition(request.schemaId);
-        void dediMgr.ensureSchemaPublished({
-          schemaId: def.id, version: "1", schema: def.schema, contextUrl: def.contextUrl,
-          checksum: SchemaRegistry.computeChecksum(def.schema), publishedAt: new Date().toISOString(),
-        }).then((r: import("@opencred/dedi-client").PublishResult | null) => {
-          if (r) {
-            const s = getStore();
-            const pub = s.get("dediPublishedSchemas");
-            const k = `${def.id}-v1`;
-            if (!pub.includes(k)) s.set("dediPublishedSchemas", [...pub, k]);
-          }
-        }).catch(() => { /* fire-and-forget — errors logged by publish manager */ });
-      } catch { /* schema lookup failed — skip */ }
+        void dediMgr
+          .ensureSchemaPublished({
+            schemaId: def.id,
+            version: "1",
+            schema: def.schema,
+            contextUrl: def.contextUrl,
+            checksum: SchemaRegistry.computeChecksum(def.schema),
+            publishedAt: new Date().toISOString(),
+          })
+          .then((r: import("@opencred/dedi-client").PublishResult | null) => {
+            if (r) {
+              const s = getStore();
+              const pub = s.get("dediPublishedSchemas");
+              const k = `${def.id}-v1`;
+              if (!pub.includes(k)) s.set("dediPublishedSchemas", [...pub, k]);
+            }
+          })
+          .catch(() => {
+            /* fire-and-forget — errors logged by publish manager */
+          });
+      } catch {
+        /* schema lookup failed — skip */
+      }
     }
 
     return response;
@@ -623,7 +664,8 @@ async function handleVerifyCredential(
     }
 
     // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
-    const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } = await import("@opencred/did");
+    const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
+      await import("@opencred/did");
     const { verifyCredential } = await import("@opencred/verification");
 
     const compositeResolver = new CompositeDIDResolver(
@@ -642,7 +684,10 @@ async function handleVerifyCredential(
       didResolver: compositeResolver,
     });
 
-    logger.info("Credential verified", { valid: verificationResult.verified, code: verificationResult.code });
+    logger.info("Credential verified", {
+      valid: verificationResult.verified,
+      code: verificationResult.code,
+    });
     return {
       success: true,
       valid: verificationResult.verified,
@@ -654,7 +699,8 @@ async function handleVerifyCredential(
   } catch (err) {
     // Provide a user-friendly message for did:web offline failures
     const message = err instanceof Error ? err.message : "Verification failed.";
-    const isNetworkError = message.includes("resolve hostname") || message.includes("Timeout fetching");
+    const isNetworkError =
+      message.includes("resolve hostname") || message.includes("Timeout fetching");
     const userMessage = isNetworkError
       ? "Verification requires network access to resolve the issuer's DID document (did:web). Please check your connection."
       : message;
@@ -906,7 +952,8 @@ async function handleBatchStart(
   try {
     // Lightweight pre-check: count data lines before full parsing to prevent
     // excessive memory/CPU usage on very large CSVs.
-    const lineCount = request.csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0).length - 1;
+    const lineCount =
+      request.csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0).length - 1;
     if (lineCount > BATCH_ROW_LIMIT) {
       return {
         success: false,
@@ -941,10 +988,18 @@ async function handleBatchStart(
 
     batchState.engine = engine;
 
-    logger.info("Batch started", { schemaId: request.schemaId, totalRows: parseResult.totalCount, validRows: parseResult.validCount });
+    logger.info("Batch started", {
+      schemaId: request.schemaId,
+      totalRows: parseResult.totalCount,
+      validRows: parseResult.validCount,
+    });
     void engine.start().then((finalProgress) => {
       batchState.results = finalProgress.rows;
-      logger.info("Batch completed", { total: finalProgress.total, success: finalProgress.successCount, errors: finalProgress.errorCount });
+      logger.info("Batch completed", {
+        total: finalProgress.total,
+        success: finalProgress.successCount,
+        errors: finalProgress.errorCount,
+      });
     });
 
     return {
@@ -1183,7 +1238,11 @@ async function handlePkcs11Connect(
 
     importedKeys.set(signer.id, meta);
     loadedSigners.set(signer.id, signer);
-    logger.info("PKCS#11 key connected", { keyId: signer.id, fingerprint: meta.fingerprint, slotIndex: request.slotIndex });
+    logger.info("PKCS#11 key connected", {
+      keyId: signer.id,
+      fingerprint: meta.fingerprint,
+      slotIndex: request.slotIndex,
+    });
 
     return {
       success: true,
@@ -1322,7 +1381,11 @@ async function handleOsCertConnect(
 
     importedKeys.set(signer.id, meta);
     loadedSigners.set(signer.id, signer);
-    logger.info("OS certificate connected", { keyId: signer.id, fingerprint: meta.fingerprint, platform });
+    logger.info("OS certificate connected", {
+      keyId: signer.id,
+      fingerprint: meta.fingerprint,
+      platform,
+    });
 
     return {
       success: true,
@@ -1342,7 +1405,8 @@ async function handleOsCertConnect(
 /** CREDENTIAL_HISTORY_LIST — return all credential history entries. */
 async function handleCredentialHistoryList(): Promise<CredentialHistoryListResponse> {
   const store = getStore();
-  const history = (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
+  const history =
+    (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
   return { entries: history };
 }
 
@@ -1352,7 +1416,8 @@ async function handleCredentialHistoryAdd(
   request: CredentialHistoryAddRequest,
 ): Promise<CredentialHistoryEntry> {
   const store = getStore();
-  const history = (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
+  const history =
+    (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
 
   const entry: CredentialHistoryEntry = {
     id: randomUUID(),
@@ -1377,7 +1442,8 @@ async function handleCredentialHistoryDelete(
   request: CredentialHistoryDeleteRequest,
 ): Promise<CredentialHistoryDeleteResponse> {
   const store = getStore();
-  const history = (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
+  const history =
+    (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
   const filtered = history.filter((e) => e.id !== request.id);
   const deleted = filtered.length < history.length;
   store.set("credentialHistory" as keyof typeof store.store, filtered);
@@ -1436,12 +1502,23 @@ async function handleSchemaFetchUrl(
     }
 
     const schema = body as Record<string, unknown>;
-    if (!schema.properties || typeof schema.properties !== "object" || Array.isArray(schema.properties)) {
-      return { success: false, error: "Response does not appear to be a JSON Schema (missing 'properties' object)" };
+    if (
+      !schema.properties ||
+      typeof schema.properties !== "object" ||
+      Array.isArray(schema.properties)
+    ) {
+      return {
+        success: false,
+        error: "Response does not appear to be a JSON Schema (missing 'properties' object)",
+      };
     }
 
     const title = typeof schema.title === "string" ? schema.title : undefined;
-    logger.info("Schema fetched from URL", { url, title, fieldCount: Object.keys(schema.properties as object).length });
+    logger.info("Schema fetched from URL", {
+      url,
+      title,
+      fieldCount: Object.keys(schema.properties as object).length,
+    });
     return { success: true, schema, title };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -1594,11 +1671,7 @@ async function fetchJsonLdContextDocument(url: string): Promise<ContextFetchResu
     // shape validation.
     const obj = body as Record<string, unknown>;
     const innerContext = obj["@context"];
-    if (
-      typeof innerContext !== "object" ||
-      innerContext === null ||
-      Array.isArray(innerContext)
-    ) {
+    if (typeof innerContext !== "object" || innerContext === null || Array.isArray(innerContext)) {
       return {
         error: "Response does not look like a JSON-LD context document (missing @context object)",
       };
@@ -1685,7 +1758,8 @@ async function readBodyWithSizeLimit(
 
 async function handleCustomSchemaList(): Promise<CustomSchemaListResponse> {
   const store = getStore();
-  const schemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+  const schemas =
+    (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
   return { schemas };
 }
 
@@ -1700,7 +1774,9 @@ function customSchemaSaveSuccess(entry: CustomSchemaEntry): CustomSchemaSaveResp
     ...(entry.sourceUrl ? { sourceUrl: entry.sourceUrl } : {}),
     ...(entry.dediContextUrl ? { contextUrl: entry.dediContextUrl } : {}),
     contextCached: entry.cachedContextDocument != null,
-    ...(entry.cachedContextFetchedAt ? { cachedContextFetchedAt: entry.cachedContextFetchedAt } : {}),
+    ...(entry.cachedContextFetchedAt
+      ? { cachedContextFetchedAt: entry.cachedContextFetchedAt }
+      : {}),
   };
 }
 
@@ -1771,7 +1847,8 @@ async function handleCustomSchemaSave(
   request: CustomSchemaSaveRequest,
 ): Promise<CustomSchemaSaveResponse> {
   const store = getStore();
-  const schemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+  const schemas =
+    (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
 
   // Determine the context URL the user wants cached. If the request supplies
   // one explicitly, prefer it; otherwise we'll fall back to whatever URL DeDi
@@ -1800,12 +1877,7 @@ async function handleCustomSchemaSave(
         const result = await fetchJsonLdContextDocument(targetContextUrl);
         if (result.document) {
           const newHash = computeContextDocumentHash(result.document);
-          const conflict = findContextHashConflict(
-            schemas,
-            targetContextUrl,
-            newHash,
-            updated.id,
-          );
+          const conflict = findContextHashConflict(schemas, targetContextUrl, newHash, updated.id);
           if (conflict) {
             logger.warn("Custom schema context hash conflict (update)", {
               schemaId: updated.id,
@@ -1874,13 +1946,17 @@ async function handleCustomSchemaSave(
       const contextRecordName = `${entry.id}-ctx-v${version}`;
 
       // Publish schema (fire-and-forget)
-      mgr.ensureSchemaPublished({
-        schemaId: entry.id,
-        version,
-        schema: request.schema,
-        checksum: SchemaRegistry.computeChecksum(request.schema),
-        publishedAt: new Date().toISOString(),
-      }).catch(() => { /* logged internally */ });
+      mgr
+        .ensureSchemaPublished({
+          schemaId: entry.id,
+          version,
+          schema: request.schema,
+          checksum: SchemaRegistry.computeChecksum(request.schema),
+          publishedAt: new Date().toISOString(),
+        })
+        .catch(() => {
+          /* logged internally */
+        });
 
       // Publish context (fire-and-forget)
       if (entry.generatedContext) {
@@ -1890,7 +1966,9 @@ async function handleCustomSchemaSave(
           context: entry.generatedContext,
           publishedAt: new Date().toISOString(),
         };
-        mgr.publishContext(contextRecord).catch(() => { /* logged internally */ });
+        mgr.publishContext(contextRecord).catch(() => {
+          /* logged internally */
+        });
       }
 
       entry.dediSchemaUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${SCHEMA_REGISTRY}/${schemaRecordName}`;
@@ -1907,12 +1985,7 @@ async function handleCustomSchemaSave(
     const result = await fetchJsonLdContextDocument(entry.dediContextUrl);
     if (result.document) {
       const newHash = computeContextDocumentHash(result.document);
-      const conflict = findContextHashConflict(
-        schemas,
-        entry.dediContextUrl,
-        newHash,
-        entry.id,
-      );
+      const conflict = findContextHashConflict(schemas, entry.dediContextUrl, newHash, entry.id);
       if (conflict) {
         logger.warn("Custom schema context hash conflict (create)", {
           schemaId: entry.id,
@@ -1957,7 +2030,8 @@ async function handleCustomSchemaDelete(
   request: CustomSchemaDeleteRequest,
 ): Promise<CustomSchemaDeleteResponse> {
   const store = getStore();
-  const schemas = (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+  const schemas =
+    (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
   const filtered = schemas.filter((s) => s.id !== request.id);
   const deleted = filtered.length < schemas.length;
   store.set("customSchemas" as keyof typeof store.store, filtered);
@@ -1998,12 +2072,23 @@ async function handleLogTail(
 import { exportDidDocument } from "./did-web-export.js";
 import { DIDWebResolver, encodeDidWeb } from "@opencred/did";
 import type {
-  DidWebExportRequest, DidWebExportResponse, DidWebVerifyRequest, DidWebVerifyResponse,
-  DeDiConfigSetRequest, DeDiConfigSetResponse, DeDiStatusResponse,
-  DeDiPublishDIDRequest, DeDiPublishSchemaRequest, DeDiPublishResponse, DeDiEnsureRegistriesResponse,
+  DidWebExportRequest,
+  DidWebExportResponse,
+  DidWebVerifyRequest,
+  DidWebVerifyResponse,
+  DeDiConfigSetRequest,
+  DeDiConfigSetResponse,
+  DeDiStatusResponse,
+  DeDiPublishDIDRequest,
+  DeDiPublishSchemaRequest,
+  DeDiPublishResponse,
+  DeDiEnsureRegistriesResponse,
 } from "../shared/ipc-types.js";
 
-async function handleDidWebExport(_event: IpcMainInvokeEvent, request: DidWebExportRequest): Promise<DidWebExportResponse> {
+async function handleDidWebExport(
+  _event: IpcMainInvokeEvent,
+  request: DidWebExportRequest,
+): Promise<DidWebExportResponse> {
   try {
     const jwk = loadedPublicKeyJwks.get(request.keyId);
     if (!jwk) return { success: false, error: "Key not found or not a generated key" };
@@ -2011,13 +2096,19 @@ async function handleDidWebExport(_event: IpcMainInvokeEvent, request: DidWebExp
     const didDocument = exportDidDocument(jwk as import("@opencred/did").JWK, request.domain);
     return { success: true, didDocument, did };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "DID document export failed." };
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "DID document export failed.",
+    };
   }
 }
 
 const DOMAIN_PATTERN = /^[a-zA-Z0-9]([a-zA-Z0-9-]*\.)+[a-zA-Z]{2,}(:\d+)?$/;
 
-async function handleDidWebVerify(_event: IpcMainInvokeEvent, request: DidWebVerifyRequest): Promise<DidWebVerifyResponse> {
+async function handleDidWebVerify(
+  _event: IpcMainInvokeEvent,
+  request: DidWebVerifyRequest,
+): Promise<DidWebVerifyResponse> {
   if (!request.domain || !DOMAIN_PATTERN.test(request.domain)) {
     return { success: true, accessible: false, error: "Invalid domain format" };
   }
@@ -2026,7 +2117,11 @@ async function handleDidWebVerify(_event: IpcMainInvokeEvent, request: DidWebVer
     await resolver.resolve(encodeDidWeb(request.domain));
     return { success: true, accessible: true };
   } catch (err) {
-    return { success: true, accessible: false, error: err instanceof Error ? err.message : "DID verification failed." };
+    return {
+      success: true,
+      accessible: false,
+      error: err instanceof Error ? err.message : "DID verification failed.",
+    };
   }
 }
 
@@ -2044,11 +2139,28 @@ export function getDeDiPublishManager(): DeDiPublishManager | null {
   const credJson = getDeDiCredentialFromKeychain();
   if (!credJson) return null;
   let parsed: { apiKey?: string; email?: string; password?: string };
-  try { parsed = JSON.parse(credJson); } catch { return null; }
-  const auth = config.authType === "api-key"
-    ? { type: "api-key" as const, apiKey: parsed.apiKey ?? "" }
-    : { type: "bearer" as const, email: parsed.email ?? "", password: parsed.password ?? "" };
-  publishManager = createPublishManager({ baseUrl: config.baseUrl, defaultNamespace: config.namespace, auth, timeoutMs: 10_000, circuitBreakerThreshold: 5, maxRetries: 3, logger }, store.get("dediPublishedSchemas"), logger);
+  try {
+    parsed = JSON.parse(credJson);
+  } catch {
+    return null;
+  }
+  const auth =
+    config.authType === "api-key"
+      ? { type: "api-key" as const, apiKey: parsed.apiKey ?? "" }
+      : { type: "bearer" as const, email: parsed.email ?? "", password: parsed.password ?? "" };
+  publishManager = createPublishManager(
+    {
+      baseUrl: config.baseUrl,
+      defaultNamespace: config.namespace,
+      auth,
+      timeoutMs: 10_000,
+      circuitBreakerThreshold: 5,
+      maxRetries: 3,
+      logger,
+    },
+    store.get("dediPublishedSchemas"),
+    logger,
+  );
   return publishManager;
 }
 
@@ -2056,7 +2168,11 @@ function getDeDiCredentialFromKeychain(): string | null {
   if (!safeStorage.isEncryptionAvailable()) return null;
   const encrypted = getStore().get("preferences")["dediCredentialEncrypted"] as string | undefined;
   if (!encrypted) return null;
-  try { return safeStorage.decryptString(Buffer.from(encrypted, "base64")); } catch { return null; }
+  try {
+    return safeStorage.decryptString(Buffer.from(encrypted, "base64"));
+  } catch {
+    return null;
+  }
 }
 
 function storeDeDiCredentialInKeychain(json: string): void {
@@ -2066,11 +2182,21 @@ function storeDeDiCredentialInKeychain(json: string): void {
   store.set("preferences", { ...store.get("preferences"), dediCredentialEncrypted: enc });
 }
 
-async function handleDeDiSetConfig(_event: IpcMainInvokeEvent, request: DeDiConfigSetRequest): Promise<DeDiConfigSetResponse> {
+async function handleDeDiSetConfig(
+  _event: IpcMainInvokeEvent,
+  request: DeDiConfigSetRequest,
+): Promise<DeDiConfigSetResponse> {
   try {
     const store = getStore();
-    store.set("dediConfig", { baseUrl: request.baseUrl, namespace: request.namespace, authType: request.credentials.type });
-    const cred = request.credentials.type === "api-key" ? { apiKey: request.credentials.apiKey } : { email: request.credentials.email, password: request.credentials.password };
+    store.set("dediConfig", {
+      baseUrl: request.baseUrl,
+      namespace: request.namespace,
+      authType: request.credentials.type,
+    });
+    const cred =
+      request.credentials.type === "api-key"
+        ? { apiKey: request.credentials.apiKey }
+        : { email: request.credentials.email, password: request.credentials.password };
     storeDeDiCredentialInKeychain(JSON.stringify(cred));
     publishManager = null;
     const mgr = getDeDiPublishManager();
@@ -2082,29 +2208,47 @@ async function handleDeDiSetConfig(_event: IpcMainInvokeEvent, request: DeDiConf
     try {
       registriesReady = await mgr.ensureRegistries(request.namespace);
     } catch (regErr) {
-      logger.error("DeDi ensureRegistries failed", { error: regErr instanceof Error ? regErr.message : String(regErr) });
+      logger.error("DeDi ensureRegistries failed", {
+        error: regErr instanceof Error ? regErr.message : String(regErr),
+      });
     }
     store.set("dediRegistriesReady", registriesReady);
     return { success: true, registriesReady };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Failed to configure DeDi" };
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to configure DeDi",
+    };
   }
 }
 
 async function handleDeDiGetStatus(_event: IpcMainInvokeEvent): Promise<DeDiStatusResponse> {
   const store = getStore();
   const config = store.get("dediConfig");
-  return { configured: config != null, namespace: config?.namespace, registriesReady: store.get("dediRegistriesReady") === true, publishedSchemas: store.get("dediPublishedSchemas") };
+  return {
+    configured: config != null,
+    namespace: config?.namespace,
+    registriesReady: store.get("dediRegistriesReady") === true,
+    publishedSchemas: store.get("dediPublishedSchemas"),
+  };
 }
 
-async function handleDeDiPublishDID(_event: IpcMainInvokeEvent, request: DeDiPublishDIDRequest): Promise<DeDiPublishResponse> {
+async function handleDeDiPublishDID(
+  _event: IpcMainInvokeEvent,
+  request: DeDiPublishDIDRequest,
+): Promise<DeDiPublishResponse> {
   const mgr = getDeDiPublishManager();
   if (!mgr) return { success: false, error: "DeDi not configured" };
   const result = await mgr.publishDIDDocument(request.did, request.document);
-  return result ? { success: true, recordName: result.recordName } : { success: false, error: "Failed to publish DID to DeDi" };
+  return result
+    ? { success: true, recordName: result.recordName }
+    : { success: false, error: "Failed to publish DID to DeDi" };
 }
 
-async function handleDeDiPublishSchema(_event: IpcMainInvokeEvent, request: DeDiPublishSchemaRequest): Promise<DeDiPublishResponse> {
+async function handleDeDiPublishSchema(
+  _event: IpcMainInvokeEvent,
+  request: DeDiPublishSchemaRequest,
+): Promise<DeDiPublishResponse> {
   const mgr = getDeDiPublishManager();
   if (!mgr) return { success: false, error: "DeDi not configured" };
 
@@ -2135,7 +2279,9 @@ async function handleDeDiPublishSchema(_event: IpcMainInvokeEvent, request: DeDi
   }
 }
 
-async function handleDeDiEnsureRegistries(_event: IpcMainInvokeEvent): Promise<DeDiEnsureRegistriesResponse> {
+async function handleDeDiEnsureRegistries(
+  _event: IpcMainInvokeEvent,
+): Promise<DeDiEnsureRegistriesResponse> {
   const mgr = getDeDiPublishManager();
   if (!mgr) return { success: false, error: "DeDi not configured" };
   const store = getStore();
@@ -2153,7 +2299,9 @@ async function handleDeDiEnsureRegistries(_event: IpcMainInvokeEvent): Promise<D
  * SECURITY NOTE: This is an intentional credential deletion operation invoked
  * by the user via the Settings UI to disconnect their DeDi account.
  */
-async function handleDeDiDisconnect(_event: IpcMainInvokeEvent): Promise<import("../shared/ipc-types.js").DeDiDisconnectResponse> {
+async function handleDeDiDisconnect(
+  _event: IpcMainInvokeEvent,
+): Promise<import("../shared/ipc-types.js").DeDiDisconnectResponse> {
   const store = getStore();
   store.delete("dediConfig" as never);
   store.set("dediPublishedSchemas", []);
@@ -2172,11 +2320,16 @@ async function handleDeDiDisconnect(_event: IpcMainInvokeEvent): Promise<import(
 // Recent templates
 // ---------------------------------------------------------------------------
 
-import type { RecentTemplatesListResponse, RecentTemplateRecordRequest } from "../shared/ipc-types.js";
+import type {
+  RecentTemplatesListResponse,
+  RecentTemplateRecordRequest,
+} from "../shared/ipc-types.js";
 import { RECENT_TEMPLATES_CAP } from "./store.js";
 import type { RecentTemplateEntry } from "./store.js";
 
-async function handleRecentTemplatesList(_event: IpcMainInvokeEvent): Promise<RecentTemplatesListResponse> {
+async function handleRecentTemplatesList(
+  _event: IpcMainInvokeEvent,
+): Promise<RecentTemplatesListResponse> {
   const store = getStore();
   const templates = store.get("recentTemplates");
   return { templates };

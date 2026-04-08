@@ -115,8 +115,8 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
               Public Directory
             </h2>
             <p className="text-body-sm text-txt-secondary">
-              DeDi is a public directory where you can publish your DID, schemas, and
-              revocation lists so verifiers can discover them.
+              DeDi is a public directory where you can publish your DID, schemas, and revocation
+              lists so verifiers can discover them.
             </p>
           </div>
 
@@ -139,9 +139,7 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
               onClick={() => setState("not-yet")}
               className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-border-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
             >
-              <span className="block text-body-sm font-semibold text-txt-primary">
-                Not yet
-              </span>
+              <span className="block text-body-sm font-semibold text-txt-primary">Not yet</span>
               <span className="block text-[0.78rem] text-txt-muted mt-1">
                 Learn about DeDi and create an account
               </span>
@@ -152,9 +150,7 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
               onClick={onComplete}
               className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-border-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
             >
-              <span className="block text-body-sm font-semibold text-txt-primary">
-                Skip
-              </span>
+              <span className="block text-body-sm font-semibold text-txt-primary">Skip</span>
               <span className="block text-[0.78rem] text-txt-muted mt-1">
                 You can configure DeDi later from Settings
               </span>
@@ -173,15 +169,13 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
               About DeDi
             </h2>
             <p className="text-body-sm text-txt-secondary">
-              DeDi (Decentralised Directory) is a public registry service where issuers
-              publish their public keys, schemas, and revocation lists.
+              DeDi (Decentralised Directory) is a public registry service where issuers publish
+              their public keys, schemas, and revocation lists.
             </p>
           </div>
 
           <div className="rounded-oc border border-blue-200 bg-blue-50 p-4 space-y-2">
-            <p className="text-[0.78rem] font-medium text-blue-800">
-              Create an account at DeDi
-            </p>
+            <p className="text-[0.78rem] font-medium text-blue-800">Create an account at DeDi</p>
             <p className="text-[0.72rem] text-blue-700">
               Visit{" "}
               <a
@@ -192,8 +186,8 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
               >
                 publish.dedi.global
               </a>{" "}
-              to create your namespace and get an API key. You can configure DeDi
-              in OpenCred at any time from Settings.
+              to create your namespace and get an API key. You can configure DeDi in OpenCred at any
+              time from Settings.
             </p>
           </div>
 
@@ -213,8 +207,8 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
               Connect to DeDi
             </h2>
             <p className="text-body-sm text-txt-secondary">
-              Enter your DeDi namespace and API key. OpenCred will create the
-              required registries automatically.
+              Enter your DeDi namespace and API key. OpenCred will create the required registries
+              automatically.
             </p>
           </div>
 
@@ -224,7 +218,10 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
               <input
                 type="text"
                 value={namespace}
-                onChange={(e) => { setNamespace(e.target.value); setError(null); }}
+                onChange={(e) => {
+                  setNamespace(e.target.value);
+                  setError(null);
+                }}
                 placeholder="your-domain.example"
                 disabled={state === "connecting"}
                 className="w-full rounded-oc border border-border px-3 py-2 text-body-sm text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-50"
@@ -236,7 +233,10 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
               <input
                 type="password"
                 value={apiKey}
-                onChange={(e) => { setApiKey(e.target.value); setError(null); }}
+                onChange={(e) => {
+                  setApiKey(e.target.value);
+                  setError(null);
+                }}
                 placeholder="Enter your DeDi API key"
                 disabled={state === "connecting"}
                 className="w-full rounded-oc border border-border px-3 py-2 text-body-sm text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-50"
@@ -244,20 +244,18 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
             </div>
           </div>
 
-          {error && (
-            <p className="text-sm text-red-600">{error}</p>
-          )}
+          {error && <p className="text-sm text-red-600">{error}</p>}
 
           <div className="pt-2 flex gap-3">
-            <Button
-              onClick={() => void handleConnect()}
-              disabled={state === "connecting"}
-            >
+            <Button onClick={() => void handleConnect()} disabled={state === "connecting"}>
               {state === "connecting" ? "Connecting..." : "Connect to DeDi"}
             </Button>
             <Button
               variant="secondary"
-              onClick={() => { setState("choice"); setError(null); }}
+              onClick={() => {
+                setState("choice");
+                setError(null);
+              }}
               disabled={state === "connecting"}
             >
               Back
@@ -281,7 +279,9 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
           </div>
 
           <div className="rounded-oc border border-green-200 bg-green-50 p-4 space-y-2">
-            <h3 className="oc-card-label" style={{ color: "#2e7d32" }}>Configuration</h3>
+            <h3 className="oc-card-label" style={{ color: "#2e7d32" }}>
+              Configuration
+            </h3>
             <dl className="text-[0.78rem] text-green-700 space-y-1.5">
               <div className="flex gap-2">
                 <dt className="font-medium w-28 flex-shrink-0">Namespace:</dt>
@@ -310,8 +310,8 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
                 Registries could not be created
               </p>
               <p className="text-[0.72rem] text-amber-700">
-                Config saved but registries could not be created. Check your API key
-                and network connection.
+                Config saved but registries could not be created. Check your API key and network
+                connection.
               </p>
               <button
                 onClick={() => void handleRetryRegistries()}
@@ -329,8 +329,8 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
                 DID could not be published
               </p>
               <p className="text-[0.72rem] text-amber-700">
-                Your DeDi configuration was saved, but the DID document could not be
-                published. You can retry from Settings.
+                Your DeDi configuration was saved, but the DID document could not be published. You
+                can retry from Settings.
               </p>
             </div>
           )}

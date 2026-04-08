@@ -64,9 +64,7 @@ export function findCachedCustomContext(
  * for a given URL (see `handleCustomSchemaSave` content-hash check), so
  * this is a simple URL → document mapping as the JSON-LD spec assumes.
  */
-export function lookupCachedCustomContext(
-  url: string,
-): Record<string, unknown> | undefined {
+export function lookupCachedCustomContext(url: string): Record<string, unknown> | undefined {
   return findCachedCustomContext(url)?.document;
 }
 

@@ -108,7 +108,10 @@ export function createBatchEngine(signer: Signer, parsedRows: ParsedRow[], confi
 
     try {
       // Validate
-      getValidator().validateOrThrow(config.schemaId, parsedRow.mappedSubject as Record<string, unknown>);
+      getValidator().validateOrThrow(
+        config.schemaId,
+        parsedRow.mappedSubject as Record<string, unknown>,
+      );
 
       // Build
       const builder = new CredentialBuilder()
@@ -152,7 +155,10 @@ export function createBatchEngine(signer: Signer, parsedRows: ParsedRow[], confi
           const dataToSign = new TextEncoder().encode(signingInput);
           const signatureBytes = await signer.sign(dataToSign);
           const jwt = completeVcJwtProof(signingInput, signatureBytes);
-          rowResult.credential = { ...unsigned, proof: { type: "JsonWebSignature2020", jwt } } as unknown as VerifiableCredential;
+          rowResult.credential = {
+            ...unsigned,
+            proof: { type: "JsonWebSignature2020", jwt },
+          } as unknown as VerifiableCredential;
           rowResult.isCompactToken = false;
           break;
         }
@@ -163,7 +169,11 @@ export function createBatchEngine(signer: Signer, parsedRows: ParsedRow[], confi
             const signatureBytes = await signer.sign(dataToSign);
             rowResult.credential = completeEdDsaProof(unsigned, proofConfig, signatureBytes);
           } else {
-            const { dataToSign, proofConfig } = await prepareProof(unsigned, proofOptions, signer.algorithm as "P-256" | "P-384");
+            const { dataToSign, proofConfig } = await prepareProof(
+              unsigned,
+              proofOptions,
+              signer.algorithm as "P-256" | "P-384",
+            );
             const signatureBytes = await signer.sign(dataToSign);
             rowResult.credential = completeProof(unsigned, proofConfig, signatureBytes);
           }
@@ -176,7 +186,11 @@ export function createBatchEngine(signer: Signer, parsedRows: ParsedRow[], confi
             vct,
             verificationMethod: signer.id,
           };
-          const { signingInput, disclosures } = prepareSdJwtVcProof(unsigned, signer.algorithm, sdJwtOptions);
+          const { signingInput, disclosures } = prepareSdJwtVcProof(
+            unsigned,
+            signer.algorithm,
+            sdJwtOptions,
+          );
           const dataToSign = new TextEncoder().encode(signingInput);
           const signatureBytes = await signer.sign(dataToSign);
           rowResult.credential = completeSdJwtVcProof(signingInput, signatureBytes, disclosures);

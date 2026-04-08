@@ -9,11 +9,7 @@ export type {
   CertificateAuthorityAdapter,
 } from "./types.js";
 
-export {
-  CaAdapterError,
-  CaAdapterNotConfiguredError,
-  CaRequestNotFoundError,
-} from "./errors.js";
+export { CaAdapterError, CaAdapterNotConfiguredError, CaRequestNotFoundError } from "./errors.js";
 
 export { NoopCaAdapter } from "./noop-adapter.js";
 

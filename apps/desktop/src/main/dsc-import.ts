@@ -144,9 +144,10 @@ function isEcKey(publicKey: KeyObject): boolean {
  * EC keys (P-256, P-384, Ed25519) use did:key.
  * RSA keys use did:jwk.
  */
-export function deriveDidFromPublicKey(
-  publicKey: KeyObject,
-): { did: string; verificationMethodId: string } {
+export function deriveDidFromPublicKey(publicKey: KeyObject): {
+  did: string;
+  verificationMethodId: string;
+} {
   if (isEcKey(publicKey)) {
     const verificationMethodId = deriveDidKeyIdFromPublicKey(publicKey);
     const did = verificationMethodId.split("#")[0];
@@ -360,9 +361,7 @@ export function importPfx(pfxBuffer: Buffer, password: string): DscImportResult 
 /**
  * Extract PEM blocks from a concatenated PEM string.
  */
-function extractPemBlocks(
-  pemContent: string,
-): { certificates: string[]; keyBlock: string | null } {
+function extractPemBlocks(pemContent: string): { certificates: string[]; keyBlock: string | null } {
   const certificates: string[] = [];
   let keyBlock: string | null = null;
 
@@ -405,9 +404,7 @@ export function importPem(pemContent: string): DscImportResult {
       parsedKey = createPrivateKey(pemContent);
     }
   } catch {
-    throw new CryptoError(
-      "Invalid PEM: failed to parse key from the provided content",
-    );
+    throw new CryptoError("Invalid PEM: failed to parse key from the provided content");
   }
 
   const publicKey = createPublicKey(parsedKey);

@@ -77,7 +77,7 @@ vi.mock("electron-updater", () => ({
 }));
 
 vi.mock("@opencred/dedi-client", async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>;
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
     createPublishManager: vi.fn(() => ({
@@ -179,7 +179,7 @@ async function callCustomSchemaSave(
 
 async function importTestKey(): Promise<{ keyId: string }> {
   const handler = registeredHandlers[IPC_CHANNELS.KEY_IMPORT];
-  const result = await handler(fakeEvent, { filePath: ecKeyPath }) as {
+  const result = (await handler(fakeEvent, { filePath: ecKeyPath })) as {
     success: boolean;
     key: { id: string };
   };
@@ -194,11 +194,12 @@ async function callBuildAndSign(opts: Record<string, unknown>): Promise<Record<s
 
 /** Build a fetch mock that returns a JSON body with the given object. */
 function jsonResponseMock(body: unknown, status = 200): typeof globalThis.fetch {
-  return vi.fn(async () =>
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { "Content-Type": "application/ld+json" },
-    }),
+  return vi.fn(
+    async () =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/ld+json" },
+      }),
   ) as unknown as typeof globalThis.fetch;
 }
 
@@ -291,8 +292,9 @@ describe("Custom schema context fetching", () => {
   });
 
   it("rejects HTTP error responses (5xx) without leaking statusText", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response("server error", { status: 500, statusText: "Internal Server Error" }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("server error", { status: 500, statusText: "Internal Server Error" }),
     );
     globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 
@@ -312,14 +314,15 @@ describe("Custom schema context fetching", () => {
 
   it("rejects responses larger than the 1 MiB size cap (declared Content-Length)", async () => {
     // Server claims a 5 MiB body via Content-Length. We bail before reading.
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify(SAMPLE_JSONLD_CONTEXT), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/ld+json",
-          "Content-Length": String(5 * 1024 * 1024),
-        },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(SAMPLE_JSONLD_CONTEXT), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/ld+json",
+            "Content-Length": String(5 * 1024 * 1024),
+          },
+        }),
     );
     globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 

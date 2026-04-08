@@ -49,15 +49,11 @@ describe("didWebVerificationMethodId", () => {
 
 describe("didWebToUrl", () => {
   it("should convert a bare domain to .well-known URL", () => {
-    expect(didWebToUrl("did:web:example.com")).toBe(
-      "https://example.com/.well-known/did.json",
-    );
+    expect(didWebToUrl("did:web:example.com")).toBe("https://example.com/.well-known/did.json");
   });
 
   it("should convert a domain with subpath to path-based URL", () => {
-    expect(didWebToUrl("did:web:example.com:path:to")).toBe(
-      "https://example.com/path/to/did.json",
-    );
+    expect(didWebToUrl("did:web:example.com:path:to")).toBe("https://example.com/path/to/did.json");
   });
 
   it("should decode percent-encoded port numbers", () => {
@@ -128,9 +124,7 @@ describe("DIDWebResolver", () => {
   });
 
   it("should reject a non-string DID", async () => {
-    await expect(resolver.resolve(null as unknown as string)).rejects.toThrow(
-      DIDResolutionError,
-    );
+    await expect(resolver.resolve(null as unknown as string)).rejects.toThrow(DIDResolutionError);
     await expect(resolver.resolve(undefined as unknown as string)).rejects.toThrow(
       DIDResolutionError,
     );
@@ -141,18 +135,14 @@ describe("DIDWebResolver", () => {
   });
 
   it("should reject a non-web DID method", async () => {
-    await expect(resolver.resolve("did:key:z1234")).rejects.toThrow(
-      "Unsupported DID method: key",
-    );
+    await expect(resolver.resolve("did:key:z1234")).rejects.toThrow("Unsupported DID method: key");
   });
 
   it("should reject when hostname resolves to a private IP (SSRF protection)", async () => {
     const dns = await import("node:dns");
     vi.spyOn(dns.promises, "resolve4").mockResolvedValue(["127.0.0.1"]);
 
-    await expect(resolver.resolve("did:web:evil.example.com")).rejects.toThrow(
-      "SSRF protection",
-    );
+    await expect(resolver.resolve("did:web:evil.example.com")).rejects.toThrow("SSRF protection");
   });
 
   it("should reject when DNS resolution fails", async () => {

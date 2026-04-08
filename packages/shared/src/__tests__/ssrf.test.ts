@@ -34,9 +34,7 @@ describe("isPrivateIP", () => {
     expect(isPrivateIP(ip)).toBe(expected);
   });
 
-  it.each([
-    ["2001:4860:4860::8888", false],
-  ])("IPv6 public %s → %s", (ip, expected) => {
+  it.each([["2001:4860:4860::8888", false]])("IPv6 public %s → %s", (ip, expected) => {
     expect(isPrivateIP(ip)).toBe(expected);
   });
 
@@ -59,17 +57,17 @@ describe("isPrivateIP", () => {
 
   // IPv4-mapped IPv6 hex form (::ffff:XXXX:XXXX)
   it.each([
-    ["::ffff:7f00:0001", true],   // 127.0.0.1
-    ["::ffff:c0a8:0101", true],   // 192.168.1.1
-    ["::ffff:0a00:0001", true],   // 10.0.0.1
-    ["::ffff:ac10:0001", true],   // 172.16.0.1
+    ["::ffff:7f00:0001", true], // 127.0.0.1
+    ["::ffff:c0a8:0101", true], // 192.168.1.1
+    ["::ffff:0a00:0001", true], // 10.0.0.1
+    ["::ffff:ac10:0001", true], // 172.16.0.1
   ])("IPv4-mapped IPv6 hex %s → %s (private)", (ip, expected) => {
     expect(isPrivateIP(ip)).toBe(expected);
   });
 
   it.each([
-    ["::ffff:0808:0808", false],  // 8.8.8.8
-    ["::ffff:0101:0101", false],  // 1.1.1.1
+    ["::ffff:0808:0808", false], // 8.8.8.8
+    ["::ffff:0101:0101", false], // 1.1.1.1
   ])("IPv4-mapped IPv6 hex %s → %s (public)", (ip, expected) => {
     expect(isPrivateIP(ip)).toBe(expected);
   });

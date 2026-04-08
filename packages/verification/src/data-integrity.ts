@@ -26,7 +26,7 @@ export async function verifyDataIntegrity(
   }
 
   const cryptosuite = proof.cryptosuite as string;
-  if (!SUPPORTED_CRYPTOSUITES.includes(cryptosuite as typeof SUPPORTED_CRYPTOSUITES[number])) {
+  if (!SUPPORTED_CRYPTOSUITES.includes(cryptosuite as (typeof SUPPORTED_CRYPTOSUITES)[number])) {
     return {
       name: "signature",
       passed: false,

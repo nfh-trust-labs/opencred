@@ -15,8 +15,7 @@ import { W3C_CREDENTIALS_V2_CONTEXT, DATA_INTEGRITY_V1_CONTEXT } from "./types.j
  * Accepts: YYYY-MM-DDTHH:mm:ssZ, YYYY-MM-DDTHH:mm:ss.sssZ,
  *          YYYY-MM-DDTHH:mm:ss+HH:MM, YYYY-MM-DDTHH:mm:ss-HH:MM
  */
-const STRICT_ISO_8601 =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+const STRICT_ISO_8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
 function isStrictIso8601(value: string): boolean {
   if (!STRICT_ISO_8601.test(value)) return false;
@@ -95,9 +94,7 @@ export class CredentialBuilder {
   /** Set a custom credential ID. Must be a valid URI (urn:uuid: or https://). */
   setId(id: string): this {
     if (!isValidCredentialUri(id)) {
-      throw new ValidationError(
-        `Credential id must be a valid URI (urn:uuid: or https://): ${id}`,
-      );
+      throw new ValidationError(`Credential id must be a valid URI (urn:uuid: or https://): ${id}`);
     }
     this._id = id;
     return this;
@@ -195,9 +192,7 @@ export class CredentialBuilder {
       );
     }
     if (!isValidIssuerUri(issuerId)) {
-      throw new ValidationError(
-        `Issuer must be a valid URI (did: or https://): ${issuerId}`,
-      );
+      throw new ValidationError(`Issuer must be a valid URI (did: or https://): ${issuerId}`);
     }
 
     const credential: UnsignedCredential = {

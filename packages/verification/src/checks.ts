@@ -395,4 +395,8 @@ export async function checkBitstringStatusList(
 }
 
 // Export for testing
-export { isPrivateIP as _isPrivateIP, validateStatusListUrl as _validateStatusListUrl, MAX_COMPRESSED_SIZE };
+export {
+  isPrivateIP as _isPrivateIP,
+  validateStatusListUrl as _validateStatusListUrl,
+  MAX_COMPRESSED_SIZE,
+};

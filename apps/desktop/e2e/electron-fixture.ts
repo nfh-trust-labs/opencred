@@ -16,11 +16,7 @@
  * tests real IPC, signing, and file operations.
  */
 
-import {
-  test as base,
-  expect,
-  type Page,
-} from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 
 export type TestFixtures = {
   openCredPage: Page;

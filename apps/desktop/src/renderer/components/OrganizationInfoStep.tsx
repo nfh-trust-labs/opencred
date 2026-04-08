@@ -25,8 +25,7 @@ export function OrganizationInfoStep({ onSubmit, onBack }: OrganizationInfoStepP
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-gray-900">Organization Details</h2>
         <p className="text-sm text-gray-600">
-          Enter your organization name and domain. The domain will be used to
-          verify your identity.
+          Enter your organization name and domain. The domain will be used to verify your identity.
         </p>
       </div>
 
@@ -67,7 +66,12 @@ export function OrganizationInfoStep({ onSubmit, onBack }: OrganizationInfoStepP
         <Button variant="secondary" onClick={onBack}>
           Back
         </Button>
-        <Button onClick={() => onSubmit({ organizationName: organizationName.trim(), domain: domain.trim() })} disabled={!canSubmit}>
+        <Button
+          onClick={() =>
+            onSubmit({ organizationName: organizationName.trim(), domain: domain.trim() })
+          }
+          disabled={!canSubmit}
+        >
           Next
         </Button>
       </div>

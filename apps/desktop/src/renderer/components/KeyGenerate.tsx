@@ -80,9 +80,7 @@ export function KeyGenerate({ onKeyGenerated }: KeyGenerateProps) {
             <p>Algorithm: {success.algorithm}</p>
             {success.label && <p>Label: {success.label}</p>}
             <p>Fingerprint: {success.fingerprint.slice(0, 32)}...</p>
-            <p className="font-mono text-[10px] text-green-600 break-all">
-              ID: {success.id}
-            </p>
+            <p className="font-mono text-[10px] text-green-600 break-all">ID: {success.id}</p>
           </div>
         </div>
       )}

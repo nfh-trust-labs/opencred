@@ -103,7 +103,8 @@ const testCredentialOnlyVC: VerifiableCredential = {
 // All values used inside the factory must be inlined or defined with vi.hoisted().
 // ---------------------------------------------------------------------------
 
-const MOCK_SVG = vi.hoisted(() => `<svg>
+const MOCK_SVG = vi.hoisted(
+  () => `<svg>
   <text>{{credentialTitle}}</text>
   <text>{{issuerName}}</text>
   <text>{{validFrom}}</text>
@@ -111,7 +112,8 @@ const MOCK_SVG = vi.hoisted(() => `<svg>
   <text>{{subject.name}}</text>
   <text>{{subject.degree}}</text>
   <text>{{primaryColor}}</text>
-</svg>`);
+</svg>`,
+);
 
 vi.mock("@opencred/templates", () => ({
   getTemplate: vi.fn().mockReturnValue({
@@ -119,21 +121,29 @@ vi.mock("@opencred/templates", () => ({
     name: "Default Credential",
     svg: MOCK_SVG,
   }),
-  renderSvg: vi.fn((svgTemplate: string, options: { values: Record<string, unknown>; customization?: Record<string, unknown> }) => {
-    // Simplified render for testing — replace placeholders
-    let result = svgTemplate;
-    const values = options.values as Record<string, unknown>;
-    result = result.replace("{{credentialTitle}}", String(values.credentialTitle ?? ""));
-    result = result.replace("{{issuerName}}", String(values.issuerName ?? ""));
-    result = result.replace("{{validFrom}}", String(values.validFrom ?? ""));
-    result = result.replace("{{validUntil}}", String(values.validUntil ?? ""));
-    const subject = (values.subject ?? {}) as Record<string, string>;
-    result = result.replace("{{subject.name}}", String(subject.name ?? ""));
-    result = result.replace("{{subject.degree}}", String(subject.degree ?? ""));
-    const customization = options.customization ?? {};
-    result = result.replace("{{primaryColor}}", String((customization as Record<string, unknown>).primaryColor ?? "#1a56db"));
-    return result;
-  }),
+  renderSvg: vi.fn(
+    (
+      svgTemplate: string,
+      options: { values: Record<string, unknown>; customization?: Record<string, unknown> },
+    ) => {
+      // Simplified render for testing — replace placeholders
+      let result = svgTemplate;
+      const values = options.values as Record<string, unknown>;
+      result = result.replace("{{credentialTitle}}", String(values.credentialTitle ?? ""));
+      result = result.replace("{{issuerName}}", String(values.issuerName ?? ""));
+      result = result.replace("{{validFrom}}", String(values.validFrom ?? ""));
+      result = result.replace("{{validUntil}}", String(values.validUntil ?? ""));
+      const subject = (values.subject ?? {}) as Record<string, string>;
+      result = result.replace("{{subject.name}}", String(subject.name ?? ""));
+      result = result.replace("{{subject.degree}}", String(subject.degree ?? ""));
+      const customization = options.customization ?? {};
+      result = result.replace(
+        "{{primaryColor}}",
+        String((customization as Record<string, unknown>).primaryColor ?? "#1a56db"),
+      );
+      return result;
+    },
+  ),
   listTemplateIds: vi.fn().mockReturnValue(["default"]),
 }));
 
@@ -296,11 +306,7 @@ describe("packageCredential", () => {
   });
 
   it('should return correct output for ["json-ld"] format', async () => {
-    const outputs = await packageCredential(
-      testCredential,
-      "education",
-      ["json-ld"],
-    );
+    const outputs = await packageCredential(testCredential, "education", ["json-ld"]);
 
     expect(outputs.length).toBe(1);
     expect(outputs[0].format).toBe("json-ld");
@@ -311,11 +317,7 @@ describe("packageCredential", () => {
   });
 
   it('should return rendered SVG for ["svg"] format', async () => {
-    const outputs = await packageCredential(
-      testCredential,
-      "education",
-      ["svg"],
-    );
+    const outputs = await packageCredential(testCredential, "education", ["svg"]);
 
     expect(outputs.length).toBe(1);
     expect(outputs[0].format).toBe("svg");
@@ -325,11 +327,7 @@ describe("packageCredential", () => {
   });
 
   it("should return all outputs for multiple formats", async () => {
-    const outputs = await packageCredential(
-      testCredential,
-      "education",
-      ["json-ld", "svg", "qr"],
-    );
+    const outputs = await packageCredential(testCredential, "education", ["json-ld", "svg", "qr"]);
 
     expect(outputs.length).toBe(3);
     const formats = outputs.map((o) => o.format);
@@ -339,11 +337,7 @@ describe("packageCredential", () => {
   });
 
   it("should generate suggested file names", async () => {
-    const outputs = await packageCredential(
-      testCredential,
-      "education",
-      ["json-ld", "svg", "qr"],
-    );
+    const outputs = await packageCredential(testCredential, "education", ["json-ld", "svg", "qr"]);
 
     for (const output of outputs) {
       expect(output.suggestedFileName).toBeTruthy();
@@ -352,23 +346,16 @@ describe("packageCredential", () => {
   });
 
   it("should pass customization to SVG rendering", async () => {
-    const outputs = await packageCredential(
-      testCredential,
-      "education",
-      ["svg"],
-      { primaryColor: "#00ff00" },
-    );
+    const outputs = await packageCredential(testCredential, "education", ["svg"], {
+      primaryColor: "#00ff00",
+    });
 
     expect(outputs.length).toBe(1);
     expect(outputs[0].data).toContain("#00ff00");
   });
 
   it("should handle credential with only VerifiableCredential type in filename", async () => {
-    const outputs = await packageCredential(
-      testCredentialOnlyVC,
-      "default",
-      ["json-ld"],
-    );
+    const outputs = await packageCredential(testCredentialOnlyVC, "default", ["json-ld"]);
 
     expect(outputs.length).toBe(1);
     // Filename should use "credential" as the type slug

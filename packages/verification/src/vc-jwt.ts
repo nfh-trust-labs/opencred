@@ -141,15 +141,11 @@ export function crossValidateVcJwtClaims(payload: VcJwtPayload): string[] {
   // Cross-validate jti against vc.id
   const vcId = payload.vc["id"] as string | undefined;
   if (payload.jti && vcId && payload.jti !== vcId) {
-    errors.push(
-      `JWT jti claim "${payload.jti}" does not match vc.id "${vcId}"`,
-    );
+    errors.push(`JWT jti claim "${payload.jti}" does not match vc.id "${vcId}"`);
   }
 
   // Cross-validate sub against vc.credentialSubject.id
-  const credentialSubject = payload.vc["credentialSubject"] as
-    | Record<string, unknown>
-    | undefined;
+  const credentialSubject = payload.vc["credentialSubject"] as Record<string, unknown> | undefined;
   const subjectId = credentialSubject?.["id"] as string | undefined;
   if (payload.sub && subjectId && payload.sub !== subjectId) {
     errors.push(

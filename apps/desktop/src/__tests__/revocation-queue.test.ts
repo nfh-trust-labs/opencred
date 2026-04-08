@@ -59,7 +59,11 @@ describe("Revocation Queue", () => {
     vi.clearAllMocks();
 
     // Default: DeDi is configured with a namespace
-    storeData["dediConfig"] = { baseUrl: "https://dedi.example", namespace: "test.opencred.world", authType: "api-key" };
+    storeData["dediConfig"] = {
+      baseUrl: "https://dedi.example",
+      namespace: "test.opencred.world",
+      authType: "api-key",
+    };
 
     // Default: network is available and publish succeeds
     mockDnsLookup.mockResolvedValue({ address: "8.8.8.8", family: 4 });
@@ -279,12 +283,20 @@ describe("Revocation Queue", () => {
     });
 
     it("should publish both pending and failed items", async () => {
-      const item1 = queueRevocation("urn:uuid:test-pub-3", "https://dedi.example/revocations/test", {
-        revocationHash: "hash-a",
-      });
-      const item2 = queueRevocation("urn:uuid:test-pub-4", "https://dedi.example/revocations/test", {
-        revocationHash: "hash-b",
-      });
+      const item1 = queueRevocation(
+        "urn:uuid:test-pub-3",
+        "https://dedi.example/revocations/test",
+        {
+          revocationHash: "hash-a",
+        },
+      );
+      const item2 = queueRevocation(
+        "urn:uuid:test-pub-4",
+        "https://dedi.example/revocations/test",
+        {
+          revocationHash: "hash-b",
+        },
+      );
 
       // Mark one as failed (simulating a previous failed attempt)
       updateQueueItemStatus(item2.queueId, "failed", "Previous error");
@@ -307,9 +319,7 @@ describe("Revocation Queue", () => {
         revocationHash: "hash-fail",
       });
 
-      mockPublishRevocationHash.mockRejectedValueOnce(
-        new Error("DeDi API error: 500"),
-      );
+      mockPublishRevocationHash.mockRejectedValueOnce(new Error("DeDi API error: 500"));
 
       const results = await publishPendingRevocations(
         { type: "api-key", apiKey: "test-key" },
@@ -334,9 +344,7 @@ describe("Revocation Queue", () => {
       );
 
       // First call: fail
-      mockPublishRevocationHash.mockRejectedValueOnce(
-        new Error("Network error"),
-      );
+      mockPublishRevocationHash.mockRejectedValueOnce(new Error("Network error"));
       const results1 = await publishPendingRevocations(
         { type: "api-key", apiKey: "test-key" },
         "https://dedi.example",
@@ -400,9 +408,7 @@ describe("Revocation Queue", () => {
       });
 
       // Simulate offline
-      mockDnsLookup.mockRejectedValueOnce(
-        new Error("getaddrinfo ENOTFOUND dns.google"),
-      );
+      mockDnsLookup.mockRejectedValueOnce(new Error("getaddrinfo ENOTFOUND dns.google"));
 
       const results = await publishPendingRevocations(
         { type: "api-key", apiKey: "test-key" },

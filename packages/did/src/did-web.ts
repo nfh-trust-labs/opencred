@@ -67,10 +67,7 @@ export function generateDidWebDocument(did: string, publicKeyJwk: JWK): DIDDocum
   };
 
   return {
-    "@context": [
-      "https://www.w3.org/ns/did/v1",
-      "https://w3id.org/security/suites/jws-2020/v1",
-    ],
+    "@context": ["https://www.w3.org/ns/did/v1", "https://w3id.org/security/suites/jws-2020/v1"],
     id: did,
     verificationMethod: [verificationMethod],
     authentication: [verificationMethodId],
@@ -162,8 +159,8 @@ export class DIDWebResolver implements DIDResolver {
       return await this.resolveViaHttps(did, url);
     } catch (httpError) {
       // Never fall back on SSRF violations — these are security boundaries
-      const isSsrf = httpError instanceof DIDResolutionError
-        && httpError.message.includes("SSRF protection");
+      const isSsrf =
+        httpError instanceof DIDResolutionError && httpError.message.includes("SSRF protection");
       if (isSsrf || !this.fallback) {
         throw httpError;
       }

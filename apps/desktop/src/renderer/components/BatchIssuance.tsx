@@ -146,7 +146,9 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
           }
 
           if (schema) {
-            const properties = schema["properties"] as Record<string, Record<string, unknown>> | undefined;
+            const properties = schema["properties"] as
+              | Record<string, Record<string, unknown>>
+              | undefined;
             const required = (schema["required"] as string[]) ?? [];
             if (properties) {
               const fields = Object.entries(properties).map(([name, prop]) => ({
@@ -401,7 +403,8 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
         columnMapping: Object.keys(effectiveMapping).length > 0 ? effectiveMapping : undefined,
         packageFormats: proofFormat === "sd-jwt-vc" ? [] : packageFormats,
         proofFormat,
-        selectiveDisclosureClaims: proofFormat === "sd-jwt-vc" ? selectiveDisclosureClaims : undefined,
+        selectiveDisclosureClaims:
+          proofFormat === "sd-jwt-vc" ? selectiveDisclosureClaims : undefined,
         credentialSchemaUrl: credentialSchemaUrl || undefined,
       });
 
@@ -574,7 +577,11 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
               onClick={() => void handleDownloadTemplate()}
               disabled={!schemaId}
               className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-              title={schemaId ? "Download a CSV template for the selected schema" : "Select a schema first"}
+              title={
+                schemaId
+                  ? "Download a CSV template for the selected schema"
+                  : "Select a schema first"
+              }
             >
               Download Template CSV
             </button>
@@ -633,9 +640,9 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
             {isOverRowLimit && (
               <div className="rounded-md bg-red-50 border border-red-200 p-3">
                 <p className="text-sm text-red-700">
-                  This CSV contains {csvRowCount.toLocaleString()} rows, which exceeds the maximum of{" "}
-                  {BATCH_ROW_LIMIT.toLocaleString()} rows per batch. Please split your CSV into smaller
-                  files before continuing.
+                  This CSV contains {csvRowCount.toLocaleString()} rows, which exceeds the maximum
+                  of {BATCH_ROW_LIMIT.toLocaleString()} rows per batch. Please split your CSV into
+                  smaller files before continuing.
                 </p>
               </div>
             )}

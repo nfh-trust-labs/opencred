@@ -52,11 +52,7 @@ export {
   completeSdJwtVcProof,
 } from "./sd-jwt-vc-signing.js";
 
-export {
-  signCredentialVcJwt,
-  prepareVcJwtProof,
-  completeVcJwtProof,
-} from "./vc-jwt-signing.js";
+export { signCredentialVcJwt, prepareVcJwtProof, completeVcJwtProof } from "./vc-jwt-signing.js";
 export type { VcJwtPreparedProof } from "./vc-jwt-signing.js";
 
 export type {

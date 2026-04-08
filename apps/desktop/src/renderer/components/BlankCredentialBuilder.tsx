@@ -32,7 +32,12 @@ interface SchemaField {
 }
 
 interface Props {
-  onSchemaReady: (fields: SchemaField[], schema: Record<string, unknown>, credentialName: string, sourceUrl?: string) => void;
+  onSchemaReady: (
+    fields: SchemaField[],
+    schema: Record<string, unknown>,
+    credentialName: string,
+    sourceUrl?: string,
+  ) => void;
 }
 
 type FieldType = FieldDefinition["type"];
@@ -114,9 +119,7 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
   }
 
   function updateField(index: number, update: Partial<FieldDefinition>) {
-    setFields((prev) =>
-      prev.map((f, i) => (i === index ? { ...f, ...update } : f)),
-    );
+    setFields((prev) => prev.map((f, i) => (i === index ? { ...f, ...update } : f)));
   }
 
   // ------------------------------------------------------------------
@@ -269,7 +272,9 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
                 className="w-24 rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               >
                 {FIELD_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
                 ))}
               </select>
               <label className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap">
@@ -286,7 +291,14 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
                 className="p-1 text-gray-300 hover:text-red-500 transition-colors"
                 aria-label="Remove field"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -298,7 +310,14 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
               onClick={addField}
               className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
               Add field
@@ -316,7 +335,8 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
       {activeMode === "url" && (
         <div className="space-y-3">
           <p className="text-xs text-gray-500">
-            Enter the URL of a JSON Schema. The schema will be fetched and loaded into the visual builder for review.
+            Enter the URL of a JSON Schema. The schema will be fetched and loaded into the visual
+            builder for review.
           </p>
           <div className="flex gap-2">
             <input
@@ -325,7 +345,9 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
               onChange={(e) => setSchemaUrl(e.target.value)}
               placeholder="https://example.com/schema.json"
               className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              onKeyDown={(e) => { if (e.key === "Enter") handleFetchUrl(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleFetchUrl();
+              }}
             />
             <Button size="sm" onClick={handleFetchUrl} disabled={urlFetching}>
               {urlFetching ? "Fetching..." : "Fetch"}
@@ -339,12 +361,15 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
       {activeMode === "paste" && (
         <div className="space-y-3">
           <p className="text-xs text-gray-500">
-            Paste a JSON Schema or sample JSON object. The type is auto-detected: schemas are parsed directly, sample objects have their field types inferred.
+            Paste a JSON Schema or sample JSON object. The type is auto-detected: schemas are parsed
+            directly, sample objects have their field types inferred.
           </p>
           <textarea
             value={jsonText}
             onChange={(e) => setJsonText(e.target.value)}
-            placeholder={'{\n  "fullName": "Jane Doe",\n  "email": "jane@example.com",\n  "graduationDate": "2024-06-15"\n}'}
+            placeholder={
+              '{\n  "fullName": "Jane Doe",\n  "email": "jane@example.com",\n  "graduationDate": "2024-06-15"\n}'
+            }
             rows={8}
             className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
@@ -357,8 +382,19 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
               onClick={handleFileUpload}
               className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
+                />
               </svg>
               Upload file
             </button>

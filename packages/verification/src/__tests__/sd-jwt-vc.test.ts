@@ -272,11 +272,7 @@ describe("verifySdJwtVc — vct claim validation (#130)", () => {
     const jwk = issuerKeyPair.publicKey.export({ format: "jwk" });
 
     // Create SD-JWT VC without vct claim
-    const sdJwtVc = await createSdJwtVc(
-      issuerKeyPair,
-      { iss: issuerDid },
-      [],
-    );
+    const sdJwtVc = await createSdJwtVc(issuerKeyPair, { iss: issuerDid }, []);
 
     const resolver = createMockResolver(issuerDid, {
       id: `${issuerDid}#key-1`,
@@ -659,7 +655,9 @@ describe("verifySdJwtVc — Key Binding JWT verification (#129)", () => {
       publicKeyJwk: jwk as import("@opencred/did").JWK,
     });
 
-    const options: SdJwtVcVerifyOptions = { expectedAudience: "https://different-verifier.example" };
+    const options: SdJwtVcVerifyOptions = {
+      expectedAudience: "https://different-verifier.example",
+    };
     const { check } = await verifySdJwtVc(sdJwtVc, resolver, options);
     expect(check.passed).toBe(false);
     expect(check.name).toBe("key_binding");

@@ -71,9 +71,7 @@ export function extractCredentialTitle(credential: VerifiableCredential): string
  * Converts all values to strings. Skips values that are objects or arrays
  * (non-primitive) since SVG templates expect flat string values.
  */
-export function extractSubjectFields(
-  credential: VerifiableCredential,
-): Record<string, string> {
+export function extractSubjectFields(credential: VerifiableCredential): Record<string, string> {
   const subject = credential.credentialSubject;
   const fields: Record<string, string> = {};
 
@@ -162,9 +160,7 @@ export function exportAsJsonLd(credential: VerifiableCredential): string {
  * @param credential - The signed VerifiableCredential.
  * @returns A PNG data URL (base64-encoded).
  */
-export async function exportAsQrCode(
-  credential: VerifiableCredential,
-): Promise<string> {
+export async function exportAsQrCode(credential: VerifiableCredential): Promise<string> {
   const json = JSON.stringify(credential);
   return QRCode.toDataURL(json, {
     errorCorrectionLevel: "L",

@@ -44,9 +44,7 @@ const SCHEMA_LABELS: Record<string, string> = {
 
 /** Extract field information from a JSON Schema definition. */
 function extractFields(schema: Record<string, unknown>): SchemaField[] {
-  const properties = schema["properties"] as
-    | Record<string, Record<string, unknown>>
-    | undefined;
+  const properties = schema["properties"] as Record<string, Record<string, unknown>> | undefined;
   const required = (schema["required"] as string[]) ?? [];
 
   if (!properties) return [];
@@ -71,9 +69,7 @@ function inputTypeForField(field: SchemaField): string {
 
 /** Capitalize and split camelCase names for display. */
 function labelForField(name: string): string {
-  return name
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/^./, (c) => c.toUpperCase());
+  return name.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
 }
 
 function todayIso(): string {
@@ -101,7 +97,7 @@ function parseCredential(raw: string): {
 } {
   const vc = JSON.parse(raw);
   const types: string[] = Array.isArray(vc.type) ? vc.type : [vc.type ?? "VerifiableCredential"];
-  const issuer = typeof vc.issuer === "string" ? vc.issuer : vc.issuer?.id ?? "Unknown";
+  const issuer = typeof vc.issuer === "string" ? vc.issuer : (vc.issuer?.id ?? "Unknown");
   const issuanceDate = vc.issuanceDate ?? vc.validFrom ?? "";
   const expirationDate = vc.expirationDate ?? vc.validUntil ?? null;
   const subject = (vc.credentialSubject ?? {}) as Record<string, unknown>;
@@ -141,7 +137,12 @@ interface CredentialResultProps {
   onShowQr: () => void;
 }
 
-function CredentialResult({ signedCredential, onExportJson, onExportPdf, onShowQr }: CredentialResultProps) {
+function CredentialResult({
+  signedCredential,
+  onExportJson,
+  onExportPdf,
+  onShowQr,
+}: CredentialResultProps) {
   const [showRaw, setShowRaw] = useState(false);
   const vc = parseCredential(signedCredential);
   const displayType = vc.types.find((t) => t !== "VerifiableCredential") ?? "Verifiable Credential";
@@ -151,12 +152,20 @@ function CredentialResult({ signedCredential, onExportJson, onExportPdf, onShowQ
       {/* Success banner */}
       <div className="flex items-center gap-3 rounded-oc bg-green-50 border border-green-200/60 px-4 py-3">
         <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100">
-          <svg className="h-3.5 w-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <svg
+            className="h-3.5 w-3.5 text-green-600"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
         </div>
         <span className="text-sm font-medium text-green-800">Credential issued and signed</span>
-        <Badge variant="success" className="ml-auto">Signed</Badge>
+        <Badge variant="success" className="ml-auto">
+          Signed
+        </Badge>
       </div>
 
       {/* Credential card */}
@@ -168,13 +177,26 @@ function CredentialResult({ signedCredential, onExportJson, onExportPdf, onShowQ
               <p className="font-mono text-[0.6rem] uppercase tracking-wider text-blue-200">
                 Verifiable Credential
               </p>
-              <h3 className="mt-0.5 text-lg text-white" style={{ fontFamily: "var(--oc-font-display)" }}>
+              <h3
+                className="mt-0.5 text-lg text-white"
+                style={{ fontFamily: "var(--oc-font-display)" }}
+              >
                 {labelForField(displayType.replace("Credential", "").trim()) || "Credential"}
               </h3>
             </div>
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm">
-              <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+              <svg
+                className="h-5 w-5 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"
+                />
               </svg>
             </div>
           </div>
@@ -205,24 +227,32 @@ function CredentialResult({ signedCredential, onExportJson, onExportPdf, onShowQ
           {/* Metadata row */}
           <div className="grid grid-cols-2 gap-x-6 gap-y-3">
             <div>
-              <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">Issuer</dt>
+              <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">
+                Issuer
+              </dt>
               <dd className="mt-0.5 text-xs text-gray-600 font-mono" title={vc.issuer}>
                 {truncateDid(vc.issuer)}
               </dd>
             </div>
             {vc.proofType && (
               <div>
-                <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">Proof</dt>
+                <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">
+                  Proof
+                </dt>
                 <dd className="mt-0.5 text-xs text-gray-600 font-mono">{vc.proofType}</dd>
               </div>
             )}
             <div>
-              <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">Issued</dt>
+              <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">
+                Issued
+              </dt>
               <dd className="mt-0.5 text-sm text-gray-700">{formatDate(vc.issuanceDate)}</dd>
             </div>
             {vc.expirationDate && (
               <div>
-                <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">Expires</dt>
+                <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">
+                  Expires
+                </dt>
                 <dd className="mt-0.5 text-sm text-gray-700">{formatDate(vc.expirationDate)}</dd>
               </div>
             )}
@@ -245,7 +275,13 @@ function CredentialResult({ signedCredential, onExportJson, onExportPdf, onShowQ
             className="ml-auto flex items-center gap-1 rounded-oc px-2 py-1 text-[0.7rem] font-mono text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
           >
             {showRaw ? "Hide" : "Show"} Raw
-            <svg className={`h-3 w-3 transition-transform ${showRaw ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg
+              className={`h-3 w-3 transition-transform ${showRaw ? "rotate-180" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
           </button>
@@ -513,10 +549,7 @@ export function IssuePage() {
 
         {/* Key selector */}
         <div>
-          <label
-            htmlFor="issue-signing-key"
-            className="block text-xs font-medium text-gray-600"
-          >
+          <label htmlFor="issue-signing-key" className="block text-xs font-medium text-gray-600">
             Signing Key <span className="text-red-500">*</span>
           </label>
           {keys.length === 0 ? (
@@ -543,10 +576,7 @@ export function IssuePage() {
         {/* Validity dates */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label
-              htmlFor="issue-valid-from"
-              className="block text-xs font-medium text-gray-600"
-            >
+            <label htmlFor="issue-valid-from" className="block text-xs font-medium text-gray-600">
               Valid From
             </label>
             <input
@@ -559,10 +589,7 @@ export function IssuePage() {
             />
           </div>
           <div>
-            <label
-              htmlFor="issue-valid-until"
-              className="block text-xs font-medium text-gray-600"
-            >
+            <label htmlFor="issue-valid-until" className="block text-xs font-medium text-gray-600">
               Valid Until
             </label>
             <input

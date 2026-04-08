@@ -98,8 +98,8 @@ export function KeyImport({ onKeyImported }: KeyImportProps) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-xs text-gray-500">
-          Import a signing key from a file. Supports PEM, JWK, PKCS#8 DER, and PFX/P12 formats — we'll
-          auto-detect the type. If your IT department gave you a key file, use this option.
+          Import a signing key from a file. Supports PEM, JWK, PKCS#8 DER, and PFX/P12 formats —
+          we'll auto-detect the type. If your IT department gave you a key file, use this option.
         </p>
         <button
           onClick={() => void handleImport()}
@@ -111,8 +111,13 @@ export function KeyImport({ onKeyImported }: KeyImportProps) {
       </div>
 
       {showPfxPrompt && (
-        <form onSubmit={handlePfxSubmit} className="rounded-md border border-blue-200 bg-blue-50 p-3 space-y-2">
-          <p className="text-xs font-medium text-blue-800">PFX/P12 file selected — enter password:</p>
+        <form
+          onSubmit={handlePfxSubmit}
+          className="rounded-md border border-blue-200 bg-blue-50 p-3 space-y-2"
+        >
+          <p className="text-xs font-medium text-blue-800">
+            PFX/P12 file selected — enter password:
+          </p>
           <div className="flex items-center gap-2">
             <input
               type="password"
@@ -131,7 +136,11 @@ export function KeyImport({ onKeyImported }: KeyImportProps) {
             </button>
             <button
               type="button"
-              onClick={() => { setShowPfxPrompt(false); setPendingFilePath(null); setPfxPassword(""); }}
+              onClick={() => {
+                setShowPfxPrompt(false);
+                setPendingFilePath(null);
+                setPfxPassword("");
+              }}
               className="rounded-md bg-gray-200 px-3 py-1 text-sm text-gray-700 hover:bg-gray-300"
             >
               Cancel

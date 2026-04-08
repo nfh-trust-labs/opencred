@@ -37,9 +37,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function createConfig(
-  overrides?: Partial<DeDiApiClientConfig>,
-): DeDiApiClientConfig {
+function createConfig(overrides?: Partial<DeDiApiClientConfig>): DeDiApiClientConfig {
   return {
     baseUrl: "https://dedi.example.com",
     timeoutMs: 5000,
@@ -132,9 +130,7 @@ describe("auth logging", () => {
 
     await expect(client.getStats()).rejects.toThrow();
 
-    expect(logger.error).toHaveBeenCalledWith(
-      "DeDi authentication failed with status 401",
-    );
+    expect(logger.error).toHaveBeenCalledWith("DeDi authentication failed with status 401");
   });
 });
 
@@ -157,9 +153,7 @@ describe("circuit breaker logging", () => {
       await expect(cb.execute(() => Promise.reject(new Error("fail")))).rejects.toThrow();
     }
 
-    expect(logger.warn).toHaveBeenCalledWith(
-      "Circuit breaker opened after 3 failures",
-    );
+    expect(logger.warn).toHaveBeenCalledWith("Circuit breaker opened after 3 failures");
   });
 
   it("logs debug on OPEN to HALF_OPEN transition", async () => {
@@ -205,9 +199,7 @@ describe("circuit breaker logging", () => {
 
     await expect(cb.execute(() => Promise.reject(new Error("fail again")))).rejects.toThrow();
 
-    expect(logger.warn).toHaveBeenCalledWith(
-      "Circuit breaker opened after HALF_OPEN failure",
-    );
+    expect(logger.warn).toHaveBeenCalledWith("Circuit breaker opened after HALF_OPEN failure");
   });
 
   it("does not log when no logger is provided", async () => {
@@ -242,9 +234,7 @@ describe("retry logging", () => {
     await vi.advanceTimersByTimeAsync(100);
     await promise;
 
-    expect(logger.debug).toHaveBeenCalledWith(
-      "Retrying request, attempt 1 of 3",
-    );
+    expect(logger.debug).toHaveBeenCalledWith("Retrying request, attempt 1 of 3");
   });
 
   it("logs error when all retries exhausted", async () => {
@@ -256,9 +246,7 @@ describe("retry logging", () => {
     await vi.advanceTimersByTimeAsync(300);
     await assertion;
 
-    expect(logger.error).toHaveBeenCalledWith(
-      "All 2 retry attempts exhausted",
-    );
+    expect(logger.error).toHaveBeenCalledWith("All 2 retry attempts exhausted");
   });
 
   it("does not log when no logger is provided", async () => {

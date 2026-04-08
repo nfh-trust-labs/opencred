@@ -104,23 +104,15 @@ export class DeDiTokenManager {
     });
 
     if (!response.ok) {
-      this.logger.error(
-        `DeDi authentication failed with status ${response.status}`,
-      );
-      throw new DeDiClientError(
-        `DeDi authentication failed: ${response.status}`,
-        response.status,
-      );
+      this.logger.error(`DeDi authentication failed with status ${response.status}`);
+      throw new DeDiClientError(`DeDi authentication failed: ${response.status}`, response.status);
     }
 
     let body: unknown;
     try {
       body = await response.json();
     } catch {
-      throw new DeDiClientError(
-        "DeDi auth endpoint returned non-JSON response",
-        502,
-      );
+      throw new DeDiClientError("DeDi auth endpoint returned non-JSON response", 502);
     }
     if (
       typeof body !== "object" ||
@@ -128,10 +120,7 @@ export class DeDiTokenManager {
       typeof (body as Record<string, unknown>).access_token !== "string" ||
       typeof (body as Record<string, unknown>).refresh_token !== "string"
     ) {
-      throw new DeDiClientError(
-        "DeDi API returned an unexpected auth response format",
-        502,
-      );
+      throw new DeDiClientError("DeDi API returned an unexpected auth response format", 502);
     }
     const tokens = body as DeDiAuthTokens;
     this.setTokens(tokens);
@@ -147,20 +136,14 @@ export class DeDiTokenManager {
     });
 
     if (!response.ok) {
-      throw new DeDiClientError(
-        `DeDi token refresh failed: ${response.status}`,
-        response.status,
-      );
+      throw new DeDiClientError(`DeDi token refresh failed: ${response.status}`, response.status);
     }
 
     let body: unknown;
     try {
       body = await response.json();
     } catch {
-      throw new DeDiClientError(
-        "DeDi auth endpoint returned non-JSON response",
-        502,
-      );
+      throw new DeDiClientError("DeDi auth endpoint returned non-JSON response", 502);
     }
     if (
       typeof body !== "object" ||
@@ -168,10 +151,7 @@ export class DeDiTokenManager {
       typeof (body as Record<string, unknown>).access_token !== "string" ||
       typeof (body as Record<string, unknown>).refresh_token !== "string"
     ) {
-      throw new DeDiClientError(
-        "DeDi API returned an unexpected auth response format",
-        502,
-      );
+      throw new DeDiClientError("DeDi API returned an unexpected auth response format", 502);
     }
     const tokens = body as DeDiAuthTokens;
     this.setTokens(tokens);
@@ -198,22 +178,16 @@ export class DeDiTokenManager {
       throw new DeDiClientError("DeDi API returned a malformed JWT", 502);
     }
     try {
-      const payload = JSON.parse(
-        Buffer.from(parts[1]!, "base64url").toString(),
-      ) as { exp?: number };
+      const payload = JSON.parse(Buffer.from(parts[1]!, "base64url").toString()) as {
+        exp?: number;
+      };
       if (payload.exp === undefined) {
-        throw new DeDiClientError(
-          "DeDi API returned a JWT without an exp claim",
-          502,
-        );
+        throw new DeDiClientError("DeDi API returned a JWT without an exp claim", 502);
       }
       return payload.exp * 1000;
     } catch (error) {
       if (error instanceof DeDiClientError) throw error;
-      throw new DeDiClientError(
-        "DeDi API returned a JWT with an undecodable payload",
-        502,
-      );
+      throw new DeDiClientError("DeDi API returned a JWT with an undecodable payload", 502);
     }
   }
 }

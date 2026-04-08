@@ -239,9 +239,7 @@ function buildEcSigner(session: Pkcs11Session, targetKey: Pkcs11KeyInfo, label?:
  */
 function buildRsaSigner(session: Pkcs11Session, targetKey: Pkcs11KeyInfo, label?: string): Signer {
   if (!targetKey.rsaModulus || !targetKey.rsaPublicExponent) {
-    throw new CryptoError(
-      "Cannot extract RSA public key from token — missing modulus or exponent",
-    );
+    throw new CryptoError("Cannot extract RSA public key from token — missing modulus or exponent");
   }
 
   const publicKey = publicKeyFromRsaComponents(targetKey.rsaModulus, targetKey.rsaPublicExponent);
@@ -311,7 +309,10 @@ function buildRsaSigner(session: Pkcs11Session, targetKey: Pkcs11KeyInfo, label?
  * @param session - The PKCS#11 session to close.
  * @param pkcs11 - The PKCS11 instance to finalize.
  */
-export function destroyPkcs11Signer(session: Pkcs11Session, pkcs11Instance: Pkcs11Types.PKCS11): void {
+export function destroyPkcs11Signer(
+  session: Pkcs11Session,
+  pkcs11Instance: Pkcs11Types.PKCS11,
+): void {
   closeSession(session);
   finalizePkcs11(pkcs11Instance);
 }

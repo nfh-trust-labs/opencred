@@ -59,12 +59,10 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="min-h-screen bg-surface-bg flex items-center justify-center p-8 font-body">
         <div className="max-w-lg w-full bg-white rounded-lg shadow-md border border-border-default p-6 space-y-4">
-          <h1 className="text-heading-md font-heading text-txt-primary">
-            Something went wrong
-          </h1>
+          <h1 className="text-heading-md font-heading text-txt-primary">Something went wrong</h1>
           <p className="text-body-sm text-txt-secondary">
-            An unexpected error occurred in the application. You can try reloading
-            or copy the error details for a bug report.
+            An unexpected error occurred in the application. You can try reloading or copy the error
+            details for a bug report.
           </p>
           {error && (
             <pre className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-3 overflow-auto max-h-40 whitespace-pre-wrap">

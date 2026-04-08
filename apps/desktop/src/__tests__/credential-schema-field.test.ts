@@ -74,7 +74,7 @@ vi.mock("electron-updater", () => ({
 }));
 
 vi.mock("@opencred/dedi-client", async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>;
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
     createPublishManager: vi.fn(() => ({
@@ -144,7 +144,7 @@ beforeEach(() => {
 
 async function importTestKey(): Promise<{ keyId: string }> {
   const handler = registeredHandlers[IPC_CHANNELS.KEY_IMPORT];
-  const result = await handler(fakeEvent, { filePath: ecKeyPath }) as {
+  const result = (await handler(fakeEvent, { filePath: ecKeyPath })) as {
     success: boolean;
     key: { id: string };
   };
@@ -222,10 +222,27 @@ describe("credentialSchema field — built-in schemas", () => {
     const { keyId } = await importTestKey();
 
     const cases = [
-      { id: "education", subject: { name: "X", degree: "BS", institution: "MIT", dateConferred: "2025-01-01" } },
-      { id: "employment", subject: { name: "X", employer: "ACME", position: "Eng", startDate: "2025-01-01" } },
-      { id: "identity", subject: { name: "X", dateOfBirth: "1990-01-01", nationality: "US", documentNumber: "ABC" } },
-      { id: "business", subject: { name: "X", registrationNumber: "1", jurisdiction: "US", incorporationDate: "2000-01-01" } },
+      {
+        id: "education",
+        subject: { name: "X", degree: "BS", institution: "MIT", dateConferred: "2025-01-01" },
+      },
+      {
+        id: "employment",
+        subject: { name: "X", employer: "ACME", position: "Eng", startDate: "2025-01-01" },
+      },
+      {
+        id: "identity",
+        subject: { name: "X", dateOfBirth: "1990-01-01", nationality: "US", documentNumber: "ABC" },
+      },
+      {
+        id: "business",
+        subject: {
+          name: "X",
+          registrationNumber: "1",
+          jurisdiction: "US",
+          incorporationDate: "2000-01-01",
+        },
+      },
     ];
 
     for (const c of cases) {

@@ -75,9 +75,17 @@ export function HomeScreen({ onSelectTemplate }: Props) {
       const list = await window.opencred.customSchemaList();
       const existing = list.schemas.find((s) => s.id === schemaId);
       if (!existing) return;
-      await window.opencred.customSchemaSave({ id: schemaId, name: newName.trim(), schema: existing.schema });
-      setCustomSchemas((prev) => prev.map((cs) => cs.id === schemaId ? { ...cs, name: newName.trim() } : cs));
-    } catch { /* Ignore */ }
+      await window.opencred.customSchemaSave({
+        id: schemaId,
+        name: newName.trim(),
+        schema: existing.schema,
+      });
+      setCustomSchemas((prev) =>
+        prev.map((cs) => (cs.id === schemaId ? { ...cs, name: newName.trim() } : cs)),
+      );
+    } catch {
+      /* Ignore */
+    }
     setRenamingSchemaId(null);
   }
 
@@ -85,7 +93,9 @@ export function HomeScreen({ onSelectTemplate }: Props) {
     try {
       await window.opencred.customSchemaDelete({ id: schemaId });
       setCustomSchemas((prev) => prev.filter((cs) => cs.id !== schemaId));
-    } catch { /* Ignore */ }
+    } catch {
+      /* Ignore */
+    }
   }
 
   if (loading) {
@@ -112,7 +122,10 @@ export function HomeScreen({ onSelectTemplate }: Props) {
           {customSchemas.map((cs) => (
             <div key={cs.id} className="relative group">
               {renamingSchemaId === cs.id ? (
-                <div className="oc-template-card" style={{ padding: "16px", gap: 8, justifyContent: "flex-start" }}>
+                <div
+                  className="oc-template-card"
+                  style={{ padding: "16px", gap: 8, justifyContent: "flex-start" }}
+                >
                   <input
                     type="text"
                     value={renameValue}
@@ -149,21 +162,50 @@ export function HomeScreen({ onSelectTemplate }: Props) {
                   {/* Hover actions: rename & delete */}
                   <div className="absolute top-1 right-1 hidden group-hover:flex gap-1">
                     <button
-                      onClick={(e) => { e.stopPropagation(); setRenamingSchemaId(cs.id); setRenameValue(cs.name); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRenamingSchemaId(cs.id);
+                        setRenameValue(cs.name);
+                      }}
                       title="Rename"
                       className="p-1 rounded bg-white/80 text-gray-400 hover:text-blue-600 transition-colors"
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125"
+                        />
                       </svg>
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); void handleDeleteSchema(cs.id); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleDeleteSchema(cs.id);
+                      }}
                       title="Delete"
                       className="p-1 rounded bg-white/80 text-gray-400 hover:text-red-500 transition-colors"
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
                       </svg>
                     </button>
                   </div>
@@ -179,7 +221,14 @@ export function HomeScreen({ onSelectTemplate }: Props) {
           />
         </div>
         <p className="mt-3 text-xs text-gray-500">
-          Don't see what you need? Use the <button className="text-blue-600 hover:text-blue-800 underline bg-transparent border-none cursor-pointer text-xs p-0" onClick={() => onSelectTemplate("blank", true)}>Blank Credential</button> template to define custom fields.
+          Don't see what you need? Use the{" "}
+          <button
+            className="text-blue-600 hover:text-blue-800 underline bg-transparent border-none cursor-pointer text-xs p-0"
+            onClick={() => onSelectTemplate("blank", true)}
+          >
+            Blank Credential
+          </button>{" "}
+          template to define custom fields.
         </p>
       </section>
 

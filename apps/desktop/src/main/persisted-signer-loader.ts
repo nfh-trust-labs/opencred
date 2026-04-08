@@ -51,7 +51,8 @@ export function reloadPersistedSigners(store: SignerStore): ReloadResult {
     }
 
     const prefs = (store.get("preferences") as Record<string, unknown>) ?? {};
-    const saved = (prefs["importedKeyPaths"] as Record<string, string | PersistedSignerEntry>) ?? {};
+    const saved =
+      (prefs["importedKeyPaths"] as Record<string, string | PersistedSignerEntry>) ?? {};
     const ids = Object.keys(saved);
 
     if (ids.length === 0) {

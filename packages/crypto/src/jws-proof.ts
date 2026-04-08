@@ -1,6 +1,13 @@
 import { CompactSign } from "jose";
 import { CryptoError } from "@opencred/shared";
-import type { JwsProofOptions, JwsPreparedProof, SigningKey, SigningAlgorithm, ProofFormat, SdJwtVcSigningOptions } from "./types.js";
+import type {
+  JwsProofOptions,
+  JwsPreparedProof,
+  SigningKey,
+  SigningAlgorithm,
+  ProofFormat,
+  SdJwtVcSigningOptions,
+} from "./types.js";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
 import { signingAlgorithmToJwsAlg } from "./alg-mapping.js";
 

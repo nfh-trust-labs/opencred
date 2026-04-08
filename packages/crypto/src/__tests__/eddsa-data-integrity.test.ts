@@ -83,9 +83,9 @@ describe("signCredentialEdDsa / verifyEdDsaProof — full round-trip", () => {
       algorithm: "P-256",
     };
 
-    await expect(
-      signCredentialEdDsa(unsignedVC, signingKey, defaultProofOptions),
-    ).rejects.toThrow(CryptoError);
+    await expect(signCredentialEdDsa(unsignedVC, signingKey, defaultProofOptions)).rejects.toThrow(
+      CryptoError,
+    );
   });
 });
 
@@ -106,7 +106,11 @@ describe("prepareEdDsaProof / completeEdDsaProof — two-phase round-trip", () =
     expect(signature.length).toBe(64);
 
     // Phase 2: Complete
-    const signedVC = completeEdDsaProof(unsignedVC, prepared.proofConfig, new Uint8Array(signature));
+    const signedVC = completeEdDsaProof(
+      unsignedVC,
+      prepared.proofConfig,
+      new Uint8Array(signature),
+    );
     expect(signedVC.proof).toBeDefined();
     expect(signedVC.proof.proofValue).toMatch(/^z/);
 

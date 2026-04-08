@@ -52,9 +52,7 @@ const SCHEMA_LABELS: Record<string, string> = {
 };
 
 function extractFields(schema: Record<string, unknown>): SchemaField[] {
-  const properties = schema["properties"] as
-    | Record<string, Record<string, unknown>>
-    | undefined;
+  const properties = schema["properties"] as Record<string, Record<string, unknown>> | undefined;
   const required = (schema["required"] as string[]) ?? [];
   if (!properties) return [];
   return Object.entries(properties).map(([name, prop]) => ({
@@ -75,9 +73,7 @@ function inputTypeForField(field: SchemaField): string {
 }
 
 function labelForField(name: string): string {
-  return name
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/^./, (c) => c.toUpperCase());
+  return name.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
 }
 
 function todayIso(): string {
@@ -103,7 +99,7 @@ function parseCredential(raw: string): {
 } {
   const vc = JSON.parse(raw);
   const types: string[] = Array.isArray(vc.type) ? vc.type : [vc.type ?? "VerifiableCredential"];
-  const issuer = typeof vc.issuer === "string" ? vc.issuer : vc.issuer?.id ?? "Unknown";
+  const issuer = typeof vc.issuer === "string" ? vc.issuer : (vc.issuer?.id ?? "Unknown");
   const issuanceDate = vc.issuanceDate ?? vc.validFrom ?? "";
   const expirationDate = vc.expirationDate ?? vc.validUntil ?? null;
   const subject = (vc.credentialSubject ?? {}) as Record<string, unknown>;
@@ -155,7 +151,15 @@ interface CredentialResultProps {
   onShowQr: () => void;
 }
 
-function CredentialResult({ signedCredential, schemaId, schemaName, organizationName, onExportJson, onExportPdf, onShowQr }: CredentialResultProps) {
+function CredentialResult({
+  signedCredential,
+  schemaId,
+  schemaName,
+  organizationName,
+  onExportJson,
+  onExportPdf,
+  onShowQr,
+}: CredentialResultProps) {
   const [showRaw, setShowRaw] = useState(false);
   const vc = parseCredential(signedCredential);
   const typeFromVc = vc.types.find((t) => t !== "VerifiableCredential");
@@ -268,7 +272,14 @@ function CredentialResult({ signedCredential, schemaId, schemaName, organization
             }}
           />
 
-          <div style={{ position: "relative", display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+          <div
+            style={{
+              position: "relative",
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+            }}
+          >
             <div>
               <div
                 style={{
@@ -293,8 +304,8 @@ function CredentialResult({ signedCredential, schemaId, schemaName, organization
                 }}
               >
                 {typeFromVc
-                  ? (labelForField(typeFromVc.replace("Credential", "").trim()) || "Credential")
-                  : (displayType)}
+                  ? labelForField(typeFromVc.replace("Credential", "").trim()) || "Credential"
+                  : displayType}
               </h3>
             </div>
             <div
@@ -310,8 +321,19 @@ function CredentialResult({ signedCredential, schemaId, schemaName, organization
                 flexShrink: 0,
               }}
             >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#fff"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"
+                />
               </svg>
             </div>
           </div>
@@ -362,48 +384,128 @@ function CredentialResult({ signedCredential, schemaId, schemaName, organization
         >
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 32px" }}>
             <div>
-              <dt style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "var(--oc-text-muted)" }}>
+              <dt
+                style={{
+                  fontFamily: "var(--oc-font-mono)",
+                  fontSize: "0.56rem",
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase" as const,
+                  color: "var(--oc-text-muted)",
+                }}
+              >
                 Issuer
               </dt>
               {organizationName ? (
                 <dd style={{ margin: 0, marginTop: 2 }}>
-                  <div style={{ fontFamily: "var(--oc-font-body)", fontSize: "0.82rem", fontWeight: 500, color: "var(--oc-text-primary)" }}>
+                  <div
+                    style={{
+                      fontFamily: "var(--oc-font-body)",
+                      fontSize: "0.82rem",
+                      fontWeight: 500,
+                      color: "var(--oc-text-primary)",
+                    }}
+                  >
                     {organizationName}
                   </div>
-                  <div style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.62rem", color: "var(--oc-text-muted)", marginTop: 1 }} title={vc.issuer}>
+                  <div
+                    style={{
+                      fontFamily: "var(--oc-font-mono)",
+                      fontSize: "0.62rem",
+                      color: "var(--oc-text-muted)",
+                      marginTop: 1,
+                    }}
+                    title={vc.issuer}
+                  >
                     {truncateDid(vc.issuer)}
                   </div>
                 </dd>
               ) : (
-                <dd style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.72rem", color: "var(--oc-text-secondary)", marginTop: 2, margin: 0 }} title={vc.issuer}>
+                <dd
+                  style={{
+                    fontFamily: "var(--oc-font-mono)",
+                    fontSize: "0.72rem",
+                    color: "var(--oc-text-secondary)",
+                    marginTop: 2,
+                    margin: 0,
+                  }}
+                  title={vc.issuer}
+                >
                   {truncateDid(vc.issuer)}
                 </dd>
               )}
             </div>
             {vc.proofType && (
               <div>
-                <dt style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "var(--oc-text-muted)" }}>
+                <dt
+                  style={{
+                    fontFamily: "var(--oc-font-mono)",
+                    fontSize: "0.56rem",
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase" as const,
+                    color: "var(--oc-text-muted)",
+                  }}
+                >
                   Proof
                 </dt>
-                <dd style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.72rem", color: "var(--oc-text-secondary)", marginTop: 2, margin: 0 }}>
+                <dd
+                  style={{
+                    fontFamily: "var(--oc-font-mono)",
+                    fontSize: "0.72rem",
+                    color: "var(--oc-text-secondary)",
+                    marginTop: 2,
+                    margin: 0,
+                  }}
+                >
                   {vc.proofType}
                 </dd>
               </div>
             )}
             <div>
-              <dt style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "var(--oc-text-muted)" }}>
+              <dt
+                style={{
+                  fontFamily: "var(--oc-font-mono)",
+                  fontSize: "0.56rem",
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase" as const,
+                  color: "var(--oc-text-muted)",
+                }}
+              >
                 Issued
               </dt>
-              <dd style={{ fontFamily: "var(--oc-font-body)", fontSize: "0.82rem", color: "var(--oc-text-primary)", marginTop: 2, margin: 0 }}>
+              <dd
+                style={{
+                  fontFamily: "var(--oc-font-body)",
+                  fontSize: "0.82rem",
+                  color: "var(--oc-text-primary)",
+                  marginTop: 2,
+                  margin: 0,
+                }}
+              >
                 {formatDate(vc.issuanceDate)}
               </dd>
             </div>
             {vc.expirationDate && (
               <div>
-                <dt style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "var(--oc-text-muted)" }}>
+                <dt
+                  style={{
+                    fontFamily: "var(--oc-font-mono)",
+                    fontSize: "0.56rem",
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase" as const,
+                    color: "var(--oc-text-muted)",
+                  }}
+                >
                   Expires
                 </dt>
-                <dd style={{ fontFamily: "var(--oc-font-body)", fontSize: "0.82rem", color: "var(--oc-text-primary)", marginTop: 2, margin: 0 }}>
+                <dd
+                  style={{
+                    fontFamily: "var(--oc-font-body)",
+                    fontSize: "0.82rem",
+                    color: "var(--oc-text-primary)",
+                    marginTop: 2,
+                    margin: 0,
+                  }}
+                >
                   {formatDate(vc.expirationDate)}
                 </dd>
               </div>
@@ -423,9 +525,21 @@ function CredentialResult({ signedCredential, schemaId, schemaName, organization
           }}
         >
           {[
-            { label: "JSON", icon: "M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5", onClick: onExportJson },
-            { label: "PDF", icon: "M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z", onClick: onExportPdf },
-            { label: "QR Code", icon: "M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z", onClick: onShowQr },
+            {
+              label: "JSON",
+              icon: "M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5",
+              onClick: onExportJson,
+            },
+            {
+              label: "PDF",
+              icon: "M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z",
+              onClick: onExportPdf,
+            },
+            {
+              label: "QR Code",
+              icon: "M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z",
+              onClick: onShowQr,
+            },
           ].map((action) => (
             <button
               key={action.label}
@@ -458,7 +572,14 @@ function CredentialResult({ signedCredential, schemaId, schemaName, organization
                 e.currentTarget.style.boxShadow = "none";
               }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d={action.icon} />
               </svg>
               {action.label}
@@ -483,8 +604,12 @@ function CredentialResult({ signedCredential, schemaId, schemaName, organization
               cursor: "pointer",
               transition: "color 0.15s",
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--oc-text-primary)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--oc-text-muted)"; }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--oc-text-primary)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--oc-text-muted)";
+            }}
           >
             {showRaw ? "Hide" : "Show"} Raw
             <svg
@@ -494,7 +619,10 @@ function CredentialResult({ signedCredential, schemaId, schemaName, organization
               fill="none"
               stroke="currentColor"
               strokeWidth={2}
-              style={{ transition: "transform 0.2s", transform: showRaw ? "rotate(180deg)" : "none" }}
+              style={{
+                transition: "transform 0.2s",
+                transform: showRaw ? "rotate(180deg)" : "none",
+              }}
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
@@ -596,18 +724,50 @@ function SdJwtResult({ signedCredential, onExport }: SdJwtResultProps) {
         <div style={{ padding: "16px 28px" }}>
           <div style={{ display: "flex", gap: 32 }}>
             <div>
-              <dt style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "var(--oc-text-muted)" }}>
+              <dt
+                style={{
+                  fontFamily: "var(--oc-font-mono)",
+                  fontSize: "0.56rem",
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase" as const,
+                  color: "var(--oc-text-muted)",
+                }}
+              >
                 Format
               </dt>
-              <dd style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.72rem", color: "var(--oc-text-secondary)", marginTop: 2, margin: 0 }}>
+              <dd
+                style={{
+                  fontFamily: "var(--oc-font-mono)",
+                  fontSize: "0.72rem",
+                  color: "var(--oc-text-secondary)",
+                  marginTop: 2,
+                  margin: 0,
+                }}
+              >
                 SD-JWT-VC
               </dd>
             </div>
             <div>
-              <dt style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "var(--oc-text-muted)" }}>
+              <dt
+                style={{
+                  fontFamily: "var(--oc-font-mono)",
+                  fontSize: "0.56rem",
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase" as const,
+                  color: "var(--oc-text-muted)",
+                }}
+              >
                 Disclosures
               </dt>
-              <dd style={{ fontFamily: "var(--oc-font-mono)", fontSize: "0.72rem", color: "var(--oc-text-secondary)", marginTop: 2, margin: 0 }}>
+              <dd
+                style={{
+                  fontFamily: "var(--oc-font-mono)",
+                  fontSize: "0.72rem",
+                  color: "var(--oc-text-secondary)",
+                  marginTop: 2,
+                  margin: 0,
+                }}
+              >
                 {disclosureCount}
               </dd>
             </div>
@@ -642,8 +802,19 @@ function SdJwtResult({ signedCredential, onExport }: SdJwtResultProps) {
               cursor: "pointer",
             }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"
+              />
             </svg>
             Export .sd-jwt
           </button>
@@ -673,7 +844,10 @@ function SdJwtResult({ signedCredential, onExport }: SdJwtResultProps) {
               fill="none"
               stroke="currentColor"
               strokeWidth={2}
-              style={{ transition: "transform 0.2s", transform: showRaw ? "rotate(180deg)" : "none" }}
+              style={{
+                transition: "transform 0.2s",
+                transform: showRaw ? "rotate(180deg)" : "none",
+              }}
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
@@ -826,9 +1000,11 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
     void loadSchema();
     void (async () => {
       try {
-        const saved = await window.opencred.getConfig("organizationName") as string | undefined;
+        const saved = (await window.opencred.getConfig("organizationName")) as string | undefined;
         if (saved) setOrganizationName(saved);
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
     })();
   }, [loadKeys, loadSchema]);
 
@@ -890,7 +1066,8 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
         packageFormats: proofFormat === "sd-jwt-vc" ? [] : ["json-ld"],
         inlineSchema: inlineSchema ?? undefined,
         proofFormat,
-        selectiveDisclosureClaims: proofFormat === "sd-jwt-vc" ? selectiveDisclosureClaims : undefined,
+        selectiveDisclosureClaims:
+          proofFormat === "sd-jwt-vc" ? selectiveDisclosureClaims : undefined,
         revocationRegistryUrl: revocationRegistryUrl || undefined,
         credentialSchemaUrl: credentialSchemaUrl || undefined,
       });
@@ -1008,7 +1185,12 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
   }
 
   // Callback when blank builder produces fields/schema
-  function handleBlankSchemaReady(fields: SchemaField[], schema: Record<string, unknown>, credentialName: string, sourceUrl?: string) {
+  function handleBlankSchemaReady(
+    fields: SchemaField[],
+    schema: Record<string, unknown>,
+    credentialName: string,
+    sourceUrl?: string,
+  ) {
     setSchemaFields(fields);
     setInlineSchema(schema);
     setSchemaName(credentialName);
@@ -1023,7 +1205,10 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
 
   async function handleRename() {
     const newName = nameInput.trim();
-    if (!newName) { setEditingName(false); return; }
+    if (!newName) {
+      setEditingName(false);
+      return;
+    }
     setSchemaName(newName);
     setEditingName(false);
 
@@ -1033,9 +1218,15 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
         const list = await window.opencred.customSchemaList();
         const existing = list.schemas.find((s) => s.id === schemaId);
         if (existing) {
-          await window.opencred.customSchemaSave({ id: schemaId, name: newName, schema: existing.schema });
+          await window.opencred.customSchemaSave({
+            id: schemaId,
+            name: newName,
+            schema: existing.schema,
+          });
         }
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
     }
   }
 
@@ -1051,7 +1242,14 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
           onClick={onBack}
           className="text-gray-500 hover:text-gray-700 transition-colors flex items-center gap-1"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
           Home
@@ -1090,8 +1288,21 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
           >
             {schemaName || "Credential"}
             {isRenameable && (
-              <svg className="inline ml-1 opacity-0 group-hover:opacity-100" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} style={{ opacity: 0.4 }}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+              <svg
+                className="inline ml-1 opacity-0 group-hover:opacity-100"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                style={{ opacity: 0.4 }}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
+                />
               </svg>
             )}
           </span>
@@ -1118,12 +1329,24 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
       {showDidWebWarning && !didWarningDismissed && (
         <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
           <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-amber-200">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#92400e" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#92400e"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+              />
             </svg>
           </span>
           <p className="text-sm text-amber-800 flex-1">
-            Your DID document hasn't been published yet. Verifiers won't be able to discover your public key.
+            Your DID document hasn't been published yet. Verifiers won't be able to discover your
+            public key.
             {onNavigate && (
               <button
                 onClick={() => onNavigate("settings")}
@@ -1138,7 +1361,14 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
             className="flex-shrink-0 p-1 rounded hover:bg-amber-200 transition-colors"
             aria-label="Dismiss warning"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#92400e" strokeWidth={2}>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#92400e"
+              strokeWidth={2}
+            >
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -1149,9 +1379,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
       {mode === "single" && (
         <div className="space-y-4">
           {/* Blank credential: show field builder */}
-          {isBlank && (
-            <BlankCredentialBuilder onSchemaReady={handleBlankSchemaReady} />
-          )}
+          {isBlank && <BlankCredentialBuilder onSchemaReady={handleBlankSchemaReady} />}
 
           {/* Dynamic form fields (for non-blank or after blank fields defined) */}
           {schemaFields.length > 0 && (
@@ -1166,7 +1394,9 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
                     >
                       {labelForField(field.name)}
                       {field.required && <span className="text-red-500 ml-0.5">*</span>}
-                      {!field.required && <span className="text-gray-400 ml-1 font-normal">(optional)</span>}
+                      {!field.required && (
+                        <span className="text-gray-400 ml-1 font-normal">(optional)</span>
+                      )}
                     </label>
                     <input
                       id={`field-${field.name}`}
@@ -1193,7 +1423,10 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
           <Card className="space-y-3">
             <h2 className="oc-card-label">Issuance Settings</h2>
             <div>
-              <label htmlFor="builder-signing-key" className="block text-xs font-medium text-gray-600">
+              <label
+                htmlFor="builder-signing-key"
+                className="block text-xs font-medium text-gray-600"
+              >
                 Signing Key <span className="text-red-500">*</span>
               </label>
               {keys.length === 0 ? (
@@ -1218,7 +1451,10 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label htmlFor="builder-valid-from" className="block text-xs font-medium text-gray-600">
+                <label
+                  htmlFor="builder-valid-from"
+                  className="block text-xs font-medium text-gray-600"
+                >
                   Valid From
                 </label>
                 <input
@@ -1231,7 +1467,10 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
                 />
               </div>
               <div>
-                <label htmlFor="builder-valid-until" className="block text-xs font-medium text-gray-600">
+                <label
+                  htmlFor="builder-valid-until"
+                  className="block text-xs font-medium text-gray-600"
+                >
                   Valid Until
                 </label>
                 <input
@@ -1298,11 +1537,14 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
                     <span className="font-medium text-gray-800">{schemaName || "Credential"}</span>
                     {(() => {
                       const firstValue = Object.values(subjectValues).find((v) => v.trim());
-                      return firstValue
-                        ? <> for <span className="font-medium text-gray-800">{firstValue}</span></>
-                        : null;
-                    })()}.
-                    This creates a digitally signed document. Continue?
+                      return firstValue ? (
+                        <>
+                          {" "}
+                          for <span className="font-medium text-gray-800">{firstValue}</span>
+                        </>
+                      ) : null;
+                    })()}
+                    . This creates a digitally signed document. Continue?
                   </p>
                   <div className="flex justify-end gap-3">
                     <Button

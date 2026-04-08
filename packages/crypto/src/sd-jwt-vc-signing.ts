@@ -35,9 +35,7 @@ function buildSdJwtVcPayload(
   unsignedVC: UnsignedCredential,
   options: SdJwtVcSigningOptions,
 ): { payload: Record<string, unknown>; disclosures: string[] } {
-  const issuer = typeof unsignedVC.issuer === "string"
-    ? unsignedVC.issuer
-    : unsignedVC.issuer.id;
+  const issuer = typeof unsignedVC.issuer === "string" ? unsignedVC.issuer : unsignedVC.issuer.id;
 
   // Start with the base JWT payload
   const payload: Record<string, unknown> = {

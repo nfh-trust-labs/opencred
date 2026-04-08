@@ -20,7 +20,12 @@ export { parsePfx } from "./pfx-parser.js";
 export type { Pkcs11SignerOptions, Pkcs11SignerResult } from "./pkcs11-signer.js";
 export { createPkcs11Signer, destroyPkcs11Signer } from "./pkcs11-signer.js";
 
-export type { Pkcs11KeyInfo, Pkcs11CertInfo, Pkcs11SlotInfo, Pkcs11Session } from "./pkcs11-session.js";
+export type {
+  Pkcs11KeyInfo,
+  Pkcs11CertInfo,
+  Pkcs11SlotInfo,
+  Pkcs11Session,
+} from "./pkcs11-session.js";
 export {
   initializePkcs11,
   finalizePkcs11,

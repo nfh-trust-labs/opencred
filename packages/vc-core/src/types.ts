@@ -88,4 +88,3 @@ export const NFH_EMPLOYMENT_V1_CONTEXT = "https://schema.nfh.global/contexts/emp
 export const NFH_IDENTITY_V1_CONTEXT = "https://schema.nfh.global/contexts/identity/v1";
 export const NFH_HEALTH_V1_CONTEXT = "https://schema.nfh.global/contexts/health/v1";
 export const NFH_BUSINESS_V1_CONTEXT = "https://schema.nfh.global/contexts/business/v1";
-

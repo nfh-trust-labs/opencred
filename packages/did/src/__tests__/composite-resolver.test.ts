@@ -37,9 +37,7 @@ describe("CompositeDIDResolver", () => {
   it("should route did:web to the web resolver", async () => {
     const webResolver = createMockResolver("web");
 
-    const composite = new CompositeDIDResolver(
-      new Map([["web", webResolver]]),
-    );
+    const composite = new CompositeDIDResolver(new Map([["web", webResolver]]));
 
     await composite.resolve("did:web:example.com");
     expect(webResolver.resolve).toHaveBeenCalledWith("did:web:example.com");
@@ -70,9 +68,7 @@ describe("CompositeDIDResolver", () => {
 
   it("should throw on null/undefined DID", async () => {
     const composite = new CompositeDIDResolver(new Map());
-    await expect(composite.resolve(null as unknown as string)).rejects.toThrow(
-      DIDResolutionError,
-    );
+    await expect(composite.resolve(null as unknown as string)).rejects.toThrow(DIDResolutionError);
     await expect(composite.resolve(undefined as unknown as string)).rejects.toThrow(
       DIDResolutionError,
     );

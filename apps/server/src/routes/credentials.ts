@@ -68,7 +68,9 @@ const issueRequestSchema = z.object({
   selectiveDisclosureClaims: z.array(z.string()).optional(),
   revocationRegistryUrl: z.string().url().optional(),
   credentialSchemaUrl: z.string().url().optional(),
-  packageFormats: z.array(z.enum(["qr-png", "qr-svg", "pdf", "json-ld", "json-compact"])).optional(),
+  packageFormats: z
+    .array(z.enum(["qr-png", "qr-svg", "pdf", "json-ld", "json-compact"]))
+    .optional(),
 });
 
 const verifyRequestSchema = z.object({
@@ -153,9 +155,7 @@ credentials.post("/credentials/issue", async (c) => {
       // the data-URI fallback with whatever we have — an empty object is
       // still a well-formed JSON Schema document.
     }
-    const base64 = Buffer.from(JSON.stringify(schemaObject), "utf8").toString(
-      "base64",
-    );
+    const base64 = Buffer.from(JSON.stringify(schemaObject), "utf8").toString("base64");
     return `data:application/schema+json;base64,${base64}`;
   })();
   builder.setSchema({ id: credentialSchemaId, type: "JsonSchema" });
@@ -240,7 +240,15 @@ credentials.post("/credentials/issue", async (c) => {
   }
 
   // Package if formats requested (only for JSON-based credentials, not compact tokens)
-  let packagedOutputs: Array<{ format: string; data: string; mimeType: string; suggestedFileName: string; encoding: string }> | undefined;
+  let packagedOutputs:
+    | Array<{
+        format: string;
+        data: string;
+        mimeType: string;
+        suggestedFileName: string;
+        encoding: string;
+      }>
+    | undefined;
   if (!isCompactToken && parsed.packageFormats && parsed.packageFormats.length > 0) {
     const credential = JSON.parse(signedOutput) as Parameters<typeof packageCredential>[0];
     const result = await packageCredential(credential, parsed.packageFormats as PackageFormat[]);
@@ -270,7 +278,8 @@ credentials.post("/credentials/verify", async (c) => {
   const credential = JSON.parse(parsed.credential);
 
   // Verify using composite DID resolver (supports did:key, did:jwk, did:web)
-  const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } = await import("@opencred/did");
+  const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
+    await import("@opencred/did");
   const { verifyCredential } = await import("@opencred/verification");
 
   const compositeResolver = new CompositeDIDResolver(
@@ -289,7 +298,8 @@ credentials.post("/credentials/verify", async (c) => {
     valid: verificationResult.verified,
     message: verificationResult.verified
       ? "Credential is valid."
-      : (verificationResult.checks.find((check) => !check.passed)?.detail ?? "Verification failed."),
+      : (verificationResult.checks.find((check) => !check.passed)?.detail ??
+        "Verification failed."),
     checks: verificationResult.checks,
   });
 });

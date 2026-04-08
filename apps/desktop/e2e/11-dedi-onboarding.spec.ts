@@ -2,17 +2,10 @@
  * E2E: DeDi onboarding workflows — connect, skip, "not yet", and error paths.
  */
 
-import {
-  test,
-  expect,
-  waitForAppReady,
-  skipOnboardingToDeDi,
-} from "./electron-fixture";
+import { test, expect, waitForAppReady, skipOnboardingToDeDi } from "./electron-fixture";
 
 test.describe("DeDi Onboarding", () => {
-  test("full DeDi setup via self-published keys path", async ({
-    openCredPage: page,
-  }) => {
+  test("full DeDi setup via self-published keys path", async ({ openCredPage: page }) => {
     await waitForAppReady(page);
 
     // Navigate: Welcome → Get Started → Self-Published Keys
@@ -29,9 +22,7 @@ test.describe("DeDi Onboarding", () => {
     }
 
     // Fill domain
-    const domainInput = page.locator(
-      'input[placeholder*="domain"], input[name="domain"]',
-    );
+    const domainInput = page.locator('input[placeholder*="domain"], input[name="domain"]');
     if (await domainInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
       await domainInput.fill("example.com");
     }
@@ -112,10 +103,9 @@ test.describe("DeDi Onboarding", () => {
     await page.click("text=I have a DSC");
 
     // Import DSC — fill password and trigger import via IPC mock
-    await page.waitForSelector(
-      "text=Import your Digital Signature Certificate",
-      { timeout: 5_000 },
-    );
+    await page.waitForSelector("text=Import your Digital Signature Certificate", {
+      timeout: 5_000,
+    });
     await page.fill("#pfx-password", "test-password");
 
     // Trigger file import via IPC mock (inject a file path)
@@ -200,9 +190,7 @@ test.describe("DeDi Onboarding", () => {
     });
   });
 
-  test('"Not yet" shows info card then skip', async ({
-    openCredPage: page,
-  }) => {
+  test('"Not yet" shows info card then skip', async ({ openCredPage: page }) => {
     await skipOnboardingToDeDi(page);
 
     // Assert the DeDi step is visible
@@ -230,9 +218,7 @@ test.describe("DeDi Onboarding", () => {
     });
   });
 
-  test("DeDi config failure shows error and allows retry", async ({
-    openCredPage: page,
-  }) => {
+  test("DeDi config failure shows error and allows retry", async ({ openCredPage: page }) => {
     await skipOnboardingToDeDi(page);
 
     const publicDir = page.locator("text=Public Directory");
@@ -257,9 +243,7 @@ test.describe("DeDi Onboarding", () => {
     if (await nsInput.isVisible().catch(() => false)) {
       await nsInput.fill("fail-test.example.com");
     }
-    await page
-      .locator('input[type="password"][placeholder*="DeDi API key"]')
-      .fill("dk_bad_key");
+    await page.locator('input[type="password"][placeholder*="DeDi API key"]').fill("dk_bad_key");
     await page.click('button:has-text("Connect to DeDi")');
 
     // Verify error message is shown
@@ -268,14 +252,10 @@ test.describe("DeDi Onboarding", () => {
     ).toBeVisible({ timeout: 5_000 });
 
     // Verify the form is still visible (can retry)
-    await expect(
-      page.locator('button:has-text("Connect to DeDi")'),
-    ).toBeVisible();
+    await expect(page.locator('button:has-text("Connect to DeDi")')).toBeVisible();
   });
 
-  test("DID publish failure shows amber warning but continues", async ({
-    openCredPage: page,
-  }) => {
+  test("DID publish failure shows amber warning but continues", async ({ openCredPage: page }) => {
     await skipOnboardingToDeDi(page);
 
     const publicDir = page.locator("text=Public Directory");
@@ -298,9 +278,7 @@ test.describe("DeDi Onboarding", () => {
     if (await nsInput.isVisible().catch(() => false)) {
       await nsInput.fill("publish-fail.example.com");
     }
-    await page
-      .locator('input[type="password"][placeholder*="DeDi API key"]')
-      .fill("dk_test_key");
+    await page.locator('input[type="password"][placeholder*="DeDi API key"]').fill("dk_test_key");
     await page.click('button:has-text("Connect to DeDi")');
 
     // Should reach success screen
@@ -309,9 +287,7 @@ test.describe("DeDi Onboarding", () => {
     });
 
     // Should show amber warning about DID publish failure
-    await expect(
-      page.locator("text=DID could not be published"),
-    ).toBeVisible();
+    await expect(page.locator("text=DID could not be published")).toBeVisible();
 
     // Continue button should still work
     await page.click('button:has-text("Continue to OpenCred")');

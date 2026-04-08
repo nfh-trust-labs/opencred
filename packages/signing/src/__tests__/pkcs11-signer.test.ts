@@ -221,9 +221,8 @@ const mockPkcs11Module = (() => {
       obj: Buffer,
       template: Array<{ type: number; value?: unknown }>,
     ) {
-      const isRsa = mockState.useRsaKey && (
-        obj === mockRsaPrivateKeyHandle || obj === mockPublicKeyHandle
-      );
+      const isRsa =
+        mockState.useRsaKey && (obj === mockRsaPrivateKeyHandle || obj === mockPublicKeyHandle);
       const isCert = obj.toString() === "cert0";
 
       return template.map((attr) => {
@@ -656,10 +655,7 @@ describe("PKCS#11 Utilities", () => {
       const modulus = Buffer.from(rsaJwk.n!, "base64url");
       const exponent = Buffer.from(rsaJwk.e!, "base64url");
 
-      const keyObj = publicKeyFromRsaComponents(
-        new Uint8Array(modulus),
-        new Uint8Array(exponent),
-      );
+      const keyObj = publicKeyFromRsaComponents(new Uint8Array(modulus), new Uint8Array(exponent));
 
       expect(keyObj).toBeDefined();
       const jwk = keyObj.export({ format: "jwk" });
@@ -742,7 +738,7 @@ describe("PKCS#11 Utilities", () => {
 
   describe("derCertToPem", () => {
     it("should wrap DER bytes in PEM headers", () => {
-      const der = new Uint8Array([0x30, 0x82, 0x01, 0x00, 0xAA, 0xBB]);
+      const der = new Uint8Array([0x30, 0x82, 0x01, 0x00, 0xaa, 0xbb]);
       const pem = derCertToPem(der);
 
       expect(pem).toContain("-----BEGIN CERTIFICATE-----");

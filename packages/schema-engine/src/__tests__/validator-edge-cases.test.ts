@@ -135,7 +135,13 @@ describe("Built-in schema definitions", () => {
   });
 
   it("all built-in schemas use JSON Schema draft-07", () => {
-    const schemas = [educationSchema, employmentSchema, identitySchema, healthSchema, businessSchema];
+    const schemas = [
+      educationSchema,
+      employmentSchema,
+      identitySchema,
+      healthSchema,
+      businessSchema,
+    ];
     for (const schema of schemas) {
       expect(schema.$schema).toBe("http://json-schema.org/draft-07/schema#");
     }
@@ -197,15 +203,11 @@ describe("Validator — edge cases", () => {
   });
 
   it("throws NotFoundError for unknown schema in validateCredentialSubject", () => {
-    expect(() =>
-      validator.validateCredentialSubject("nonexistent", {}),
-    ).toThrow(NotFoundError);
+    expect(() => validator.validateCredentialSubject("nonexistent", {})).toThrow(NotFoundError);
   });
 
   it("throws NotFoundError for unknown schema in validateOrThrow", () => {
-    expect(() =>
-      validator.validateOrThrow("nonexistent", {}),
-    ).toThrow(NotFoundError);
+    expect(() => validator.validateOrThrow("nonexistent", {})).toThrow(NotFoundError);
   });
 
   it("validates all required fields missing produces errors for each field", () => {
@@ -302,31 +304,46 @@ describe("Validator — validateOrThrow details", () => {
   it("does not throw for valid data across all schemas", () => {
     expect(() =>
       validator.validateOrThrow("education", {
-        name: "Jane", degree: "PhD", institution: "Stanford", dateConferred: "2024-01-15",
+        name: "Jane",
+        degree: "PhD",
+        institution: "Stanford",
+        dateConferred: "2024-01-15",
       }),
     ).not.toThrow();
 
     expect(() =>
       validator.validateOrThrow("employment", {
-        name: "John", employer: "Acme", position: "Dev", startDate: "2022-01-01",
+        name: "John",
+        employer: "Acme",
+        position: "Dev",
+        startDate: "2022-01-01",
       }),
     ).not.toThrow();
 
     expect(() =>
       validator.validateOrThrow("identity", {
-        name: "Alice", dateOfBirth: "1990-05-20", nationality: "Canadian", documentNumber: "AB123",
+        name: "Alice",
+        dateOfBirth: "1990-05-20",
+        nationality: "Canadian",
+        documentNumber: "AB123",
       }),
     ).not.toThrow();
 
     expect(() =>
       validator.validateOrThrow("health", {
-        name: "Bob", certification: "CPR", issuingBody: "Red Cross", validUntil: "2025-12-31",
+        name: "Bob",
+        certification: "CPR",
+        issuingBody: "Red Cross",
+        validUntil: "2025-12-31",
       }),
     ).not.toThrow();
 
     expect(() =>
       validator.validateOrThrow("business", {
-        name: "Corp", registrationNumber: "REG-1", jurisdiction: "DE", incorporationDate: "2020-01-01",
+        name: "Corp",
+        registrationNumber: "REG-1",
+        jurisdiction: "DE",
+        incorporationDate: "2020-01-01",
       }),
     ).not.toThrow();
   });

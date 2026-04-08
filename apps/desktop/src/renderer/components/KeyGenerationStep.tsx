@@ -59,21 +59,16 @@ export function KeyGenerationStep({ onKeyGenerated, onBack }: KeyGenerationStepP
   return (
     <Card className="space-y-6">
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-gray-900">
-          Generate Signing Key
-        </h2>
+        <h2 className="text-lg font-semibold text-gray-900">Generate Signing Key</h2>
         <p className="text-sm text-gray-600">
-          Generate an ECDSA P-256 keypair for signing credentials. The private key
-          stays on this machine and is never transmitted.
+          Generate an ECDSA P-256 keypair for signing credentials. The private key stays on this
+          machine and is never transmitted.
         </p>
       </div>
 
       {/* Label input */}
       <div>
-        <label
-          htmlFor="key-label"
-          className="block text-xs font-medium text-gray-600"
-        >
+        <label htmlFor="key-label" className="block text-xs font-medium text-gray-600">
           Key Label (optional)
         </label>
         <input
@@ -90,10 +85,7 @@ export function KeyGenerationStep({ onKeyGenerated, onBack }: KeyGenerationStepP
       {/* Generate button (shown when no key generated yet) */}
       {!generatedKey && (
         <div>
-          <Button
-            onClick={() => void handleGenerate()}
-            disabled={generating}
-          >
+          <Button onClick={() => void handleGenerate()} disabled={generating}>
             {generating ? "Generating..." : "Generate Key"}
           </Button>
         </div>
@@ -141,11 +133,7 @@ export function KeyGenerationStep({ onKeyGenerated, onBack }: KeyGenerationStepP
         <Button variant="secondary" onClick={onBack}>
           Back
         </Button>
-        {generatedKey && (
-          <Button onClick={handleNext}>
-            Next
-          </Button>
-        )}
+        {generatedKey && <Button onClick={handleNext}>Next</Button>}
       </div>
     </Card>
   );
