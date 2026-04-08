@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { redact, redactValue } from "../main/logger.js";
+import { redact, redactValue, redactBuffer } from "../main/logger.js";
 
 describe("redact", () => {
   // -----------------------------------------------------------------------
@@ -65,29 +65,66 @@ MIICpDCCAYwCCQDU+pQ4pHgSpDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
     expect(result).toBe("[REDACTED]");
   });
 
-  it("does NOT redact long alphanumeric strings without + or /", () => {
-    // A DID or long identifier — pure alphanumeric, no + or /
+  it("preserves DIDs — they are public identifiers and must remain in logs", () => {
+    // DIDs look like base64url to the regex, but the protect-then-redact pass preserves them
     const did = "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK";
     const result = redact(did);
     expect(result).toBe(did);
   });
 
-  it("does NOT redact URLs (no + chars)", () => {
+  it("does NOT redact URLs (skipped because they contain ://)", () => {
     const url = "https://example.com/very/long/path/that/is/more/than/forty/characters/long";
     const result = redact(url);
-    // URLs use / but never + in path segments, so they are not redacted
+    // URLs are detected via the `://` scheme separator and skipped wholesale
     expect(result).toBe(url);
-  });
-
-  it("does NOT redact long base64url strings (no + char)", () => {
-    // base64url uses - and _ instead of + and / — JWK d fields catch these separately
-    const b64url = "MHQCAQEEIBkg4LVWM9nuwNSk3yByxZpYRTBnVJk5GkMnNaWPKyho";
-    expect(redact(b64url)).toBe(b64url);
   });
 
   it("does NOT redact short base64 strings", () => {
     const short = "SGVsbG8gV29ybGQ="; // "Hello World" in base64 (16 chars)
     expect(redact(short)).toBe(short);
+  });
+
+  it("redacts long base64url strings (no + char) (#330)", () => {
+    // base64url alphabet: [A-Za-z0-9_-]
+    // This is the shape of a JWK d field payload — the case #330 covers.
+    const b64url = "MHQCAQEEIBkg4LVWM9nuwNSk3yByxZpYRTBnVJk5GkMnNaWPKyho_-";
+    const result = redact(b64url);
+    expect(result).toBe("[REDACTED]");
+  });
+
+  it("redacts long base64url strings with mixed alphabet (#330)", () => {
+    const key =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
+    expect(redact(key)).toBe("[REDACTED]");
+  });
+
+  it("redacts JWK d field in single-quoted object literals (#330)", () => {
+    // Some error messages serialise objects with single quotes.
+    const msg = "Failed to parse {'d':'longsecretprivatekey','x':'abc'}";
+    const result = redact(msg);
+    expect(result).not.toContain("longsecretprivatekey");
+    expect(result).toContain("'d':'[REDACTED]'");
+  });
+
+  it("redacts URL-encoded d= parameter (#330)", () => {
+    const urlForm = "d=abcDEF123_-xyz456&x=publicpart";
+    const result = redact(urlForm);
+    expect(result).toContain("d=[REDACTED]");
+    expect(result).not.toContain("abcDEF123_-xyz456");
+    expect(result).toContain("x=publicpart");
+  });
+
+
+  it("does NOT redact absolute filesystem paths with extensions", () => {
+    const path =
+      "/Users/someone/opencred/.claude/worktrees/agent-xyz/apps/desktop/dist/preload/main/preload.cjs";
+    const result = redact(path);
+    expect(result).toBe(path);
+  });
+
+  it("does NOT redact log output referencing a Windows-style path", () => {
+    const path = "C:\\\\Users\\\\me\\\\AppData\\\\Roaming\\\\opencred\\\\config.json";
+    expect(redact(path)).toBe(path);
   });
 
   // -----------------------------------------------------------------------
@@ -136,5 +173,42 @@ describe("redactValue", () => {
 
   it("passes through undefined unchanged", () => {
     expect(redactValue(undefined)).toBe(undefined);
+  });
+
+  it("redacts base64url key material nested in objects (#330)", () => {
+    const obj = {
+      keyId: "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+      privateKeyD:
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-",
+    };
+    const result = redactValue(obj) as Record<string, unknown>;
+    // DID stays readable
+    expect(result.keyId).toContain("did:key:z6Mk");
+    // Base64url payload is redacted
+    expect(result.privateKeyD).toBe("[REDACTED]");
+  });
+
+  it("redacts Buffer values to length-only summary (#330)", () => {
+    const buf = Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    const result = redactValue(buf);
+    expect(result).toBe("[BUFFER len=10]");
+  });
+
+  it("redacts Uint8Array values to length-only summary (#330)", () => {
+    const arr = new Uint8Array([1, 2, 3, 4, 5]);
+    const result = redactValue(arr);
+    expect(result).toBe("[BUFFER len=5]");
+  });
+});
+
+describe("redactBuffer", () => {
+  it("returns length-only summary for a Buffer", () => {
+    const buf = Buffer.alloc(32);
+    expect(redactBuffer(buf)).toBe("[BUFFER len=32]");
+  });
+
+  it("returns length-only summary for a Uint8Array", () => {
+    const arr = new Uint8Array(16);
+    expect(redactBuffer(arr)).toBe("[BUFFER len=16]");
   });
 });

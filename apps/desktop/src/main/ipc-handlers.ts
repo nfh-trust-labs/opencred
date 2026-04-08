@@ -931,11 +931,37 @@ async function handleGetOfflineStatus(): Promise<boolean> {
   }
 }
 
+/**
+ * Config keys the renderer is allowed to READ via the GET_CONFIG IPC channel.
+ *
+ * Security (#331): previously the GET_CONFIG/SET_CONFIG handlers accepted
+ * arbitrary key names, which let any renderer code read or write any field
+ * in electron-store — including sensitive blobs like
+ * `preferences.dediCredentialEncrypted` (a safeStorage-encrypted DeDi API
+ * credential) and `preferences.importedKeyPaths` (signing-key file paths
+ * auto-loaded at startup). We now accept only this closed set.
+ */
+const CONFIG_GET_ALLOWLIST = new Set<string>([
+  "bugReportFormUrl",
+  "keyRotationDismissedUntil",
+  "organizationName",
+]);
+
+/** Config keys the renderer is allowed to WRITE via the SET_CONFIG IPC channel. */
+const CONFIG_SET_ALLOWLIST = new Set<string>([
+  "keyRotationDismissedUntil",
+  "organizationName",
+]);
+
 /** GET_CONFIG — read a value from electron-store. */
 async function handleGetConfig(
   _event: IpcMainInvokeEvent,
   request: ConfigGetRequest,
 ): Promise<unknown> {
+  if (!CONFIG_GET_ALLOWLIST.has(request.key)) {
+    logger.warn("Blocked GET_CONFIG for non-allowlisted key", { key: request.key });
+    return undefined;
+  }
   const store = getStore();
   return store.get(request.key as keyof typeof store.store);
 }
@@ -945,6 +971,10 @@ async function handleSetConfig(
   _event: IpcMainInvokeEvent,
   request: ConfigSetRequest,
 ): Promise<void> {
+  if (!CONFIG_SET_ALLOWLIST.has(request.key)) {
+    logger.warn("Blocked SET_CONFIG for non-allowlisted key", { key: request.key });
+    return;
+  }
   const store = getStore();
   store.set(request.key as keyof typeof store.store, request.value);
 }

@@ -6,8 +6,9 @@
  * on Linux). Logs persist across app restarts.
  *
  * SECURITY NOTES:
- *  - A redaction hook strips PEM blocks, long base64 strings, and JWK "d"
- *    (private key) fields before anything reaches disk.
+ *  - A redaction hook strips PEM blocks, long base64/base64url blobs, and
+ *    JWK "d" (private key) fields before anything reaches disk. Buffers and
+ *    typed arrays are replaced with length-only summaries.
  *  - NEVER pass private key material to any log method.
  *  - Log key IDs or fingerprints only — never raw key bytes.
  */
@@ -32,26 +33,107 @@ export interface Logger {
 // ---------------------------------------------------------------------------
 
 const PEM_BLOCK_RE = /-----BEGIN[A-Z ]+-----[\s\S]*?-----END[A-Z ]+-----/g;
-const JWK_D_FIELD_RE = /"d"\s*:\s*"[^"]+"/g;
-// Require "+" to distinguish base64 from URLs/paths/IDs — "+" is unique to
-// standard base64 encoding and absent from URLs, file paths, and identifiers.
-const LONG_BASE64_RE = /(?=[A-Za-z0-9+/]*\+)[A-Za-z0-9+/]{40,}={0,3}/g;
+
+// JWK "d" field redaction. Covers several quoting/shape variants:
+//  - JSON double-quoted: "d":"..."
+//  - Single-quoted (e.g. JS object literal in error messages): 'd':'...'
+//  - URL-encoded form (e.g. d=...&x=...): d=<base64url-chars> up to the
+//    next ampersand or whitespace.
+const JWK_D_FIELD_JSON_RE = /"d"\s*:\s*"[^"]+"/g;
+const JWK_D_FIELD_SINGLE_RE = /'d'\s*:\s*'[^']+'/g;
+const JWK_D_FIELD_URL_RE = /(^|[?&])d=[A-Za-z0-9_\-+/%=]+/g;
+
+// Long base64/base64url blob redaction.
+//
+// Prior to #330 this required "+" to be present (to disambiguate standard
+// base64 from URL path segments or DIDs). That heuristic missed base64url
+// encodings — JWK private-key blobs and most private-key serialisations —
+// which use "-" and "_" instead of "+" and "/" and therefore never
+// triggered the old pattern.
+//
+// The new pattern matches any run of >=40 chars from the combined alphabet
+// (base64 *and* base64url) followed by optional "=" padding. To avoid
+// mauling legitimate strings such as URLs, we skip strings that contain
+// "://" or look like filesystem paths. DIDs are protected before the pass
+// runs (see `redact`) and restored after.
+const LONG_BASE64_ANY_RE = /[A-Za-z0-9_\-+/]{40,}={0,3}/g;
+
+/** True if `s` looks like a URL (contains a scheme separator). */
+function looksLikeUrl(s: string): boolean {
+  return s.includes("://");
+}
+
+/** True if `s` looks like an absolute filesystem path with an extension. */
+function looksLikePath(s: string): boolean {
+  return /^([A-Za-z]:|[/\\])[A-Za-z0-9_.\-/\\]+\.[A-Za-z0-9]{1,6}$/.test(s.trim());
+}
+
+/** Regex matching a full DID identifier or verification method ID. */
+const DID_RE = /did:[a-zA-Z0-9]+:[A-Za-z0-9._\-:%#?=]+/g;
 
 export function redact(input: string): string {
-  return input
+  // Step 1: strip PEM blocks and JWK "d" fields first. These always indicate
+  // key material regardless of context.
+  let result = input
     .replace(PEM_BLOCK_RE, "[REDACTED-PEM]")
-    .replace(JWK_D_FIELD_RE, '"d":"[REDACTED]"')
-    .replace(LONG_BASE64_RE, "[REDACTED]");
+    .replace(JWK_D_FIELD_JSON_RE, '"d":"[REDACTED]"')
+    .replace(JWK_D_FIELD_SINGLE_RE, "'d':'[REDACTED]'")
+    .replace(
+      JWK_D_FIELD_URL_RE,
+      (_match, lead: string | undefined) => `${lead ?? ""}d=[REDACTED]`,
+    );
+
+  // Step 2: skip the base64url pass entirely if the string looks like a URL
+  // or an absolute filesystem path. Both contain long runs from the base64
+  // alphabet that are not key material.
+  if (looksLikeUrl(result) || looksLikePath(result)) {
+    return result;
+  }
+
+  // Step 3: protect DID identifiers before the base64url pass runs. DIDs are
+  // public identifiers and MUST remain readable in logs — they are the
+  // fingerprint we want to see. We replace each DID with a placeholder token
+  // that is not in the base64 alphabet, run the redaction pass, and then
+  // restore the DIDs.
+  const dids: string[] = [];
+  result = result.replace(DID_RE, (match) => {
+    dids.push(match);
+    return `\u0000DID${dids.length - 1}\u0000`;
+  });
+
+  // Step 4: base64url redaction pass.
+  result = result.replace(LONG_BASE64_ANY_RE, "[REDACTED]");
+
+  // Step 5: restore the protected DIDs.
+  // eslint-disable-next-line no-control-regex
+  result = result.replace(/\u0000DID(\d+)\u0000/g, (_match, idx: string) => {
+    const n = parseInt(idx, 10);
+    return dids[n] ?? "[REDACTED]";
+  });
+
+  return result;
+}
+
+/**
+ * Redact a Buffer or Uint8Array to a length-only summary, never exposing
+ * its contents. This is the defence-in-depth path for the case where a
+ * future code change accidentally passes raw key material as a log field.
+ */
+export function redactBuffer(value: Buffer | Uint8Array): string {
+  return `[BUFFER len=${value.byteLength}]`;
 }
 
 export function redactValue(value: unknown): unknown {
   if (typeof value === "string") return redact(value);
+  if (Buffer.isBuffer(value)) return redactBuffer(value);
+  if (value instanceof Uint8Array) return redactBuffer(value);
+  if (Array.isArray(value)) return value.map((v) => redactValue(v));
   if (typeof value === "object" && value !== null) {
-    try {
-      return JSON.parse(redact(JSON.stringify(value)));
-    } catch {
-      return value;
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      result[k] = redactValue(v);
     }
+    return result;
   }
   return value;
 }

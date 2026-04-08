@@ -51,7 +51,7 @@ let mainWindow: BrowserWindow | null = null;
 const IS_DEV = !app.isPackaged;
 const DEV_SERVER_URL = "http://localhost:5174";
 
-function createWindow(): void {
+export function createWindow(): void {
   const preloadPath = path.join(__dirname, "..", "..", "preload", "main", "preload.cjs");
   logger.debug("Preload path resolved", { preloadPath });
   mainWindow = new BrowserWindow({
@@ -64,9 +64,55 @@ function createWindow(): void {
       preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      // Security (#334): enable the Chromium renderer sandbox. Combined with
+      // contextIsolation:true this is Electron's recommended baseline.
+      // Our preload only uses `contextBridge` and `ipcRenderer`, which are
+      // both available in sandboxed preloads.
+      sandbox: true,
     },
     show: false,
+  });
+
+  // Security (#334): inject a strict Content-Security-Policy on every
+  // response delivered to this window. The renderer is loaded from disk in
+  // production and from the Vite dev server in development; both are
+  // covered by the `onHeadersReceived` hook on the window's session.
+  //
+  // `style-src 'unsafe-inline'` is required by Tailwind-emitted styles and
+  // the existing `<style>` tags in index.html.
+  const cspHeaderValue = IS_DEV
+    ? // In dev, Vite serves HMR over ws:// and inlines scripts via blob:.
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+      "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
+      "connect-src 'self' ws: http://localhost:5174"
+    : // Production: local files only. No remote scripts, styles, or connects.
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+      "img-src 'self' data:; connect-src 'self'; object-src 'none'; " +
+      "base-uri 'self'; frame-ancestors 'none'";
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        "Content-Security-Policy": [cspHeaderValue],
+      },
+    });
+  });
+
+  // Security (#334): deny all `window.open` / target="_blank" navigations.
+  // Any link that opens a new window or tab is refused outright. If in the
+  // future we need to open an external URL (e.g. docs), route it through a
+  // dedicated IPC handler that uses `shell.openExternal` after validation.
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
+  // Security (#334): reject navigation away from the loaded renderer index.
+  // The renderer is a single-page React app; `window.location.href = ...`
+  // should never happen. Anything that tries is blocked.
+  mainWindow.webContents.on("will-navigate", (event, targetUrl) => {
+    const currentUrl = mainWindow?.webContents.getURL() ?? "";
+    if (targetUrl !== currentUrl) {
+      logger.warn("Blocked navigation", { from: currentUrl, to: targetUrl });
+      event.preventDefault();
+    }
   });
 
   // Forward renderer console to main process stdout for debugging.
