@@ -51,20 +51,53 @@ export interface X509ChainCheckOptions {
 }
 
 /**
+ * Options for `loadCscaTrustStore`.
+ */
+export interface LoadCscaTrustStoreOptions {
+  /**
+   * Called when a trust-store entry is skipped — either because the whole
+   * directory is unreadable, a candidate file can't be read, or a candidate
+   * file contains no PEM certificate blocks. Callers should wire this to
+   * their own logger (e.g. `pino.warn`) so operators can detect a misconfigured
+   * or partially corrupt trust store instead of silently running with fewer
+   * anchors than expected. Not called for non-candidate extensions (e.g.
+   * `README.md`), only for entries the loader actively tried to load.
+   */
+  onSkipped?: (info: { path: string; reason: string }) => void;
+}
+
+/**
  * Load all PEM-encoded certificates from a directory.
  *
  * Used to populate the trust anchor list from a `CSCA_TRUST_STORE_PATH`
- * directory containing one or more `.pem` / `.crt` files. Returns an empty
- * array if the directory does not exist or contains no PEM files.
+ * directory containing one or more `.pem` / `.crt` / `.cer` files. Returns
+ * an empty array if the directory does not exist or contains no PEM files.
  *
  * Each returned string is a complete PEM block (single certificate); files
  * containing multiple concatenated certificates are split.
+ *
+ * Files that are skipped (unreadable, non-PEM content, or a missing
+ * directory) are surfaced via the optional `onSkipped` callback. This
+ * package does not import a logger — pass a callback that forwards to your
+ * application's logger so a partial or misconfigured trust store never
+ * loads silently. The downstream chain check still fails closed if the
+ * trust store is empty, but an operator-visible warning is the difference
+ * between "DSC verification mysteriously rejects everything" and "warn
+ * surfaced 'CSCA_TRUST_STORE_PATH directory not found'".
  */
-export async function loadCscaTrustStore(directory: string): Promise<string[]> {
+export async function loadCscaTrustStore(
+  directory: string,
+  options?: LoadCscaTrustStoreOptions,
+): Promise<string[]> {
+  const onSkipped = options?.onSkipped;
   let entries: string[];
   try {
     entries = await readdir(directory);
-  } catch {
+  } catch (err) {
+    onSkipped?.({
+      path: directory,
+      reason: `unable to read trust store directory: ${err instanceof Error ? err.message : "unknown error"}`,
+    });
     return [];
   }
 
@@ -74,13 +107,26 @@ export async function loadCscaTrustStore(directory: string): Promise<string[]> {
     if (!lower.endsWith(".pem") && !lower.endsWith(".crt") && !lower.endsWith(".cer")) {
       continue;
     }
+    const fullPath = path.join(directory, entry);
     let content: string;
     try {
-      content = await readFile(path.join(directory, entry), "utf8");
-    } catch {
+      content = await readFile(fullPath, "utf8");
+    } catch (err) {
+      onSkipped?.({
+        path: fullPath,
+        reason: `read failed: ${err instanceof Error ? err.message : "unknown error"}`,
+      });
       continue;
     }
-    for (const block of splitPemBlocks(content)) {
+    const blocks = splitPemBlocks(content);
+    if (blocks.length === 0) {
+      onSkipped?.({
+        path: fullPath,
+        reason: "no PEM certificate blocks found",
+      });
+      continue;
+    }
+    for (const block of blocks) {
       pems.push(block);
     }
   }

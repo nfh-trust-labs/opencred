@@ -33,6 +33,7 @@ import { CryptoError } from "@opencred/shared";
 import { requireSigner } from "../signing/key-manager.js";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
+import { getLogger } from "../logger.js";
 
 const credentials = new Hono();
 
@@ -346,11 +347,19 @@ credentials.post("/credentials/verify", async (c) => {
   );
 
   // Load CSCA trust anchors if configured. Required for DSC-backed
-  // credentials per nfh-trust-labs/opencred#316.
+  // credentials per nfh-trust-labs/opencred#316. Any skipped files are
+  // surfaced via `logger.warn` so an operator can detect a partially
+  // loaded trust store instead of silently running with fewer anchors
+  // than expected.
   const { getConfig } = await import("../config.js");
   const config = getConfig();
+  const logger = getLogger();
   const trustAnchors = config.CSCA_TRUST_STORE_PATH
-    ? await loadCscaTrustStore(config.CSCA_TRUST_STORE_PATH)
+    ? await loadCscaTrustStore(config.CSCA_TRUST_STORE_PATH, {
+        onSkipped: ({ path: skippedPath, reason }) => {
+          logger.warn({ path: skippedPath, reason }, "CSCA trust store entry skipped");
+        },
+      })
     : undefined;
 
   const verificationResult = await verifyCredential(credential, {

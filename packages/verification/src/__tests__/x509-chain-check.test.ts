@@ -59,8 +59,7 @@ function generateCert(
   cert.publicKey = forgeKeys.publicKey;
   cert.serialNumber = opts.serial ?? "01";
   cert.validity.notBefore = opts.notBefore ?? new Date(Date.now() - 1000 * 60 * 60 * 24);
-  cert.validity.notAfter =
-    opts.notAfter ?? new Date(Date.now() + 1000 * 60 * 60 * 24 * 365);
+  cert.validity.notAfter = opts.notAfter ?? new Date(Date.now() + 1000 * 60 * 60 * 24 * 365);
 
   const subject = [
     { shortName: "CN", value: opts.commonName },
@@ -504,5 +503,77 @@ describe("loadCscaTrustStore", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
-});
 
+  it("calls onSkipped when the directory does not exist", async () => {
+    const missing = path.join(tmpdir(), "definitely-not-there-67890");
+    const skipped: Array<{ path: string; reason: string }> = [];
+    const result = await loadCscaTrustStore(missing, {
+      onSkipped: (info) => skipped.push(info),
+    });
+    expect(result).toEqual([]);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].path).toBe(missing);
+    expect(skipped[0].reason).toContain("unable to read trust store directory");
+  });
+
+  it("calls onSkipped for files with no PEM certificate blocks", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "csca-test-"));
+    try {
+      await writeFile(path.join(dir, "corrupt.pem"), "not actually a PEM file\n");
+      const root = generateCert({ commonName: "Good Root", isCa: true });
+      await writeFile(path.join(dir, "good.pem"), root.pem);
+
+      const skipped: Array<{ path: string; reason: string }> = [];
+      const anchors = await loadCscaTrustStore(dir, {
+        onSkipped: (info) => skipped.push(info),
+      });
+
+      // Good cert still loaded.
+      expect(anchors).toHaveLength(1);
+      // Corrupt file surfaced to caller.
+      expect(skipped).toHaveLength(1);
+      expect(skipped[0].path).toContain("corrupt.pem");
+      expect(skipped[0].reason).toContain("no PEM certificate blocks");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not call onSkipped for non-candidate file extensions", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "csca-test-"));
+    try {
+      const root = generateCert({ commonName: "Root", isCa: true });
+      await writeFile(path.join(dir, "root.pem"), root.pem);
+      // README.md has a non-candidate extension and should be ignored silently.
+      await writeFile(path.join(dir, "README.md"), "# Trust store notes\n");
+
+      const skipped: Array<{ path: string; reason: string }> = [];
+      const anchors = await loadCscaTrustStore(dir, {
+        onSkipped: (info) => skipped.push(info),
+      });
+
+      expect(anchors).toHaveLength(1);
+      expect(skipped).toHaveLength(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not call onSkipped on the happy path", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "csca-test-"));
+    try {
+      const root = generateCert({ commonName: "Happy Root", isCa: true });
+      await writeFile(path.join(dir, "root.pem"), root.pem);
+
+      const skipped: Array<{ path: string; reason: string }> = [];
+      const anchors = await loadCscaTrustStore(dir, {
+        onSkipped: (info) => skipped.push(info),
+      });
+
+      expect(anchors).toHaveLength(1);
+      expect(skipped).toHaveLength(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
