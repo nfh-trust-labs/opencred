@@ -22,12 +22,14 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { canonicalJsonSha256 } from "@opencred/shared";
+import YAML from "yaml";
 
 const HOST_ALLOWLIST = [
   { host: "w3id.org", pathPrefix: "/" },
   { host: "purl.imsglobal.org", pathPrefix: "/" },
   { host: "raw.githubusercontent.com", pathPrefix: "/nfh-trust-labs/" },
   { host: "raw.githubusercontent.com", pathPrefix: "/decentralized-identity/" },
+  { host: "raw.githubusercontent.com", pathPrefix: "/w3c-ccg/traceability-vocab/" },
 ];
 
 const NETWORK_TIMEOUT_MS = 30_000;
@@ -262,6 +264,14 @@ export async function run(opts) {
 
       let schemaObj;
       let schemaUpstreamUrl;
+      let actualHash;
+
+      // Format detection: `format: "yaml"` in the manifest, or a .yml/.yaml
+      // URL, means the authoritative bytes are YAML and the manifest hash is
+      // over the raw UTF-8 bytes (not canonicalized JSON). Otherwise JSON.
+      const urlLower = (cred.schema.url ?? "").toLowerCase();
+      const isYaml =
+        cred.schema.format === "yaml" || urlLower.endsWith(".yml") || urlLower.endsWith(".yaml");
 
       if (sourceKind === "defined") {
         if (!cred.schema.path) {
@@ -276,6 +286,7 @@ export async function run(opts) {
         schemaUpstreamUrl =
           cred.schema.upstreamUrl ??
           `https://raw.githubusercontent.com/${sources.repo}/${sources.commit}/${cred.schema.path}`;
+        actualHash = canonicalJsonSha256(schemaObj);
       } else {
         if (!cred.schema.url) {
           throw new Error(`credential ${cred.id}: referenced schema missing schema.url`);
@@ -286,21 +297,48 @@ export async function run(opts) {
           );
         }
         const res = await fetchWithTimeoutAndRetry(cred.schema.url, fetchImpl);
-        const text = await res.text();
-        try {
-          schemaObj = JSON.parse(text);
-        } catch (e) {
-          throw new Error(`credential ${cred.id}: fetched schema is not valid JSON: ${e.message}`);
+        if (isYaml) {
+          // YAML path: hash the raw bytes, then parse to JS for bundling.
+          const buf = Buffer.from(await res.arrayBuffer());
+          actualHash = sha256Bytes(buf);
+          if (actualHash !== cred.schema.sha256) {
+            err(
+              `\nHASH MISMATCH for credential "${cred.id}":\n  expected: ${cred.schema.sha256}\n  actual:   ${actualHash}\n`,
+            );
+            throw new Error(`schema hash mismatch for ${cred.id}`);
+          }
+          try {
+            schemaObj = YAML.parse(buf.toString("utf8"));
+          } catch (e) {
+            throw new Error(`credential ${cred.id}: fetched YAML is not parseable: ${e.message}`);
+          }
+          if (!schemaObj || typeof schemaObj !== "object") {
+            throw new Error(`credential ${cred.id}: parsed YAML is not an object`);
+          }
+        } else {
+          const text = await res.text();
+          try {
+            schemaObj = JSON.parse(text);
+          } catch (e) {
+            throw new Error(`credential ${cred.id}: fetched schema is not valid JSON: ${e.message}`);
+          }
+          actualHash = canonicalJsonSha256(schemaObj);
         }
         schemaUpstreamUrl = cred.schema.url;
       }
 
-      const actualHash = canonicalJsonSha256(schemaObj);
-      if (actualHash !== cred.schema.sha256) {
-        err(
-          `\nHASH MISMATCH for credential "${cred.id}":\n  expected: ${cred.schema.sha256}\n  actual:   ${actualHash}\n`,
-        );
-        throw new Error(`schema hash mismatch for ${cred.id}`);
+      // For non-YAML branches actualHash is already canonical-JSON; for YAML
+      // it's literal-bytes. Either way, the manifest entry was generated the
+      // same way, so the comparison is apples-to-apples. The YAML branch
+      // above already compared before parsing; JSON/defined branches compare
+      // here.
+      if (!isYaml || sourceKind === "defined") {
+        if (actualHash !== cred.schema.sha256) {
+          err(
+            `\nHASH MISMATCH for credential "${cred.id}":\n  expected: ${cred.schema.sha256}\n  actual:   ${actualHash}\n`,
+          );
+          throw new Error(`schema hash mismatch for ${cred.id}`);
+        }
       }
 
       // Handle context (literal-bytes hash, not canonical)
@@ -334,7 +372,24 @@ export async function run(opts) {
         } else {
           throw new Error(`credential ${cred.id}: context entry has neither path nor url`);
         }
-        const ctxHash = sha256Bytes(ctxBuf);
+        // Context hashing matches Stream A's pinner convention:
+        //   - defined contexts (files in the schemas tarball) → canonicalJsonSha256
+        //     of the parsed JSON-LD, so repo edits that only reorder keys don't
+        //     invalidate the pin.
+        //   - referenced contexts (remote URLs) → sha256 of the raw bytes, so
+        //     any upstream whitespace/byte change is detected.
+        let ctxHash;
+        if (sourceKind === "defined") {
+          let ctxParsed;
+          try {
+            ctxParsed = JSON.parse(ctxBuf.toString("utf8"));
+          } catch (e) {
+            throw new Error(`credential ${cred.id}: context is not valid JSON: ${e.message}`);
+          }
+          ctxHash = canonicalJsonSha256(ctxParsed);
+        } else {
+          ctxHash = sha256Bytes(ctxBuf);
+        }
         if (ctxHash !== cred.context.sha256) {
           err(
             `\nCONTEXT HASH MISMATCH for credential "${cred.id}":\n  expected: ${cred.context.sha256}\n  actual:   ${ctxHash}\n`,

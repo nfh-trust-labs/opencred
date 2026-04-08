@@ -1,0 +1,10 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "@protected": true,
+    "@vocab": "http://hl7.org/fhir/",
+    "fhir": "http://hl7.org/fhir/",
+    "rxnorm": "http://www.nlm.nih.gov/research/umls/rxnorm",
+    "PrescriptionCredential": "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/prescription/v1#PrescriptionCredential"
+  }
+}

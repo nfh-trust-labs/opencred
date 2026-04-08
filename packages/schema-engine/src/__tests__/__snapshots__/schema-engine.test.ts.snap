@@ -1,3 +1,39 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`createRegistry (built-in) > registry id list is stable (snapshot) 1`] = `[]`;
+exports[`createRegistry (built-in) > registry id list is stable (snapshot) 1`] = `
+[
+  "business-entity/v1",
+  "dif/proof-of-age/v1",
+  "dif/verified-person/v1",
+  "electricity/v1",
+  "employment-offer-letter/v1",
+  "functional-identity/v1",
+  "immunization/v1",
+  "insurance-policy/v1",
+  "open-badges/v3",
+  "prescription/v1",
+  "salary-slip/v1",
+  "test-result/v1",
+  "traceability/bill-of-lading/v1",
+  "traceability/certification-of-origin/v1",
+  "traceability/commercial-invoice/v1",
+  "traceability/delivery-schedule/v1",
+  "traceability/food-grade-inspection/v1",
+  "traceability/freight-manifest/v1",
+  "traceability/gap-inspection/v1",
+  "traceability/house-bill-of-lading/v1",
+  "traceability/iata-air-waybill/v1",
+  "traceability/importer-security-filing/v1",
+  "traceability/mill-test-report/v1",
+  "traceability/natural-gas-environmental-passport/v1",
+  "traceability/oil-and-gas-product/v1",
+  "traceability/order-confirmation/v1",
+  "traceability/packing-list/v1",
+  "traceability/phytosanitary/v1",
+  "traceability/purchase-order/v1",
+  "traceability/sbom/v1",
+  "traceability/shipping-instructions/v1",
+  "traceability/sima-steel-import-license/v1",
+  "traceability/usmca-certification-of-origin/v1",
+]
+`;

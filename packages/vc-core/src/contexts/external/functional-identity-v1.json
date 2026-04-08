@@ -1,0 +1,14 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "@protected": true,
+    "@vocab": "https://schema.org/",
+    "schema": "https://schema.org/",
+    "isco": "https://www.ilo.org/isco-08/",
+    "FunctionalIdentityCredential": "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/functional-identity/v1#FunctionalIdentityCredential",
+    "role": "schema:hasOccupation",
+    "roleScheme": "schema:occupationalCategory",
+    "affiliation": "schema:affiliation",
+    "membershipId": "schema:memberOf"
+  }
+}
