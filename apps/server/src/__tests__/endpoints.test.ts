@@ -7,7 +7,7 @@ import {
   createTestApp,
   generateTestKey,
   VALID_ISSUE_REQUEST,
-  EDUCATION_SUBJECT,
+  FUNCTIONAL_IDENTITY_SUBJECT,
 } from "./helpers.js";
 import { setActiveSigner } from "../signing/key-manager.js";
 import type { Hono } from "hono";
@@ -50,25 +50,37 @@ describe("GET /schemas", () => {
     const res = await app.request("/schemas");
     expect(res.status).toBe(200);
 
-    const body = (await res.json()) as { schemas: { id: string }[] };
+    const body = (await res.json()) as { schemas: { id: string; source?: { kind: string } }[] };
     expect(body).toHaveProperty("schemas");
     expect(Array.isArray(body.schemas)).toBe(true);
     expect(body.schemas.length).toBeGreaterThan(0);
 
     const ids = body.schemas.map((s) => s.id);
-    expect(ids).toContain("education");
-    expect(ids).toContain("employment");
-    expect(ids).toContain("identity");
+    expect(ids).toContain("functional-identity/v1");
+    expect(ids).toContain("immunization/v1");
+    expect(ids).toContain("electricity/v1");
+  });
+
+  it("includes source provenance for every schema", async () => {
+    const res = await app.request("/schemas");
+    const body = (await res.json()) as {
+      schemas: { id: string; source: { kind: string; upstreamOwner: string } }[];
+    };
+    for (const entry of body.schemas) {
+      expect(entry.source).toBeDefined();
+      expect(["defined", "referenced"]).toContain(entry.source.kind);
+      expect(typeof entry.source.upstreamOwner).toBe("string");
+    }
   });
 
   it("returns individual schema by ID", async () => {
-    const res = await app.request("/schemas/education");
+    const res = await app.request("/schemas/functional-identity/v1");
     expect(res.status).toBe(200);
 
     const body = (await res.json()) as Record<string, unknown>;
-    expect(body.id).toBe("education");
+    expect(body.id).toBe("functional-identity/v1");
     expect(body).toHaveProperty("schema");
-    expect(body).toHaveProperty("contextUrl");
+    expect(body).toHaveProperty("source");
   });
 
   it("returns 404 for unknown schema", async () => {
@@ -116,7 +128,7 @@ describe("POST /credentials/issue", () => {
     const res = await app.request("/credentials/issue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ schemaId: "education" }),
+      body: JSON.stringify({ schemaId: "functional-identity/v1" }),
     });
 
     expect(res.status).toBe(400);
@@ -208,7 +220,7 @@ describe("POST /credentials/revocation-hash", () => {
           "@context": ["https://www.w3.org/ns/credentials/v2"],
           type: ["VerifiableCredential"],
           issuer: "did:key:test",
-          credentialSubject: EDUCATION_SUBJECT,
+          credentialSubject: FUNCTIONAL_IDENTITY_SUBJECT,
         },
       }),
     });
@@ -229,9 +241,9 @@ describe("POST /credentials/revocation-hash", () => {
 describe("POST /credentials/batch", () => {
   it("starts a batch job and returns jobId", async () => {
     const csvContent = [
-      "name,degree,institution,dateConferred",
-      "Alice,BS,Stanford,2025-06-01",
-      "Bob,MS,MIT,2025-07-01",
+      "name,role,validFrom",
+      "Alice,Medical Practitioner,2025-06-01T00:00:00Z",
+      "Bob,Registered Nurse,2025-06-01T00:00:00Z",
     ].join("\n");
 
     const res = await app.request("/credentials/batch", {
@@ -239,7 +251,7 @@ describe("POST /credentials/batch", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         csvContent,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: testKey.signer.id.split("#")[0],
         validFrom: "2025-06-01T00:00:00Z",
         proofFormat: "vc-jwt",
@@ -252,18 +264,18 @@ describe("POST /credentials/batch", () => {
     expect(body).toHaveProperty("jobId");
     expect(body.validCount).toBe(2);
     expect(body.totalCount).toBe(2);
-    expect(body.headers).toEqual(["name", "degree", "institution", "dateConferred"]);
+    expect(body.headers).toEqual(["name", "role", "validFrom"]);
   });
 
   it("returns batch progress", async () => {
-    const csvContent = "name,degree,institution,dateConferred\nAlice,BS,Stanford,2025-06-01\n";
+    const csvContent = "name,role,validFrom\nAlice,Medical Practitioner,2025-06-01T00:00:00Z\n";
 
     const startRes = await app.request("/credentials/batch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         csvContent,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: testKey.signer.id.split("#")[0],
         validFrom: "2025-06-01T00:00:00Z",
       }),

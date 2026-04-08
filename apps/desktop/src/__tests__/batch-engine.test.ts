@@ -58,11 +58,14 @@ afterAll(() => {
 
 // Helper to create a valid education CSV
 function createEducationCsv(count: number): string {
-  const header = "name,degree,institution,dateConferred";
+  // Generates a functional-identity/v1 CSV — credentialSubject requires
+  // (name, role, validFrom). Helper name is preserved for git churn reasons;
+  // it's now generic test data, not education-specific.
+  const header = "name,role,validFrom";
   const rows = Array.from(
     { length: count },
     (_, i) =>
-      `Student ${i + 1},Bachelor of Science,University ${i + 1},2025-06-${String(15 + (i % 15)).padStart(2, "0")}`,
+      `Student ${i + 1},University Student,2025-06-${String(15 + (i % 15)).padStart(2, "0")}T00:00:00Z`,
   );
   return [header, ...rows].join("\n");
 }
@@ -71,13 +74,13 @@ describe("Batch engine — valid rows", () => {
   it("should process a batch of 5 valid education credentials", async () => {
     const { signer } = createSoftwareSigner(keyPath);
     const csv = createEducationCsv(5);
-    const parseResult = parseCsv(csv, { schemaId: "education" });
+    const parseResult = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     expect(parseResult.validCount).toBe(5);
     expect(parseResult.invalidCount).toBe(0);
 
     const engine = createBatchEngine(signer, parseResult.rows, {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: "did:web:university.example",
       validFrom: "2025-06-15T00:00:00Z",
       packageFormats: ["json-ld"],
@@ -107,10 +110,10 @@ describe("Batch engine — valid rows", () => {
   it("should process a batch of 10 credentials", async () => {
     const { signer } = createSoftwareSigner(keyPath);
     const csv = createEducationCsv(10);
-    const parseResult = parseCsv(csv, { schemaId: "education" });
+    const parseResult = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     const engine = createBatchEngine(signer, parseResult.rows, {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: "did:web:university.example",
       validFrom: "2025-06-15T00:00:00Z",
     });
@@ -127,21 +130,21 @@ describe("Batch engine — invalid rows", () => {
     const { signer } = createSoftwareSigner(keyPath);
 
     const csv = [
-      "name,degree,institution,dateConferred",
-      "Jane Doe,Bachelor of Science,MIT,2025-06-15",
-      "Invalid Row,,,", // Missing required fields
-      "John Smith,Master of Arts,Stanford,2025-06-20",
-      ",,,", // All empty
-      "Alice Johnson,PhD,Harvard,2025-07-01",
+      "name,role,validFrom",
+      "Jane Doe,Medical Practitioner,2025-06-15T00:00:00Z",
+      "Invalid Row,,", // Missing required fields
+      "John Smith,Field Crop Grower,2025-06-20T00:00:00Z",
+      ",,", // All empty
+      "Alice Johnson,Registered Nurse,2025-07-01T00:00:00Z",
     ].join("\n");
 
-    const parseResult = parseCsv(csv, { schemaId: "education" });
+    const parseResult = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     expect(parseResult.validCount).toBe(3);
     expect(parseResult.invalidCount).toBe(2);
 
     const engine = createBatchEngine(signer, parseResult.rows, {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: "did:web:university.example",
       validFrom: "2025-06-15T00:00:00Z",
     });
@@ -170,15 +173,15 @@ describe("Batch engine — invalid rows", () => {
     const { signer } = createSoftwareSigner(keyPath);
 
     const csv = [
-      "name,degree,institution,dateConferred",
-      "Jane Doe,,,", // Missing degree, institution, dateConferred
+      "name,role,validFrom",
+      "Jane Doe,,", // Missing role, validFrom
     ].join("\n");
 
-    const parseResult = parseCsv(csv, { schemaId: "education" });
+    const parseResult = parseCsv(csv, { schemaId: "functional-identity/v1" });
     expect(parseResult.invalidCount).toBe(1);
 
     const engine = createBatchEngine(signer, parseResult.rows, {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: "did:web:university.example",
       validFrom: "2025-06-15T00:00:00Z",
     });
@@ -195,10 +198,10 @@ describe("Batch engine — progress tracking", () => {
   it("should track progress via callback", async () => {
     const { signer } = createSoftwareSigner(keyPath);
     const csv = createEducationCsv(3);
-    const parseResult = parseCsv(csv, { schemaId: "education" });
+    const parseResult = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     const engine = createBatchEngine(signer, parseResult.rows, {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: "did:web:university.example",
       validFrom: "2025-06-15T00:00:00Z",
     });
@@ -220,10 +223,10 @@ describe("Batch engine — progress tracking", () => {
   it("should report getProgress() accurately during processing", async () => {
     const { signer } = createSoftwareSigner(keyPath);
     const csv = createEducationCsv(2);
-    const parseResult = parseCsv(csv, { schemaId: "education" });
+    const parseResult = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     const engine = createBatchEngine(signer, parseResult.rows, {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: "did:web:university.example",
       validFrom: "2025-06-15T00:00:00Z",
     });
@@ -248,10 +251,10 @@ describe("Batch engine — cancellation", () => {
   it("should support cancellation", async () => {
     const { signer } = createSoftwareSigner(keyPath);
     const csv = createEducationCsv(5);
-    const parseResult = parseCsv(csv, { schemaId: "education" });
+    const parseResult = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     const engine = createBatchEngine(signer, parseResult.rows, {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: "did:web:university.example",
       validFrom: "2025-06-15T00:00:00Z",
     });
@@ -282,10 +285,10 @@ describe("Batch engine — offline operation", () => {
   it("should work completely offline (no network requests)", async () => {
     const { signer } = createSoftwareSigner(keyPath);
     const csv = createEducationCsv(3);
-    const parseResult = parseCsv(csv, { schemaId: "education" });
+    const parseResult = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     const engine = createBatchEngine(signer, parseResult.rows, {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: "did:web:offline.example",
       validFrom: "2025-01-01T00:00:00Z",
       validUntil: "2030-12-31T00:00:00Z",
@@ -310,21 +313,21 @@ describe("Batch engine — offline operation", () => {
     }
   });
 
-  it("should handle employment credentials in batch", async () => {
+  it("should handle a second batch run", async () => {
     const { signer } = createSoftwareSigner(keyPath);
 
     const csv = [
-      "name,employer,position,startDate",
-      "John Smith,ACME Corp,Engineer,2024-01-15",
-      "Jane Doe,TechCo,Manager,2024-03-01",
-      "Bob Williams,StartupX,Designer,2024-05-20",
+      "name,role,validFrom",
+      "John Smith,Senior Engineer,2024-01-15T00:00:00Z",
+      "Jane Doe,Manager,2024-03-01T00:00:00Z",
+      "Bob Williams,Designer,2024-05-20T00:00:00Z",
     ].join("\n");
 
-    const parseResult = parseCsv(csv, { schemaId: "employment" });
+    const parseResult = parseCsv(csv, { schemaId: "functional-identity/v1" });
     expect(parseResult.validCount).toBe(3);
 
     const engine = createBatchEngine(signer, parseResult.rows, {
-      schemaId: "employment",
+      schemaId: "functional-identity/v1",
       issuerDid: "did:web:employer.example",
       validFrom: "2024-01-01T00:00:00Z",
     });
@@ -336,10 +339,10 @@ describe("Batch engine — offline operation", () => {
   it("should include packaging results when formats are requested", async () => {
     const { signer } = createSoftwareSigner(keyPath);
     const csv = createEducationCsv(2);
-    const parseResult = parseCsv(csv, { schemaId: "education" });
+    const parseResult = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     const engine = createBatchEngine(signer, parseResult.rows, {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: "did:web:university.example",
       validFrom: "2025-06-15T00:00:00Z",
       packageFormats: ["json-ld"],

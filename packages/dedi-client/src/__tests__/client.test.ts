@@ -813,10 +813,11 @@ describe("DeDiClient (adapter)", () => {
 
   describe("publishSchema", () => {
     const testSchema: SchemaRecord = {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       version: "1",
       schema: { type: "object", properties: {} },
-      contextUrl: "https://schema.nfh.global/contexts/education/v1",
+      contextUrl:
+        "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/functional-identity/v1/context.jsonld",
       checksum: "abc123",
       publishedAt: "2026-03-25T00:00:00Z",
     };
@@ -825,7 +826,7 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord).mockResolvedValue({
-        name: "education-v1",
+        name: "functional-identity-v1",
         registry: SCHEMA_REGISTRY,
         namespace: "example.com",
         detail: testSchema,
@@ -840,11 +841,11 @@ describe("DeDiClient (adapter)", () => {
       expect(api.publishRecord).toHaveBeenCalledWith(
         "example.com",
         SCHEMA_REGISTRY,
-        "education-v1",
+        "functional-identity-v1",
         testSchema,
       );
       expect(result.published).toBe(true);
-      expect(result.recordName).toBe("education-v1");
+      expect(result.recordName).toBe("functional-identity-v1");
     });
   });
 
@@ -855,14 +856,14 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       const schemaDetail: SchemaRecord = {
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         version: "1",
         schema: { type: "object" },
         checksum: "abc",
         publishedAt: "2026-03-25T00:00:00Z",
       };
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        name: "education-v1",
+        name: "functional-identity-v1",
         registry: SCHEMA_REGISTRY,
         namespace: "example.com",
         detail: schemaDetail,
@@ -872,10 +873,14 @@ describe("DeDiClient (adapter)", () => {
         updated_at: "",
       });
 
-      const result = await client.resolveSchema("education", "1");
+      const result = await client.resolveSchema("functional-identity/v1", "1");
 
-      expect(api.lookupRecord).toHaveBeenCalledWith("example.com", SCHEMA_REGISTRY, "education-v1");
-      expect(result.schemaId).toBe("education");
+      expect(api.lookupRecord).toHaveBeenCalledWith(
+        "example.com",
+        SCHEMA_REGISTRY,
+        "functional-identity-v1",
+      );
+      expect(result.schemaId).toBe("functional-identity/v1");
     });
 
     it("throws on malformed schema record", async () => {

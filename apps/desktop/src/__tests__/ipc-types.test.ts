@@ -93,22 +93,25 @@ describe("IPC type contracts", () => {
   });
 
   it("SchemaListResponse should contain an array of schema IDs", () => {
-    const resp: SchemaListResponse = { schemas: ["education", "employment"] };
+    const resp: SchemaListResponse = {
+      schemas: ["functional-identity/v1", "immunization/v1"],
+    };
     expect(resp.schemas).toHaveLength(2);
   });
 
   it("SchemaGetRequest should require a schemaId", () => {
-    const req: SchemaGetRequest = { schemaId: "education" };
-    expect(req.schemaId).toBe("education");
+    const req: SchemaGetRequest = { schemaId: "functional-identity/v1" };
+    expect(req.schemaId).toBe("functional-identity/v1");
   });
 
   it("SchemaGetResponse should contain schema definition", () => {
     const resp: SchemaGetResponse = {
-      id: "education",
+      id: "functional-identity/v1",
       schema: { type: "object" },
-      contextUrl: "https://schema.nfh.global/contexts/education/v1",
+      contextUrl:
+        "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/functional-identity/v1/context.jsonld",
     };
-    expect(resp.id).toBe("education");
+    expect(resp.id).toBe("functional-identity/v1");
     expect(resp.schema).toBeDefined();
   });
 
@@ -131,13 +134,13 @@ describe("IPC type contracts", () => {
 
   it("BuildAndSignRequest should require schemaId, issuerDid, credentialSubject, validFrom, keyId", () => {
     const req: BuildAndSignRequest = {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: "did:web:test.example",
       credentialSubject: { name: "Test" },
       validFrom: "2025-01-01T00:00:00Z",
       keyId: "key-1",
     };
-    expect(req.schemaId).toBe("education");
+    expect(req.schemaId).toBe("functional-identity/v1");
     expect(req.keyId).toBe("key-1");
   });
 

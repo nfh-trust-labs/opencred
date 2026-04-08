@@ -16,21 +16,31 @@ import {
   W3C_CREDENTIALS_V2_CONTEXT,
   DATA_INTEGRITY_V1_CONTEXT,
   OPENCRED_DELEGATION_V1_CONTEXT,
-  NFH_EDUCATION_V1_CONTEXT,
-  NFH_EMPLOYMENT_V1_CONTEXT,
-  NFH_IDENTITY_V1_CONTEXT,
-  NFH_HEALTH_V1_CONTEXT,
-  NFH_BUSINESS_V1_CONTEXT,
+  TRACEABILITY_V1_CONTEXT,
+  OPEN_BADGES_V3_CONTEXT,
+  OPENCRED_ELECTRICITY_V1_CONTEXT,
+  OPENCRED_IMMUNIZATION_V1_CONTEXT,
+  OPENCRED_PRESCRIPTION_V1_CONTEXT,
+  OPENCRED_TEST_RESULT_V1_CONTEXT,
+  OPENCRED_INSURANCE_POLICY_V1_CONTEXT,
+  OPENCRED_FUNCTIONAL_IDENTITY_V1_CONTEXT,
+  OPENCRED_EMPLOYMENT_OFFER_LETTER_V1_CONTEXT,
+  OPENCRED_BUSINESS_ENTITY_V1_CONTEXT,
 } from "./types.js";
 import {
   credentialsV2,
   dataIntegrityV1,
   delegationV1,
-  educationV1,
-  employmentV1,
-  identityV1,
-  healthV1,
-  businessV1,
+  traceabilityV1,
+  openBadgesV3,
+  electricityV1,
+  immunizationV1,
+  prescriptionV1,
+  testResultV1,
+  insurancePolicyV1,
+  functionalIdentityV1,
+  employmentOfferLetterV1,
+  businessEntityV1,
 } from "./context-data.js";
 
 export interface JsonLdDocument {
@@ -47,14 +57,22 @@ export interface JsonLdDocument {
 export type ExtraContextResolver = (url: string) => Record<string, unknown> | undefined;
 
 const BUNDLED_CONTEXTS: ReadonlyMap<string, Record<string, unknown>> = new Map([
+  // W3C + OpenCred base contexts
   [W3C_CREDENTIALS_V2_CONTEXT, credentialsV2],
   [DATA_INTEGRITY_V1_CONTEXT, dataIntegrityV1],
   [OPENCRED_DELEGATION_V1_CONTEXT, delegationV1],
-  [NFH_EDUCATION_V1_CONTEXT, educationV1],
-  [NFH_EMPLOYMENT_V1_CONTEXT, employmentV1],
-  [NFH_IDENTITY_V1_CONTEXT, identityV1],
-  [NFH_HEALTH_V1_CONTEXT, healthV1],
-  [NFH_BUSINESS_V1_CONTEXT, businessV1],
+  // Referenced upstream contexts bundled at build time
+  [TRACEABILITY_V1_CONTEXT, traceabilityV1],
+  [OPEN_BADGES_V3_CONTEXT, openBadgesV3],
+  // OpenCred-defined credential contexts (SHA-pinned to schema-sources.json)
+  [OPENCRED_ELECTRICITY_V1_CONTEXT, electricityV1],
+  [OPENCRED_IMMUNIZATION_V1_CONTEXT, immunizationV1],
+  [OPENCRED_PRESCRIPTION_V1_CONTEXT, prescriptionV1],
+  [OPENCRED_TEST_RESULT_V1_CONTEXT, testResultV1],
+  [OPENCRED_INSURANCE_POLICY_V1_CONTEXT, insurancePolicyV1],
+  [OPENCRED_FUNCTIONAL_IDENTITY_V1_CONTEXT, functionalIdentityV1],
+  [OPENCRED_EMPLOYMENT_OFFER_LETTER_V1_CONTEXT, employmentOfferLetterV1],
+  [OPENCRED_BUSINESS_ENTITY_V1_CONTEXT, businessEntityV1],
 ]);
 
 /**
