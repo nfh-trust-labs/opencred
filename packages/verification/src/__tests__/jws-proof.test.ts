@@ -3,7 +3,8 @@ import { generateKeyPairSync, type KeyObject } from "node:crypto";
 import { signCredentialJws } from "@opencred/crypto";
 import type { UnsignedCredential } from "@opencred/vc-core";
 import { encodeDidJwk, didJwkVerificationMethodId } from "@opencred/did";
-import { verifyJwsProof } from "../jws-proof.js";
+import * as jose from "jose";
+import { verifyJwsProof, ALLOWED_JWS_ALGORITHMS } from "../jws-proof.js";
 
 function generateRsaKeyPair(): { privateKey: KeyObject; publicKey: KeyObject } {
   return generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -138,5 +139,101 @@ describe("verifyJwsProof — unresolvable DID", () => {
     const result = await verifyJwsProof(fakeJws);
     expect(result.passed).toBe(false);
     expect(result.detail).toBeDefined();
+  });
+});
+
+describe("verifyJwsProof - algorithm allowlist", () => {
+  async function buildJws(
+    alg: string,
+    privateKey: KeyObject,
+    publicKey: KeyObject,
+  ): Promise<string> {
+    const publicJwk = publicKey.export({ format: "jwk" });
+    const did = encodeDidJwk(publicJwk as import("@opencred/did").JWK);
+    const kid = didJwkVerificationMethodId(did);
+    const joseKey = await jose.importPKCS8(
+      privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+      alg,
+    );
+    const payload = new TextEncoder().encode(JSON.stringify(unsignedVC));
+    return new jose.CompactSign(payload).setProtectedHeader({ alg, kid }).sign(joseKey);
+  }
+
+  it("exposes the expected allowlist", () => {
+    expect([...ALLOWED_JWS_ALGORITHMS]).toEqual(["ES256", "ES384", "PS256", "EdDSA"]);
+  });
+
+  it("accepts a validly-signed ES256 JWS", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const jws = await buildJws("ES256", privateKey, publicKey);
+    const result = await verifyJwsProof(jws);
+    expect(result.passed).toBe(true);
+  });
+
+  it("accepts a validly-signed ES384 JWS", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-384" });
+    const jws = await buildJws("ES384", privateKey, publicKey);
+    const result = await verifyJwsProof(jws);
+    expect(result.passed).toBe(true);
+  });
+
+  it("accepts a validly-signed EdDSA JWS", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const jws = await buildJws("EdDSA", privateKey, publicKey);
+    const result = await verifyJwsProof(jws);
+    expect(result.passed).toBe(true);
+  });
+
+  it("accepts a validly-signed PS256 JWS (RSA via signCredentialJws)", async () => {
+    // signCredentialJws produces PS256 for RSA keys (see signingAlgorithmToJwsAlg)
+    const { privateKey, publicKey } = generateRsaKeyPair();
+    const publicJwk = publicKey.export({ format: "jwk" });
+    const did = encodeDidJwk(publicJwk as import("@opencred/did").JWK);
+    const kid = didJwkVerificationMethodId(did);
+    const jws = await signCredentialJws(
+      unsignedVC,
+      { id: kid, privateKey, publicKey, algorithm: "RSA-2048" },
+      { verificationMethod: kid },
+    );
+    const result = await verifyJwsProof(jws);
+    expect(result.passed).toBe(true);
+  });
+
+  it("rejects a JWS whose header declares alg none", async () => {
+    // Classic JWS attack: attacker flips alg to none to bypass sig check.
+    const header = { alg: "none", kid: "did:jwk:ignored#0" };
+    const headerB64 = Buffer.from(JSON.stringify(header)).toString("base64url");
+    const payloadB64 = Buffer.from(JSON.stringify(unsignedVC)).toString("base64url");
+    const fakeJws = `${headerB64}.${payloadB64}.`;
+
+    const result = await verifyJwsProof(fakeJws);
+    expect(result.passed).toBe(false);
+    expect(result.detail).toMatch(/not permitted/);
+    expect(result.detail).toMatch(/none/);
+  });
+
+  it("rejects a JWS with a disallowed symmetric algorithm (HS256)", async () => {
+    const header = { alg: "HS256", kid: "did:jwk:ignored#0" };
+    const headerB64 = Buffer.from(JSON.stringify(header)).toString("base64url");
+    const payloadB64 = Buffer.from(JSON.stringify(unsignedVC)).toString("base64url");
+    const fakeJws = `${headerB64}.${payloadB64}.fakesignature`;
+
+    const result = await verifyJwsProof(fakeJws);
+    expect(result.passed).toBe(false);
+    expect(result.detail).toMatch(/not permitted/);
+    expect(result.detail).toMatch(/HS256/);
+  });
+
+  it("rejects a JWS with ES512 (not on the OpenCred allowlist)", async () => {
+    // ES512 is a valid JWS algorithm but OpenCred does not produce it.
+    const header = { alg: "ES512", kid: "did:jwk:ignored#0" };
+    const headerB64 = Buffer.from(JSON.stringify(header)).toString("base64url");
+    const payloadB64 = Buffer.from(JSON.stringify(unsignedVC)).toString("base64url");
+    const fakeJws = `${headerB64}.${payloadB64}.fakesignature`;
+
+    const result = await verifyJwsProof(fakeJws);
+    expect(result.passed).toBe(false);
+    expect(result.detail).toMatch(/not permitted/);
+    expect(result.detail).toMatch(/ES512/);
   });
 });
