@@ -28,15 +28,14 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/server/package.json apps/server/package.json
 COPY packages/crypto/package.json packages/crypto/package.json
 COPY packages/did/package.json packages/did/package.json
-COPY packages/key-attestation/package.json packages/key-attestation/package.json
 COPY packages/schema-engine/package.json packages/schema-engine/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/signing/package.json packages/signing/package.json
 COPY packages/vc-core/package.json packages/vc-core/package.json
 COPY packages/verification/package.json packages/verification/package.json
 COPY packages/templates/package.json packages/templates/package.json
-COPY packages/domain-verification/package.json packages/domain-verification/package.json
 COPY packages/ca-adapter/package.json packages/ca-adapter/package.json
+COPY packages/dedi-client/package.json packages/dedi-client/package.json
 
 # Install all dependencies (including dev for building)
 RUN pnpm install --frozen-lockfile
