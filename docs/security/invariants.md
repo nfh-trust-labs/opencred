@@ -60,7 +60,6 @@ The `redact` and `redactValue` helpers in the Desktop logger are exported for un
 
 * Key generation: `LocalSigningKeyProvider` in `packages/crypto/src/signing-key-provider.ts` uses `generateKeyPairSync('ec', { namedCurve: 'P-256' })`, which is backed by OpenSSL's CSPRNG.
 * UUID generation: `randomUUID()` from `node:crypto` (CSPRNG-backed) — used in `apps/server/src/routes/credentials.ts` for credential IDs.
-* OID4VCI nonces and pre-authorized codes: CSPRNG-generated, single-use.
 * By policy: no `Math.random()` calls exist in any security-relevant code path. The codebase is small enough to grep — `Math.random()` only appears in non-security utilities (e.g., picking a random visual variant for a template card).
 
 ## 5. No secrets in error responses
@@ -88,8 +87,7 @@ If you find an error message that leaks a path or a buffer, that's a bug — fil
 * `packages/vc-core/src/document-loader.ts` defines `createDocumentLoader()`, which serves contexts from a static `BUNDLED_CONTEXTS` map. The map includes:
   * `https://www.w3.org/ns/credentials/v2`
   * `https://w3id.org/security/data-integrity/v1`
-  * `https://opencred.dev/contexts/delegation/v1`
-  * `https://opencred.dev/contexts/{education,employment,identity,health,business}/v1`
+  * `https://schema.nfh.global/contexts/{education,employment,identity,health,business}/v1`
 * Any URL not in the map throws `ContextNotFoundError` — there is no HTTP fallback.
 * Build-time embedding: `packages/vc-core/scripts/embed-contexts.cjs` runs as part of `pnpm build` and copies the JSON files into the dist output. The exact bytes that ship are version-controlled.
 

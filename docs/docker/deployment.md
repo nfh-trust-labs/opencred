@@ -82,7 +82,8 @@ Configuration is parsed by Zod at startup (`apps/server/src/config.ts`). Invalid
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `OPENCRED_PORT` | integer (1–65535) | `3100` | HTTP listen port |
-| `OPENCRED_API_KEY` | string | (unset) | Bearer token for API auth. If unset, authentication is disabled — only safe in trusted networks |
+| `OPENCRED_API_KEY` | string | — | **REQUIRED** unless `OPENCRED_DEV_MODE_NO_AUTH=true`. Bearer token for API auth. The server refuses to start without it (fail-closed). |
+| `OPENCRED_DEV_MODE_NO_AUTH` | boolean | `false` | Opt-out of API-key auth for local development only. Mutually exclusive with `OPENCRED_API_KEY`. The server refuses to start with this set when `NODE_ENV=production`. |
 | `OPENCRED_LOG_LEVEL` | enum | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace` |
 
 ### Signing key (file-based)

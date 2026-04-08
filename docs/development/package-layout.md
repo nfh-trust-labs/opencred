@@ -133,7 +133,7 @@ JSON Schema validation and the built-in schema registry.
 | `createRegistry()` | Returns a `SchemaRegistry` populated with built-in schemas |
 | `SchemaRegistry` (type) | Registry interface with `get`, `register`, `list` |
 
-Built-in schemas: `education`, `employment`, `identity`, `health`, `business`, `energy-prosumer`.
+Built-in schemas: `education`, `employment`, `identity`, `health`, `business`.
 
 ### `packages/templates` — `@opencred/templates`
 

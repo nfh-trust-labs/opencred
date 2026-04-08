@@ -16,7 +16,7 @@ Example (Data Integrity proof, JSON-LD format):
 {
   "@context": [
     "https://www.w3.org/ns/credentials/v2",
-    "https://opencred.dev/contexts/education/v1"
+    "https://schema.nfh.global/contexts/education/v1"
   ],
   "id": "urn:uuid:c8e0e6b1-1b6c-4c2e-aa6d-0a3a15f8b0d4",
   "type": ["VerifiableCredential", "EducationCredential"],

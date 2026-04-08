@@ -6,20 +6,15 @@ Verifiable credentials need a way to be invalidated after they're issued — for
 
 Under DeDi Revocation List v1, the registry stores **only revoked hashes** — never issuance-time hashes. A credential is valid if its hash is *not* in the registry, and revoked if it is.
 
-The hash is deterministic: any party (issuer or verifier) can compute the same hash from the credential body. The hash inputs are:
+The hash is deterministic: any party (issuer or verifier) can compute the same hash from the credential body. The formula is:
 
 ```
-issuedAt = credential.validFrom (or, if absent, credential.issuanceDate)
-
-revocationHash = SHA-256(JCS({
-  "credentialSubject": credential.credentialSubject,
-  "id": credential.id,
-  "issuedAt": issuedAt,
-  "issuer": credential.issuer
-}))
+revocationHash = SHA-256(JCS(credential))
 ```
 
-Where **JCS** is [JSON Canonicalization Scheme — RFC 8785](https://www.rfc-editor.org/rfc/rfc8785). JCS guarantees that any two JSON values that are semantically equivalent serialize to the same byte sequence, which makes the hash reproducible across implementations.
+In other words, the implementation JCS-canonicalizes the **entire credential** (exactly as passed in) and takes the lowercase-hex SHA-256 of the canonical bytes. Where **JCS** is [JSON Canonicalization Scheme — RFC 8785](https://www.rfc-editor.org/rfc/rfc8785). JCS guarantees that any two JSON values that are semantically equivalent serialize to the same byte sequence, which makes the hash reproducible across implementations.
+
+Callers that want a stable hash across issuance and verification MUST pass the same credential shape to both sides — typically the unsigned credential, or the signed credential with the `proof` block stripped. The crypto package does not strip fields for you.
 
 The implementation lives in `packages/crypto/src/jcs.ts`:
 

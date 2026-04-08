@@ -10,7 +10,7 @@ OpenCred supports four key sources, each implemented as a backend in `packages/s
 
 | Source | Available on | Implementation |
 |---|---|---|
-| Software key file (PFX, PEM, JWK, PKCS#8) | Desktop, Docker | `packages/signing/src/software-signer.ts`; `apps/server/src/signing/file-signer.ts` |
+| Software key file (PFX, PEM, JWK, PKCS#8) | Desktop, Docker | `packages/signing/src/software-signer.ts`; `apps/server/src/signing/key-manager.ts` |
 | Hardware token / smart card (PKCS#11) | Desktop, Docker | `packages/signing/src/pkcs11-signer.ts`, `pkcs11-session.ts` |
 | OS certificate store (Windows CNG, macOS Keychain) | Desktop only | `packages/signing/src/os-cert-signer.ts` + `packages/signing/native/` (N-API addons) |
 | Cloud HSM (AWS KMS, Azure Key Vault, GCP Cloud KMS) | Docker only | `apps/server/src/signing/cloud-hsm/` |
