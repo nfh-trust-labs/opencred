@@ -112,7 +112,12 @@ function makeMockFetch(opts: { schema?: unknown; fail?: boolean } = {}) {
     const u = url.toString();
     if (u === referencedUrl) {
       if (opts.fail) {
-        return { ok: false, status: 500, text: async () => "boom", arrayBuffer: async () => new ArrayBuffer(0) };
+        return {
+          ok: false,
+          status: 500,
+          text: async () => "boom",
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       }
       const body = JSON.stringify(opts.schema ?? referencedSchema);
       return {

@@ -25,7 +25,6 @@ import { registerIpcHandlers, cleanupIpcHandlers, mergeReloadedSigners } from ".
 import { initStore, getStore } from "./store.js";
 import { reloadPersistedSigners } from "./persisted-signer-loader.js";
 import { initAutoUpdater, cleanupAutoUpdater } from "./auto-updater.js";
-import { checkForSchemaUpdatesAtStartup } from "./schema-updater.js";
 import {
   installCustomContextResolver,
   uninstallCustomContextResolver,
@@ -199,14 +198,6 @@ app.whenReady().then(() => {
   if (!IS_DEV) {
     initAutoUpdater();
   }
-
-  // Check for schema updates in the background (non-blocking).
-  // App starts immediately with bundled schemas; updates are cached for next launch.
-  checkForSchemaUpdatesAtStartup().catch((err: unknown) => {
-    logger.warn("Background schema update check failed", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-  });
 
   app.on("activate", () => {
     // macOS: re-create the window when the dock icon is clicked and no windows exist.
