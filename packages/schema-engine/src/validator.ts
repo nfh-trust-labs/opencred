@@ -28,9 +28,7 @@ const addFormats = ajvFormatsModule.default ?? ajvFormatsModule;
  * `$ref` paths still resolve. Otherwise return the whole schema as-is so
  * legacy consumers keep working.
  */
-function extractSubjectSchema(
-  schema: Record<string, unknown>,
-): Record<string, unknown> {
+function extractSubjectSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const properties = schema["properties"];
   if (!properties || typeof properties !== "object") {
     return schema;

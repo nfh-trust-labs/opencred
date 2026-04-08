@@ -327,7 +327,11 @@ describe("packageCredential", () => {
   });
 
   it("should return all outputs for multiple formats", async () => {
-    const outputs = await packageCredential(testCredential, "functional-identity/v1", ["json-ld", "svg", "qr"]);
+    const outputs = await packageCredential(testCredential, "functional-identity/v1", [
+      "json-ld",
+      "svg",
+      "qr",
+    ]);
 
     expect(outputs.length).toBe(3);
     const formats = outputs.map((o) => o.format);
@@ -337,7 +341,11 @@ describe("packageCredential", () => {
   });
 
   it("should generate suggested file names", async () => {
-    const outputs = await packageCredential(testCredential, "functional-identity/v1", ["json-ld", "svg", "qr"]);
+    const outputs = await packageCredential(testCredential, "functional-identity/v1", [
+      "json-ld",
+      "svg",
+      "qr",
+    ]);
 
     for (const output of outputs) {
       expect(output.suggestedFileName).toBeTruthy();

@@ -191,8 +191,7 @@ describe("parseCsv", () => {
 
   it("should use forced delimiter", () => {
     // This CSV has both commas and semicolons, but we force semicolon
-    const csv =
-      "name;role;validFrom\nJane Doe;Medical Practitioner;2025-06-15T00:00:00Z";
+    const csv = "name;role;validFrom\nJane Doe;Medical Practitioner;2025-06-15T00:00:00Z";
 
     const result = parseCsv(csv, {
       schemaId: "functional-identity/v1",

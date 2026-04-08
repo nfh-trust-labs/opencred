@@ -103,8 +103,7 @@ export const OPENCRED_DELEGATION_V1_CONTEXT = "https://opencred.example/ns/deleg
 export const TRACEABILITY_V1_CONTEXT = "https://w3id.org/traceability/v1";
 
 /** 1EdTech Open Badges 3.0.3 context (referenced upstream). */
-export const OPEN_BADGES_V3_CONTEXT =
-  "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json";
+export const OPEN_BADGES_V3_CONTEXT = "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json";
 
 /**
  * `opencred-vc-schemas` commit SHA that OpenCred-defined context URLs are
@@ -112,22 +111,13 @@ export const OPEN_BADGES_V3_CONTEXT =
  * `packages/schema-engine/scripts/schema-sources.json`.
  */
 const OPENCRED_SCHEMAS_SHA = "ed460795866ce51aebf92e9fccc5f30ff0482dcb";
-const OPENCRED_SCHEMAS_BASE =
-  `https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/${OPENCRED_SCHEMAS_SHA}/schemas`;
+const OPENCRED_SCHEMAS_BASE = `https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/${OPENCRED_SCHEMAS_SHA}/schemas`;
 
-export const OPENCRED_ELECTRICITY_V1_CONTEXT =
-  `${OPENCRED_SCHEMAS_BASE}/electricity/v1/context.jsonld`;
-export const OPENCRED_IMMUNIZATION_V1_CONTEXT =
-  `${OPENCRED_SCHEMAS_BASE}/immunization/v1/context.jsonld`;
-export const OPENCRED_PRESCRIPTION_V1_CONTEXT =
-  `${OPENCRED_SCHEMAS_BASE}/prescription/v1/context.jsonld`;
-export const OPENCRED_TEST_RESULT_V1_CONTEXT =
-  `${OPENCRED_SCHEMAS_BASE}/test-result/v1/context.jsonld`;
-export const OPENCRED_INSURANCE_POLICY_V1_CONTEXT =
-  `${OPENCRED_SCHEMAS_BASE}/insurance-policy/v1/context.jsonld`;
-export const OPENCRED_FUNCTIONAL_IDENTITY_V1_CONTEXT =
-  `${OPENCRED_SCHEMAS_BASE}/functional-identity/v1/context.jsonld`;
-export const OPENCRED_EMPLOYMENT_OFFER_LETTER_V1_CONTEXT =
-  `${OPENCRED_SCHEMAS_BASE}/employment-offer-letter/v1/context.jsonld`;
-export const OPENCRED_BUSINESS_ENTITY_V1_CONTEXT =
-  `${OPENCRED_SCHEMAS_BASE}/business-entity/v1/context.jsonld`;
+export const OPENCRED_ELECTRICITY_V1_CONTEXT = `${OPENCRED_SCHEMAS_BASE}/electricity/v1/context.jsonld`;
+export const OPENCRED_IMMUNIZATION_V1_CONTEXT = `${OPENCRED_SCHEMAS_BASE}/immunization/v1/context.jsonld`;
+export const OPENCRED_PRESCRIPTION_V1_CONTEXT = `${OPENCRED_SCHEMAS_BASE}/prescription/v1/context.jsonld`;
+export const OPENCRED_TEST_RESULT_V1_CONTEXT = `${OPENCRED_SCHEMAS_BASE}/test-result/v1/context.jsonld`;
+export const OPENCRED_INSURANCE_POLICY_V1_CONTEXT = `${OPENCRED_SCHEMAS_BASE}/insurance-policy/v1/context.jsonld`;
+export const OPENCRED_FUNCTIONAL_IDENTITY_V1_CONTEXT = `${OPENCRED_SCHEMAS_BASE}/functional-identity/v1/context.jsonld`;
+export const OPENCRED_EMPLOYMENT_OFFER_LETTER_V1_CONTEXT = `${OPENCRED_SCHEMAS_BASE}/employment-offer-letter/v1/context.jsonld`;
+export const OPENCRED_BUSINESS_ENTITY_V1_CONTEXT = `${OPENCRED_SCHEMAS_BASE}/business-entity/v1/context.jsonld`;
