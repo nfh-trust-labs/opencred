@@ -118,10 +118,19 @@ let cachedConfig: ServerConfig | null = null;
  * Parse and validate environment variables. Throws on invalid config.
  * Result is cached after first call.
  *
- * SECURITY: Enforces the auth fail-closed invariant. If OPENCRED_API_KEY is
- * unset and OPENCRED_DEV_MODE_NO_AUTH is not explicitly true, the server
- * refuses to start. If OPENCRED_DEV_MODE_NO_AUTH is set together with
- * NODE_ENV=production, the server also refuses to start.
+ * SECURITY: Enforces the auth fail-closed invariant. After this function
+ * returns successfully, exactly ONE of the following is true:
+ *
+ *  1. `OPENCRED_API_KEY` is set and `OPENCRED_DEV_MODE_NO_AUTH` is unset —
+ *     all protected endpoints require a Bearer token.
+ *  2. `OPENCRED_DEV_MODE_NO_AUTH=true` is set, `OPENCRED_API_KEY` is unset,
+ *     and `NODE_ENV` is not `production`.
+ *
+ * Any other combination is rejected here. In particular, setting BOTH the
+ * API key AND the dev-mode opt-out is refused regardless of `NODE_ENV` —
+ * otherwise the auth middleware (which checks dev-mode first) would silently
+ * bypass the explicitly configured API key, undoing the entire fail-closed
+ * invariant. See nfh-trust-labs/opencred#312.
  */
 export function loadConfig(): ServerConfig {
   if (cachedConfig) return cachedConfig;
@@ -134,6 +143,19 @@ export function loadConfig(): ServerConfig {
     throw new ConfigError(
       "OPENCRED_DEV_MODE_NO_AUTH=true is not permitted when NODE_ENV=production. " +
         "Unset OPENCRED_DEV_MODE_NO_AUTH and provide a real OPENCRED_API_KEY.",
+    );
+  }
+
+  // Mutually exclusive: setting BOTH the API key AND the dev-mode opt-out
+  // would let an operator believe the API key is enforced while the auth
+  // middleware silently calls next() via the dev-mode branch. Refuse the
+  // ambiguous combination here so the operator must pick one explicitly.
+  if (parsed.OPENCRED_API_KEY && parsed.OPENCRED_DEV_MODE_NO_AUTH) {
+    throw new ConfigError(
+      "OPENCRED_API_KEY and OPENCRED_DEV_MODE_NO_AUTH are mutually exclusive. " +
+        "Pick exactly one: set OPENCRED_API_KEY for real authentication, OR set " +
+        "OPENCRED_DEV_MODE_NO_AUTH=true (and unset OPENCRED_API_KEY) for local " +
+        "development only.",
     );
   }
 

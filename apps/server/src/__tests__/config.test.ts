@@ -198,4 +198,33 @@ describe("Config — auth fail-closed invariant (issue #312)", () => {
     expect(caught).toBeInstanceOf(ConfigError);
     expect((caught as ConfigError).code).toBe("CONFIG_ERROR");
   });
+
+  // Regression: setting both OPENCRED_API_KEY and OPENCRED_DEV_MODE_NO_AUTH
+  // would let the dev-mode branch in the auth middleware silently win, even
+  // though the operator explicitly configured an API key. The middleware
+  // checks dev-mode first, so it would call next() without ever consulting
+  // the API key. loadConfig() must refuse the ambiguous combination here.
+  it("refuses both OPENCRED_API_KEY and OPENCRED_DEV_MODE_NO_AUTH together (non-prod)", () => {
+    process.env.OPENCRED_API_KEY = "real-key";
+    process.env.OPENCRED_DEV_MODE_NO_AUTH = "true";
+    delete process.env.NODE_ENV;
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/mutually exclusive/);
+  });
+
+  it("refuses both OPENCRED_API_KEY and OPENCRED_DEV_MODE_NO_AUTH together (NODE_ENV=test)", () => {
+    process.env.OPENCRED_API_KEY = "real-key";
+    process.env.OPENCRED_DEV_MODE_NO_AUTH = "true";
+    process.env.NODE_ENV = "test";
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/mutually exclusive/);
+  });
+
+  it("refuses both OPENCRED_API_KEY and OPENCRED_DEV_MODE_NO_AUTH together (NODE_ENV=staging)", () => {
+    process.env.OPENCRED_API_KEY = "real-key";
+    process.env.OPENCRED_DEV_MODE_NO_AUTH = "true";
+    process.env.NODE_ENV = "staging";
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/mutually exclusive/);
+  });
 });
