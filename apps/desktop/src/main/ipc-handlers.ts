@@ -1658,17 +1658,19 @@ async function readBodyWithSizeLimit(
   let receivedBytes = 0;
 
   try {
-    while (true) {
+    let done = false;
+    while (!done) {
       if (signal.aborted) {
         throw new Error("aborted");
       }
-      const { value, done } = await reader.read();
+      const result = await reader.read();
+      done = result.done;
       if (done) break;
-      receivedBytes += value.byteLength;
+      receivedBytes += result.value.byteLength;
       if (receivedBytes > limit) {
         throw new ContextSizeLimitError();
       }
-      accumulated += decoder.decode(value, { stream: true });
+      accumulated += decoder.decode(result.value, { stream: true });
     }
     accumulated += decoder.decode();
     return accumulated;
@@ -2158,7 +2160,8 @@ async function handleDeDiDisconnect(_event: IpcMainInvokeEvent): Promise<import(
   store.delete("dediRegistriesReady" as never);
   const prefs = store.get("preferences");
   if (prefs && typeof prefs === "object" && "dediCredentialEncrypted" in prefs) {
-    const { dediCredentialEncrypted: _, ...rest } = prefs as Record<string, unknown>;
+    const rest = { ...(prefs as Record<string, unknown>) };
+    delete rest.dediCredentialEncrypted;
     store.set("preferences", rest as never);
   }
   publishManager = null;

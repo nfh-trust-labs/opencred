@@ -111,18 +111,6 @@ function extractIssuerDid(credentialJson: string): string {
   return "Unknown";
 }
 
-/** Extract a summary of the credential subject for display. */
-function extractSubjectSummary(credentialJson: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(credentialJson);
-    const subject = parsed.credentialSubject;
-    if (subject && typeof subject === "object") return subject as Record<string, unknown>;
-  } catch {
-    // not valid JSON
-  }
-  return null;
-}
-
 /** Generate a unique ID for history entries. */
 let historyCounter = 0;
 function nextHistoryId(): string {

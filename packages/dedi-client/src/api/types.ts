@@ -14,8 +14,9 @@ export type DeDiRegistryState = "active" | "archived" | "revoked";
 
 export type DeDiNamespaceState = "active" | "archived" | "revoked";
 
-// Tag values are case-sensitive schema names from dedi.global/schemas registry
-export type DeDiRegistryTag = "Membership" | "Public_key" | "Revoke" | "beckn_subscriber" | "beckn_subscriber_reference";
+// Tag values are case-sensitive schema names from dedi.global/schemas registry.
+// "custom" indicates a registry with no fixed schema (e.g., JSON-LD contexts).
+export type DeDiRegistryTag = "custom" | "Membership" | "Public_key" | "Revoke" | "beckn_subscriber" | "beckn_subscriber_reference";
 
 // ── Auth ─────────────────────────────────────────────────────────────
 

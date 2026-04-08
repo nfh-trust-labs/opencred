@@ -19,7 +19,8 @@ import type { DIDResolver } from "./resolver.js";
  */
 export function encodeDidJwk(jwk: JWK): string {
   // Strip private components for safety
-  const { d: _d, ...publicJwk } = jwk;
+  const publicJwk = { ...jwk };
+  delete publicJwk.d;
   const json = JSON.stringify(publicJwk);
   const encoded = Buffer.from(json).toString("base64url");
   return `did:jwk:${encoded}`;

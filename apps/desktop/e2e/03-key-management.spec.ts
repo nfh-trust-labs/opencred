@@ -7,7 +7,6 @@ import {
   expect,
   waitForAppReady,
   skipOnboarding,
-  generateKeyViaIpc,
 } from "./electron-fixture";
 
 test.describe("Key Management", () => {

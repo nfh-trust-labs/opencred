@@ -5,7 +5,7 @@
  * preload API surface is correctly typed and functional.
  */
 
-import { test, expect, waitForAppReady, skipOnboarding } from "./electron-fixture";
+import { test, expect, waitForAppReady } from "./electron-fixture";
 
 test.describe("IPC API — Key Management", () => {
   test("listKeys returns array", async ({ openCredPage: page }) => {

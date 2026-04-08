@@ -405,18 +405,10 @@ export class DeDiClient {
           "required": ["schemaId", "version", "schema"],
         }),
       ),
+      // CONTEXT_REGISTRY uses "custom" tag (no JSON schema) because JSON-LD
+      // context documents are dynamic and don't fit a fixed schema.
       ignoreConflict(() =>
-        this.api.createRegistry(namespace, CONTEXT_REGISTRY, {
-          "$schema": "http://json-schema.org/draft-07/schema#",
-          "type": "object",
-          "description": "OpenCred JSON-LD context registry",
-          "properties": {
-            "schemaId": { "type": "string" },
-            "version": { "type": "string" },
-            "context": { "type": "object" },
-          },
-          "required": ["schemaId", "version", "context"],
-        }),
+        this.api.createRegistry(namespace, CONTEXT_REGISTRY, {}, "custom"),
       ),
     ]);
   }
