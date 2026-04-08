@@ -159,7 +159,7 @@ healthcheck:
   start_period: 10s
 ```
 
-For Kubernetes, use:
+For Kubernetes, use the canonical probe block defined in [Observability → Probe configuration](observability.md#probe-configuration):
 
 ```yaml
 livenessProbe:
@@ -168,6 +168,9 @@ livenessProbe:
     port: 3100
   initialDelaySeconds: 10
   periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
 readinessProbe:
   httpGet:
     path: /health
