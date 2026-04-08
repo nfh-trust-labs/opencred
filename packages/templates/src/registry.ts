@@ -1,16 +1,22 @@
 /**
  * Template registry — maps schema IDs to SVG templates.
+ *
+ * v1 schema library ships with a single default template used for all ~33
+ * credentials. Schema-specific branded templates are a v1.1 follow-up; the
+ * default renders generic VC fields (title, issuer, subject name, dates)
+ * which works for every credential, and credential-specific field polish
+ * lands later.
+ *
+ * Lookup order:
+ *   1. Exact schema ID match (templates.get(schemaId))
+ *   2. Category match (first path segment before "/", e.g. "traceability/*"
+ *      → category:traceability). Reserved for v1.1 when categories get
+ *      dedicated templates.
+ *   3. Default template fallback.
  */
 
 import type { CredentialTemplate } from "./types.js";
-import {
-  defaultSvg,
-  educationSvg,
-  employmentSvg,
-  identitySvg,
-  healthSvg,
-  businessSvg,
-} from "./svg-data.js";
+import { defaultSvg } from "./svg-data.js";
 
 const DEFAULT_TEMPLATE: CredentialTemplate = {
   id: "default",
@@ -18,34 +24,18 @@ const DEFAULT_TEMPLATE: CredentialTemplate = {
   svg: defaultSvg,
 };
 
-/** Schema-specific templates loaded at module init. */
-const SCHEMA_TEMPLATES: ReadonlyArray<CredentialTemplate> = [
-  {
-    id: "education",
-    name: "Education Credential",
-    svg: educationSvg,
-  },
-  {
-    id: "employment",
-    name: "Employment Credential",
-    svg: employmentSvg,
-  },
-  {
-    id: "identity",
-    name: "Identity Credential",
-    svg: identitySvg,
-  },
-  {
-    id: "health",
-    name: "Health Credential",
-    svg: healthSvg,
-  },
-  {
-    id: "business",
-    name: "Business Credential",
-    svg: businessSvg,
-  },
-];
+/**
+ * Schema-specific templates. Empty in v1 — every credential uses the default
+ * template. Populate this array in v1.1 to add branded templates for
+ * high-frequency credentials (electricity, salary-slip, immunization, etc.).
+ */
+const SCHEMA_TEMPLATES: ReadonlyArray<CredentialTemplate> = [];
+
+/**
+ * Category-level templates. Used when no exact schema ID matches but the
+ * schema ID falls under a known category (e.g. "traceability/*"). Empty in v1.
+ */
+const CATEGORY_TEMPLATES: ReadonlyMap<string, CredentialTemplate> = new Map();
 
 const templates = new Map<string, CredentialTemplate>([["default", DEFAULT_TEMPLATE]]);
 
@@ -62,11 +52,24 @@ export function registerTemplate(schemaId: string, template: CredentialTemplate)
 }
 
 /**
- * Get the template for a schema ID, falling back to the default.
+ * Get the template for a schema ID, applying:
+ *   1. Exact schema ID match
+ *   2. Category match (first path segment — e.g. "traceability/commercial-invoice/v1"
+ *      → category "traceability")
+ *   3. Default template
  */
 export function getTemplate(schemaId?: string): CredentialTemplate {
-  if (schemaId && templates.has(schemaId)) {
-    return templates.get(schemaId)!;
+  if (!schemaId) {
+    return DEFAULT_TEMPLATE;
+  }
+  const exact = templates.get(schemaId);
+  if (exact) {
+    return exact;
+  }
+  const category = schemaId.split("/")[0];
+  const categoryTemplate = CATEGORY_TEMPLATES.get(category);
+  if (categoryTemplate) {
+    return categoryTemplate;
   }
   return DEFAULT_TEMPLATE;
 }
