@@ -154,7 +154,26 @@ describe("POST /v1/credentials/issue", () => {
     expect(body.error.message).toMatch(/forbidden|never accepts/);
   });
 
-  it("rejects requests that contain a PEM string anywhere with 400", async () => {
+  // The PEM scanner must fire for every common `-----BEGIN … PRIVATE KEY-----`
+  // header the OpenSSL toolchain produces, not just PKCS#8. We feed the key
+  // into a NON-forbidden field (`notes`) so the first-pass FORBIDDEN_REQUEST_KEYS
+  // check is bypassed and the PEM scanner is exercised directly. The original
+  // version of this test only asserted the PKCS#8 case, and because it used
+  // `privateKey` as the field name it short-circuited on FORBIDDEN_REQUEST_KEYS
+  // anyway — which meant the PEM scanner was never actually exercised at all.
+  it.each([
+    ["PKCS#8", "-----BEGIN PRIVATE KEY-----\nMIG...\n-----END PRIVATE KEY-----"],
+    [
+      "PKCS#8 encrypted",
+      "-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIG...\n-----END ENCRYPTED PRIVATE KEY-----",
+    ],
+    ["PKCS#1 RSA", "-----BEGIN RSA PRIVATE KEY-----\nMIG...\n-----END RSA PRIVATE KEY-----"],
+    ["SEC1 EC", "-----BEGIN EC PRIVATE KEY-----\nMIG...\n-----END EC PRIVATE KEY-----"],
+    [
+      "OpenSSH",
+      "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNz...\n-----END OPENSSH PRIVATE KEY-----",
+    ],
+  ])("rejects %s PEM strings embedded in a non-forbidden field with 400", async (_label, pem) => {
     const res = await app.request("/v1/credentials/issue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -163,15 +182,20 @@ describe("POST /v1/credentials/issue", () => {
         issuerDid: testKey.signer.id.split("#")[0],
         credentialSubject: {
           ...EDUCATION_SUBJECT,
-          notes: "-----BEGIN PRIVATE KEY-----\nABC\n-----END PRIVATE KEY-----",
+          // `notes` is not in FORBIDDEN_REQUEST_KEYS — this exercises the
+          // PEM scanner specifically, not the first-pass field-name check.
+          notes: pem,
         },
         validFrom: "2025-06-15T00:00:00Z",
       }),
     });
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { code: string } };
+    const body = (await res.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe("VALIDATION_ERROR");
+    // The error message must mention the PEM path — not the forbidden-field
+    // path — otherwise the test is passing for the wrong reason.
+    expect(body.error.message).toMatch(/looks like a PEM-encoded private key/);
   });
 
   it("returns 400 when credentialSubject does not satisfy the schema", async () => {
@@ -290,5 +314,83 @@ describe("POST /v1/credentials/verify", () => {
     expect(verifyRes.status).toBe(200);
     const result = (await verifyRes.json()) as Record<string, unknown>;
     expect(result.valid).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Defense-in-depth: every POST route must reject key material
+// ---------------------------------------------------------------------------
+//
+// CLAUDE.md rule 1 says "No endpoint, no function, no code path should accept
+// an issuer's private key as input." The rejectKeyMaterial scanner is
+// supposed to run on every POST route. These tests pin that contract so no
+// future route can forget the guard.
+
+describe("rejectKeyMaterial — defense-in-depth on every POST route", () => {
+  const sec1Pem = "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIAAAAA...\n-----END EC PRIVATE KEY-----";
+
+  it("POST /v1/credentials/batch rejects PEM strings in csvContent", async () => {
+    const res = await app.request("/v1/credentials/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        // Smuggle a PEM block inside the CSV content.
+        csvContent: `name,email,notes\nAlice,alice@example.com,"${sec1Pem.replace(/\n/g, " ")}"\n`,
+        schemaId: "education",
+        issuerDid: testKey.signer.id.split("#")[0],
+        validFrom: "2025-06-15T00:00:00Z",
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toMatch(/PEM-encoded private key/);
+  });
+
+  it("POST /v1/credentials/revocation-hash rejects PEM strings in credential", async () => {
+    const res = await app.request("/v1/credentials/revocation-hash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        credential: {
+          id: "urn:test:1",
+          notes: sec1Pem,
+        },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toMatch(/PEM-encoded private key/);
+  });
+
+  it("POST /v1/credentials/revocation-hash/batch rejects PEM strings", async () => {
+    const res = await app.request("/v1/credentials/revocation-hash/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        credentials: [{ id: "urn:test:1", notes: sec1Pem }],
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("POST /v1/credentials/package rejects PEM strings in credential", async () => {
+    const res = await app.request("/v1/credentials/package", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        credential: {
+          id: "urn:test:1",
+          notes: sec1Pem,
+        },
+        formats: ["json-ld"],
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 });

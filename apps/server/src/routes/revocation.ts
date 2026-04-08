@@ -10,6 +10,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { computeRevocationHash } from "@opencred/crypto";
+import { rejectKeyMaterial } from "./credentials.js";
 
 const revocation = new Hono();
 
@@ -23,6 +24,8 @@ const batchHashSchema = z.object({
 
 revocation.post("/credentials/revocation-hash", async (c) => {
   const body = await c.req.json();
+  // SECURITY: defense-in-depth — no route accepts key material. See CLAUDE.md rule 1.
+  rejectKeyMaterial(body);
   const parsed = singleHashSchema.parse(body);
   const hash = computeRevocationHash(parsed.credential);
   return c.json({ hash });
@@ -30,6 +33,8 @@ revocation.post("/credentials/revocation-hash", async (c) => {
 
 revocation.post("/credentials/revocation-hash/batch", async (c) => {
   const body = await c.req.json();
+  // SECURITY: defense-in-depth — no route accepts key material. See CLAUDE.md rule 1.
+  rejectKeyMaterial(body);
   const parsed = batchHashSchema.parse(body);
 
   const hashes = parsed.credentials.map((credential, index) => ({

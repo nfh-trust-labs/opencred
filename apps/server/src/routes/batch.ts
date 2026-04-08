@@ -19,6 +19,7 @@ import { parseCsv } from "../batch/csv-parser.js";
 import type { Delimiter } from "../batch/csv-parser.js";
 import { createBatchEngine } from "../batch/batch-engine.js";
 import type { BatchEngine, BatchProgress, ProofFormat } from "../batch/batch-engine.js";
+import { rejectKeyMaterial } from "./credentials.js";
 
 const batch = new Hono();
 
@@ -51,6 +52,11 @@ const batchRequestSchema = z.object({
 
 batch.post("/credentials/batch", async (c) => {
   const body = await c.req.json();
+  // SECURITY: reject any request that contains private key material before
+  // we do any other work. CSV rows can carry per-field data that embeds a
+  // PEM block — the scanner walks recursively so every string in every row
+  // is checked once. See CLAUDE.md rule 1.
+  rejectKeyMaterial(body);
   const parsed = batchRequestSchema.parse(body);
   const signer = requireSigner();
   const config = getConfig();

@@ -42,6 +42,11 @@
 #   - The HEALTHCHECK probes /v1/health which never exposes key material.
 #   - JSON-LD contexts are bundled in the @opencred/vc-core package — the
 #     container never makes outbound HTTP calls to fetch contexts.
+#   - Read-only filesystem recommended (see docker-compose.yml `read_only: true`).
+#   - All Linux capabilities dropped except NET_BIND_SERVICE (see compose
+#     `cap_drop: [ALL]` / `cap_add: [NET_BIND_SERVICE]`).
+#   - `no-new-privileges:true` recommended to block privilege escalation
+#     (see docker-compose.yml `security_opt`).
 # =============================================================================
 
 # -----------------------------------------------------------------------------
