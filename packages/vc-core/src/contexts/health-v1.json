@@ -1,6 +1,0 @@
-{
-  "@context": {
-    "certification": "https://schema.nfh.global/vocab/health#certification",
-    "issuingBody": "https://schema.nfh.global/vocab/health#issuingBody"
-  }
-}
