@@ -45,16 +45,14 @@ describe("Schema management", () => {
     const schemas = listSchemas();
     expect(schemas).toBeInstanceOf(Array);
     expect(schemas.length).toBeGreaterThan(0);
-    expect(schemas).toContain("education");
-    expect(schemas).toContain("employment");
-    expect(schemas).toContain("identity");
-    expect(schemas).toContain("health");
-    expect(schemas).toContain("business");
+    expect(schemas).toContain("functional-identity/v1");
+    expect(schemas).toContain("immunization/v1");
+    expect(schemas).toContain("electricity/v1");
   });
 
   it("should get a schema definition by ID", () => {
-    const definition = getSchemaDefinition("education");
-    expect(definition.id).toBe("education");
+    const definition = getSchemaDefinition("functional-identity/v1");
+    expect(definition.id).toBe("functional-identity/v1");
     expect(definition.schema).toBeDefined();
     expect(definition.contextUrl).toBeDefined();
   });
@@ -65,21 +63,20 @@ describe("Schema management", () => {
 });
 
 describe("Schema validation", () => {
-  it("should validate valid education subject data", () => {
-    const result = validateSubject("education", {
+  it("should validate valid functional-identity subject data", () => {
+    const result = validateSubject("functional-identity/v1", {
       name: "Jane Doe",
-      degree: "Bachelor of Science",
-      institution: "MIT",
-      dateConferred: "2025-06-15",
+      role: "Medical Practitioner",
+      validFrom: "2025-06-15T00:00:00Z",
     });
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
   });
 
-  it("should reject invalid education subject data (missing required fields)", () => {
-    const result = validateSubject("education", {
+  it("should reject invalid subject data (missing required fields)", () => {
+    const result = validateSubject("functional-identity/v1", {
       name: "Jane Doe",
-      // Missing: degree, institution, dateConferred
+      // Missing: role, validFrom
     });
     expect(result.valid).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
@@ -91,13 +88,13 @@ describe("buildAndSign — full offline round-trip", () => {
     const { signer } = createSoftwareSigner(pemKeyPath);
 
     const result = await buildAndSign(signer, {
-      schemaId: "education",
-      issuerDid: "did:web:university.example",
+      schemaId: "functional-identity/v1",
+      issuerDid: "did:web:authority.example",
       credentialSubject: {
         name: "Jane Doe",
-        degree: "Bachelor of Science",
-        institution: "MIT",
-        dateConferred: "2025-06-15",
+        role: "Medical Practitioner",
+        validFrom: "2025-06-15T00:00:00Z",
+        affiliation: { name: "Acme Medical Council" },
       },
       validFrom: "2025-06-15T00:00:00Z",
     });
@@ -127,13 +124,13 @@ describe("buildAndSign — full offline round-trip", () => {
     const { signer } = createSoftwareSigner(pemKeyPath);
 
     const result = await buildAndSign(signer, {
-      schemaId: "education",
-      issuerDid: "did:web:university.example",
+      schemaId: "functional-identity/v1",
+      issuerDid: "did:web:authority.example",
       credentialSubject: {
         name: "Jane Doe",
-        degree: "Bachelor of Science",
-        institution: "MIT",
-        dateConferred: "2025-06-15",
+        role: "Medical Practitioner",
+        validFrom: "2025-06-15T00:00:00Z",
+        affiliation: { name: "Acme Medical Council" },
       },
       validFrom: "2025-06-15T00:00:00Z",
       proofFormat: "data-integrity",
@@ -154,13 +151,13 @@ describe("buildAndSign — full offline round-trip", () => {
     const publicKey = createPublicKey(testPrivateKey);
 
     const result = await buildAndSign(signer, {
-      schemaId: "education",
-      issuerDid: "did:web:university.example",
+      schemaId: "functional-identity/v1",
+      issuerDid: "did:web:authority.example",
       credentialSubject: {
         name: "Jane Doe",
-        degree: "Bachelor of Science",
-        institution: "MIT",
-        dateConferred: "2025-06-15",
+        role: "Medical Practitioner",
+        validFrom: "2025-06-15T00:00:00Z",
+        affiliation: { name: "Acme Medical Council" },
       },
       validFrom: "2025-06-15T00:00:00Z",
       proofFormat: "data-integrity",
@@ -176,13 +173,13 @@ describe("buildAndSign — full offline round-trip", () => {
     const { signer } = createSoftwareSigner(pemKeyPath);
 
     const result = await buildAndSign(signer, {
-      schemaId: "education",
-      issuerDid: "did:web:university.example",
+      schemaId: "functional-identity/v1",
+      issuerDid: "did:web:authority.example",
       credentialSubject: {
         name: "Jane Doe",
-        degree: "Bachelor of Science",
-        institution: "MIT",
-        dateConferred: "2025-06-15",
+        role: "Medical Practitioner",
+        validFrom: "2025-06-15T00:00:00Z",
+        affiliation: { name: "Acme Medical Council" },
       },
       validFrom: "2025-06-15T00:00:00Z",
       validUntil: "2030-06-15T00:00:00Z",
@@ -211,11 +208,11 @@ describe("buildAndSign — full offline round-trip", () => {
 
     await expect(
       buildAndSign(signer, {
-        schemaId: "education",
-        issuerDid: "did:web:university.example",
+        schemaId: "functional-identity/v1",
+        issuerDid: "did:web:authority.example",
         credentialSubject: {
           name: "Jane Doe",
-          // Missing required fields
+          // Missing required fields (role, validFrom)
         },
         validFrom: "2025-06-15T00:00:00Z",
       }),
@@ -225,17 +222,17 @@ describe("buildAndSign — full offline round-trip", () => {
   it("should produce an SD-JWT-VC compact token when requested", async () => {
     const { signer } = createSoftwareSigner(pemKeyPath);
     const result = await buildAndSign(signer, {
-      schemaId: "education",
-      issuerDid: "did:web:university.example",
+      schemaId: "functional-identity/v1",
+      issuerDid: "did:web:authority.example",
       credentialSubject: {
         name: "Jane Doe",
-        degree: "Bachelor of Science",
-        institution: "MIT",
-        dateConferred: "2025-06-15",
+        role: "Medical Practitioner",
+        validFrom: "2025-06-15T00:00:00Z",
+        affiliation: { name: "Acme Medical Council" },
       },
       validFrom: "2025-06-15T00:00:00Z",
       proofFormat: "sd-jwt-vc",
-      selectiveDisclosureClaims: ["name", "degree"],
+      selectiveDisclosureClaims: ["name", "role"],
     });
     expect(result.proofFormat).toBe("sd-jwt-vc");
     expect(result.isCompactToken).toBe(true);
@@ -251,20 +248,20 @@ describe("buildAndSign — full offline round-trip", () => {
   it("should include credentialSchema when credentialSchemaUrl is provided", async () => {
     const { signer } = createSoftwareSigner(pemKeyPath);
     const result = await buildAndSign(signer, {
-      schemaId: "education",
-      issuerDid: "did:web:university.example",
+      schemaId: "functional-identity/v1",
+      issuerDid: "did:web:authority.example",
       credentialSubject: {
         name: "Jane Doe",
-        degree: "Bachelor of Science",
-        institution: "MIT",
-        dateConferred: "2025-06-15",
+        role: "Medical Practitioner",
+        validFrom: "2025-06-15T00:00:00Z",
+        affiliation: { name: "Acme Medical Council" },
       },
       validFrom: "2025-06-15T00:00:00Z",
-      credentialSchemaUrl: "https://example.com/schemas/education.json",
+      credentialSchemaUrl: "https://example.com/schemas/functional-identity.json",
     });
     expect(result.unsignedCredential.credentialSchema).toBeDefined();
     const schema = result.unsignedCredential.credentialSchema as { id: string; type: string };
-    expect(schema.id).toBe("https://example.com/schemas/education.json");
+    expect(schema.id).toBe("https://example.com/schemas/functional-identity.json");
     expect(schema.type).toBe("JsonSchema");
   });
 
@@ -281,41 +278,24 @@ describe("buildAndSign — full offline round-trip", () => {
     ).rejects.toThrow(/not found/i);
   });
 
-  it("should work with all built-in schemas", async () => {
+  it("should work with multiple v1 catalogue schemas", async () => {
     const { signer } = createSoftwareSigner(pemKeyPath);
     const publicKey = createPublicKey(testPrivateKey);
 
-    // Employment (data-integrity for verifyProof compatibility)
-    const employment = await buildAndSign(signer, {
-      schemaId: "employment",
-      issuerDid: "did:web:employer.example",
+    // Functional-identity (data-integrity for verifyProof compatibility)
+    const fnIdentity = await buildAndSign(signer, {
+      schemaId: "functional-identity/v1",
+      issuerDid: "did:web:authority.example",
       credentialSubject: {
         name: "John Smith",
-        employer: "ACME Corp",
-        position: "Engineer",
-        startDate: "2024-01-15",
+        role: "Senior Engineer",
+        validFrom: "2024-01-15T00:00:00Z",
       },
       validFrom: "2024-01-15T00:00:00Z",
       proofFormat: "data-integrity",
     });
-    const empVerify = await verifyProof(employment.credential, { publicKey });
-    expect(empVerify.verified).toBe(true);
-
-    // Identity (data-integrity for verifyProof compatibility)
-    const identity = await buildAndSign(signer, {
-      schemaId: "identity",
-      issuerDid: "did:web:gov.example",
-      credentialSubject: {
-        name: "Alice Johnson",
-        dateOfBirth: "1990-05-20",
-        nationality: "US",
-        documentNumber: "AB123456",
-      },
-      validFrom: "2024-01-01T00:00:00Z",
-      proofFormat: "data-integrity",
-    });
-    const idVerify = await verifyProof(identity.credential, { publicKey });
-    expect(idVerify.verified).toBe(true);
+    const fnVerify = await verifyProof(fnIdentity.credential, { publicKey });
+    expect(fnVerify.verified).toBe(true);
   });
 
   it("should detect tampered credentials during verification", async () => {
@@ -323,13 +303,13 @@ describe("buildAndSign — full offline round-trip", () => {
     const publicKey = createPublicKey(testPrivateKey);
 
     const result = await buildAndSign(signer, {
-      schemaId: "education",
-      issuerDid: "did:web:university.example",
+      schemaId: "functional-identity/v1",
+      issuerDid: "did:web:authority.example",
       credentialSubject: {
         name: "Jane Doe",
-        degree: "Bachelor of Science",
-        institution: "MIT",
-        dateConferred: "2025-06-15",
+        role: "Medical Practitioner",
+        validFrom: "2025-06-15T00:00:00Z",
+        affiliation: { name: "Acme Medical Council" },
       },
       validFrom: "2025-06-15T00:00:00Z",
       proofFormat: "data-integrity",

@@ -40,14 +40,14 @@ describe("CLI issue logic", () => {
     const signer = testKey.signer;
     const subject = {
       name: "Alice Smith",
-      degree: "Bachelor of Science",
-      institution: "Stanford University",
-      dateConferred: "2025-06-15",
+      role: "Field Crop Grower",
+      validFrom: "2025-06-15T00:00:00Z",
+      affiliation: { name: "Department of Agriculture" },
     };
 
     const registry = createRegistry();
     const validator = new Validator(registry);
-    validator.validateOrThrow("education", subject);
+    validator.validateOrThrow("functional-identity/v1", subject);
 
     const issuerDid = signer.id.split("#")[0];
     const builder = new CredentialBuilder()
@@ -88,9 +88,9 @@ describe("CLI verify logic", () => {
     const signer = testKey.signer;
     const subject = {
       name: "Bob Jones",
-      degree: "Master of Arts",
-      institution: "Harvard",
-      dateConferred: "2025-01-01",
+      role: "Registered Nurse",
+      validFrom: "2025-01-01T00:00:00Z",
+      affiliation: { name: "Acme Hospital" },
     };
 
     // Issue
@@ -170,22 +170,22 @@ describe("CLI batch logic", () => {
   it("processes CSV and creates credentials in output directory", async () => {
     const signer = testKey.signer;
     const csvContent = [
-      "name,degree,institution,dateConferred",
-      "Alice,BS,Stanford,2025-06-01",
-      "Bob,MS,MIT,2025-07-01",
+      "name,role,validFrom",
+      "Alice,Field Crop Grower,2025-06-01T00:00:00Z",
+      "Bob,Registered Nurse,2025-06-01T00:00:00Z",
     ].join("\n");
 
     const outputDir = join(TEST_DIR, "batch-output");
     mkdirSync(outputDir, { recursive: true });
 
     // Parse CSV (same as CLI batch command)
-    const parseResult = parseCsv(csvContent, { schemaId: "education" });
+    const parseResult = parseCsv(csvContent, { schemaId: "functional-identity/v1" });
     expect(parseResult.totalCount).toBe(2);
     expect(parseResult.validCount).toBe(2);
 
     // Create batch engine (same as CLI batch command)
     const engine = createBatchEngine(signer, parseResult.rows, {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: signer.id.split("#")[0],
       validFrom: new Date().toISOString(),
       proofFormat: "vc-jwt",
@@ -220,18 +220,18 @@ describe("CLI batch logic", () => {
   it("handles invalid CSV rows gracefully", async () => {
     const signer = testKey.signer;
     const csvContent = [
-      "name,degree,institution,dateConferred",
-      "Alice,BS,Stanford,2025-06-01",
-      ",,,", // invalid — all fields empty
+      "name,role,validFrom",
+      "Alice,Field Crop Grower,2025-06-01T00:00:00Z",
+      ",,", // invalid — all fields empty
     ].join("\n");
 
-    const parseResult = parseCsv(csvContent, { schemaId: "education" });
+    const parseResult = parseCsv(csvContent, { schemaId: "functional-identity/v1" });
     expect(parseResult.totalCount).toBe(2);
     expect(parseResult.validCount).toBe(1);
     expect(parseResult.invalidCount).toBe(1);
 
     const engine = createBatchEngine(signer, parseResult.rows, {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       issuerDid: signer.id.split("#")[0],
       validFrom: new Date().toISOString(),
       proofFormat: "vc-jwt",

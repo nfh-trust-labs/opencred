@@ -23,29 +23,38 @@ const addFormats = ajvFormatsModule.default ?? ajvFormatsModule;
  *     used this style.
  *
  * If the schema has `properties.credentialSubject` AND that sub-schema is a
- * non-empty object, return the sub-schema. Otherwise return the whole schema
- * as-is so legacy consumers keep working.
- *
- * The returned sub-schema is unlinked from the parent to avoid AJV resolving
- * `$ref` paths across schema boundaries for this ad-hoc compile — good enough
- * for the `credentialSubject` shape which doesn't cross-reference the envelope.
+ * non-empty object, return a fresh JSON Schema containing just that sub-schema
+ * with the parent's `$defs` / `definitions` block copied over so internal
+ * `$ref` paths still resolve. Otherwise return the whole schema as-is so
+ * legacy consumers keep working.
  */
 function extractSubjectSchema(
   schema: Record<string, unknown>,
 ): Record<string, unknown> {
   const properties = schema["properties"];
-  if (properties && typeof properties === "object") {
-    const subject = (properties as Record<string, unknown>)["credentialSubject"];
-    if (
-      subject &&
-      typeof subject === "object" &&
-      !Array.isArray(subject) &&
-      Object.keys(subject as Record<string, unknown>).length > 0
-    ) {
-      return subject as Record<string, unknown>;
-    }
+  if (!properties || typeof properties !== "object") {
+    return schema;
   }
-  return schema;
+  const subject = (properties as Record<string, unknown>)["credentialSubject"];
+  if (
+    !subject ||
+    typeof subject !== "object" ||
+    Array.isArray(subject) ||
+    Object.keys(subject as Record<string, unknown>).length === 0
+  ) {
+    return schema;
+  }
+  // Copy $defs / definitions so internal $ref paths like
+  // "#/$defs/FunctionalIdentitySubject" still resolve against the
+  // extracted schema.
+  const extracted: Record<string, unknown> = { ...(subject as Record<string, unknown>) };
+  if (schema["$defs"]) {
+    extracted["$defs"] = schema["$defs"];
+  }
+  if (schema["definitions"]) {
+    extracted["definitions"] = schema["definitions"];
+  }
+  return extracted;
 }
 
 export class Validator {
