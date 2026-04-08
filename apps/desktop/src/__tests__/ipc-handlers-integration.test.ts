@@ -121,6 +121,18 @@ vi.mock("node:dns/promises", () => ({
   lookup: vi.fn().mockRejectedValue(new Error("ENOTFOUND")),
 }));
 
+// Wrap @opencred/shared so individual SCHEMA_FETCH_URL tests can override
+// resolveAndPinHostname to inject custom error messages (e.g., messages
+// containing a raw IP) without touching the DNS layer. The default delegates
+// to the real implementation so every other test is unaffected.
+vi.mock("@opencred/shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@opencred/shared")>();
+  return {
+    ...actual,
+    resolveAndPinHostname: vi.fn(actual.resolveAndPinHostname),
+  };
+});
+
 // Initialise store before importing IPC handlers
 const { initStore } = await import("../main/store");
 initStore();
@@ -927,6 +939,65 @@ describe("IPC Handler Integration Tests", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("DNS resolution failed");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("does not leak the resolved IP when the helper throws a network error", async () => {
+      // Simulates a DNS/network error whose message contains the resolved IP
+      // (e.g., "ECONNREFUSED 192.0.2.10:53"). The raw err.message used to be
+      // returned to the renderer, which would leak an attacker-useful signal
+      // about the issuer's internal network. The sanitised handler must
+      // return a generic "DNS resolution failed" instead.
+      const { resolveAndPinHostname: mockedHelper } = await import(
+        "@opencred/shared"
+      );
+      const helperSpy = mockedHelper as unknown as ReturnType<typeof vi.fn>;
+      helperSpy.mockRejectedValueOnce(
+        new Error("ECONNREFUSED 192.0.2.10:53 while resolving target"),
+      );
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_FETCH_URL];
+      const result = (await handler(fakeEvent, {
+        url: "https://schema.example.com/schema.json",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      // The resolved IP must NOT be leaked to the renderer.
+      expect(result.error).not.toContain("192.0.2.10");
+      // The error must also not leak the internal error label.
+      expect(result.error).not.toContain("ECONNREFUSED");
+      // But the message must still clearly identify the failure class so the
+      // user gets actionable feedback.
+      expect(result.error).toContain("DNS resolution failed");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("preserves the private-IP rejection message so users know their input was blocked", async () => {
+      // Private-IP rejections are a different class of error: the user needs
+      // to know their input was blocked (not that something opaque went
+      // wrong), so the sanitised handler must surface a recognisable
+      // "private IP" message rather than the generic DNS-failure string.
+      const { resolveAndPinHostname: mockedHelper } = await import(
+        "@opencred/shared"
+      );
+      const helperSpy = mockedHelper as unknown as ReturnType<typeof vi.fn>;
+      helperSpy.mockRejectedValueOnce(
+        new Error("DNS resolved to private/reserved IP for schema.internal"),
+      );
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_FETCH_URL];
+      const result = (await handler(fakeEvent, {
+        url: "https://schema.internal/schema.json",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error).toContain("private IP");
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 

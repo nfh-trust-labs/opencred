@@ -1541,7 +1541,16 @@ async function handleSchemaFetchUrl(
         if (message.includes("private/reserved")) {
           return { success: false, error: "URL resolves to a private IP address" };
         }
-        return { success: false, error: message };
+        // Sanitize the error returned to the renderer. The raw message from
+        // resolveAndPinHostname includes the hostname (and can, via the
+        // underlying dns errors, include the resolved IP), which would leak
+        // internal-network-probing signal back to the caller. Log the
+        // detailed error for ops triage, but return a generic message.
+        logger.warn("Schema fetch DNS resolution failed", {
+          url: request.url,
+          error: message,
+        });
+        return { success: false, error: "DNS resolution failed" };
       }
     }
 
