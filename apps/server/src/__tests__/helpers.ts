@@ -98,10 +98,7 @@ export const DEFAULT_TEST_API_KEY = "test-api-key-default";
  *  - `devModeNoAuth: true` — enable OPENCRED_DEV_MODE_NO_AUTH=true. Auth is bypassed.
  *  - neither      — defaults to apiKey = DEFAULT_TEST_API_KEY.
  */
-export function createTestApp(opts?: {
-  apiKey?: string;
-  devModeNoAuth?: boolean;
-}): Hono {
+export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean }): Hono {
   // Reset singletons
   resetConfig();
   resetLogger();
