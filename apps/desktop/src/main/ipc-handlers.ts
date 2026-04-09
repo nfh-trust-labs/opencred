@@ -697,7 +697,7 @@ async function handleVerifyCredential(
     const trustAnchors = cscaTrustStorePath
       ? await loadCscaTrustStore(cscaTrustStorePath, {
           onSkipped: ({ path: skippedPath, reason }) => {
-            logger.warn({ path: skippedPath, reason }, "CSCA trust store entry skipped");
+            logger.warn("CSCA trust store entry skipped", { path: skippedPath, reason });
           },
         })
       : undefined;

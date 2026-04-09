@@ -10,10 +10,7 @@ import {
   EDUCATION_SUBJECT,
 } from "./helpers.js";
 import { setActiveSigner } from "../signing/key-manager.js";
-import {
-  sanitizeChecksForServerResponse,
-  buildVerifyResponseBody,
-} from "../routes/credentials.js";
+import { sanitizeChecksForServerResponse, buildVerifyResponseBody } from "../routes/credentials.js";
 import type { Hono } from "hono";
 import type { TestKeyPair } from "./helpers.js";
 
@@ -210,8 +207,7 @@ describe("POST /credentials/verify", () => {
   // test focused on the sanitization contract and avoids coupling to the
   // verifier's unrelated fixture-setup requirements.
   describe("response sanitization (invariant #5)", () => {
-    const SENSITIVE_CSCA_DN =
-      "CN=CSCA Test Root, O=Test Country, C=XX";
+    const SENSITIVE_CSCA_DN = "CN=CSCA Test Root, O=Test Country, C=XX";
     const SENSITIVE_PARSER_ERROR =
       "Failed to parse configured trust anchors: unable to load PEM at /private/etc/opencred/trust/root.pem";
 
@@ -370,7 +366,9 @@ describe("POST /credentials/verify", () => {
           message: string;
           checks: Array<Record<string, unknown>>;
         };
-        expect(body.message === "Credential is valid." || body.message === "Verification failed.").toBe(true);
+        expect(
+          body.message === "Credential is valid." || body.message === "Verification failed.",
+        ).toBe(true);
         for (const check of body.checks) {
           expect(Object.keys(check).sort()).toEqual(["name", "passed"]);
         }
