@@ -17,6 +17,8 @@ import {
   PUBLIC_KEY_REGISTRY,
   SCHEMA_REGISTRY,
   CONTEXT_REGISTRY,
+  schemaToRecordName,
+  contextToRecordName,
 } from "./registry-names.js";
 
 const DELEGATION_DETAIL_KEYS = [
@@ -331,14 +333,6 @@ export class DeDiClient {
 function didToRecordName(did: string): string {
   // Replace characters that aren't safe for DeDi record names
   return did.replace(/:/g, "-");
-}
-
-function schemaToRecordName(schemaId: string, version: string): string {
-  return `${schemaId}-v${version}`;
-}
-
-function contextToRecordName(schemaId: string, version: string): string {
-  return `${schemaId}-ctx-v${version}`;
 }
 
 const CONTEXT_RECORD_KEYS = ["schemaId", "version", "context", "publishedAt"] as const;

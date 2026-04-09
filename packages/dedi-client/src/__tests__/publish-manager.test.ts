@@ -69,7 +69,7 @@ describe("DeDiPublishManager", () => {
     it("skips if schema was in alreadyPublished list", async () => {
       const client = createMockClient();
 
-      const manager = new DeDiPublishManager(client, ["education-v1"]);
+      const manager = new DeDiPublishManager(client, ["functional-identity-v1"]);
       const result = await manager.ensureSchemaPublished(testSchema);
 
       expect(result).toBeNull();
@@ -148,7 +148,7 @@ describe("DeDiPublishManager", () => {
       const manager = new DeDiPublishManager(client);
       await manager.ensureSchemaPublished(testSchema);
 
-      expect(manager.getPublishedSchemaIds()).toEqual(["education-v1"]);
+      expect(manager.getPublishedSchemaIds()).toEqual(["functional-identity-v1"]);
     });
 
     it("includes pre-loaded IDs", () => {
