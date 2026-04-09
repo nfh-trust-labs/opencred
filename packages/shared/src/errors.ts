@@ -65,10 +65,7 @@ const SANITIZE_PATTERNS: ReadonlyArray<readonly [RegExp, SanitizeReplacement]> =
   // the final basename. A function replacement is used so "a/b/c/f.bin"
   // collapses to "[PATH]/f.bin" without having to spell out a multi-
   // segment capture group.
-  [
-    /\/(?:home|Users|tmp|var|private|opt|srv|root|etc|usr|mnt)\/[^\s:"'<>()]+/g,
-    posixBasename,
-  ],
+  [/\/(?:home|Users|tmp|var|private|opt|srv|root|etc|usr|mnt)\/[^\s:"'<>()]+/g, posixBasename],
 
   // Windows absolute paths: C:\Users\..., D:\Windows\..., etc.
   [

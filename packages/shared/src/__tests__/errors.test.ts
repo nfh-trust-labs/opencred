@@ -263,8 +263,7 @@ describe("sanitization (security invariant)", () => {
   });
 
   it("falls back to generic message when fully redacted", () => {
-    const synthetic =
-      "-----BEGIN CERTIFICATE-----\nMIIDplaceholder\n-----END CERTIFICATE-----";
+    const synthetic = "-----BEGIN CERTIFICATE-----\nMIIDplaceholder\n-----END CERTIFICATE-----";
     const err = new CryptoError(synthetic);
     const body = err.toJSON();
     // Scrubbing leaves "[REDACTED_PEM]", not the fallback — but confirm
