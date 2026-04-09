@@ -236,7 +236,7 @@ describe("renderCredentialSvg", () => {
   });
 
   it("should produce a valid SVG string with credential data substituted", () => {
-    const svg = renderCredentialSvg(testCredential, "education");
+    const svg = renderCredentialSvg(testCredential, "functional-identity/v1");
 
     expect(svg).toContain("<svg>");
     expect(svg).toContain("EducationCredential");
@@ -250,14 +250,14 @@ describe("renderCredentialSvg", () => {
       validUntil: undefined,
     };
 
-    const svg = renderCredentialSvg(credNoExpiry, "education");
+    const svg = renderCredentialSvg(credNoExpiry, "functional-identity/v1");
     expect(svg).toContain("<svg>");
     // Should not throw, should render without validUntil
     expect(svg).toBeDefined();
   });
 
   it("should apply customization options", () => {
-    const svg = renderCredentialSvg(testCredential, "education", {
+    const svg = renderCredentialSvg(testCredential, "functional-identity/v1", {
       primaryColor: "#ff0000",
       issuerDisplayName: "Custom University",
     });
@@ -268,7 +268,7 @@ describe("renderCredentialSvg", () => {
   });
 
   it("should use object issuer name when issuer is an object", () => {
-    const svg = renderCredentialSvg(testCredentialObjectIssuer, "education");
+    const svg = renderCredentialSvg(testCredentialObjectIssuer, "functional-identity/v1");
 
     expect(svg).toContain("Test University");
   });
@@ -306,7 +306,7 @@ describe("packageCredential", () => {
   });
 
   it('should return correct output for ["json-ld"] format', async () => {
-    const outputs = await packageCredential(testCredential, "education", ["json-ld"]);
+    const outputs = await packageCredential(testCredential, "functional-identity/v1", ["json-ld"]);
 
     expect(outputs.length).toBe(1);
     expect(outputs[0].format).toBe("json-ld");
@@ -317,7 +317,7 @@ describe("packageCredential", () => {
   });
 
   it('should return rendered SVG for ["svg"] format', async () => {
-    const outputs = await packageCredential(testCredential, "education", ["svg"]);
+    const outputs = await packageCredential(testCredential, "functional-identity/v1", ["svg"]);
 
     expect(outputs.length).toBe(1);
     expect(outputs[0].format).toBe("svg");
@@ -327,7 +327,11 @@ describe("packageCredential", () => {
   });
 
   it("should return all outputs for multiple formats", async () => {
-    const outputs = await packageCredential(testCredential, "education", ["json-ld", "svg", "qr"]);
+    const outputs = await packageCredential(testCredential, "functional-identity/v1", [
+      "json-ld",
+      "svg",
+      "qr",
+    ]);
 
     expect(outputs.length).toBe(3);
     const formats = outputs.map((o) => o.format);
@@ -337,7 +341,11 @@ describe("packageCredential", () => {
   });
 
   it("should generate suggested file names", async () => {
-    const outputs = await packageCredential(testCredential, "education", ["json-ld", "svg", "qr"]);
+    const outputs = await packageCredential(testCredential, "functional-identity/v1", [
+      "json-ld",
+      "svg",
+      "qr",
+    ]);
 
     for (const output of outputs) {
       expect(output.suggestedFileName).toBeTruthy();
@@ -346,7 +354,7 @@ describe("packageCredential", () => {
   });
 
   it("should pass customization to SVG rendering", async () => {
-    const outputs = await packageCredential(testCredential, "education", ["svg"], {
+    const outputs = await packageCredential(testCredential, "functional-identity/v1", ["svg"], {
       primaryColor: "#00ff00",
     });
 

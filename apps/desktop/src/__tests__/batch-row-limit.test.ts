@@ -20,11 +20,11 @@ import { BATCH_ROW_LIMIT } from "../shared/constants";
 // ---------------------------------------------------------------------------
 
 function generateCsv(rowCount: number): string {
-  const header = "name,degree,institution,dateConferred";
+  const header = "name,role,validFrom";
   const rows = Array.from(
     { length: rowCount },
     (_, i) =>
-      `Student ${i + 1},Bachelor of Science,University ${i + 1},2025-06-${String(15 + (i % 15)).padStart(2, "0")}`,
+      `Student ${i + 1},University Student,2025-06-${String(15 + (i % 15)).padStart(2, "0")}T00:00:00Z`,
   );
   return [header, ...rows].join("\n");
 }
@@ -42,7 +42,7 @@ describe("Batch row limit — constant", () => {
 describe("Batch row limit — CSV row counting", () => {
   it("should correctly count rows at the limit (1000 rows)", () => {
     const csv = generateCsv(1000);
-    const result = parseCsv(csv, { schemaId: "education" });
+    const result = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     expect(result.totalCount).toBe(1000);
     expect(result.totalCount).toBeLessThanOrEqual(BATCH_ROW_LIMIT);
@@ -50,7 +50,7 @@ describe("Batch row limit — CSV row counting", () => {
 
   it("should correctly count rows over the limit (1001 rows)", () => {
     const csv = generateCsv(1001);
-    const result = parseCsv(csv, { schemaId: "education" });
+    const result = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     expect(result.totalCount).toBe(1001);
     expect(result.totalCount).toBeGreaterThan(BATCH_ROW_LIMIT);
@@ -58,7 +58,7 @@ describe("Batch row limit — CSV row counting", () => {
 
   it("should correctly count rows well under the limit (10 rows)", () => {
     const csv = generateCsv(10);
-    const result = parseCsv(csv, { schemaId: "education" });
+    const result = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     expect(result.totalCount).toBe(10);
     expect(result.totalCount).toBeLessThanOrEqual(BATCH_ROW_LIMIT);
@@ -68,7 +68,7 @@ describe("Batch row limit — CSV row counting", () => {
 describe("Batch row limit — validation logic", () => {
   it("should accept a batch with exactly 1000 rows", () => {
     const csv = generateCsv(1000);
-    const result = parseCsv(csv, { schemaId: "education" });
+    const result = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     // Simulate the check in handleBatchStart
     const overLimit = result.totalCount > BATCH_ROW_LIMIT;
@@ -77,7 +77,7 @@ describe("Batch row limit — validation logic", () => {
 
   it("should reject a batch with 1001 rows", () => {
     const csv = generateCsv(1001);
-    const result = parseCsv(csv, { schemaId: "education" });
+    const result = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     // Simulate the check in handleBatchStart
     const overLimit = result.totalCount > BATCH_ROW_LIMIT;
@@ -86,7 +86,7 @@ describe("Batch row limit — validation logic", () => {
 
   it("should reject a batch with 2000 rows", () => {
     const csv = generateCsv(2000);
-    const result = parseCsv(csv, { schemaId: "education" });
+    const result = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     const overLimit = result.totalCount > BATCH_ROW_LIMIT;
     expect(overLimit).toBe(true);
@@ -94,7 +94,7 @@ describe("Batch row limit — validation logic", () => {
 
   it("should accept a batch with 999 rows", () => {
     const csv = generateCsv(999);
-    const result = parseCsv(csv, { schemaId: "education" });
+    const result = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     const overLimit = result.totalCount > BATCH_ROW_LIMIT;
     expect(overLimit).toBe(false);
@@ -102,7 +102,7 @@ describe("Batch row limit — validation logic", () => {
 
   it("should accept a batch with 1 row", () => {
     const csv = generateCsv(1);
-    const result = parseCsv(csv, { schemaId: "education" });
+    const result = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     const overLimit = result.totalCount > BATCH_ROW_LIMIT;
     expect(overLimit).toBe(false);

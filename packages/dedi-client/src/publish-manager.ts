@@ -1,4 +1,5 @@
 import { DeDiClient } from "./adapter/client.js";
+import { schemaToRecordName } from "./adapter/registry-names.js";
 import type {
   DeDiClientConfig,
   SchemaRecord,
@@ -26,7 +27,7 @@ export class DeDiPublishManager {
     schema: SchemaRecord,
     namespace?: string,
   ): Promise<PublishResult | null> {
-    const key = `${schema.schemaId}-v${schema.version}`;
+    const key = schemaToRecordName(schema.schemaId, schema.version);
     if (this.publishedSchemas.has(key)) {
       return null;
     }

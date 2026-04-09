@@ -148,17 +148,17 @@ export function createTestApp(opts?: { apiKey?: string }): Hono {
 // Credential test data
 // ---------------------------------------------------------------------------
 
-export const EDUCATION_SUBJECT = {
+export const FUNCTIONAL_IDENTITY_SUBJECT = {
   name: "Jane Doe",
-  degree: "Master of Science",
-  institution: "MIT",
-  dateConferred: "2025-06-15",
+  role: "Medical Practitioner",
+  validFrom: "2025-06-15T00:00:00Z",
+  affiliation: { name: "Acme Medical Council" },
 };
 
 export const VALID_ISSUE_REQUEST = {
-  schemaId: "education",
+  schemaId: "functional-identity/v1",
   issuerDid: "did:key:test-issuer",
-  credentialSubject: EDUCATION_SUBJECT,
+  credentialSubject: FUNCTIONAL_IDENTITY_SUBJECT,
   validFrom: "2025-06-15T00:00:00Z",
   proofFormat: "vc-jwt",
 };

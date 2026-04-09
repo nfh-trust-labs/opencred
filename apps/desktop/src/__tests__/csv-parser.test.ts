@@ -116,19 +116,21 @@ describe("parseRawCsv", () => {
 // ---------------------------------------------------------------------------
 
 describe("parseCsv", () => {
-  const validEducationCsv = [
-    "name,degree,institution,dateConferred",
-    "Jane Doe,Bachelor of Science,MIT,2025-06-15",
-    "John Smith,Master of Arts,Stanford,2025-06-20",
-    "Alice Johnson,PhD,Harvard,2025-07-01",
-    "Bob Williams,Bachelor of Arts,Yale,2025-08-15",
-    "Carol Davis,Master of Science,Princeton,2025-09-01",
+  // v1 schema library: tests use functional-identity/v1 — a barebones role
+  // credential whose credentialSubject requires (name, role, validFrom).
+  const validIdentityCsv = [
+    "name,role,validFrom",
+    "Jane Doe,Medical Practitioner,2025-06-15T00:00:00Z",
+    "John Smith,Field Crop Grower,2025-06-20T00:00:00Z",
+    "Alice Johnson,Registered Nurse,2025-07-01T00:00:00Z",
+    "Bob Williams,Chartered Accountant,2025-08-15T00:00:00Z",
+    "Carol Davis,Teacher,2025-09-01T00:00:00Z",
   ].join("\n");
 
   it("should parse valid CSV and validate all rows as valid", () => {
-    const result = parseCsv(validEducationCsv, { schemaId: "education" });
+    const result = parseCsv(validIdentityCsv, { schemaId: "functional-identity/v1" });
 
-    expect(result.headers).toEqual(["name", "degree", "institution", "dateConferred"]);
+    expect(result.headers).toEqual(["name", "role", "validFrom"]);
     expect(result.totalCount).toBe(5);
     expect(result.validCount).toBe(5);
     expect(result.invalidCount).toBe(0);
@@ -142,13 +144,13 @@ describe("parseCsv", () => {
 
   it("should detect and report invalid rows", () => {
     const csvWithInvalid = [
-      "name,degree,institution,dateConferred",
-      "Jane Doe,Bachelor of Science,MIT,2025-06-15",
-      "John Smith,,,", // Missing required fields
-      "Alice Johnson,PhD,Harvard,2025-07-01",
+      "name,role,validFrom",
+      "Jane Doe,Medical Practitioner,2025-06-15T00:00:00Z",
+      "John Smith,,", // Missing required fields
+      "Alice Johnson,Registered Nurse,2025-07-01T00:00:00Z",
     ].join("\n");
 
-    const result = parseCsv(csvWithInvalid, { schemaId: "education" });
+    const result = parseCsv(csvWithInvalid, { schemaId: "functional-identity/v1" });
 
     expect(result.totalCount).toBe(3);
     expect(result.validCount).toBe(2);
@@ -165,17 +167,16 @@ describe("parseCsv", () => {
 
   it("should apply column mapping correctly", () => {
     const csv = [
-      "Full Name,Qualification,School,Date",
-      "Jane Doe,Bachelor of Science,MIT,2025-06-15",
+      "Full Name,Occupation,Effective Date",
+      "Jane Doe,Medical Practitioner,2025-06-15T00:00:00Z",
     ].join("\n");
 
     const result = parseCsv(csv, {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       columnMapping: {
         "Full Name": "name",
-        Qualification: "degree",
-        School: "institution",
-        Date: "dateConferred",
+        Occupation: "role",
+        "Effective Date": "validFrom",
       },
     });
 
@@ -183,19 +184,17 @@ describe("parseCsv", () => {
     expect(result.rows[0].valid).toBe(true);
     expect(result.rows[0].mappedSubject).toEqual({
       name: "Jane Doe",
-      degree: "Bachelor of Science",
-      institution: "MIT",
-      dateConferred: "2025-06-15",
+      role: "Medical Practitioner",
+      validFrom: "2025-06-15T00:00:00Z",
     });
   });
 
   it("should use forced delimiter", () => {
     // This CSV has both commas and semicolons, but we force semicolon
-    const csv =
-      "name;degree;institution;dateConferred\nJane Doe;Bachelor of Science;MIT;2025-06-15";
+    const csv = "name;role;validFrom\nJane Doe;Medical Practitioner;2025-06-15T00:00:00Z";
 
     const result = parseCsv(csv, {
-      schemaId: "education",
+      schemaId: "functional-identity/v1",
       delimiter: ";",
     });
 
@@ -205,63 +204,41 @@ describe("parseCsv", () => {
 
   it("should handle CSV with more columns than schema fields", () => {
     const csv = [
-      "name,degree,institution,dateConferred,extraField",
-      "Jane Doe,Bachelor of Science,MIT,2025-06-15,ignored",
+      "name,role,validFrom,extraField",
+      "Jane Doe,Medical Practitioner,2025-06-15T00:00:00Z,ignored",
     ].join("\n");
 
-    const result = parseCsv(csv, { schemaId: "education" });
+    const result = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     // The extra column should not cause validation to fail
     expect(result.validCount).toBe(1);
     expect(result.rows[0].valid).toBe(true);
   });
 
-  it("should handle employment schema", () => {
-    const csv = [
-      "name,employer,position,startDate",
-      "John Smith,ACME Corp,Engineer,2024-01-15",
-    ].join("\n");
-
-    const result = parseCsv(csv, { schemaId: "employment" });
-    expect(result.validCount).toBe(1);
-    expect(result.rows[0].valid).toBe(true);
-  });
-
-  it("should handle identity schema", () => {
-    const csv = [
-      "name,dateOfBirth,nationality,documentNumber",
-      "Alice Johnson,1990-05-20,US,AB123456",
-    ].join("\n");
-
-    const result = parseCsv(csv, { schemaId: "identity" });
-    expect(result.validCount).toBe(1);
-    expect(result.rows[0].valid).toBe(true);
-  });
-
   it("should handle empty CSV", () => {
-    const result = parseCsv("", { schemaId: "education" });
+    const result = parseCsv("", { schemaId: "functional-identity/v1" });
     expect(result.totalCount).toBe(0);
     expect(result.headers).toEqual([]);
     expect(result.rows).toEqual([]);
   });
 
   it("should handle CSV with only headers", () => {
-    const result = parseCsv("name,degree,institution,dateConferred", {
-      schemaId: "education",
+    const result = parseCsv("name,role,validFrom", {
+      schemaId: "functional-identity/v1",
     });
     expect(result.totalCount).toBe(0);
-    expect(result.headers).toEqual(["name", "degree", "institution", "dateConferred"]);
+    expect(result.headers).toEqual(["name", "role", "validFrom"]);
   });
 
   it("should preserve row indices", () => {
     const csv = [
-      "name,degree,institution,dateConferred",
-      "Jane Doe,BS,MIT,2025-06-15",
-      "John Smith,MS,Stanford,2025-06-20",
-      "Alice Johnson,PhD,Harvard,2025-07-01",
+      "name,role,validFrom",
+      "Jane Doe,Medical Practitioner,2025-06-15T00:00:00Z",
+      "John Smith,Field Crop Grower,2025-06-20T00:00:00Z",
+      "Alice Johnson,Registered Nurse,2025-07-01T00:00:00Z",
     ].join("\n");
 
-    const result = parseCsv(csv, { schemaId: "education" });
+    const result = parseCsv(csv, { schemaId: "functional-identity/v1" });
 
     expect(result.rows[0].rowIndex).toBe(0);
     expect(result.rows[1].rowIndex).toBe(1);

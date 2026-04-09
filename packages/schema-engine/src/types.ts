@@ -1,3 +1,14 @@
+export interface SchemaSource {
+  /** Whether this credential's schema is authored in opencred-vc-schemas (defined) or fetched from an upstream third-party URL (referenced). */
+  kind: "defined" | "referenced";
+  /** The fully-qualified URL the schema was fetched from at build time. */
+  upstreamUrl: string;
+  /** Human-readable owner of the upstream source (e.g. "OpenCred", "W3C CCG", "1EdTech", "DIF"). */
+  upstreamOwner: string;
+  /** SPDX license identifier for the upstream source. */
+  upstreamLicense: string;
+}
+
 export interface SchemaDefinition {
   id: string;
   schema: Record<string, unknown>;
@@ -6,8 +17,10 @@ export interface SchemaDefinition {
   version: string;
   /** ISO 8601 timestamp of when this schema was last updated. */
   lastUpdated: string;
-  /** SHA-256 checksum of JSON.stringify(schema). Set when caching to disk for integrity validation on load. */
-  checksum?: string;
+  /** Canonical SHA-256 of the schema (lowercase hex). Required: every bundled schema is hash-pinned. */
+  checksum: string;
+  /** Provenance metadata: where the schema came from, who owns it, and under what license. */
+  source: SchemaSource;
 }
 
 export interface ValidationResult {
@@ -30,14 +43,4 @@ export interface SchemaManifestEntry {
 /** Manifest listing all available schemas with their versions and checksums. */
 export interface SchemaManifest {
   schemas: SchemaManifestEntry[];
-}
-
-/** Result of checking for schema updates against a remote manifest. */
-export interface SchemaUpdateResult {
-  /** Whether any updates are available. */
-  hasUpdates: boolean;
-  /** Schema IDs that have newer versions available. */
-  updatedIds: string[];
-  /** The remote manifest that was fetched. */
-  remoteManifest: SchemaManifest;
 }

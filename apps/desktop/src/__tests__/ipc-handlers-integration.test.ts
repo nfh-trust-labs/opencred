@@ -254,13 +254,12 @@ describe("IPC Handler Integration Tests", () => {
 
       const result = await buildAndSign({
         keyId,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: "did:key:z6Mktest",
         credentialSubject: {
           name: "Jane Doe",
-          degree: "Bachelor of Science",
-          institution: "MIT",
-          dateConferred: "2025-06-15",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
         },
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "vc-jwt",
@@ -282,13 +281,12 @@ describe("IPC Handler Integration Tests", () => {
 
       const result = await buildAndSign({
         keyId,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: "did:key:z6Mktest",
         credentialSubject: {
           name: "Jane Doe",
-          degree: "Bachelor of Science",
-          institution: "MIT",
-          dateConferred: "2025-06-15",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
         },
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "data-integrity",
@@ -308,17 +306,16 @@ describe("IPC Handler Integration Tests", () => {
 
       const result = await buildAndSign({
         keyId,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: "did:key:z6Mktest",
         credentialSubject: {
           name: "Jane Doe",
-          degree: "Bachelor of Science",
-          institution: "MIT",
-          dateConferred: "2025-06-15",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
         },
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "sd-jwt-vc",
-        selectiveDisclosureClaims: ["name", "degree"],
+        selectiveDisclosureClaims: ["name", "role"],
       });
 
       expect(result.success).toBe(true);
@@ -338,13 +335,12 @@ describe("IPC Handler Integration Tests", () => {
 
       const result = await buildAndSign({
         keyId,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: "did:web:issuer.example.com",
         credentialSubject: {
           name: "Jane Doe",
-          degree: "Bachelor of Science",
-          institution: "MIT",
-          dateConferred: "2025-06-15",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
         },
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "vc-jwt",
@@ -365,13 +361,12 @@ describe("IPC Handler Integration Tests", () => {
 
       const result = await buildAndSign({
         keyId,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: "did:web:issuer.example.com",
         credentialSubject: {
           name: "Jane Doe",
-          degree: "Bachelor of Science",
-          institution: "MIT",
-          dateConferred: "2025-06-15",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
         },
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "data-integrity",
@@ -387,13 +382,12 @@ describe("IPC Handler Integration Tests", () => {
 
       const result = await buildAndSign({
         keyId,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: "did:key:z6MktestABC",
         credentialSubject: {
           name: "Jane Doe",
-          degree: "Bachelor of Science",
-          institution: "MIT",
-          dateConferred: "2025-06-15",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
         },
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "data-integrity",
@@ -528,13 +522,12 @@ describe("IPC Handler Integration Tests", () => {
     it("should reject build & sign with nonexistent key", async () => {
       const result = await buildAndSign({
         keyId: "nonexistent-key-id",
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: "did:key:z6Mktest",
         credentialSubject: {
           name: "Test",
-          degree: "BS",
-          institution: "MIT",
-          dateConferred: "2025-01-01",
+          role: "Test Subject",
+          validFrom: "2025-01-01T00:00:00Z",
         },
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "vc-jwt",
@@ -552,13 +545,12 @@ describe("IPC Handler Integration Tests", () => {
       // P-256 should work fine with data-integrity
       const result = await buildAndSign({
         keyId,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: "did:key:z6Mktest",
         credentialSubject: {
           name: "Test",
-          degree: "BS",
-          institution: "MIT",
-          dateConferred: "2025-01-01",
+          role: "Test Subject",
+          validFrom: "2025-01-01T00:00:00Z",
         },
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "data-integrity",
@@ -571,10 +563,10 @@ describe("IPC Handler Integration Tests", () => {
 
       const result = await buildAndSign({
         keyId,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: "did:key:z6Mktest",
         credentialSubject: {
-          // Missing required fields: degree, institution, dateConferred
+          // Missing required fields: role, validFrom
           name: "Jane",
         },
         validFrom: "2025-01-01T00:00:00Z",
@@ -594,19 +586,18 @@ describe("IPC Handler Integration Tests", () => {
       const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_LIST];
       const result = (await handler(fakeEvent)) as { schemas: string[] };
 
-      expect(result.schemas).toContain("education");
-      expect(result.schemas).toContain("employment");
-      expect(result.schemas).toContain("identity");
+      expect(result.schemas).toContain("functional-identity/v1");
+      expect(result.schemas).toContain("immunization/v1");
+      expect(result.schemas).toContain("electricity/v1");
     });
 
     it("should get a specific schema definition", async () => {
       const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_GET];
-      const result = (await handler(fakeEvent, { schemaId: "education" })) as Record<
-        string,
-        unknown
-      >;
+      const result = (await handler(fakeEvent, {
+        schemaId: "functional-identity/v1",
+      })) as Record<string, unknown>;
 
-      expect(result.id).toBe("education");
+      expect(result.id).toBe("functional-identity/v1");
       expect(result.schema).toBeDefined();
     });
   });
@@ -620,13 +611,12 @@ describe("IPC Handler Integration Tests", () => {
 
       const signResult = await buildAndSign({
         keyId,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: keyId.split("#")[0],
         credentialSubject: {
           name: "Jane Doe",
-          degree: "Bachelor of Science",
-          institution: "MIT",
-          dateConferred: "2025-06-15",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
         },
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "vc-jwt",
@@ -644,13 +634,12 @@ describe("IPC Handler Integration Tests", () => {
 
       const signResult = await buildAndSign({
         keyId,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: keyId.split("#")[0],
         credentialSubject: {
           name: "Jane Doe",
-          degree: "Bachelor of Science",
-          institution: "MIT",
-          dateConferred: "2025-06-15",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
         },
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "data-integrity",
@@ -668,13 +657,12 @@ describe("IPC Handler Integration Tests", () => {
 
       const signResult = await buildAndSign({
         keyId,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: keyId.split("#")[0],
         credentialSubject: {
           name: "Jane Doe",
-          degree: "Bachelor of Science",
-          institution: "MIT",
-          dateConferred: "2025-06-15",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
         },
         validFrom: "2025-01-01T00:00:00Z",
         proofFormat: "data-integrity",
@@ -730,25 +718,11 @@ describe("IPC Handler Integration Tests", () => {
   describe("All built-in schemas", () => {
     const schemas = [
       {
-        id: "education",
-        subject: { name: "Jane", degree: "BS", institution: "MIT", dateConferred: "2025-01-01" },
-      },
-      {
-        id: "employment",
+        id: "functional-identity/v1",
         subject: {
-          name: "John Smith",
-          employer: "Acme Corp",
-          position: "Engineer",
-          startDate: "2025-01-01",
-        },
-      },
-      {
-        id: "identity",
-        subject: {
-          name: "Alice Johnson",
-          dateOfBirth: "1990-01-01",
-          nationality: "US",
-          documentNumber: "A12345",
+          name: "Jane",
+          role: "University Student",
+          validFrom: "2025-01-01T00:00:00Z",
         },
       },
     ];

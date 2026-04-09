@@ -7,19 +7,17 @@ export class SchemaRegistry {
   private readonly typeToContext = new Map<string, string>();
   private cachedManifest: SchemaManifest | null = null;
 
-  registerSchema(
-    id: string,
-    schema: Record<string, unknown>,
-    contextUrl?: string,
-    version = "1.0.0",
-    lastUpdated = "2025-05-01T00:00:00Z",
-  ): void {
-    const definition: SchemaDefinition = { id, schema, contextUrl, version, lastUpdated };
-    this.schemas.set(id, definition);
-    if (contextUrl) {
-      this.typeToContext.set(id, contextUrl);
+  /**
+   * Register a fully-formed schema definition. Used by the build-time
+   * generated registry to load every credential from manifest.json with
+   * its hash and source provenance already populated.
+   */
+  register(def: SchemaDefinition): void {
+    this.schemas.set(def.id, def);
+    if (def.contextUrl) {
+      this.typeToContext.set(def.id, def.contextUrl);
     }
-    this.cachedManifest = null; // invalidate on registration
+    this.cachedManifest = null;
   }
 
   getSchema(id: string): SchemaDefinition {
@@ -40,7 +38,10 @@ export class SchemaRegistry {
 
   /**
    * Compute a SHA-256 checksum for a schema's JSON representation.
-   * This is used for integrity verification when caching/updating schemas.
+   * Kept for backward compatibility with downstream callers
+   * (apps/desktop/src/main/ipc-handlers.ts) that hash user-supplied
+   * schema bodies. New code should prefer canonicalJsonSha256 from
+   * @opencred/shared.
    */
   static computeChecksum(schema: Record<string, unknown>): string {
     const canonical = JSON.stringify(schema);
@@ -49,14 +50,14 @@ export class SchemaRegistry {
 
   /**
    * Generate a manifest describing all registered schemas, their versions,
-   * and checksums. Used for update-checking against a remote manifest.
+   * and pinned checksums.
    */
   getManifest(): SchemaManifest {
     if (this.cachedManifest) return this.cachedManifest;
     const schemas = [...this.schemas.values()].map((def) => ({
       id: def.id,
       version: def.version,
-      checksum: SchemaRegistry.computeChecksum(def.schema),
+      checksum: def.checksum,
     }));
     this.cachedManifest = { schemas };
     return this.cachedManifest;

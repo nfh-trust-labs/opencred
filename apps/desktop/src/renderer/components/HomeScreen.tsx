@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { TemplateCard } from "./ui/TemplateCard";
+import { formatSchemaLabel } from "../utils/schema-label.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,21 +21,7 @@ interface Props {
   onSelectTemplate: (schemaId: string, isBlank: boolean) => void;
 }
 
-const SCHEMA_LABELS: Record<string, string> = {
-  education: "Education Credential",
-  employment: "Employment Credential",
-  identity: "Identity Credential",
-  health: "Health Credential",
-  business: "Business Credential",
-  "energy-prosumer": "Energy Prosumer",
-};
-
 const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
-  education: "Degree, institution, GPA, date conferred",
-  employment: "Employee name, employer, position, dates",
-  identity: "Full name, date of birth, nationality, document number",
-  health: "Patient name, condition, diagnosis date, provider",
-  business: "Business name, registration number, jurisdiction",
   blank: "Define your own credential fields",
 };
 
@@ -114,7 +101,7 @@ export function HomeScreen({ onSelectTemplate }: Props) {
             <TemplateCard
               key={id}
               schemaId={id}
-              name={SCHEMA_LABELS[id] ?? id}
+              name={formatSchemaLabel(id)}
               subtitle={TEMPLATE_DESCRIPTIONS[id]}
               onClick={() => onSelectTemplate(id, false)}
             />
