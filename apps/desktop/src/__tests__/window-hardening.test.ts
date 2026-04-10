@@ -209,9 +209,9 @@ describe("BrowserWindow hardening (#334)", () => {
     createWindow();
     const setWindowOpenHandler = captured!.webContents.setWindowOpenHandler;
     expect(setWindowOpenHandler).toHaveBeenCalledTimes(1);
-    const handlerFn = setWindowOpenHandler.mock.calls[0][0] as (
-      details: { url: string },
-    ) => { action: string };
+    const handlerFn = setWindowOpenHandler.mock.calls[0][0] as (details: { url: string }) => {
+      action: string;
+    };
     expect(handlerFn({ url: "https://evil.example" }).action).toBe("deny");
     expect(handlerFn({ url: "about:blank" }).action).toBe("deny");
   });
@@ -221,9 +221,7 @@ describe("BrowserWindow hardening (#334)", () => {
     createWindow();
     const onFn = captured!.webContents.on;
     // Find the will-navigate call — there may also be console-message.
-    const willNavigateCall = onFn.mock.calls.find(
-      (c: unknown[]) => c[0] === "will-navigate",
-    );
+    const willNavigateCall = onFn.mock.calls.find((c: unknown[]) => c[0] === "will-navigate");
     expect(willNavigateCall).toBeDefined();
     const listener = willNavigateCall![1] as (
       event: { preventDefault: () => void },
@@ -238,9 +236,7 @@ describe("BrowserWindow hardening (#334)", () => {
     captured = null;
     createWindow();
     const onFn = captured!.webContents.on;
-    const willNavigateCall = onFn.mock.calls.find(
-      (c: unknown[]) => c[0] === "will-navigate",
-    );
+    const willNavigateCall = onFn.mock.calls.find((c: unknown[]) => c[0] === "will-navigate");
     const listener = willNavigateCall![1] as (
       event: { preventDefault: () => void },
       url: string,

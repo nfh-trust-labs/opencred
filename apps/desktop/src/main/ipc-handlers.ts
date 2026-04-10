@@ -948,10 +948,7 @@ const CONFIG_GET_ALLOWLIST = new Set<string>([
 ]);
 
 /** Config keys the renderer is allowed to WRITE via the SET_CONFIG IPC channel. */
-const CONFIG_SET_ALLOWLIST = new Set<string>([
-  "keyRotationDismissedUntil",
-  "organizationName",
-]);
+const CONFIG_SET_ALLOWLIST = new Set<string>(["keyRotationDismissedUntil", "organizationName"]);
 
 /** GET_CONFIG — read a value from electron-store. */
 async function handleGetConfig(

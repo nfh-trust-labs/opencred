@@ -93,8 +93,7 @@ MIICpDCCAYwCCQDU+pQ4pHgSpDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
   });
 
   it("redacts long base64url strings with mixed alphabet (#330)", () => {
-    const key =
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
+    const key = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
     expect(redact(key)).toBe("[REDACTED]");
   });
 
@@ -113,7 +112,6 @@ MIICpDCCAYwCCQDU+pQ4pHgSpDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
     expect(result).not.toContain("abcDEF123_-xyz456");
     expect(result).toContain("x=publicpart");
   });
-
 
   it("does NOT redact absolute filesystem paths with extensions", () => {
     const path =
@@ -178,8 +176,7 @@ describe("redactValue", () => {
   it("redacts base64url key material nested in objects (#330)", () => {
     const obj = {
       keyId: "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
-      privateKeyD:
-        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-",
+      privateKeyD: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-",
     };
     const result = redactValue(obj) as Record<string, unknown>;
     // DID stays readable

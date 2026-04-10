@@ -78,10 +78,7 @@ export function redact(input: string): string {
     .replace(PEM_BLOCK_RE, "[REDACTED-PEM]")
     .replace(JWK_D_FIELD_JSON_RE, '"d":"[REDACTED]"')
     .replace(JWK_D_FIELD_SINGLE_RE, "'d':'[REDACTED]'")
-    .replace(
-      JWK_D_FIELD_URL_RE,
-      (_match, lead: string | undefined) => `${lead ?? ""}d=[REDACTED]`,
-    );
+    .replace(JWK_D_FIELD_URL_RE, (_match, lead: string | undefined) => `${lead ?? ""}d=[REDACTED]`);
 
   // Step 2: skip the base64url pass entirely if the string looks like a URL
   // or an absolute filesystem path. Both contain long runs from the base64
