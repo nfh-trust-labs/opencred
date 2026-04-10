@@ -33,9 +33,11 @@ export interface Logger {
 
 const PEM_BLOCK_RE = /-----BEGIN[A-Z ]+-----[\s\S]*?-----END[A-Z ]+-----/g;
 const JWK_D_FIELD_RE = /"d"\s*:\s*"[^"]+"/g;
-// Require "+" to distinguish base64 from URLs/paths/IDs — "+" is unique to
-// standard base64 encoding and absent from URLs, file paths, and identifiers.
-const LONG_BASE64_RE = /(?=[A-Za-z0-9+/]*\+)[A-Za-z0-9+/]{40,}={0,3}/g;
+// Match long base64 or base64url strings (40+ chars).
+// Standard base64 uses +/ so we require "+" (slash alone matches URLs).
+// Base64url uses -_ instead, so we require at least one "-" or "_".
+const LONG_BASE64_RE =
+  /(?=[A-Za-z0-9+/]*\+)[A-Za-z0-9+/]{40,}={0,3}|(?=[A-Za-z0-9\-_]*[\-_])[A-Za-z0-9\-_]{40,}={0,3}/g;
 
 export function redact(input: string): string {
   return input

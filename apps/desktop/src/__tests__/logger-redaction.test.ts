@@ -79,10 +79,21 @@ MIICpDCCAYwCCQDU+pQ4pHgSpDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
     expect(result).toBe(url);
   });
 
-  it("does NOT redact long base64url strings (no + char)", () => {
-    // base64url uses - and _ instead of + and / — JWK d fields catch these separately
-    const b64url = "MHQCAQEEIBkg4LVWM9nuwNSk3yByxZpYRTBnVJk5GkMnNaWPKyho";
-    expect(redact(b64url)).toBe(b64url);
+  it("redacts long base64url strings with - and _", () => {
+    // base64url uses - and _ instead of + and / — these must also be caught
+    const b64url = "abc-def_ghijklmnopqrstuvwxyz0123456789ABCDEFG";
+    expect(redact(b64url)).toBe("[REDACTED]");
+  });
+
+  it("does NOT redact long pure-alphanumeric strings (no base64 special chars)", () => {
+    // A transaction ID or similar identifier — pure alphanumeric, no +, /, -, or _
+    const txId = "abc123def456ghi789jkl012mno345pqr678stu901vwx";
+    expect(redact(txId)).toBe(txId);
+  });
+
+  it("does NOT redact short base64url strings (under 40 chars)", () => {
+    const short = "abc-def_ghi";
+    expect(redact(short)).toBe(short);
   });
 
   it("does NOT redact short base64 strings", () => {
