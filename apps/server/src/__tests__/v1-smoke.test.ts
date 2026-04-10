@@ -31,7 +31,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  app = createTestApp();
+  app = createTestApp({ devModeNoAuth: true });
   setActiveSigner(testKey.signer);
 });
 
