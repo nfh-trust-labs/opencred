@@ -25,6 +25,7 @@ import type {
   JWK,
 } from "@opencred/did";
 import { checkX509Chain, loadCscaTrustStore } from "../x509-chain-check.js";
+import { CscaTrustStore } from "../csca-trust-store.js";
 
 // ---------------------------------------------------------------------------
 // Test cert helpers
@@ -572,6 +573,121 @@ describe("loadCscaTrustStore", () => {
 
       expect(anchors).toHaveLength(1);
       expect(skipped).toHaveLength(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CscaTrustStore integration with checkX509Chain
+// ---------------------------------------------------------------------------
+
+describe("CscaTrustStore + checkX509Chain integration", () => {
+  it("passes when trust store loaded from directory contains the root cert", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "csca-integration-"));
+    try {
+      const chain = buildCertChain();
+      // Write the root cert to the trust store directory.
+      await writeFile(path.join(dir, "root.pem"), chain.rootPem);
+
+      const trustStore = await CscaTrustStore.fromDirectory(dir);
+      expect(trustStore.size).toBe(1);
+
+      const did = "did:web:test.example";
+      const vmId = `${did}#key-0`;
+      const credential = buildCredential({
+        x5c: [chain.leafBase64, chain.intermediateBase64, chain.rootBase64],
+        verificationMethod: vmId,
+      });
+
+      const result = await checkX509Chain(credential, {
+        didResolver: makeResolver(did, vmId, chain.leafJwk),
+        trustAnchors: trustStore.toPemArray(),
+      });
+
+      expect(result.passed).toBe(true);
+      expect(result.detail).toContain("DSC verified");
+      expect(result.detail).toContain("anchored to");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails when trust store does not contain the chain's root cert", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "csca-integration-"));
+    try {
+      // Load a different root cert into the trust store — NOT the one
+      // that signed the chain.
+      const unrelated = generateCert({ commonName: "Unrelated CSCA", isCa: true });
+      await writeFile(path.join(dir, "unrelated.pem"), unrelated.pem);
+
+      const trustStore = await CscaTrustStore.fromDirectory(dir);
+      expect(trustStore.size).toBe(1);
+
+      const chain = buildCertChain();
+      const did = "did:web:test.example";
+      const vmId = `${did}#key-0`;
+      const credential = buildCredential({
+        x5c: [chain.leafBase64, chain.intermediateBase64, chain.rootBase64],
+        verificationMethod: vmId,
+      });
+
+      const result = await checkX509Chain(credential, {
+        didResolver: makeResolver(did, vmId, chain.leafJwk),
+        trustAnchors: trustStore.toPemArray(),
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("does not terminate at a configured trust anchor");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when CscaTrustStore is empty (no graceful skip for DSC creds)", async () => {
+    const trustStore = CscaTrustStore.empty();
+    expect(trustStore.size).toBe(0);
+
+    const chain = buildCertChain();
+    const did = "did:web:test.example";
+    const vmId = `${did}#key-0`;
+    const credential = buildCredential({
+      x5c: [chain.leafBase64, chain.intermediateBase64, chain.rootBase64],
+      verificationMethod: vmId,
+    });
+
+    const result = await checkX509Chain(credential, {
+      didResolver: makeResolver(did, vmId, chain.leafJwk),
+      trustAnchors: trustStore.toPemArray(),
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.detail).toContain("requires a configured trust anchor");
+  });
+
+  it("non-DSC credentials pass without a trust store (graceful degradation)", async () => {
+    // Credentials without an x5c chain (e.g. did:web self-published keys)
+    // do not require trust anchors and should pass the x509-chain check.
+    const credential = buildCredential({
+      verificationMethod: "did:web:test.example#key-0",
+    });
+
+    const result = await checkX509Chain(credential);
+    expect(result.passed).toBe(true);
+    expect(result.detail).toContain("not a DSC-backed credential");
+  });
+
+  it("isTrusted correctly identifies root cert loaded from directory", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "csca-integration-"));
+    try {
+      const chain = buildCertChain();
+      await writeFile(path.join(dir, "root.pem"), chain.rootPem);
+
+      const trustStore = await CscaTrustStore.fromDirectory(dir);
+      const rootX509 = new X509Certificate(chain.rootPem);
+
+      expect(trustStore.isTrusted(rootX509)).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

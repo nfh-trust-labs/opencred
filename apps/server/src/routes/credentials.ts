@@ -33,7 +33,6 @@ import { CryptoError, ValidationError } from "@opencred/shared";
 import { requireSigner } from "../signing/key-manager.js";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
-import { getLogger } from "../logger.js";
 
 const credentials = new Hono();
 
@@ -430,7 +429,8 @@ credentials.post("/credentials/verify", async (c) => {
   // Verify using composite DID resolver (supports did:key, did:jwk, did:web)
   const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
     await import("@opencred/did");
-  const { verifyCredential, loadCscaTrustStore } = await import("@opencred/verification");
+  const { verifyCredential } = await import("@opencred/verification");
+  const { getTrustStore } = await import("../trust-store.js");
 
   const compositeResolver = new CompositeDIDResolver(
     new Map([
@@ -440,21 +440,12 @@ credentials.post("/credentials/verify", async (c) => {
     ]),
   );
 
-  // Load CSCA trust anchors if configured. Required for DSC-backed
-  // credentials per nfh-trust-labs/opencred#316. Any skipped files are
-  // surfaced via `logger.warn` so an operator can detect a partially
-  // loaded trust store instead of silently running with fewer anchors
-  // than expected.
-  const { getConfig } = await import("../config.js");
-  const config = getConfig();
-  const logger = getLogger();
-  const trustAnchors = config.CSCA_TRUST_STORE_PATH
-    ? await loadCscaTrustStore(config.CSCA_TRUST_STORE_PATH, {
-        onSkipped: ({ path: skippedPath, reason }) => {
-          logger.warn({ path: skippedPath, reason }, "CSCA trust store entry skipped");
-        },
-      })
-    : undefined;
+  // Use the CSCA trust store loaded at server startup. The trust store is
+  // loaded once from OPENCRED_CSCA_TRUST_STORE_PATH during bootstrap and
+  // shared across all verification requests. Required for DSC-backed
+  // credentials per nfh-trust-labs/opencred#316.
+  const trustStore = getTrustStore();
+  const trustAnchors = trustStore ? trustStore.toPemArray() : undefined;
 
   const verificationResult = await verifyCredential(credential, {
     didResolver: compositeResolver,

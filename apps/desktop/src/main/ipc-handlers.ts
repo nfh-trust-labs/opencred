@@ -683,16 +683,17 @@ async function handleVerifyCredential(
     //
     // Load CSCA trust anchors when configured. Required for DSC-backed
     // credentials per nfh-trust-labs/opencred#316. The path is taken from
-    // either the persisted preference or the CSCA_TRUST_STORE_PATH env var
-    // (env wins). When unconfigured, credentials with an x5c chain will be
-    // rejected with a fail-closed configuration error — this is intentional.
+    // either the persisted preference or the OPENCRED_CSCA_TRUST_STORE_PATH
+    // env var (env wins). When unconfigured, credentials with an x5c chain
+    // will be rejected with a fail-closed configuration error — this is
+    // intentional.
     const verifyStore = getStore();
     const verifyPrefs =
       (verifyStore.get("preferences" as keyof typeof verifyStore.store) as
         | Record<string, unknown>
         | undefined) ?? {};
     const cscaTrustStorePath =
-      process.env.CSCA_TRUST_STORE_PATH ??
+      process.env.OPENCRED_CSCA_TRUST_STORE_PATH ??
       (verifyPrefs["cscaTrustStorePath"] as string | undefined);
     const trustAnchors = cscaTrustStorePath
       ? await loadCscaTrustStore(cscaTrustStorePath, {

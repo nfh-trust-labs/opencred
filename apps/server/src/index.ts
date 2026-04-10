@@ -22,6 +22,8 @@ import { authMiddleware } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { loadSigningKey, setActiveSigner } from "./signing/key-manager.js";
 import { createSignerFromConfig } from "./signing/cloud-hsm/factory.js";
+import { CscaTrustStore } from "@opencred/verification";
+import { setTrustStore } from "./trust-store.js";
 import { health } from "./routes/health.js";
 import { schemas } from "./routes/schemas.js";
 import { credentials } from "./routes/credentials.js";
@@ -90,6 +92,35 @@ if (cloudSigner) {
   setActiveSigner(cloudSigner);
 } else {
   loadSigningKey();
+}
+
+// ---------------------------------------------------------------------------
+// CSCA Trust Store
+// ---------------------------------------------------------------------------
+// Load the CSCA trust store once at startup. The trust store is shared across
+// all verification requests via the `getTrustStore()` singleton.
+
+if (config.OPENCRED_CSCA_TRUST_STORE_PATH) {
+  const trustStore = await CscaTrustStore.fromDirectory(
+    config.OPENCRED_CSCA_TRUST_STORE_PATH,
+    {
+      onWarning: (msg) => logger.warn(msg),
+    },
+  );
+  setTrustStore(trustStore);
+  logger.info(
+    { path: config.OPENCRED_CSCA_TRUST_STORE_PATH, size: trustStore.size },
+    "CSCA trust store loaded",
+  );
+  if (trustStore.size === 0) {
+    logger.warn(
+      "CSCA trust store is empty — DSC-backed credentials will fail X.509 chain validation",
+    );
+  }
+} else {
+  logger.warn(
+    "OPENCRED_CSCA_TRUST_STORE_PATH is not set — DSC-backed credentials will fail X.509 chain validation",
+  );
 }
 
 // ---------------------------------------------------------------------------

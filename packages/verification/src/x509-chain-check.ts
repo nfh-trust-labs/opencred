@@ -69,7 +69,7 @@ export interface LoadCscaTrustStoreOptions {
 /**
  * Load all PEM-encoded certificates from a directory.
  *
- * Used to populate the trust anchor list from a `CSCA_TRUST_STORE_PATH`
+ * Used to populate the trust anchor list from a `OPENCRED_CSCA_TRUST_STORE_PATH`
  * directory containing one or more `.pem` / `.crt` / `.cer` files. Returns
  * an empty array if the directory does not exist or contains no PEM files.
  *
@@ -83,7 +83,7 @@ export interface LoadCscaTrustStoreOptions {
  * loads silently. The downstream chain check still fails closed if the
  * trust store is empty, but an operator-visible warning is the difference
  * between "DSC verification mysteriously rejects everything" and "warn
- * surfaced 'CSCA_TRUST_STORE_PATH directory not found'".
+ * surfaced 'OPENCRED_CSCA_TRUST_STORE_PATH directory not found'".
  */
 export async function loadCscaTrustStore(
   directory: string,
@@ -458,7 +458,7 @@ export async function checkX509Chain(
       name: "x509-chain",
       passed: false,
       detail:
-        "X.509 chain check requires a configured trust anchor (set CSCA_TRUST_STORE_PATH or pass trustAnchors to the verifier)",
+        "X.509 chain check requires a configured trust anchor (set OPENCRED_CSCA_TRUST_STORE_PATH or pass trustAnchors to the verifier)",
     };
   }
 

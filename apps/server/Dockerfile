@@ -27,6 +27,9 @@
 #   OPENCRED_KEY_LABEL       Display label shown in /v1/keys responses
 #   OPENCRED_KEY_PASSWORD    Password for PFX/P12 key files (only when needed)
 #   OPENCRED_SESSION_TTL     Ephemeral session TTL in seconds (default 14400)
+#   OPENCRED_CSCA_TRUST_STORE_PATH  Path to directory of PEM/DER CSCA root
+#                                   certificates for X.509 chain validation
+#                                   (default /app/trust-store)
 #
 # OPTIONAL CLOUD HSM (TODO #301 follow-up — full integration)
 #   OPENCRED_KMS_PROVIDER       aws | azure | gcp | none

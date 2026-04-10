@@ -237,7 +237,7 @@ DEDI_API_TIMEOUT_MS=10000
 MAX_BATCH_SIZE=1000
 
 # ---------- CSCA Trust Store ----------
-CSCA_TRUST_STORE_PATH=/app/csca-trust-store
+OPENCRED_CSCA_TRUST_STORE_PATH=/app/csca-trust-store
 ENV_TEMPLATE
 
     log "Created template .env file at ${OPENCRED_DIR}/.env"
