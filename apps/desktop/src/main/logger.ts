@@ -33,17 +33,46 @@ export interface Logger {
 
 const PEM_BLOCK_RE = /-----BEGIN[A-Z ]+-----[\s\S]*?-----END[A-Z ]+-----/g;
 const JWK_D_FIELD_RE = /"d"\s*:\s*"[^"]+"/g;
-// Match long base64 or base64url strings (40+ chars).
+// Match long standard base64 strings (40+ chars).
 // Standard base64 uses +/ so we require "+" (slash alone matches URLs).
-// Base64url uses -_ instead, so we require at least one "-" or "_".
-const LONG_BASE64_RE =
-  /(?=[A-Za-z0-9+/]*\+)[A-Za-z0-9+/]{40,}={0,3}|(?=[A-Za-z0-9\-_]*[\-_])[A-Za-z0-9\-_]{40,}={0,3}/g;
+const LONG_BASE64_STD_RE =
+  /(?=[A-Za-z0-9+/]*\+)[A-Za-z0-9+/]{40,}={0,3}/g;
+// Match long base64url strings (40+ chars).
+// Base64url uses -_ instead of +/; we require at least one "-" or "_".
+// Checked separately with an entropy filter to avoid false-positives on
+// kebab-case identifiers, CSS classes, and SCREAMING_SNAKE constants.
+const LONG_BASE64URL_RE =
+  /(?=[A-Za-z0-9\-_]*[\-_])[A-Za-z0-9\-_]{40,}={0,3}/g;
+
+/**
+ * Returns true when a candidate base64url string has high character-class
+ * diversity — all four of: uppercase, lowercase, digits, and special [-_].
+ *
+ * Real base64url-encoded binary data (keys, signatures) virtually always
+ * contains all four classes across 40+ characters.  Identifiers like
+ * kebab-case build strings, SCREAMING_SNAKE constants, CSS classes, and
+ * compound UUIDs typically use only 2-3 classes.
+ *
+ * The base64url regex already guarantees at least one "-" or "_", so
+ * this effectively requires uppercase + lowercase + digits in addition.
+ */
+export function isHighEntropy(s: string): boolean {
+  return (
+    /[A-Z]/.test(s) &&
+    /[a-z]/.test(s) &&
+    /[0-9]/.test(s) &&
+    /[-_]/.test(s)
+  );
+}
 
 export function redact(input: string): string {
   return input
     .replace(PEM_BLOCK_RE, "[REDACTED-PEM]")
     .replace(JWK_D_FIELD_RE, '"d":"[REDACTED]"')
-    .replace(LONG_BASE64_RE, "[REDACTED]");
+    .replace(LONG_BASE64_STD_RE, "[REDACTED]")
+    .replace(LONG_BASE64URL_RE, (match) =>
+      isHighEntropy(match) ? "[REDACTED]" : match,
+    );
 }
 
 export function redactValue(value: unknown): unknown {
