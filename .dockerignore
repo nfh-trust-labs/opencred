@@ -55,7 +55,9 @@ Thumbs.db
 .claude/
 opencred-website/
 demos/
-scripts/
+# Root-level scripts only — packages/*/scripts/ must be included for build steps
+# (e.g. packages/vc-core/scripts/embed-contexts.cjs).
+/scripts/
 demo-fixtures/
 scratchpad.md
 .pnpm-store/

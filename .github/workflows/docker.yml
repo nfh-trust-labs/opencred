@@ -146,21 +146,23 @@ jobs:
       - name: Pull and run container
         env:
           IMAGE_TAG: ${{ steps.version.outputs.version }}
+          IMAGE_NAME: ${{ env.SERVER_IMAGE }}
         run: |
           docker run -d --name opencred-smoke \
             -p 3100:3100 \
             -e OPENCRED_LOG_LEVEL=info \
-            "$SERVER_IMAGE:$IMAGE_TAG"
+            -e OPENCRED_DEV_MODE_NO_AUTH=true \
+            "${IMAGE_NAME}:${IMAGE_TAG}"
 
           # Wait for container to start
           sleep 5
 
-          # Health check
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3100/health)
+          # Health check — use the versioned /v1/health endpoint
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3100/v1/health)
           echo "Health check returned: $HTTP_CODE"
 
           if [ "$HTTP_CODE" != "200" ]; then
-            echo "Smoke test failed — /health returned $HTTP_CODE"
+            echo "Smoke test failed — /v1/health returned $HTTP_CODE"
             docker logs opencred-smoke
             exit 1
           fi
