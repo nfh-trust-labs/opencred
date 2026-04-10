@@ -1,4 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// Mock node:dns so tests do not perform real DNS lookups. The default
+// mock resolves every hostname to a public IPv4 address; tests that
+// exercise SSRF behaviour override this via vi.mocked() or spyOn.
+vi.mock("node:dns", () => ({
+  promises: {
+    resolve4: vi.fn().mockResolvedValue(["93.184.216.34"]),
+    resolve6: vi.fn().mockResolvedValue([]),
+  },
+}));
 import { DeDiClientError } from "@opencred/shared";
 import { DeDiApiClient } from "../api/api-client.js";
 import type { DeDiApiClientConfig } from "../api/api-client.js";
@@ -49,40 +59,37 @@ describe("DeDiApiClient", () => {
   // ── HTTPS enforcement ────────────────────────────────────────────
 
   describe("HTTPS enforcement", () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-
-    afterEach(() => {
-      process.env.NODE_ENV = originalNodeEnv;
+    it("rejects http:// URLs regardless of NODE_ENV", () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      try {
+        for (const env of ["production", "development", "test", undefined]) {
+          if (env === undefined) delete process.env.NODE_ENV;
+          else process.env.NODE_ENV = env;
+          expect(
+            () => new DeDiApiClient(createConfig({ baseUrl: "http://dedi.example.com" })),
+          ).toThrow(DeDiClientError);
+        }
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
     });
 
-    it("throws DeDiClientError for http:// in production", () => {
-      process.env.NODE_ENV = "production";
-      expect(() => new DeDiApiClient(createConfig({ baseUrl: "http://dedi.example.com" }))).toThrow(
+    it("rejects non-HTTP schemes such as ftp://", () => {
+      expect(() => new DeDiApiClient(createConfig({ baseUrl: "ftp://dedi.example.com" }))).toThrow(
+        /HTTPS/,
+      );
+    });
+
+    it("rejects malformed URLs", () => {
+      expect(() => new DeDiApiClient(createConfig({ baseUrl: "not-a-url" }))).toThrow(
         DeDiClientError,
       );
     });
 
-    it("allows http:// in development", () => {
-      process.env.NODE_ENV = "development";
+    it("accepts https:// URLs", () => {
       expect(
-        () => new DeDiApiClient(createConfig({ baseUrl: "http://dedi.example.com" })),
+        () => new DeDiApiClient(createConfig({ baseUrl: "https://dedi.example.com" })),
       ).not.toThrow();
-    });
-
-    it("allows http:// in test", () => {
-      process.env.NODE_ENV = "test";
-      expect(
-        () => new DeDiApiClient(createConfig({ baseUrl: "http://dedi.example.com" })),
-      ).not.toThrow();
-    });
-
-    it("allows https:// in all environments", () => {
-      for (const env of ["production", "development", "test"]) {
-        process.env.NODE_ENV = env;
-        expect(
-          () => new DeDiApiClient(createConfig({ baseUrl: "https://dedi.example.com" })),
-        ).not.toThrow();
-      }
     });
   });
 
