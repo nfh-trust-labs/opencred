@@ -64,8 +64,11 @@ export function getActiveSigner(): Signer | null {
 
 /**
  * Set the active signer (used by the Cloud HSM factory).
+ *
+ * Pass `null` to clear the signer — useful for tests that need to assert
+ * the "no key loaded" branch of the API.
  */
-export function setActiveSigner(signer: Signer): void {
+export function setActiveSigner(signer: Signer | null): void {
   activeSigner = signer;
 }
 

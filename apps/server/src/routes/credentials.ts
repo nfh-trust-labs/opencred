@@ -29,13 +29,94 @@ import {
   prepareSdJwtVcProof,
   completeSdJwtVcProof,
 } from "@opencred/crypto";
-import { CryptoError } from "@opencred/shared";
+import { CryptoError, ValidationError } from "@opencred/shared";
 import { requireSigner } from "../signing/key-manager.js";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { getLogger } from "../logger.js";
 
 const credentials = new Hono();
+
+/**
+ * Hard-coded list of fields that MUST NOT appear in any request body.
+ * The OpenCred server NEVER accepts private key material via the HTTP API —
+ * keys are loaded once at startup from the local filesystem (or a configured
+ * Cloud HSM provider). Any request that smuggles in a private key (or even
+ * a string that looks like one) is rejected with a 400.
+ */
+const FORBIDDEN_REQUEST_KEYS = new Set([
+  "privateKey",
+  "private_key",
+  "privateKeyJwk",
+  "private_key_jwk",
+  "privateKeyPem",
+  "private_key_pem",
+  "pkcs8",
+  "pkcs12",
+  "pfx",
+  "p12",
+  "keyMaterial",
+  "key_material",
+]);
+
+/**
+ * Regular expression matching any PEM private key header. Covers all common
+ * encodings the OpenSSL toolchain produces by default:
+ *
+ *   -----BEGIN PRIVATE KEY-----            PKCS#8 (unencrypted)
+ *   -----BEGIN ENCRYPTED PRIVATE KEY-----  PKCS#8 (encrypted, RFC 5958)
+ *   -----BEGIN RSA PRIVATE KEY-----        PKCS#1 RSA (openssl genrsa default)
+ *   -----BEGIN EC PRIVATE KEY-----         SEC1 EC (openssl ecparam -genkey default)
+ *   -----BEGIN DSA PRIVATE KEY-----        OpenSSL DSA
+ *   -----BEGIN OPENSSH PRIVATE KEY-----    OpenSSH
+ *
+ * The previous substring check `"BEGIN PRIVATE KEY"` only matched the PKCS#8
+ * unencrypted form — an attacker or misconfigured client submitting any of
+ * the other formats slipped through. See CLAUDE.md rule 1.
+ */
+const PEM_PRIVATE_KEY_RE = /-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----/;
+
+/**
+ * Recursively walk an unknown JSON value and throw a ValidationError if any
+ * key in {@link FORBIDDEN_REQUEST_KEYS} is present, OR if any string value
+ * looks like a PEM-encoded private key.
+ *
+ * This is a defense-in-depth check on top of Zod's schema parsing — Zod
+ * silently drops unknown fields, but we want a loud, audited rejection so
+ * misconfigured clients learn fast and never accidentally upload key material.
+ *
+ * Exported so every route that accepts a JSON body (issue, verify, batch,
+ * revocation, packaging) applies the same guard — there must never be a
+ * "back door" route that forgets to call this. See CLAUDE.md rule 1.
+ */
+export function rejectKeyMaterial(value: unknown, path = ""): void {
+  if (value === null || typeof value !== "object") {
+    if (typeof value === "string" && PEM_PRIVATE_KEY_RE.test(value)) {
+      throw new ValidationError(
+        `Request rejected: field at "${path || "<root>"}" looks like a PEM-encoded private key. ` +
+          "OpenCred never accepts private key material via the HTTP API.",
+      );
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      rejectKeyMaterial(item, `${path}[${String(index)}]`);
+    });
+    return;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (FORBIDDEN_REQUEST_KEYS.has(key)) {
+      throw new ValidationError(
+        `Request rejected: field "${key}" is forbidden. ` +
+          "OpenCred never accepts private key material via the HTTP API.",
+      );
+    }
+    rejectKeyMaterial(child, path ? `${path}.${key}` : key);
+  }
+}
 
 // Singleton schema registry and validator
 let registryInstance: SchemaRegistry | null = null;
@@ -82,6 +163,9 @@ const verifyRequestSchema = z.object({
 
 credentials.post("/credentials/issue", async (c) => {
   const body = await c.req.json();
+  // SECURITY: reject any request that contains private key material BEFORE
+  // we even look at the schema. See FORBIDDEN_REQUEST_KEYS above.
+  rejectKeyMaterial(body);
   const parsed = issueRequestSchema.parse(body);
   const signer = requireSigner();
 
@@ -238,6 +322,14 @@ credentials.post("/credentials/issue", async (c) => {
       isCompactToken = true;
       break;
     }
+
+    default: {
+      // Exhaustiveness guard: if Zod's proofFormat enum is widened without
+      // updating this switch, fail loudly instead of returning a response
+      // body where `signedOutput` is undefined.
+      const _exhaustive: never = proofFormat;
+      throw new CryptoError(`Unsupported proofFormat: ${String(_exhaustive)}`);
+    }
   }
 
   // Package if formats requested (only for JSON-based credentials, not compact tokens)
@@ -329,6 +421,8 @@ export function buildVerifyResponseBody(result: {
 
 credentials.post("/credentials/verify", async (c) => {
   const body = await c.req.json();
+  // SECURITY: even verify requests must not contain private key material.
+  rejectKeyMaterial(body);
   const parsed = verifyRequestSchema.parse(body);
 
   const credential = JSON.parse(parsed.credential);

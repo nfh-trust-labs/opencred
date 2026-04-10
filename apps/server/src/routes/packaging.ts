@@ -11,6 +11,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
+import { rejectKeyMaterial } from "./credentials.js";
 
 const packaging = new Hono();
 
@@ -23,6 +24,8 @@ const packageRequestSchema = z.object({
 
 packaging.post("/credentials/package", async (c) => {
   const body = await c.req.json();
+  // SECURITY: defense-in-depth — no route accepts key material. See CLAUDE.md rule 1.
+  rejectKeyMaterial(body);
   const parsed = packageRequestSchema.parse(body);
 
   const credential = parsed.credential as unknown as Parameters<typeof packageCredential>[0];
