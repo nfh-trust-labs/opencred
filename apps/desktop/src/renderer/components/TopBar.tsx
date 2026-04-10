@@ -6,6 +6,7 @@
  */
 
 import type { View } from "../App";
+import logoSrc from "../assets/logo.svg";
 
 interface Props {
   activeView: View;
@@ -45,6 +46,7 @@ export function TopBar({ activeView, isOffline, rotationOverdue, onNavigate }: P
           className="oc-topbar-logo"
           aria-label="Go to home"
         >
+          <img src={logoSrc} alt="" width={20} height={20} className="oc-topbar-logo-icon" />
           OpenCred
         </button>
         <button

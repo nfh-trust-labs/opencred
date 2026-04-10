@@ -23,6 +23,7 @@ import { HardwareToken } from "./HardwareToken";
 import { OsCertStore } from "./OsCertStore";
 import { SelfPublishedSetup } from "./SelfPublishedSetup";
 import { DeDiSetup } from "./DeDiSetup";
+import logoSrc from "../assets/logo.svg";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -204,7 +205,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   return (
     <div className="min-h-screen bg-surface-bg flex flex-col font-body">
       <div className="oc-titlebar">
-        <span style={{ flex: 1, textAlign: "center" }}>OpenCred</span>
+        <span style={{ flex: 1, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <img src={logoSrc} alt="" width={16} height={16} />
+          OpenCred
+        </span>
       </div>
 
       <main className="flex-1 flex flex-col items-center justify-center px-4">
@@ -218,6 +222,13 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           {step === "welcome" && (
             <Card className="space-y-6 text-center py-10 px-8">
               <div className="space-y-4">
+                <img
+                  src={logoSrc}
+                  alt="OpenCred logo"
+                  width={64}
+                  height={64}
+                  className="mx-auto"
+                />
                 <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
                   Welcome to OpenCred
                 </h2>

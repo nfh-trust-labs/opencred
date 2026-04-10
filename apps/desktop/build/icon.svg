@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="64" fill="#0057FF"/>
+  <!-- Document shape -->
+  <path d="M128 80 H320 L384 144 V432 H128 Z" fill="#ffffff" stroke="#ffffff" stroke-width="4" stroke-linejoin="miter"/>
+  <path d="M320 80 V144 H384" fill="none" stroke="#0057FF" stroke-width="4" stroke-linejoin="miter"/>
+  <!-- Text lines -->
+  <line x1="160" y1="184" x2="352" y2="184" stroke="#0057FF" stroke-width="8" stroke-linecap="round"/>
+  <line x1="160" y1="224" x2="336" y2="224" stroke="#0057FF" stroke-width="8" stroke-linecap="round"/>
+  <line x1="160" y1="264" x2="352" y2="264" stroke="#0057FF" stroke-width="8" stroke-linecap="round"/>
+  <line x1="160" y1="304" x2="304" y2="304" stroke="#0057FF" stroke-width="8" stroke-linecap="round"/>
+  <!-- QR block -->
+  <rect x="296" y="344" width="72" height="72" rx="4" fill="#0057FF"/>
+  <rect x="304" y="352" width="16" height="16" fill="#ffffff"/>
+  <rect x="344" y="352" width="16" height="16" fill="#ffffff"/>
+  <rect x="304" y="392" width="16" height="16" fill="#ffffff"/>
+  <rect x="336" y="384" width="8" height="8" fill="#ffffff"/>
+  <rect x="352" y="400" width="8" height="8" fill="#ffffff"/>
+</svg>
