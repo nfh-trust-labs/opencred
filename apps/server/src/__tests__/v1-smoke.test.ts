@@ -31,7 +31,9 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  app = createTestApp();
+  // devModeNoAuth: smoke tests exercise endpoint logic, not auth.
+  // Auth is tested separately in auth.test.ts.
+  app = createTestApp({ devModeNoAuth: true });
   setActiveSigner(testKey.signer);
 });
 
