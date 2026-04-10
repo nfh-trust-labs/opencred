@@ -106,8 +106,12 @@ jobs:
           EB_ARGS: ${{ matrix.electron_builder_args }}
         shell: bash
         working-directory: apps/desktop
+        # Override forceCodeSigning for CI builds — package.json sets it to
+        # true so release builds (desktop-release.yml) enforce signing by
+        # default.  Non-release CI builds have no signing certs configured
+        # (CSC_IDENTITY_AUTO_DISCOVERY is false), so we must disable it here.
         run: |
-          npx electron-builder $EB_ARGS --publish never
+          npx electron-builder $EB_ARGS --publish never --config.forceCodeSigning=false
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
