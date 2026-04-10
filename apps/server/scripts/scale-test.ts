@@ -123,9 +123,12 @@ const FUNCTIONAL_IDENTITY_SUBJECT = {
   affiliation: { name: "Acme Medical Council" },
 };
 
-const ISSUE_PAYLOAD = {
+// issuerDid is populated at runtime from the server's /keys endpoint so that
+// verify and mixed scenarios can resolve the DID.  The placeholder below is
+// overwritten in main() before any scenario runs.
+let ISSUE_PAYLOAD = {
   schemaId: "functional-identity/v1",
-  issuerDid: "did:key:test-issuer",
+  issuerDid: "",  // set by discoverIssuerDid()
   credentialSubject: FUNCTIONAL_IDENTITY_SUBJECT,
   validFrom: "2025-06-15T00:00:00Z",
   proofFormat: "vc-jwt",
@@ -299,7 +302,7 @@ async function runBatchScenario(config: ScaleTestConfig): Promise<ScenarioResult
     const batchPayload = {
       csvContent: csv,
       schemaId: "functional-identity/v1",
-      issuerDid: "did:key:test-issuer",
+      issuerDid: ISSUE_PAYLOAD.issuerDid,
       validFrom: "2025-06-15T00:00:00Z",
       proofFormat: "vc-jwt",
     };
@@ -404,6 +407,31 @@ async function waitForServer(baseUrl: string, apiKey?: string, maxRetries = 20):
 }
 
 // ---------------------------------------------------------------------------
+// Issuer DID discovery — derive the DID from the server's signing key
+// ---------------------------------------------------------------------------
+
+async function discoverIssuerDid(baseUrl: string, apiKey?: string): Promise<string> {
+  const headers = makeHeaders(apiKey);
+  delete headers["Content-Type"];
+
+  const res = await fetch(`${baseUrl}/keys`, { headers, signal: AbortSignal.timeout(5000) });
+  if (!res.ok) {
+    throw new Error(`GET /keys failed (${res.status}): ${await res.text()}`);
+  }
+  const body = (await res.json()) as { keys: Array<{ id: string }> };
+  if (!body.keys || body.keys.length === 0) {
+    throw new Error("No signing keys configured on the server. Set OPENCRED_KEY_PATH.");
+  }
+  // The key id is a verification method (e.g. did:key:z6Mk...#z6Mk...).
+  // The issuer DID is the part before the fragment.
+  const verificationMethod = body.keys[0].id;
+  const issuerDid = verificationMethod.includes("#")
+    ? verificationMethod.split("#")[0]
+    : verificationMethod;
+  return issuerDid;
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -422,6 +450,11 @@ async function main(): Promise<void> {
   // Wait for server to be ready
   await waitForServer(config.baseUrl, config.apiKey);
   console.log("Server is ready.\n");
+
+  // Discover the issuer DID from the server's signing key
+  const issuerDid = await discoverIssuerDid(config.baseUrl, config.apiKey);
+  console.log(`  Issuer DID:  ${issuerDid}\n`);
+  ISSUE_PAYLOAD = { ...ISSUE_PAYLOAD, issuerDid };
 
   const allResults: ScenarioResult[] = [];
 
