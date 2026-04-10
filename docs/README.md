@@ -1,26 +1,80 @@
 # OpenCred Documentation
 
-OpenCred is a local-first platform for issuing and verifying W3C Verifiable Credentials. It ships as a **Desktop Client** (Electron) for interactive use and a **Docker Image** (headless HTTP API + CLI) for cloud deployment. All signing happens locally — issuer private keys never leave the machine.
+OpenCred is a local-first platform for issuing and verifying W3C Verifiable Credentials. It ships as a **Desktop Client** (Electron) for interactive use and a **Docker Image** (headless HTTP API + CLI) for cloud and CI/CD deployment. Issuer private keys never leave the issuer's environment — all signing happens locally on the issuer's machine or inside the issuer-operated container.
 
-## Desktop App
+OpenCred is published by [NFH Trust Labs](https://github.com/nfh-trust-labs).
 
-* [Getting Started](desktop/getting-started.md) — install, first launch, onboarding wizard
-* [Key Management](desktop/key-management.md) — key sources, algorithms, DID derivation
-* [Issuing Credentials](desktop/issuing-credentials.md) — single and batch issuance, schemas, proof formats, export
-* [Verifying Credentials](desktop/verifying-credentials.md) — verification flow, checks, offline mode
-* [Settings and Logging](desktop/settings-and-logging.md) — preferences, logging, bug reports, auto-updater
+## Start Here
 
-## Docker Image (Self-Hosted)
+Pick the path that matches your role.
 
-The Docker image is the headless version of the Desktop app for deploying in your own infrastructure. All operations run locally — no data is sent to OpenCred.
+| You are... | Start here |
+|---|---|
+| New to verifiable credentials | [Concepts](concepts/README.md) — what VCs, DIDs, and trust chains are |
+| Installing the desktop app | [Desktop User Guide](desktop/README.md) |
+| Deploying the Docker image | [Docker Operator Guide](docker/README.md) |
+| Reviewing OpenCred's security posture | [Security Model](security/README.md) |
+| Contributing or building from source | [Developer Guide](development/README.md) |
 
-* [Getting Started](self-hosted/getting-started.md) — Docker build, env setup, first request
-* [Configuration Reference](self-hosted/configuration.md) — all environment variables
-* [API Reference](self-hosted/api-reference.md) — endpoints exposed by your deployment
-* [CLI Reference](self-hosted/cli-reference.md) — `opencred` command-line tool
-* [Cloud HSM](self-hosted/cloud-hsm.md) — AWS KMS, Azure Key Vault, GCP Cloud KMS
-* [OID4VCI](self-hosted/oid4vci.md) — OpenID for Verifiable Credential Issuance
+## Documentation Sections
 
-## Other Resources
+### Concepts
 
-* [Deployment Guide](../deploy/) — GCP Cloud Run, VM deployment, TLS
+Background reading for anyone working with OpenCred.
+
+* [Concepts overview](concepts/README.md)
+* [Verifiable Credentials](concepts/verifiable-credentials.md) — what a VC is, payload structure, proof formats, status
+* [DIDs](concepts/dids.md) — `did:key`, `did:jwk`, and `did:web`, and when to use each
+* [Trust chains](concepts/trust-chains.md) — the three issuer types and how trust flows
+* [Revocation](concepts/revocation.md) — how OpenCred handles status checks and DeDi
+
+### Desktop Client
+
+Interactive credential issuance and verification on macOS, Windows, and Linux.
+
+* [Desktop overview](desktop/README.md)
+* [Installation](desktop/installation.md)
+* [Getting started](desktop/getting-started.md) — first launch and onboarding wizard
+* [Key management](desktop/key-management.md) — DSC import, hardware tokens, OS cert store, generated keys
+* [Issuing credentials](desktop/issuing-credentials.md) — single and batch issuance
+* [Verifying credentials](desktop/verifying-credentials.md)
+* [Settings and logging](desktop/settings-and-logging.md)
+
+### Docker Image (Operator Guide)
+
+Headless deployment for cloud, on-prem, and CI/CD pipelines. The Docker image runs in **your** infrastructure — no data is sent to OpenCred or NFH Trust Labs.
+
+* [Docker overview](docker/README.md)
+* [Deployment](docker/deployment.md) — `docker run`, Compose, environment variables, volumes
+* [API reference](docker/api-reference.md) — HTTP endpoints (final endpoint contract under #301)
+* [Observability](docker/observability.md) — logging, health checks, metrics
+
+The legacy `self-hosted/` directory contains the historical operator docs and is kept for compatibility:
+
+* [Configuration reference (legacy)](self-hosted/configuration.md)
+* [API reference (legacy)](self-hosted/api-reference.md)
+* [CLI reference](self-hosted/cli-reference.md)
+* [Cloud HSM](self-hosted/cloud-hsm.md)
+* [OID4VCI](self-hosted/oid4vci.md)
+
+### Security Model
+
+How OpenCred handles keys, what it protects against, and where the guarantees are enforced.
+
+* [Security overview](security/README.md)
+* [Threat model](security/threat-model.md) — what we protect against and what we don't
+* [Key handling](security/key-handling.md) — the never-touch-issuer-keys guarantee
+* [Invariants](security/invariants.md) — the seven mandatory rules and where they're enforced
+
+### Developer Guide
+
+Contributing to OpenCred itself.
+
+* [Developer overview](development/README.md)
+* [Package layout](development/package-layout.md) — monorepo structure
+* [Building](development/building.md) — pnpm, Turborepo, native addons
+* [Testing](development/testing.md) — vitest, integration tests, coverage
+
+## Source of Truth
+
+Requirements live in [`OpenCred_PRD.md`](../OpenCred_PRD.md). The implementation plan is in [`implementation-plan.md`](../implementation-plan.md). Per-issue work is tracked on [GitHub Issues](https://github.com/nfh-trust-labs/opencred/issues). The contributor protocol is in [`CLAUDE.md`](../CLAUDE.md).

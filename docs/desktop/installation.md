@@ -1,0 +1,89 @@
+# Installing OpenCred Desktop
+
+OpenCred Desktop runs on macOS, Windows, and Linux. Release builds bundle Node.js and Electron — there are no additional runtime dependencies.
+
+## System Requirements
+
+| Platform | Minimum version | Architecture |
+|---|---|---|
+| macOS | 12 Monterey or later | Universal (Intel x64 + Apple Silicon arm64) |
+| Windows | Windows 10 or later | x64 |
+| Linux | Ubuntu 20.04 or equivalent | x64 |
+
+## Installing from a Release
+
+Download the installer for your platform from the [GitHub Releases](https://github.com/nfh-trust-labs/opencred/releases) page.
+
+| Platform | File | How to install |
+|---|---|---|
+| macOS | `OpenCred-<version>.dmg` | Open the DMG and drag OpenCred.app to Applications. |
+| Windows | `OpenCred-Setup-<version>.exe` | Run the installer. The wizard lets you choose the installation directory. |
+| Linux | `OpenCred-<version>.AppImage` | Make the file executable (`chmod +x OpenCred-<version>.AppImage`) and run it. |
+| Linux (Debian/Ubuntu) | `opencred-desktop_<version>_amd64.deb` | `sudo dpkg -i opencred-desktop_<version>_amd64.deb` |
+
+### macOS code signing and notarization
+
+The macOS DMG is signed with NFH Trust Labs' Apple Developer ID and notarized through the Apple notary service. The first launch will trigger Gatekeeper, which verifies the signature against Apple's notarization records.
+
+### Windows code signing
+
+The Windows installer is signed with an Authenticode certificate. Microsoft SmartScreen may prompt on the first download until the certificate has accumulated reputation; click **More info → Run anyway** if you trust the source.
+
+### Linux signature
+
+AppImages and `.deb` packages are not currently signed. Verify checksums against the release manifest published in the GitHub release notes.
+
+## Installing from Source
+
+Building from source is supported for development and air-gapped deployments.
+
+### Prerequisites
+
+* Node.js **20 or later** (`.nvmrc` pins the version used in CI)
+* pnpm **9 or later** — `npm install -g pnpm`
+* A C++ build toolchain (Xcode Command Line Tools on macOS, Visual Studio Build Tools on Windows, `build-essential` on Linux). Required for compiling native addons used by hardware token and OS cert store signing.
+
+### Build steps
+
+```bash
+git clone https://github.com/nfh-trust-labs/opencred.git
+cd opencred
+pnpm install
+pnpm build               # builds all workspace packages
+cd apps/desktop
+pnpm dev                 # starts the dev server with hot reload
+```
+
+For a packaged build:
+
+```bash
+cd apps/desktop
+pnpm build:dist          # rebuilds native modules for Electron, then runs electron-builder
+```
+
+The packaged installer lands in `apps/desktop/out/`. The exact format depends on the host platform — see `apps/desktop/package.json` for the `electron-builder` configuration.
+
+### Native addons
+
+Hardware token (PKCS#11) and OS certificate store signing require native addons compiled against the Electron ABI. The build pipeline runs `electron-rebuild` automatically as part of `pnpm build:dist`. If you see an error like `Module did not self-register`, run:
+
+```bash
+cd apps/desktop
+pnpm rebuild:native
+```
+
+This rebuilds `pkcs11js` and the OpenCred OS-cert addons against your installed Electron version.
+
+## First Launch
+
+When OpenCred starts for the first time and no signing keys are configured, it opens the **Onboarding Wizard**. See [Getting started](getting-started.md) for the wizard walkthrough and your first credential.
+
+## Uninstalling
+
+| Platform | Steps |
+|---|---|
+| macOS | Drag `OpenCred.app` from Applications to Trash. To remove app data and logs, also delete `~/Library/Application Support/opencred/` and `~/Library/Logs/opencred/`. |
+| Windows | Use **Apps & features** in Settings, or run the uninstaller from the Start menu. To remove app data, delete `%APPDATA%\opencred\`. |
+| Linux | Remove the AppImage, or `sudo dpkg -r opencred-desktop`. App data lives in `~/.config/opencred/`. |
+
+OpenCred never installs system-level services, kernel extensions, or background daemons. All state lives under your user profile.
