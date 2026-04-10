@@ -32,6 +32,7 @@ pnpm build
 # Set environment variables
 export OPENCRED_PORT=3100
 export OPENCRED_KEY_PATH=/path/to/your/key.pem
+export OPENCRED_DEV_MODE_NO_AUTH=true  # local dev only; never use in production
 
 # Start the dev server
 cd apps/server

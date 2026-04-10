@@ -86,16 +86,16 @@ All configuration is loaded from environment variables at startup and parsed by 
 | `OPENCRED_SESSION_TTL` | No | `14400` | Ephemeral session TTL in seconds. Default is 4 hours, matching [security invariant 3](../security/invariants.md#3-session-data-is-ephemeral). Minimum 60. | `14400` |
 | `OPENCRED_BATCH_ROW_LIMIT` | No | `1000` | Max rows allowed in a single batch CSV. Minimum 1. | `1000` |
 | `CSCA_TRUST_STORE_PATH` | No[^2] | _(unset)_ | Absolute path to a directory of PEM-encoded CSCA root certificates used as trust anchors when verifying credentials with embedded `x5c` chains. Required only for DSC-backed credentials. | `/app/trust-store/` |
-| `OPENCRED_KMS_PROVIDER` | No | `none` | Cloud KMS provider. One of `aws`, `azure`, `gcp`, `none`. **Stub** — full integration is a `#301` follow-up; do not rely on this in production yet. | `aws` |
-| `OPENCRED_KMS_KEY_ARN` | When `OPENCRED_KMS_PROVIDER=aws` | _(unset)_ | AWS KMS key ARN. **Stub.** | `arn:aws:kms:us-east-1:...` |
-| `OPENCRED_AZURE_KEY_VAULT_URL` | When `OPENCRED_KMS_PROVIDER=azure` | _(unset)_ | Azure Key Vault base URL. **Stub.** | `https://vault.vault.azure.net/` |
-| `OPENCRED_AZURE_KEY_NAME` | When `OPENCRED_KMS_PROVIDER=azure` | _(unset)_ | Azure Key Vault key name. **Stub.** | `opencred-issuer` |
-| `OPENCRED_GCP_KMS_KEY_NAME` | When `OPENCRED_KMS_PROVIDER=gcp` | _(unset)_ | GCP KMS key resource name including version. **Stub.** | `projects/p/locations/.../cryptoKeyVersions/1` |
+| `OPENCRED_KMS_PROVIDER` | No | `none` | Cloud KMS provider. One of `aws`, `azure`, `gcp`, `none`. See [`docs/self-hosted/cloud-hsm.md`](../self-hosted/cloud-hsm.md) for IAM/auth requirements per provider. | `aws` |
+| `OPENCRED_KMS_KEY_ARN` | When `OPENCRED_KMS_PROVIDER=aws` | _(unset)_ | AWS KMS key ARN. | `arn:aws:kms:us-east-1:...` |
+| `OPENCRED_AZURE_KEY_VAULT_URL` | When `OPENCRED_KMS_PROVIDER=azure` | _(unset)_ | Azure Key Vault base URL. | `https://vault.vault.azure.net/` |
+| `OPENCRED_AZURE_KEY_NAME` | When `OPENCRED_KMS_PROVIDER=azure` | _(unset)_ | Azure Key Vault key name. | `opencred-issuer` |
+| `OPENCRED_GCP_KMS_KEY_NAME` | When `OPENCRED_KMS_PROVIDER=gcp` | _(unset)_ | GCP KMS key resource name including version. | `projects/p/locations/.../cryptoKeyVersions/1` |
 
 [^1]: A signing key is required for `POST /v1/credentials/issue` to succeed. If neither `OPENCRED_KEY_PATH` nor a Cloud HSM provider is configured, the server still starts and `/v1/health` reports `signingKeyLoaded: false`, but every issue request returns `500 INTERNAL_ERROR` (the sanitized fallback for the unhandled `requireSigner()` throw — see [Observability → Health Checks](observability.md#health-checks)).
 [^2]: `CSCA_TRUST_STORE_PATH` is only required to verify credentials that carry an `x5c` certificate chain (DSC-backed credentials). Verification of DID-keyed credentials does not need it. When unset, the verifier still functions but fails closed for any credential whose proof carries an `x5c` chain — see [`POST /v1/credentials/verify`](#post-v1credentialsverify) below.
 
-> **Cloud HSM stubs.** The `OPENCRED_KMS_*` variables exist in the schema and a factory in `apps/server/src/signing/cloud-hsm/` resolves them, but full provider integration (signing, key descriptor metadata, error mapping) is a `#301` follow-up. Do not depend on these env vars in production until that work lands.
+> **Cloud HSM providers.** The `OPENCRED_KMS_*` variables are fully implemented. The factory in `apps/server/src/signing/cloud-hsm/` creates a Signer backed by the configured provider (AWS KMS, Azure Key Vault, or GCP Cloud KMS). Supported key types include ECDSA (P-256, P-384) and RSA (2048, 3072, 4096). See [`docs/self-hosted/cloud-hsm.md`](../self-hosted/cloud-hsm.md) for IAM permissions and key requirements per provider.
 
 ## Endpoints
 
@@ -230,7 +230,7 @@ The request is parsed by `issueRequestSchema` in `apps/server/src/routes/credent
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `schemaId` | `string` | Yes | Built-in schema id. One of `education`, `employment`, `identity`, `health`, `business`. The `credentialSubject` is validated against this schema. |
+| `schemaId` | `string` | Yes | Built-in schema id (e.g. `functional-identity/v1`, `electricity/v1`, `open-badges/v3`, `traceability/commercial-invoice/v1`). Use `GET /v1/schemas` to list all available ids. The `credentialSubject` is validated against this schema. |
 | `issuerDid` | `string` | Yes | The issuer's DID. Must match the `id` of the active signer (the server uses the active signer regardless, but downstream verifiers will compare these). |
 | `credentialSubject` | `object` | Yes | The credential claims. Validated against the JSON Schema bound to `schemaId`. |
 | `validFrom` | `string` | Yes | ISO-8601 timestamp marking the start of the credential's validity. |
@@ -463,7 +463,7 @@ curl -s http://localhost:3100/v1/credentials/verify \
 
 ### `GET /v1/schemas`
 
-Lists the built-in credential schemas bundled with `@opencred/schema-engine`. `GET /v1/schemas/:id` returns the full JSON Schema for a single id.
+Lists the built-in credential schemas bundled with `@opencred/schema-engine`. The registry includes schemas from multiple sources (OpenCred built-in, DIF, W3C Traceability, Open Badges). `GET /v1/schemas/:id` returns the full JSON Schema for a single id. Schema IDs may contain slashes (e.g. `functional-identity/v1`, `traceability/commercial-invoice/v1`).
 
 **Auth:** required.
 **Request body:** none.
@@ -473,22 +473,26 @@ Lists the built-in credential schemas bundled with `@opencred/schema-engine`. `G
 ```json
 {
   "schemas": [
-    { "id": "education",  "contextUrl": "https://opencred.example/contexts/education/v1.jsonld" },
-    { "id": "employment", "contextUrl": "https://opencred.example/contexts/employment/v1.jsonld" },
-    { "id": "identity",   "contextUrl": "https://opencred.example/contexts/identity/v1.jsonld" },
-    { "id": "health",     "contextUrl": "https://opencred.example/contexts/health/v1.jsonld" },
-    { "id": "business",   "contextUrl": "https://opencred.example/contexts/business/v1.jsonld" }
+    { "id": "functional-identity/v1", "version": "1.0.0", "contextUrl": "...", "source": {...} },
+    { "id": "electricity/v1",         "version": "1.0.0", "contextUrl": "...", "source": {...} },
+    { "id": "salary-slip/v1",         "version": "1.0.0", "contextUrl": "...", "source": {...} },
+    { "id": "immunization/v1",        "version": "1.0.0", "contextUrl": "...", "source": {...} },
+    { "id": "open-badges/v3",         "version": "3.0.0", "contextUrl": "...", "source": {...} }
   ]
 }
 ```
+
+Each entry includes `id`, `version`, `contextUrl` (the JSON-LD context URL), and `source` (provenance metadata). The full list is generated at build time from bundled schemas.
 
 **Response: `200 OK`** (`/v1/schemas/:id`)
 
 ```json
 {
-  "id": "education",
-  "contextUrl": "https://opencred.example/contexts/education/v1.jsonld",
-  "schema": { "$id": "...", "type": "object", "properties": { "/* ... */": {} } }
+  "id": "functional-identity/v1",
+  "version": "1.0.0",
+  "contextUrl": "...",
+  "schema": { "$id": "...", "type": "object", "properties": { "...": {} } },
+  "source": {...}
 }
 ```
 
