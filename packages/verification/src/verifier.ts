@@ -192,10 +192,17 @@ export async function verifyCredential(
     }
   }
 
-  // X.509 certificate chain check (validates DSC → CSCA trust chain)
+  // X.509 certificate chain check (validates DSC → CSCA trust chain).
+  //
+  // The check is fail-closed when an `x5c` chain is present: it requires a
+  // configured trust anchor list and a resolvable DID for the issuer. See
+  // nfh-trust-labs/opencred#316. Credentials without `x5c` (e.g. did:web with
+  // self-published keys) are unaffected — the check returns passed without
+  // requiring trust anchors.
   if (format === "data-integrity") {
     const x509Check = await checkX509Chain(input as Record<string, unknown>, {
       didResolver: config.didResolver,
+      trustAnchors: config.trustAnchors,
     });
     checks.push(x509Check);
     if (!x509Check.passed) {

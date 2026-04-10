@@ -10,6 +10,7 @@ import {
   FUNCTIONAL_IDENTITY_SUBJECT,
 } from "./helpers.js";
 import { setActiveSigner } from "../signing/key-manager.js";
+import { sanitizeChecksForServerResponse, buildVerifyResponseBody } from "../routes/credentials.js";
 import type { Hono } from "hono";
 import type { TestKeyPair } from "./helpers.js";
 
@@ -203,6 +204,188 @@ describe("POST /credentials/verify", () => {
     expect(verifyRes.status).toBe(200);
     const result = (await verifyRes.json()) as Record<string, unknown>;
     expect(result.valid).toBe(false);
+  });
+
+  // SECURITY: Per CLAUDE.md invariant #5, the /credentials/verify response must
+  // not leak operator config or parser errors through `checks[].detail` strings.
+  // The desktop IPC handler is allowed full detail (trusted user on both sides),
+  // but an unauthenticated remote caller to the server must receive only the
+  // sanitized shape. See nfh-trust-labs/opencred PR #320 review.
+  //
+  // These tests drive the route's response-builder helper directly with
+  // known `detail` strings that include an operator CSCA subject DN and an
+  // X.509 parser error — the exact two classes of leak the review flagged.
+  // Going through the helper (rather than a full HTTP round-trip) keeps the
+  // test focused on the sanitization contract and avoids coupling to the
+  // verifier's unrelated fixture-setup requirements.
+  describe("response sanitization (invariant #5)", () => {
+    const SENSITIVE_CSCA_DN = "CN=CSCA Test Root, O=Test Country, C=XX";
+    const SENSITIVE_PARSER_ERROR =
+      "Failed to parse configured trust anchors: unable to load PEM at /private/etc/opencred/trust/root.pem";
+
+    it("sanitizeChecksForServerResponse drops detail from every check", () => {
+      const rawChecks = [
+        { name: "signature", passed: true, detail: "signature valid" },
+        { name: "date", passed: true },
+        {
+          name: "x509-chain",
+          passed: true,
+          // Simulates the production success-path detail that embeds the
+          // operator's CSCA subject DN — MUST be stripped.
+          detail: `DSC verified (CN=Test DSC), chain depth: 2, anchored to ${SENSITIVE_CSCA_DN}`,
+        },
+        {
+          name: "x509-chain-parse",
+          passed: false,
+          detail: SENSITIVE_PARSER_ERROR,
+        },
+      ];
+
+      const sanitized = sanitizeChecksForServerResponse(rawChecks);
+
+      expect(sanitized).toHaveLength(rawChecks.length);
+      for (const check of sanitized) {
+        expect(Object.keys(check).sort()).toEqual(["name", "passed"]);
+        expect((check as Record<string, unknown>).detail).toBeUndefined();
+      }
+
+      // Serialized form must not contain either sensitive string.
+      const serialized = JSON.stringify(sanitized);
+      expect(serialized).not.toContain(SENSITIVE_CSCA_DN);
+      expect(serialized).not.toContain(SENSITIVE_PARSER_ERROR);
+      expect(serialized).not.toContain("/private/etc/opencred");
+
+      // Names + passed flags survive so callers can still identify which
+      // check failed.
+      expect(sanitized.map((c) => c.name)).toEqual([
+        "signature",
+        "date",
+        "x509-chain",
+        "x509-chain-parse",
+      ]);
+      expect(sanitized.map((c) => c.passed)).toEqual([true, true, true, false]);
+    });
+
+    it("buildVerifyResponseBody returns the sanitized shape for a verified credential and strips the CSCA DN", () => {
+      const result = buildVerifyResponseBody({
+        verified: true,
+        code: "VALID",
+        checks: [
+          { name: "signature", passed: true },
+          { name: "date", passed: true },
+          {
+            name: "x509-chain",
+            passed: true,
+            detail: `DSC verified (CN=Test DSC), chain depth: 2, anchored to ${SENSITIVE_CSCA_DN}`,
+          },
+        ],
+      });
+
+      expect(result.valid).toBe(true);
+      expect(result.code).toBe("VALID");
+      expect(result.message).toBe("Credential is valid.");
+      expect(result.checks).toHaveLength(3);
+
+      for (const check of result.checks) {
+        expect(Object.keys(check).sort()).toEqual(["name", "passed"]);
+      }
+
+      // Global guard: the CSCA DN must not appear anywhere in the serialized
+      // response body.
+      const serialized = JSON.stringify(result);
+      expect(serialized).not.toContain(SENSITIVE_CSCA_DN);
+    });
+
+    it("buildVerifyResponseBody uses a generic message on failure and strips the parser error", () => {
+      const result = buildVerifyResponseBody({
+        verified: false,
+        code: "INVALID",
+        checks: [
+          { name: "signature", passed: true },
+          {
+            name: "x509-chain",
+            passed: false,
+            // The exact class of string flagged by the review: a parser
+            // error that echoes a filesystem path from operator config.
+            detail: SENSITIVE_PARSER_ERROR,
+          },
+          { name: "date", passed: true },
+        ],
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.code).toBe("INVALID");
+
+      // The message must be the stable fallback — NOT the detail of the
+      // failing check (that was the buggy behaviour this fix addresses).
+      expect(result.message).toBe("Verification failed.");
+
+      // Every check — passing or failing — must be sanitized.
+      for (const check of result.checks) {
+        expect(Object.keys(check).sort()).toEqual(["name", "passed"]);
+      }
+
+      // Global guard: the parser error and filesystem path must not appear
+      // anywhere in the serialized response.
+      const serialized = JSON.stringify(result);
+      expect(serialized).not.toContain(SENSITIVE_PARSER_ERROR);
+      expect(serialized).not.toContain("/private/etc/opencred");
+
+      // The failing check survives (name + passed) so callers can still
+      // identify which check failed; only the detail is stripped.
+      const failingCheck = result.checks.find((c) => c.passed === false);
+      expect(failingCheck).toBeDefined();
+      expect(failingCheck?.name).toBe("x509-chain");
+    });
+
+    it("end-to-end: /credentials/verify response contains no `detail` fields when the verifier reports an error on a bad credential", async () => {
+      // This exercises the full HTTP path with a deliberately malformed
+      // credential so the route reaches the sanitization code. The verifier
+      // will fail fast (unknown / missing proof etc.); whatever its detail
+      // strings are, none of them must leak into the HTTP response.
+      const verifyRes = await app.request("/credentials/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          credential: JSON.stringify({
+            "@context": ["https://www.w3.org/ns/credentials/v2"],
+            type: ["VerifiableCredential"],
+            issuer: "did:key:z6MkfakeIssuerDoesNotResolveXYZ",
+            credentialSubject: { id: "did:example:subject" },
+            proof: {
+              type: "DataIntegrityProof",
+              cryptosuite: "ecdsa-rdfc-2019",
+              created: "2025-01-01T00:00:00Z",
+              verificationMethod:
+                "did:key:z6MkfakeIssuerDoesNotResolveXYZ#z6MkfakeIssuerDoesNotResolveXYZ",
+              proofPurpose: "assertionMethod",
+              proofValue: "z3NotAValidSignature",
+            },
+          }),
+        }),
+      });
+
+      // The route either verifies (returning 200 with `valid: false`) or
+      // throws an OpenCredError (returning 4xx). Either way, if we get JSON
+      // back it must conform to the sanitized shape.
+      const bodyText = await verifyRes.text();
+
+      // If verification completed, assert sanitization on the response body.
+      if (verifyRes.status === 200) {
+        const body = JSON.parse(bodyText) as {
+          valid: boolean;
+          code: string;
+          message: string;
+          checks: Array<Record<string, unknown>>;
+        };
+        expect(
+          body.message === "Credential is valid." || body.message === "Verification failed.",
+        ).toBe(true);
+        for (const check of body.checks) {
+          expect(Object.keys(check).sort()).toEqual(["name", "passed"]);
+        }
+      }
+    });
   });
 });
 

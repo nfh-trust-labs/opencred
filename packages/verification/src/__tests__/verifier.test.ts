@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { generateKeyPairSync, createHash, type KeyObject } from "node:crypto";
 import * as jose from "jose";
+import forge from "node-forge";
 import { signCredential } from "@opencred/crypto";
 import type { UnsignedCredential } from "@opencred/vc-core";
 import type {
@@ -437,5 +438,80 @@ describe("verifyCredential — SD-JWT VC", () => {
 
     expect(result.code).toBe("INVALID");
     expect(result.verified).toBe(false);
+  });
+});
+// Regression test for nfh-trust-labs/opencred#316: a Data Integrity credential
+// carrying an x5c chain MUST NOT verify as VALID when no trust anchor is
+// configured. This is the verifier-level wiring test — the X.509 chain check
+// itself is exercised in `x509-chain-check.test.ts`.
+describe("verifyCredential — X.509 chain check wiring (#316)", () => {
+  /** Generate a self-signed cert and return its DER body as base64 (x5c form). */
+  function makeSelfSignedDerBase64(): string {
+    const k = forge.pki.rsa.generateKeyPair(2048);
+    const c = forge.pki.createCertificate();
+    c.publicKey = k.publicKey;
+    c.serialNumber = "01";
+    c.validity.notBefore = new Date(Date.now() - 1000 * 60);
+    c.validity.notAfter = new Date(Date.now() + 1000 * 60 * 60 * 24);
+    c.setSubject([{ shortName: "CN", value: "Wiring Test" }]);
+    c.setIssuer([{ shortName: "CN", value: "Wiring Test" }]);
+    // node-forge's @types declares extensions as `any[]`; use a loose record
+    // type to keep the test compiling under strict TS.
+    const extensions: Array<Record<string, unknown>> = [
+      { name: "basicConstraints", cA: false },
+      { name: "keyUsage", digitalSignature: true },
+    ];
+    c.setExtensions(extensions);
+    c.sign(k.privateKey, forge.md.sha256.create());
+    const pem = forge.pki.certificateToPem(c);
+    return pem
+      .replace(/-----BEGIN CERTIFICATE-----/, "")
+      .replace(/-----END CERTIFICATE-----/, "")
+      .replace(/\s+/g, "");
+  }
+
+  it("returns INVALID when an x5c chain is present and no trustAnchors are configured", async () => {
+    const { privateKey, publicKey } = generateTestKeyPair();
+    const unsignedVC = createTestCredential();
+    const jwk = publicKey.export({ format: "jwk" });
+    const verificationMethodId = "did:web:university.example#key-1";
+
+    const signedVC = await signCredential(
+      unsignedVC,
+      { id: verificationMethodId, privateKey, publicKey, algorithm: "P-256" },
+      {
+        verificationMethod: verificationMethodId,
+        proofPurpose: "assertionMethod",
+        created: "2026-01-01T00:00:00Z",
+      },
+    );
+
+    // Inject a self-signed x5c chain into the proof. The wiring test only
+    // needs to confirm the verifier passes trustAnchors through and treats a
+    // failing chain check as INVALID.
+    const proof = signedVC.proof as Record<string, unknown>;
+    proof["x5c"] = [makeSelfSignedDerBase64()];
+
+    const resolver = createMockResolver("did:web:university.example", {
+      id: verificationMethodId,
+      type: "JsonWebKey",
+      controller: "did:web:university.example",
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const result = await verifyCredential(signedVC as unknown as Record<string, unknown>, {
+      didResolver: resolver,
+      // trustAnchors deliberately omitted.
+    });
+
+    expect(result.code).toBe("INVALID");
+    expect(result.verified).toBe(false);
+    // The wiring test only needs to confirm the verifier ran the X.509 chain
+    // check and that the check failed (so a credential carrying x5c cannot
+    // sneak past as VALID). The detailed failure case-by-case is exercised in
+    // x509-chain-check.test.ts.
+    const x509Check = result.checks.find((c) => c.name === "x509-chain");
+    expect(x509Check).toBeDefined();
+    expect(x509Check?.passed).toBe(false);
   });
 });
