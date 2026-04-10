@@ -80,8 +80,8 @@ function createWindow(): void {
         ...details.responseHeaders,
         "Content-Security-Policy": [
           IS_DEV
-            ? "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://localhost:* ws://localhost:*; font-src 'self'"
-            : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'",
+            ? "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://localhost:* ws://localhost:*; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+            : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
         ],
       },
     });
@@ -94,14 +94,14 @@ function createWindow(): void {
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (IS_DEV && url.startsWith(DEV_SERVER_URL)) return;
     event.preventDefault();
-    logger.warn("Blocked navigation attempt", { url });
+    try { logger.warn("Blocked navigation attempt", { url: new URL(url).origin }); } catch { logger.warn("Blocked navigation attempt"); }
   });
 
   // -------------------------------------------------------------------------
   // Block window.open — the app should never open new windows.
   // -------------------------------------------------------------------------
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    logger.warn("Blocked window.open attempt", { url });
+    try { logger.warn("Blocked window.open attempt", { url: new URL(url).origin }); } catch { logger.warn("Blocked window.open attempt"); }
     return { action: "deny" };
   });
 
