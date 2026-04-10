@@ -193,6 +193,13 @@ export const FUNCTIONAL_IDENTITY_SUBJECT = {
   affiliation: { name: "Acme Medical Council" },
 };
 
+/**
+ * Alias for smoke tests that were written against the legacy "education"
+ * schema. The schema library replaced the generic schemas with v1 envelope
+ * schemas; "functional-identity/v1" is the closest match.
+ */
+export const EDUCATION_SUBJECT = FUNCTIONAL_IDENTITY_SUBJECT;
+
 export const VALID_ISSUE_REQUEST = {
   schemaId: "functional-identity/v1",
   issuerDid: "did:key:test-issuer",
