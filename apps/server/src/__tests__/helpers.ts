@@ -193,6 +193,9 @@ export const FUNCTIONAL_IDENTITY_SUBJECT = {
   affiliation: { name: "Acme Medical Council" },
 };
 
+/** Alias kept for tests written against the pre-catalogue "education" schema. */
+export const EDUCATION_SUBJECT = FUNCTIONAL_IDENTITY_SUBJECT;
+
 export const VALID_ISSUE_REQUEST = {
   schemaId: "functional-identity/v1",
   issuerDid: "did:key:test-issuer",
