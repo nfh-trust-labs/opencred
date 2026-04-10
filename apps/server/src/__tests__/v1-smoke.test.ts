@@ -31,7 +31,9 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  app = createTestApp();
+  // devModeNoAuth: smoke tests exercise endpoint logic, not auth.
+  // Auth is tested separately in auth.test.ts.
+  app = createTestApp({ devModeNoAuth: true });
   setActiveSigner(testKey.signer);
 });
 
@@ -106,7 +108,7 @@ describe("POST /v1/credentials/issue", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: testKey.signer.id.split("#")[0],
         credentialSubject: EDUCATION_SUBJECT,
         validFrom: "2025-06-15T00:00:00Z",
@@ -139,7 +141,7 @@ describe("POST /v1/credentials/issue", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: testKey.signer.id.split("#")[0],
         credentialSubject: EDUCATION_SUBJECT,
         validFrom: "2025-06-15T00:00:00Z",
@@ -178,7 +180,7 @@ describe("POST /v1/credentials/issue", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: testKey.signer.id.split("#")[0],
         credentialSubject: {
           ...EDUCATION_SUBJECT,
@@ -203,7 +205,7 @@ describe("POST /v1/credentials/issue", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: testKey.signer.id.split("#")[0],
         credentialSubject: { name: "Missing required fields" },
         validFrom: "2025-06-15T00:00:00Z",
@@ -258,7 +260,7 @@ describe("POST /v1/credentials/verify", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: testKey.signer.id.split("#")[0],
         credentialSubject: EDUCATION_SUBJECT,
         validFrom: "2025-06-15T00:00:00Z",
@@ -290,7 +292,7 @@ describe("POST /v1/credentials/verify", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: testKey.signer.id.split("#")[0],
         credentialSubject: EDUCATION_SUBJECT,
         validFrom: "2025-06-15T00:00:00Z",
@@ -336,7 +338,7 @@ describe("rejectKeyMaterial — defense-in-depth on every POST route", () => {
       body: JSON.stringify({
         // Smuggle a PEM block inside the CSV content.
         csvContent: `name,email,notes\nAlice,alice@example.com,"${sec1Pem.replace(/\n/g, " ")}"\n`,
-        schemaId: "education",
+        schemaId: "functional-identity/v1",
         issuerDid: testKey.signer.id.split("#")[0],
         validFrom: "2025-06-15T00:00:00Z",
       }),
