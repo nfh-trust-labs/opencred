@@ -51,7 +51,7 @@ The Docker image is built from `apps/server/Dockerfile` and runs `apps/server/di
 | HTTP server | `apps/server/src/index.ts` | Hono app, route registration, error handler |
 | Configuration | `apps/server/src/config.ts` | Zod-validated environment variables |
 | Logger | `apps/server/src/logger.ts` | pino structured logging to stdout |
-| Auth middleware | `apps/server/src/middleware/auth.ts` | Optional Bearer token check |
+| Auth middleware | `apps/server/src/middleware/auth.ts` | Required Bearer token check (fail-closed per [#317](https://github.com/nfh-trust-labs/opencred/issues/317); see [API reference → Authentication](api-reference.md#authentication)) |
 | Routes | `apps/server/src/routes/*.ts` | `/health`, `/schemas`, `/credentials/*`, `/credentials/batch/*` |
 | Signer | `apps/server/src/signing/key-manager.ts` | Loads the active signer from a file or Cloud HSM |
 | CLI | `apps/server/src/cli.ts` | `opencred` command for one-off operations |
