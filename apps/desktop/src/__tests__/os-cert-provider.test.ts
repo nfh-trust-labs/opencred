@@ -22,12 +22,20 @@ import {
 import type { OsCertInfo } from "../signing/os-cert-types.js";
 
 // ---------------------------------------------------------------------------
-// Mock data
+// Mock data — certificate IDs must be valid 64-char hex thumbprints
+// because the Windows CNG provider validates them with isValidThumbprint.
 // ---------------------------------------------------------------------------
+
+/** Valid 64-char hex thumbprint used as the primary test certificate ID. */
+const CERT_THUMBPRINT_1 = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+/** Valid 64-char hex thumbprint used as the secondary test certificate ID. */
+const CERT_THUMBPRINT_2 = "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100";
+/** Valid 64-char hex thumbprint used in Windows-specific test calls. */
+const WIN_CERT_THUMBPRINT = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
 
 const mockCertificates: OsCertInfo[] = [
   {
-    id: "macos-cert-001",
+    id: CERT_THUMBPRINT_1,
     subject: "CN=Alice Smith",
     issuer: "CN=Enterprise CA",
     serialNumber: "0a0b0c0d",
@@ -38,7 +46,7 @@ const mockCertificates: OsCertInfo[] = [
     thumbprint: "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
   },
   {
-    id: "macos-cert-002",
+    id: CERT_THUMBPRINT_2,
     subject: "CN=Bob Jones",
     issuer: "CN=Enterprise CA",
     serialNumber: "0e0f1011",
@@ -133,7 +141,7 @@ describe("macOS Certificate Provider", () => {
       const certs = await provider.listCertificates();
 
       expect(certs).toHaveLength(2);
-      expect(certs[0].id).toBe("macos-cert-001");
+      expect(certs[0].id).toBe(CERT_THUMBPRINT_1);
       expect(certs[0].subject).toBe("CN=Alice Smith");
       expect(certs[0].issuer).toBe("CN=Enterprise CA");
       expect(certs[0].keyAlgorithm).toBe("ECDSA P-256");
@@ -147,7 +155,7 @@ describe("macOS Certificate Provider", () => {
       const testData = new Uint8Array(64);
       testData.fill(0xcd);
 
-      const signature = await provider.sign("macos-cert-001", testData);
+      const signature = await provider.sign(CERT_THUMBPRINT_1, testData);
       expect(signature).toBeInstanceOf(Uint8Array);
       expect(signature.length).toBe(64);
 
@@ -160,7 +168,7 @@ describe("macOS Certificate Provider", () => {
       const addon = createMockMacOsAddon();
       const provider = createMacOsCertProvider(addon);
 
-      const publicKey = await provider.getPublicKey("macos-cert-001");
+      const publicKey = await provider.getPublicKey(CERT_THUMBPRINT_1);
       expect(publicKey).toBeInstanceOf(Uint8Array);
       expect(publicKey.length).toBe(33);
       expect(publicKey[0]).toBe(0x02);
@@ -181,8 +189,8 @@ describe("macOS Certificate Provider", () => {
       const provider = createMacOsCertProvider(addon);
 
       const testData = new Uint8Array(32);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(CryptoError);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(
+      await expect(provider.sign(CERT_THUMBPRINT_1, testData)).rejects.toThrow(CryptoError);
+      await expect(provider.sign(CERT_THUMBPRINT_1, testData)).rejects.toThrow(
         /macOS Keychain signing operation failed/,
       );
     });
@@ -191,8 +199,8 @@ describe("macOS Certificate Provider", () => {
       const addon = createMockMacOsAddon({ throwOnGetPublicKey: true });
       const provider = createMacOsCertProvider(addon);
 
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(CryptoError);
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(
+      await expect(provider.getPublicKey(CERT_THUMBPRINT_1)).rejects.toThrow(CryptoError);
+      await expect(provider.getPublicKey(CERT_THUMBPRINT_1)).rejects.toThrow(
         /Failed to extract public key from macOS Keychain certificate/,
       );
     });
@@ -229,13 +237,13 @@ describe("macOS Certificate Provider", () => {
       const provider = createMacOsCertProvider(null);
 
       const testData = new Uint8Array(32);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(CryptoError);
+      await expect(provider.sign(CERT_THUMBPRINT_1, testData)).rejects.toThrow(CryptoError);
     });
 
     it("should throw CryptoError on getPublicKey", async () => {
       const provider = createMacOsCertProvider(null);
 
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(CryptoError);
+      await expect(provider.getPublicKey(CERT_THUMBPRINT_1)).rejects.toThrow(CryptoError);
     });
   });
 
@@ -250,7 +258,7 @@ describe("macOS Certificate Provider", () => {
       const provider = createMacOsCertProvider(addon);
 
       const testData = new Uint8Array(32);
-      const result = await provider.sign("cert-001", testData);
+      const result = await provider.sign(CERT_THUMBPRINT_1, testData);
       expect(result.length).toBe(96);
     });
 
@@ -263,7 +271,7 @@ describe("macOS Certificate Provider", () => {
       const provider = createMacOsCertProvider(addon);
 
       const testData = new Uint8Array(32);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(CryptoError);
+      await expect(provider.sign(CERT_THUMBPRINT_1, testData)).rejects.toThrow(CryptoError);
     });
 
     it("should pass through public keys of any non-zero length", async () => {
@@ -275,7 +283,7 @@ describe("macOS Certificate Provider", () => {
       };
       const provider = createMacOsCertProvider(addon);
 
-      const result = await provider.getPublicKey("cert-001");
+      const result = await provider.getPublicKey(CERT_THUMBPRINT_1);
       expect(result.length).toBe(65);
     });
 
@@ -287,7 +295,7 @@ describe("macOS Certificate Provider", () => {
       };
       const provider = createMacOsCertProvider(addon);
 
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(CryptoError);
+      await expect(provider.getPublicKey(CERT_THUMBPRINT_1)).rejects.toThrow(CryptoError);
     });
   });
 });
@@ -305,7 +313,7 @@ describe("Windows Certificate Provider", () => {
       const certs = await provider.listCertificates();
 
       expect(certs).toHaveLength(2);
-      expect(certs[0].id).toBe("macos-cert-001"); // Uses same mock data
+      expect(certs[0].id).toBe(CERT_THUMBPRINT_1); // Uses same mock data
       expect(certs[0].subject).toBe("CN=Alice Smith");
     });
 
@@ -316,7 +324,7 @@ describe("Windows Certificate Provider", () => {
       const testData = new Uint8Array(64);
       testData.fill(0xef);
 
-      const signature = await provider.sign("win-cert-001", testData);
+      const signature = await provider.sign(WIN_CERT_THUMBPRINT, testData);
       expect(signature).toBeInstanceOf(Uint8Array);
       expect(signature.length).toBe(64);
     });
@@ -325,7 +333,7 @@ describe("Windows Certificate Provider", () => {
       const addon = createMockWindowsAddon();
       const provider = createWindowsCertProvider(addon);
 
-      const publicKey = await provider.getPublicKey("win-cert-001");
+      const publicKey = await provider.getPublicKey(WIN_CERT_THUMBPRINT);
       expect(publicKey).toBeInstanceOf(Uint8Array);
       expect(publicKey.length).toBe(33);
       expect(publicKey[0]).toBe(0x02);
@@ -346,8 +354,8 @@ describe("Windows Certificate Provider", () => {
       const provider = createWindowsCertProvider(addon);
 
       const testData = new Uint8Array(32);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(CryptoError);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(
+      await expect(provider.sign(CERT_THUMBPRINT_1, testData)).rejects.toThrow(CryptoError);
+      await expect(provider.sign(CERT_THUMBPRINT_1, testData)).rejects.toThrow(
         /Windows CNG signing operation failed/,
       );
     });
@@ -356,8 +364,8 @@ describe("Windows Certificate Provider", () => {
       const addon = createMockWindowsAddon({ throwOnGetPublicKey: true });
       const provider = createWindowsCertProvider(addon);
 
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(CryptoError);
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(
+      await expect(provider.getPublicKey(CERT_THUMBPRINT_1)).rejects.toThrow(CryptoError);
+      await expect(provider.getPublicKey(CERT_THUMBPRINT_1)).rejects.toThrow(
         /Failed to extract public key from Windows certificate/,
       );
     });
@@ -386,13 +394,13 @@ describe("Windows Certificate Provider", () => {
       const provider = createWindowsCertProvider(null);
 
       const testData = new Uint8Array(32);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(CryptoError);
+      await expect(provider.sign(CERT_THUMBPRINT_1, testData)).rejects.toThrow(CryptoError);
     });
 
     it("should throw CryptoError on getPublicKey", async () => {
       const provider = createWindowsCertProvider(null);
 
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(CryptoError);
+      await expect(provider.getPublicKey(CERT_THUMBPRINT_1)).rejects.toThrow(CryptoError);
     });
   });
 
@@ -407,7 +415,7 @@ describe("Windows Certificate Provider", () => {
       const provider = createWindowsCertProvider(addon);
 
       const testData = new Uint8Array(32);
-      const result = await provider.sign("cert-001", testData);
+      const result = await provider.sign(WIN_CERT_THUMBPRINT, testData);
       expect(result.length).toBe(96);
     });
 
@@ -420,7 +428,7 @@ describe("Windows Certificate Provider", () => {
       const provider = createWindowsCertProvider(addon);
 
       const testData = new Uint8Array(32);
-      await expect(provider.sign("cert-001", testData)).rejects.toThrow(CryptoError);
+      await expect(provider.sign(WIN_CERT_THUMBPRINT, testData)).rejects.toThrow(CryptoError);
     });
 
     it("should pass through public keys of any non-zero length", async () => {
@@ -432,7 +440,7 @@ describe("Windows Certificate Provider", () => {
       };
       const provider = createWindowsCertProvider(addon);
 
-      const result = await provider.getPublicKey("cert-001");
+      const result = await provider.getPublicKey(WIN_CERT_THUMBPRINT);
       expect(result.length).toBe(65);
     });
 
@@ -444,7 +452,7 @@ describe("Windows Certificate Provider", () => {
       };
       const provider = createWindowsCertProvider(addon);
 
-      await expect(provider.getPublicKey("cert-001")).rejects.toThrow(CryptoError);
+      await expect(provider.getPublicKey(WIN_CERT_THUMBPRINT)).rejects.toThrow(CryptoError);
     });
   });
 });
