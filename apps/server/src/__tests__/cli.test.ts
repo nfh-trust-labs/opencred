@@ -368,7 +368,7 @@ describe("CLI config validate subcommand", () => {
     delete process.env.NODE_ENV;
 
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
 
     const program = createProgram();
     await program.parseAsync(["node", "opencred", "config", "validate"]);
@@ -382,6 +382,7 @@ describe("CLI config validate subcommand", () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining("auth: dev-mode (no auth)"),
     );
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 
   it("reports KMS provider when configured", async () => {
@@ -390,7 +391,7 @@ describe("CLI config validate subcommand", () => {
     delete process.env.OPENCRED_DEV_MODE_NO_AUTH;
 
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
 
     const program = createProgram();
     await program.parseAsync(["node", "opencred", "config", "validate"]);
@@ -398,6 +399,7 @@ describe("CLI config validate subcommand", () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining("kms: aws"),
     );
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 
   it("reports error when OPENCRED_API_KEY is missing and dev mode is off", async () => {

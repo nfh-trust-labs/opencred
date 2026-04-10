@@ -403,12 +403,7 @@ export function createProgram(): Command {
 // Parse and run — only when executed directly (not when imported by tests)
 // ---------------------------------------------------------------------------
 
-const isDirectRun =
-  process.argv[1] &&
-  (process.argv[1].endsWith("/cli.js") ||
-    process.argv[1].endsWith("/cli.ts") ||
-    process.argv[1].endsWith("\\cli.js") ||
-    process.argv[1].endsWith("\\cli.ts"));
+const isDirectRun = process.argv[1] === __filename;
 
 if (isDirectRun) {
   createProgram().parse();
