@@ -22,7 +22,9 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  app = createTestApp();
+  // These tests exercise endpoint behaviour, not the auth path. Use the
+  // explicit dev-mode opt-out so requests can omit the Authorization header.
+  app = createTestApp({ devModeNoAuth: true });
   setActiveSigner(testKey.signer);
 });
 

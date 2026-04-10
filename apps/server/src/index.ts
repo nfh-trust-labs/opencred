@@ -16,7 +16,7 @@ import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { ZodError } from "zod";
 
-import { loadConfig } from "./config.js";
+import { ConfigError, loadConfig, type ServerConfig } from "./config.js";
 import { createLogger } from "./logger.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/error-handler.js";
@@ -34,8 +34,43 @@ import { keys } from "./routes/keys.js";
 // Bootstrap
 // ---------------------------------------------------------------------------
 
-const config = loadConfig();
+let config: ServerConfig;
+try {
+  config = loadConfig();
+} catch (err) {
+  // Config errors at startup must be surfaced to stderr in a human-readable
+  // form. The logger is not yet initialised at this point — write directly
+  // to process.stderr so the operator sees the failure regardless of
+  // OPENCRED_LOG_LEVEL.
+  if (err instanceof ConfigError) {
+    process.stderr.write(`\n[opencred-server] FATAL: ${err.message}\n\n`);
+  } else if (err instanceof Error) {
+    process.stderr.write(`\n[opencred-server] FATAL: ${err.message}\n\n`);
+  } else {
+    process.stderr.write(`\n[opencred-server] FATAL: failed to load configuration\n\n`);
+  }
+  process.exit(1);
+}
+
 const logger = createLogger();
+
+if (config.OPENCRED_DEV_MODE_NO_AUTH) {
+  // Loud, multi-line warning so the operator cannot miss this in normal logs.
+  const banner = "*".repeat(78);
+  logger.warn(banner);
+  logger.warn(
+    "WARNING: authentication disabled (OPENCRED_DEV_MODE_NO_AUTH=true). " +
+      "DO NOT use in production.",
+  );
+  logger.warn(
+    "All protected endpoints (POST /credentials/issue, POST /credentials/verify, " +
+      "POST /batch, POST /revocation, GET /v1/keys, etc.) are reachable without an API key.",
+  );
+  logger.warn(
+    "Set OPENCRED_API_KEY and unset OPENCRED_DEV_MODE_NO_AUTH before exposing this server to any network you do not fully control.",
+  );
+  logger.warn(banner);
+}
 
 logger.info({ port: config.OPENCRED_PORT }, "Starting OpenCred Server");
 

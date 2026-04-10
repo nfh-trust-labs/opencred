@@ -105,6 +105,9 @@ function setupEnv(kmsProvider: string) {
   resetConfig();
   resetLogger();
   delete process.env.OPENCRED_API_KEY;
+  // The cloud HSM tests do not exercise the auth middleware; opt into the
+  // explicit dev-mode flag so loadConfig() doesn't refuse to start.
+  process.env.OPENCRED_DEV_MODE_NO_AUTH = "true";
   process.env.OPENCRED_PORT = "3199";
   process.env.OPENCRED_LOG_LEVEL = "fatal";
   process.env.OPENCRED_KMS_PROVIDER = kmsProvider;
