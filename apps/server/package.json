@@ -21,7 +21,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@hono/node-server": "^1.13.8",
+    "@hono/node-server": "^1.19.13",
     "@opencred/crypto": "workspace:*",
     "@opencred/did": "workspace:*",
     "@opencred/schema-engine": "workspace:*",
@@ -34,7 +34,7 @@
     "@azure/keyvault-keys": "^4.9.0",
     "@google-cloud/kms": "^4.5.0",
     "commander": "^12.1.0",
-    "hono": "^4.6.0",
+    "hono": "^4.12.12",
     "pdfkit": "^0.15.0",
     "pino": "^9.6.0",
     "qrcode": "^1.5.0",
