@@ -97,6 +97,11 @@ COPY apps/server/ apps/server/
 # Build the server and every transitive workspace dependency.
 RUN pnpm --filter @opencred/server... build
 
+# pnpm 10 aborts a non-TTY `install --prod` rebuild of node_modules unless it
+# detects a CI environment. Set CI=true so the prod re-install proceeds cleanly
+# inside BuildKit (which has no TTY attached).
+ENV CI=true
+
 # Strip dev dependencies to shrink the runtime image.
 # pnpm 10 removed the `prune` command — re-install with --prod instead.
 RUN pnpm install --prod --filter @opencred/server...
