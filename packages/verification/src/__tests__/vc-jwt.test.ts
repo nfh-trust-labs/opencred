@@ -7,7 +7,12 @@ import type {
   DIDDocument,
   VerificationMethod,
 } from "@opencred/did";
-import { verifyVcJwt, extractVcJwtCredentialFields, crossValidateVcJwtClaims } from "../vc-jwt.js";
+import {
+  verifyVcJwt,
+  extractVcJwtCredentialFields,
+  crossValidateVcJwtClaims,
+  type VcJwtPayload,
+} from "../vc-jwt.js";
 
 function generateTestKeyPair(): { privateKey: KeyObject; publicKey: KeyObject } {
   return generateKeyPairSync("ec", { namedCurve: "P-256" });
@@ -210,6 +215,9 @@ describe("extractVcJwtCredentialFields", () => {
   });
 
   it("should extract fields from DM 2.0 payload (no vc wrapper)", () => {
+    // DM 2.0 puts VC fields (type, credentialSubject, validFrom, etc.) directly on
+    // the JWT payload rather than nesting them under `vc`. VcJwtPayload models the
+    // shared JWT claims, so we widen via `unknown` to attach the extra VC fields.
     const result = extractVcJwtCredentialFields({
       iss: "did:web:example",
       sub: "did:example:holder456",
@@ -222,7 +230,7 @@ describe("extractVcJwtCredentialFields", () => {
         statusListIndex: "10",
         statusListCredential: "https://example.com/status/2",
       },
-    } as any);
+    } as unknown as VcJwtPayload);
 
     expect(result.validFrom).toBe("2026-01-01T00:00:00Z");
     expect(result.validUntil).toBe("2027-01-01T00:00:00Z");
@@ -230,20 +238,25 @@ describe("extractVcJwtCredentialFields", () => {
     expect(result.credentialStatus?.["type"]).toBe("BitstringStatusListEntry");
     expect(result.issuer).toBe("did:web:example");
     expect(result.credential).toBeDefined();
-    expect((result.credential as any)?.["credentialSubject"]?.["name"]).toBe("Jane Doe");
+    const credentialSubject = (result.credential as Record<string, unknown> | undefined)?.[
+      "credentialSubject"
+    ] as Record<string, unknown> | undefined;
+    expect(credentialSubject?.["name"]).toBe("Jane Doe");
   });
 
   it("should prefer nbf/exp over DM 2.0 validFrom/validUntil", () => {
     const nbf = Math.floor(new Date("2026-06-01T00:00:00Z").getTime() / 1000);
     const exp = Math.floor(new Date("2027-06-01T00:00:00Z").getTime() / 1000);
 
+    // DM 2.0 validFrom/validUntil fields live alongside the standard JWT claims,
+    // which VcJwtPayload does not model; widen via `unknown` to attach them.
     const result = extractVcJwtCredentialFields({
       iss: "did:web:example",
       nbf,
       exp,
       validFrom: "2026-01-01T00:00:00Z",
       validUntil: "2027-01-01T00:00:00Z",
-    } as any);
+    } as unknown as VcJwtPayload);
 
     // nbf/exp should take precedence
     expect(result.validFrom).toBe("2026-06-01T00:00:00.000Z");
