@@ -1,0 +1,88 @@
+# OpenCred — Example Prometheus Alerting Rules
+#
+# Copy this file into your Prometheus rules directory and adjust thresholds
+# to match your deployment's baseline traffic.
+
+groups:
+  - name: opencred-server
+    rules:
+      # High error rate (>5% of requests returning 5xx over 5 minutes)
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP error rate on OpenCred server"
+          description: "More than 5% of requests are returning 5xx status codes."
+
+      # High request latency (p95 > 2s over 5 minutes)
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))
+          > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency on OpenCred server"
+          description: "95th percentile request latency exceeds 2 seconds."
+
+      # Credential issuance failures (no successful issuances in 15 minutes
+      # when there is traffic)
+      - alert: NoCredentialIssuance
+        expr: |
+          sum(rate(opencred_credentials_issued_total[15m])) == 0
+          and
+          sum(rate(http_requests_total{path="/credentials/issue"}[15m])) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No credentials being issued despite incoming requests"
+          description: "Issue endpoint is receiving traffic but no credentials are being successfully issued."
+
+      # High verification failure rate
+      - alert: HighVerificationFailureRate
+        expr: |
+          sum(rate(opencred_credentials_verified_total{result="invalid"}[10m]))
+          /
+          sum(rate(opencred_credentials_verified_total[10m]))
+          > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High credential verification failure rate"
+          description: "More than 50% of credential verifications are failing."
+
+      # Batch job stall (jobs started but not completing)
+      - alert: BatchJobStall
+        expr: |
+          sum(opencred_batch_jobs_total{status="started"})
+          -
+          sum(opencred_batch_jobs_total{status="completed"})
+          -
+          sum(opencred_batch_jobs_total{status="cancelled"})
+          > 5
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Batch jobs appear stalled"
+          description: "Multiple batch jobs have been started but not completed or cancelled."
+
+      # Server down (no requests at all for 5 minutes)
+      - alert: ServerDown
+        expr: |
+          sum(rate(http_requests_total[5m])) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OpenCred server appears down"
+          description: "No HTTP requests have been recorded in the last 5 minutes."

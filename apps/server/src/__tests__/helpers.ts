@@ -20,6 +20,8 @@ import { batch } from "../routes/batch.js";
 import { revocation } from "../routes/revocation.js";
 import { packaging } from "../routes/packaging.js";
 import { keys } from "../routes/keys.js";
+import { metrics } from "../routes/metrics.js";
+import { metricsMiddleware } from "../middleware/metrics.js";
 import { computeFingerprint, deriveDidKeyIdFromPublicKey } from "@opencred/signing";
 import type { Signer, SignerMetadata } from "@opencred/signing";
 import { sign as ecSign } from "node:crypto";
@@ -134,12 +136,14 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
   const app = new Hono();
 
   // Global middleware
+  app.use("*", metricsMiddleware);
   app.use("*", authMiddleware);
 
   // Mount routes — both legacy ("/") and versioned ("/v1") paths.
   // Mirrors src/index.ts so the smoke test exercises the full production
   // surface (including the rejectKeyMaterial defense on every POST route).
   app.route("/", health);
+  app.route("/", metrics);
   app.route("/", schemas);
   app.route("/", credentials);
   app.route("/", batch);
@@ -148,6 +152,7 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
   app.route("/", keys);
 
   app.route("/v1", health);
+  app.route("/v1", metrics);
   app.route("/v1", schemas);
   app.route("/v1", credentials);
   app.route("/v1", batch);

@@ -31,6 +31,9 @@ import { batch } from "./routes/batch.js";
 import { revocation } from "./routes/revocation.js";
 import { packaging } from "./routes/packaging.js";
 import { keys } from "./routes/keys.js";
+import { metrics } from "./routes/metrics.js";
+import { initTracing } from "./tracing.js";
+import { metricsMiddleware } from "./middleware/metrics.js";
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -72,6 +75,13 @@ if (config.OPENCRED_DEV_MODE_NO_AUTH) {
     "Set OPENCRED_API_KEY and unset OPENCRED_DEV_MODE_NO_AUTH before exposing this server to any network you do not fully control.",
   );
   logger.warn(banner);
+}
+
+
+// Tracing (opt-in via OTEL_EXPORTER_OTLP_ENDPOINT)
+const tracer = initTracing();
+if (tracer) {
+  logger.info("OpenTelemetry tracing enabled");
 }
 
 logger.info({ port: config.OPENCRED_PORT }, "Starting OpenCred Server");
@@ -130,6 +140,7 @@ if (config.OPENCRED_CSCA_TRUST_STORE_PATH) {
 const app = new Hono();
 
 // Global middleware
+app.use("*", metricsMiddleware);
 app.use("*", authMiddleware);
 
 // Mount routes.
@@ -139,6 +150,7 @@ app.use("*", authMiddleware);
 // should target the /v1 prefix; the unprefixed routes are kept for the
 // existing desktop main process and tests.
 app.route("/", health);
+app.route("/", metrics);
 app.route("/", schemas);
 app.route("/", credentials);
 app.route("/", batch);
@@ -147,6 +159,7 @@ app.route("/", packaging);
 app.route("/", keys);
 
 app.route("/v1", health);
+app.route("/v1", metrics);
 app.route("/v1", schemas);
 app.route("/v1", credentials);
 app.route("/v1", batch);
@@ -195,7 +208,8 @@ logger.info({ port: config.OPENCRED_PORT }, "OpenCred Server listening");
 // Graceful shutdown
 function shutdown(signal: string) {
   logger.info({ signal }, "Shutting down");
-  server.close(() => {
+  server.close(async () => {
+    if (tracer) await tracer.shutdown();
     logger.info("Server closed");
     process.exit(0);
   });

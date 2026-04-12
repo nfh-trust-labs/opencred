@@ -23,6 +23,7 @@ import { deliverWebhook } from "../batch/webhook.js";
 import type { WebhookPayload } from "../batch/webhook.js";
 import { getLogger } from "../logger.js";
 import { rejectKeyMaterial, customizationSchema } from "./credentials.js";
+import { batchJobsTotal } from "../metrics.js";
 
 const batch = new Hono();
 
@@ -106,9 +107,12 @@ batch.post("/credentials/batch", async (c) => {
   };
   jobs.set(jobId, job);
 
+  batchJobsTotal.inc({ status: "started" });
+
   // Start processing in background
   void engine.start().then((finalProgress) => {
     job.progress = finalProgress;
+    batchJobsTotal.inc({ status: finalProgress.cancelled ? "cancelled" : "completed" });
 
     // Deliver webhook notification on completion (best-effort)
     if (job.webhookUrl) {
@@ -125,6 +129,8 @@ batch.post("/credentials/batch", async (c) => {
         getLogger().warn({ jobId, webhookUrl: job.webhookUrl, err }, "Webhook delivery failed");
       });
     }
+  }).catch(() => {
+    batchJobsTotal.inc({ status: "failed" });
   });
 
   const parseErrors = parseResult.rows
