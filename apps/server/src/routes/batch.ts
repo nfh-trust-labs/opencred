@@ -22,7 +22,7 @@ import type { BatchEngine, BatchProgress, ProofFormat } from "../batch/batch-eng
 import { deliverWebhook } from "../batch/webhook.js";
 import type { WebhookPayload } from "../batch/webhook.js";
 import { getLogger } from "../logger.js";
-import { rejectKeyMaterial } from "./credentials.js";
+import { rejectKeyMaterial, customizationSchema } from "./credentials.js";
 
 const batch = new Hono();
 
@@ -55,6 +55,7 @@ const batchRequestSchema = z.object({
     .url()
     .refine((u) => u.startsWith("https://"), { message: "Webhook URL must use HTTPS" })
     .optional(),
+  customization: customizationSchema,
 });
 
 // --- Start batch ---

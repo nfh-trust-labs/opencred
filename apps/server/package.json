@@ -33,6 +33,7 @@
     "@opencred/schema-engine": "workspace:*",
     "@opencred/shared": "workspace:*",
     "@opencred/signing": "workspace:*",
+    "@opencred/templates": "workspace:*",
     "@opencred/vc-core": "workspace:*",
     "@opencred/verification": "workspace:*",
     "commander": "^12.1.0",

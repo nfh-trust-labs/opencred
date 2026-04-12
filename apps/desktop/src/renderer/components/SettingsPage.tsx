@@ -17,6 +17,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card } from "./ui/Card";
 import { Button } from "./ui/Button";
 import { KeyManagement } from "./KeyManagement";
+import { BrandingSettings } from "./BrandingSettings";
 import { BugReportDialog } from "./BugReportDialog";
 import type { UpdateStatusResponse, DeDiStatusResponse } from "../../shared/ipc-types";
 
@@ -691,6 +692,9 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
           )}
         </div>
       </Card>
+
+      {/* Credential branding */}
+      <BrandingSettings />
 
       {/* Key rotation warning */}
       {rotationInfo.overdue && (
