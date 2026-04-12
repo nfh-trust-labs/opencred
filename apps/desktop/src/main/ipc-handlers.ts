@@ -670,24 +670,48 @@ async function handleVerifyCredential(
   request: VerifyCredentialRequest,
 ): Promise<VerifyCredentialResponse> {
   try {
-    const parsed = JSON.parse(request.credential);
+    const trimmed = request.credential.trim();
 
-    // VC-JWT envelope detection: when the signed output is a JSON object with
-    // { proof: { type: "JsonWebSignature2020", jwt: "eyJ..." } }, extract the
-    // raw JWT string — the verification package expects the compact JWT, not
-    // the JSON envelope.
-    let verificationInput: Record<string, unknown> | string = parsed as Record<string, unknown>;
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      parsed.proof &&
-      typeof parsed.proof === "object" &&
-      typeof parsed.proof.jwt === "string"
-    ) {
-      verificationInput = parsed.proof.jwt;
+    // Format detection: determine the input format and parse accordingly.
+    let verificationInput: Record<string, unknown> | string;
+
+    if (trimmed.startsWith("OPENCRED1:")) {
+      const { decodeQrData } = await import("../packaging/qr-generator.js");
+      const decodedJson = decodeQrData(trimmed);
+      const parsed = JSON.parse(decodedJson);
+      verificationInput = parsed as Record<string, unknown>;
+    } else if (trimmed.startsWith("{")) {
+      const parsed = JSON.parse(trimmed);
+
+      // VC-JWT envelope detection: when the signed output is a JSON object with
+      // { proof: { type: "JsonWebSignature2020", jwt: "eyJ..." } }, extract the
+      // raw JWT string. The verification package expects the compact JWT, not
+      // the JSON envelope.
+      verificationInput = parsed as Record<string, unknown>;
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        parsed.proof &&
+        typeof parsed.proof === "object" &&
+        typeof parsed.proof.jwt === "string"
+      ) {
+        verificationInput = parsed.proof.jwt;
+      }
+    } else if (trimmed.includes("~")) {
+      // SD-JWT format (contains disclosure separators)
+      verificationInput = trimmed;
+    } else if (trimmed.split(".").length === 3) {
+      // JWT compact serialization (header.payload.signature)
+      verificationInput = trimmed;
+    } else {
+      return {
+        success: false,
+        error:
+          "Unrecognized credential format. Expected JSON, OPENCRED1: QR data, JWT, or SD-JWT.",
+      };
     }
 
-    // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
+    // Resolve using composite DID resolver    // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
     const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
       await import("@opencred/did");
     const { verifyCredential, loadCscaTrustStore } = await import("@opencred/verification");
