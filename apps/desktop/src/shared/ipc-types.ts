@@ -290,6 +290,8 @@ export interface FileOpenResponse {
   content: string | null;
   /** The selected file path, or null if cancelled. */
   filePath: string | null;
+  /** When set to "base64", content is base64-encoded binary data. */
+  encoding?: "base64";
 }
 
 export interface FileSaveRequest {
@@ -306,6 +308,8 @@ export interface FileSaveRequest {
 export interface FileSaveResponse {
   /** The path where the file was saved, or null if cancelled. */
   filePath: string | null;
+  /** When set to "base64", content is base64-encoded binary data. */
+  encoding?: "base64";
 }
 
 // ---------------------------------------------------------------------------
