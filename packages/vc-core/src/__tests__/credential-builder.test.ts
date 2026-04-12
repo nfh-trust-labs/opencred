@@ -347,6 +347,40 @@ describe("CredentialBuilder", () => {
     });
   });
 
+  describe("setIssuer() fail-fast validation (#141)", () => {
+    it("should accept valid did: URI at setter time", () => {
+      expect(() => new CredentialBuilder().setIssuer("did:web:example.com")).not.toThrow();
+    });
+
+    it("should accept valid https:// URI at setter time", () => {
+      expect(() => new CredentialBuilder().setIssuer("https://example.com")).not.toThrow();
+    });
+
+    it("should reject random string at setter time", () => {
+      expect(() => new CredentialBuilder().setIssuer("not-a-uri")).toThrow(ValidationError);
+    });
+
+    it("should reject empty string at setter time", () => {
+      expect(() => new CredentialBuilder().setIssuer("")).toThrow(ValidationError);
+    });
+
+    it("should reject http:// at setter time", () => {
+      expect(() => new CredentialBuilder().setIssuer("http://example.com")).toThrow(ValidationError);
+    });
+
+    it("should reject issuer object with invalid id at setter time", () => {
+      expect(() => new CredentialBuilder().setIssuer({ id: "plain-string", name: "Test" })).toThrow(
+        ValidationError,
+      );
+    });
+
+    it("should reject issuer object with empty id at setter time", () => {
+      expect(() => new CredentialBuilder().setIssuer({ id: "", name: "Test" })).toThrow(
+        ValidationError,
+      );
+    });
+  });
+
   describe("issuer URI validation (#141)", () => {
     it("should accept did: issuer URIs", () => {
       const vc = new CredentialBuilder()
@@ -413,6 +447,42 @@ describe("CredentialBuilder", () => {
           .setValidFrom(validFrom)
           .build(),
       ).toThrow(ValidationError);
+    });
+  });
+
+  describe("setValidFrom()/setValidUntil() fail-fast validation (#142)", () => {
+    it("should accept valid ISO 8601 date at setter time", () => {
+      expect(() => new CredentialBuilder().setValidFrom("2026-01-01T00:00:00Z")).not.toThrow();
+    });
+
+    it("should accept valid ISO 8601 date with offset at setter time", () => {
+      expect(() => new CredentialBuilder().setValidFrom("2026-01-01T00:00:00+05:30")).not.toThrow();
+    });
+
+    it("should reject loose date format at setter time", () => {
+      expect(() => new CredentialBuilder().setValidFrom("March 5, 2026")).toThrow(ValidationError);
+    });
+
+    it("should reject date-only string at setter time", () => {
+      expect(() => new CredentialBuilder().setValidFrom("2026-01-01")).toThrow(ValidationError);
+    });
+
+    it("should reject invalid date at setter time", () => {
+      expect(() => new CredentialBuilder().setValidFrom("not-a-date")).toThrow(ValidationError);
+    });
+
+    it("should reject date without timezone at setter time", () => {
+      expect(() => new CredentialBuilder().setValidFrom("2026-01-01T00:00:00")).toThrow(
+        ValidationError,
+      );
+    });
+
+    it("should validate setValidUntil at setter time", () => {
+      expect(() => new CredentialBuilder().setValidUntil("March 5, 2027")).toThrow(ValidationError);
+    });
+
+    it("should accept valid setValidUntil at setter time", () => {
+      expect(() => new CredentialBuilder().setValidUntil("2027-01-01T00:00:00Z")).not.toThrow();
     });
   });
 

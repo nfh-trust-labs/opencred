@@ -102,6 +102,17 @@ export class CredentialBuilder {
 
   /** Set the credential issuer (DID string or issuer object). */
   setIssuer(issuer: Issuer): this {
+    const issuerId = typeof issuer === "string" ? issuer : issuer.id;
+    if (!issuerId || issuerId.trim() === "") {
+      throw new ValidationError(
+        typeof issuer === "string"
+          ? "Issuer cannot be an empty string"
+          : "Issuer id cannot be empty",
+      );
+    }
+    if (!isValidIssuerUri(issuerId)) {
+      throw new ValidationError(`Issuer must be a valid URI (did: or https://): ${issuerId}`);
+    }
     this._issuer = issuer;
     return this;
   }
@@ -114,12 +125,22 @@ export class CredentialBuilder {
 
   /** Set the `validFrom` date (ISO 8601 string). */
   setValidFrom(date: string): this {
+    if (!isStrictIso8601(date)) {
+      throw new ValidationError(
+        `Invalid validFrom date: ${date}. Must be ISO 8601 format (YYYY-MM-DDTHH:mm:ssZ or with timezone offset)`,
+      );
+    }
     this._validFrom = date;
     return this;
   }
 
   /** Set the `validUntil` date (ISO 8601 string). */
   setValidUntil(date: string): this {
+    if (!isStrictIso8601(date)) {
+      throw new ValidationError(
+        `Invalid validUntil date: ${date}. Must be ISO 8601 format (YYYY-MM-DDTHH:mm:ssZ or with timezone offset)`,
+      );
+    }
     this._validUntil = date;
     return this;
   }
