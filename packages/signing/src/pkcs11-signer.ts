@@ -51,11 +51,10 @@ import {
   publicKeyFromEcPoint,
   publicKeyFromRsaComponents,
   rsaAlgorithmFromModulusBits,
-  deriveDidKeyIdFromPublicKey,
-  computeFingerprint,
   normalizeSignature,
   derCertToPem,
 } from "./pkcs11-utils.js";
+import { deriveDidKeyId, computeKeyFingerprint } from "@opencred/did";
 
 /**
  * Options for creating a PKCS#11 signer.
@@ -185,8 +184,8 @@ function buildEcSigner(session: Pkcs11Session, targetKey: Pkcs11KeyInfo, label?:
   }
 
   const publicKey = publicKeyFromEcPoint(targetKey.ecPoint);
-  const id = deriveDidKeyIdFromPublicKey(publicKey);
-  const fingerprint = computeFingerprint(publicKey);
+  const id = deriveDidKeyId(publicKey);
+  const fingerprint = computeKeyFingerprint(publicKey);
 
   // Determine algorithm from EC point length
   const algorithm: SigningAlgorithm = targetKey.ecPoint.length === 97 ? "P-384" : "P-256";
@@ -246,7 +245,7 @@ function buildRsaSigner(session: Pkcs11Session, targetKey: Pkcs11KeyInfo, label?
   const jwk = publicKey.export({ format: "jwk" }) as { kty: string; [key: string]: unknown };
   const did = encodeDidJwk(jwk);
   const id = didJwkVerificationMethodId(did);
-  const fingerprint = computeFingerprint(publicKey);
+  const fingerprint = computeKeyFingerprint(publicKey);
 
   // Determine RSA algorithm from modulus bit length
   const modulusBitLength = targetKey.rsaModulus.length * 8;

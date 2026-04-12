@@ -13,24 +13,12 @@
 
 import { createPublicKey, type KeyObject } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
-import { derToRaw } from "@opencred/crypto";
+import { derToRaw, publicKeyFromEcBytes } from "@opencred/crypto";
 import {
-  deriveDidKeyId,
-  computeKeyFingerprint,
   encodeDidJwk,
   didJwkVerificationMethodId,
 } from "@opencred/did";
 import type { SigningAlgorithm } from "@opencred/crypto";
-
-/**
- * The P-256 uncompressed point length: 1 prefix byte + 32 x bytes + 32 y bytes = 65 bytes.
- */
-const P256_UNCOMPRESSED_POINT_LENGTH = 65;
-
-/**
- * The P-384 uncompressed point length: 1 prefix byte + 48 x bytes + 48 y bytes = 97 bytes.
- */
-const P384_UNCOMPRESSED_POINT_LENGTH = 97;
 
 /**
  * The P-256 raw r||s signature length: 32 r bytes + 32 s bytes = 64 bytes.
@@ -46,7 +34,7 @@ const P384_RAW_SIGNATURE_LENGTH = 96;
  * Build a Node.js KeyObject from a raw EC public key point.
  *
  * PKCS#11 returns EC public keys as uncompressed points (04 || x || y).
- * This wraps them in SPKI DER to create a standard KeyObject.
+ * Delegates to the canonical `publicKeyFromEcBytes` in @opencred/crypto.
  * Supports both P-256 (65-byte) and P-384 (97-byte) points.
  *
  * @param ecPoint - The uncompressed EC point bytes (65 bytes for P-256, 97 bytes for P-384).
@@ -54,73 +42,7 @@ const P384_RAW_SIGNATURE_LENGTH = 96;
  * @throws {CryptoError} if the point is not a valid uncompressed EC point.
  */
 export function publicKeyFromEcPoint(ecPoint: Uint8Array): KeyObject {
-  if (ecPoint[0] !== 0x04) {
-    throw new CryptoError("Invalid EC point: must start with 0x04 (uncompressed point prefix)");
-  }
-
-  if (
-    ecPoint.length !== P256_UNCOMPRESSED_POINT_LENGTH &&
-    ecPoint.length !== P384_UNCOMPRESSED_POINT_LENGTH
-  ) {
-    throw new CryptoError(
-      `Invalid EC point: expected 65-byte (P-256) or 97-byte (P-384) uncompressed point, got ${ecPoint.length} bytes`,
-    );
-  }
-
-  const isP384 = ecPoint.length === P384_UNCOMPRESSED_POINT_LENGTH;
-
-  // Build SPKI DER wrapper for EC public key
-  // SEQUENCE {
-  //   SEQUENCE {
-  //     OID ecPublicKey (1.2.840.10045.2.1)
-  //     OID curve (prime256v1 or secp384r1)
-  //   }
-  //   BIT STRING (the uncompressed point)
-  // }
-  const ecPublicKeyOid = new Uint8Array([0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01]);
-  const curveOid = isP384
-    ? new Uint8Array([0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x22]) // secp384r1 (1.3.132.0.34)
-    : new Uint8Array([0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]); // prime256v1
-
-  // Inner SEQUENCE: ecPublicKeyOid + curveOid
-  const innerSeqContent = new Uint8Array(ecPublicKeyOid.length + curveOid.length);
-  innerSeqContent.set(ecPublicKeyOid, 0);
-  innerSeqContent.set(curveOid, ecPublicKeyOid.length);
-
-  const innerSeq = new Uint8Array(2 + innerSeqContent.length);
-  innerSeq[0] = 0x30; // SEQUENCE
-  innerSeq[1] = innerSeqContent.length;
-  innerSeq.set(innerSeqContent, 2);
-
-  // BIT STRING wrapping the EC point: 1 byte for unused bits (0x00) + point
-  const bitStringContent = new Uint8Array(1 + ecPoint.length);
-  bitStringContent[0] = 0x00; // no unused bits
-  bitStringContent.set(ecPoint, 1);
-
-  const bitString = new Uint8Array(2 + bitStringContent.length);
-  bitString[0] = 0x03; // BIT STRING
-  bitString[1] = bitStringContent.length;
-  bitString.set(bitStringContent, 2);
-
-  // Outer SEQUENCE: innerSeq + bitString
-  const outerContent = new Uint8Array(innerSeq.length + bitString.length);
-  outerContent.set(innerSeq, 0);
-  outerContent.set(bitString, innerSeq.length);
-
-  const spki = new Uint8Array(2 + outerContent.length);
-  spki[0] = 0x30; // SEQUENCE
-  spki[1] = outerContent.length;
-  spki.set(outerContent, 2);
-
-  try {
-    return createPublicKey({
-      key: Buffer.from(spki),
-      format: "der",
-      type: "spki",
-    });
-  } catch {
-    throw new CryptoError("Failed to construct public key from EC point");
-  }
+  return publicKeyFromEcBytes(ecPoint);
 }
 
 /**
@@ -168,14 +90,6 @@ export function rsaAlgorithmFromModulusBits(modulusBitLength: number): SigningAl
 }
 
 /**
- * Derive a did:key verification method identifier from an EC public key.
- * Delegates to the shared implementation in @opencred/did.
- */
-export function deriveDidKeyIdFromPublicKey(publicKey: KeyObject): string {
-  return deriveDidKeyId(publicKey);
-}
-
-/**
  * Derive a did:jwk verification method identifier from an RSA public key.
  *
  * RSA keys use did:jwk rather than did:key because did:key for RSA produces
@@ -185,14 +99,6 @@ export function deriveDidJwkIdFromPublicKey(publicKey: KeyObject): string {
   const jwk = publicKey.export({ format: "jwk" }) as { kty: string; [key: string]: unknown };
   const did = encodeDidJwk(jwk);
   return didJwkVerificationMethodId(did);
-}
-
-/**
- * Compute a SHA-256 fingerprint of the public key (hex-encoded).
- * Delegates to the shared implementation in @opencred/did.
- */
-export function computeFingerprint(publicKey: KeyObject): string {
-  return computeKeyFingerprint(publicKey);
 }
 
 /**

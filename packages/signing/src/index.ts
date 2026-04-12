@@ -9,8 +9,10 @@ export {
   buildSigner,
   buildSignerFromPfx,
   detectKeyFormat,
-  detectKeyAlgorithm,
 } from "./software-signer.js";
+
+// Re-export detectKeyAlgorithm from its canonical home in @opencred/crypto
+export { detectKeyAlgorithm } from "@opencred/crypto";
 
 // PFX parser
 export type { PfxContents } from "./pfx-parser.js";
@@ -41,12 +43,15 @@ export {
   publicKeyFromEcPoint,
   publicKeyFromRsaComponents,
   rsaAlgorithmFromModulusBits,
-  deriveDidKeyIdFromPublicKey,
   deriveDidJwkIdFromPublicKey,
-  computeFingerprint,
   normalizeSignature,
   derCertToPem,
 } from "./pkcs11-utils.js";
+
+// Re-export key utilities from their canonical packages.
+// These were previously wrapper functions in pkcs11-utils.ts.
+export { deriveDidKeyId as deriveDidKeyIdFromPublicKey, computeKeyFingerprint as computeFingerprint } from "@opencred/did";
+export { publicKeyFromEcBytes } from "@opencred/crypto";
 
 // OS Cert Store
 export type {

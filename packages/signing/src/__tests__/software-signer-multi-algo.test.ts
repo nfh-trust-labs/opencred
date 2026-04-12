@@ -17,12 +17,12 @@ import path from "node:path";
 import os from "node:os";
 import {
   detectKeyFormat,
-  detectKeyAlgorithm,
   buildSigner,
   buildSignerFromPfx,
   createSoftwareSigner,
   createSoftwareSignerFromBuffer,
 } from "../software-signer.js";
+import { detectKeyAlgorithm } from "@opencred/crypto";
 import { CryptoError } from "@opencred/shared";
 
 // ----- Fixture paths -----

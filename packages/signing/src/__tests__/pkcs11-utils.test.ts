@@ -13,12 +13,11 @@ import {
   publicKeyFromEcPoint,
   publicKeyFromRsaComponents,
   rsaAlgorithmFromModulusBits,
-  deriveDidKeyIdFromPublicKey,
   deriveDidJwkIdFromPublicKey,
-  computeFingerprint,
   normalizeSignature,
   derCertToPem,
 } from "../pkcs11-utils.js";
+import { deriveDidKeyId as deriveDidKeyIdFromPublicKey, computeKeyFingerprint as computeFingerprint } from "@opencred/did";
 
 // ---------------------------------------------------------------------------
 // Test key generation
@@ -64,18 +63,18 @@ describe("publicKeyFromEcPoint", () => {
     expect(jwk.y).toBe(p384Jwk.y);
   });
 
-  it("should reject wrong prefix byte", () => {
+  it("should reject invalid prefix byte", () => {
     const bad = new Uint8Array(65);
-    bad[0] = 0x02;
+    bad[0] = 0x05; // not 0x02, 0x03, or 0x04
     expect(() => publicKeyFromEcPoint(bad)).toThrow(CryptoError);
-    expect(() => publicKeyFromEcPoint(bad)).toThrow(/must start with 0x04/);
+    expect(() => publicKeyFromEcPoint(bad)).toThrow(/Invalid EC point/);
   });
 
   it("should reject invalid length", () => {
     const bad = new Uint8Array(50);
     bad[0] = 0x04;
     expect(() => publicKeyFromEcPoint(bad)).toThrow(CryptoError);
-    expect(() => publicKeyFromEcPoint(bad)).toThrow(/expected 65-byte.*or 97-byte/);
+    expect(() => publicKeyFromEcPoint(bad)).toThrow(/Invalid EC.*point/);
   });
 });
 

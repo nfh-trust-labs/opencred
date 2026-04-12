@@ -46,6 +46,7 @@ export {
 export { jcsCanonicalize, computeRevocationHash } from "./jcs.js";
 
 export { signingAlgorithmToJwsAlg } from "./alg-mapping.js";
+export { detectKeyAlgorithm, publicKeyFromEcBytes } from "./key-utils.js";
 export {
   signCredentialSdJwtVc,
   prepareSdJwtVcProof,
