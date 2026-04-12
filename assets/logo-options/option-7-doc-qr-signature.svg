@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="4" fill="#EBF0FF"/>
+  <!-- document with folded corner -->
+  <path d="M30 18 H78 L98 38 V110 H30 Z" fill="#ffffff" stroke="#0057FF" stroke-width="3" stroke-linejoin="miter"/>
+  <path d="M78 18 V38 H98" fill="none" stroke="#0057FF" stroke-width="3" stroke-linejoin="miter"/>
+  <!-- signature squiggle -->
+  <path d="M38 56 q6 -8 12 0 t12 0 t12 0" fill="none" stroke="#1a1a1a" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="38" y1="66" x2="80" y2="66" stroke="#1a1a1a" stroke-width="1.5" opacity="0.4"/>
+  <!-- QR block bottom right -->
+  <rect x="56" y="76" width="34" height="34" fill="#0057FF"/>
+  <rect x="60" y="80" width="8" height="8" fill="#ffffff"/>
+  <rect x="78" y="80" width="8" height="8" fill="#ffffff"/>
+  <rect x="60" y="98" width="8" height="8" fill="#ffffff"/>
+  <rect x="72" y="92" width="4" height="4" fill="#ffffff"/>
+  <rect x="78" y="98" width="4" height="4" fill="#ffffff"/>
+</svg>

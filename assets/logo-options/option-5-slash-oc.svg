@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 128">
+  <rect width="200" height="128" rx="4" fill="#fafaf9"/>
+  <text x="100" y="92" font-family="Instrument Serif, Georgia, serif" font-size="84" text-anchor="middle">
+    <tspan fill="#1a1a1a">O</tspan><tspan fill="#0057FF">/</tspan><tspan fill="#1a1a1a">C</tspan>
+  </text>
+</svg>
