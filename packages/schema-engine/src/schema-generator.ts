@@ -37,7 +37,7 @@ function inferProperty(value: unknown): {
   }
 
   if (typeof value === "string") {
-    if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
       return {
         schemaProp: { type: "string", format: "date-time" },
         type: "string",
@@ -107,7 +107,10 @@ function generatePropertiesFromFields(fields: Record<string, unknown>): {
   const required: string[] = [];
   const inferredFields: InferredField[] = [];
 
-  for (const [name, value] of Object.entries(fields)) {
+  const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+  const safeEntries = Object.entries(fields).filter(([key]) => !DANGEROUS_KEYS.has(key));
+
+  for (const [name, value] of safeEntries) {
     const inferred = inferProperty(value);
     properties[name] = inferred.schemaProp;
     required.push(name);

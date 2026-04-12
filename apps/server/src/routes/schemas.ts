@@ -5,6 +5,7 @@
  */
 
 import { Hono } from "hono";
+import { z } from "zod";
 import { createRegistry, generateSchemaFromFields } from "@opencred/schema-engine";
 
 const schemas = new Hono();
@@ -57,15 +58,26 @@ schemas.get("/schemas/:id{.+}", (c) => {
   }
 });
 
+const generateSchema = z.object({
+  fields: z.record(z.unknown()),
+});
+
 schemas.post("/schemas/generate", async (c) => {
-  const body = await c.req.json();
-  if (!body.fields || typeof body.fields !== "object" || Array.isArray(body.fields)) {
+  const body = await c.req.json().catch(() => null);
+  if (!body) {
     return c.json(
-      { error: { code: "VALIDATION_ERROR", message: "Body must include a fields object" } },
+      { error: { code: "VALIDATION_ERROR", message: "Invalid JSON body" } },
       400,
     );
   }
-  const result = generateSchemaFromFields(body.fields);
+  const parsed = generateSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json(
+      { error: { code: "VALIDATION_ERROR", message: "Body must include a fields object", details: parsed.error.flatten() } },
+      400,
+    );
+  }
+  const result = generateSchemaFromFields(parsed.data.fields);
   return c.json({ schema: result.schema, fields: result.fields });
 });
 
