@@ -15,7 +15,7 @@
  *  - Private keys are handled only in the main process and NEVER logged
  */
 
-import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, Menu, session, type MenuItemConstructorOptions } from "electron";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -64,9 +64,45 @@ function createWindow(): void {
       preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
     },
     show: false,
+  });
+
+  // -------------------------------------------------------------------------
+  // Content Security Policy — set via session headers so it applies before
+  // any content is loaded.  In dev mode we allow connect-src to localhost for
+  // Vite HMR; in production the policy is strict same-origin.
+  // -------------------------------------------------------------------------
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        "Content-Security-Policy": [
+          IS_DEV
+            ? "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://localhost:* ws://localhost:*; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+            : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+        ],
+      },
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Navigation guard — prevent the renderer from navigating away from the app.
+  // In dev mode we allow navigation to the Vite dev server.
+  // -------------------------------------------------------------------------
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (IS_DEV && url.startsWith(DEV_SERVER_URL)) return;
+    event.preventDefault();
+    try { logger.warn("Blocked navigation attempt", { url: new URL(url).origin }); } catch { logger.warn("Blocked navigation attempt"); }
+  });
+
+  // -------------------------------------------------------------------------
+  // Block window.open — the app should never open new windows.
+  // -------------------------------------------------------------------------
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try { logger.warn("Blocked window.open attempt", { url: new URL(url).origin }); } catch { logger.warn("Blocked window.open attempt"); }
+    return { action: "deny" };
   });
 
   // Forward renderer console to main process stdout for debugging.
