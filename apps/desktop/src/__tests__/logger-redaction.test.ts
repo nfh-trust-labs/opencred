@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { redact, redactValue } from "../main/logger.js";
+import { redact, redactValue, isHighEntropy } from "../main/logger.js";
 
 describe("redact", () => {
   // -----------------------------------------------------------------------
@@ -79,15 +79,51 @@ MIICpDCCAYwCCQDU+pQ4pHgSpDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
     expect(result).toBe(url);
   });
 
-  it("does NOT redact long base64url strings (no + char)", () => {
-    // base64url uses - and _ instead of + and / — JWK d fields catch these separately
-    const b64url = "MHQCAQEEIBkg4LVWM9nuwNSk3yByxZpYRTBnVJk5GkMnNaWPKyho";
-    expect(redact(b64url)).toBe(b64url);
+  it("redacts long base64url strings with high entropy", () => {
+    // Real base64url-encoded 32-byte key — mixed case + digits + special
+    const b64url = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    expect(redact(b64url)).toBe("[REDACTED]");
+  });
+
+  it("does NOT redact long pure-alphanumeric strings (no base64 special chars)", () => {
+    // A transaction ID or similar identifier — pure alphanumeric, no +, /, -, or _
+    const txId = "abc123def456ghi789jkl012mno345pqr678stu901vwx";
+    expect(redact(txId)).toBe(txId);
+  });
+
+  it("does NOT redact short base64url strings (under 40 chars)", () => {
+    const short = "abc-def_ghi";
+    expect(redact(short)).toBe(short);
   });
 
   it("does NOT redact short base64 strings", () => {
     const short = "SGVsbG8gV29ybGQ="; // "Hello World" in base64 (16 chars)
     expect(redact(short)).toBe(short);
+  });
+
+  // -----------------------------------------------------------------------
+  // False-positive resistance (base64url entropy filter)
+  // -----------------------------------------------------------------------
+
+  it("does NOT redact kebab-case build identifiers", () => {
+    const id = "electron-v28-darwin-arm64-rebuild-pkcs11js-native";
+    expect(redact(id)).toBe(id);
+  });
+
+  it("does NOT redact SCREAMING_SNAKE_CASE constants", () => {
+    const constant = "SOME_REALLY_LONG_SNAKE_CASE_CONSTANT_NAME_USED_IN_CODE_BASE";
+    expect(redact(constant)).toBe(constant);
+  });
+
+  it("does NOT redact CSS class name strings", () => {
+    const css = "container-fluid-dark-theme-sidebar-navigation-wrapper";
+    expect(redact(css)).toBe(css);
+  });
+
+  it("does NOT redact compound UUID strings", () => {
+    const uuid = "550e8400-e29b-41d4-a716-446655440000-550e8400-e29b-41d4";
+    // UUIDs are hex + hyphens — only lowercase + digits + special (2 classes)
+    expect(redact(uuid)).toBe(uuid);
   });
 
   // -----------------------------------------------------------------------
@@ -107,6 +143,32 @@ MIICpDCCAYwCCQDU+pQ4pHgSpDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
   it("preserves JSON without d field", () => {
     const json = '{"kty":"EC","crv":"P-256","x":"abc","y":"def"}';
     expect(redact(json)).toBe(json);
+  });
+});
+
+describe("isHighEntropy", () => {
+  it("returns true for base64url with all 4 classes (upper + lower + digit + special)", () => {
+    expect(isHighEntropy("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")).toBe(true);
+  });
+
+  it("returns false for 3 classes: lower + digit + special (no uppercase)", () => {
+    expect(isHighEntropy("abc123def456-ghi789jkl012mno345pqr678stu901")).toBe(false);
+  });
+
+  it("returns false for kebab-case build identifiers (lower + digit + special)", () => {
+    expect(isHighEntropy("electron-v28-darwin-arm64-rebuild-pkcs11js-native")).toBe(false);
+  });
+
+  it("returns false for SCREAMING_SNAKE (upper + special only)", () => {
+    expect(isHighEntropy("SOME_REALLY_LONG_SNAKE_CASE_CONSTANT_NAME")).toBe(false);
+  });
+
+  it("returns false for lowercase-only with hyphens (2 classes)", () => {
+    expect(isHighEntropy("container-fluid-dark-theme-sidebar-navigation")).toBe(false);
+  });
+
+  it("returns false for compound UUIDs (lower + digit + special, no uppercase)", () => {
+    expect(isHighEntropy("550e8400-e29b-41d4-a716-446655440000-550e8400-e29b-41d4")).toBe(false);
   });
 });
 
