@@ -1,4 +1,5 @@
 export type {
+  SchemaCategory,
   SchemaDefinition,
   SchemaSource,
   ValidationResult,
@@ -15,22 +16,40 @@ export type {
 } from "./schema-updater.js";
 export { SchemaRegistry } from "./schema-registry.js";
 export { Validator } from "./validator.js";
+export { getCategoryForSchema } from "./schema-categories.js";
 export { checkForUpdates } from "./schema-updater.js";
 export { generateSchemaFromFields } from "./schema-generator.js";
 
 import { SchemaRegistry } from "./schema-registry.js";
 import { createBuiltInRegistry } from "./generated-registry.js";
+import { educationV1Definition } from "./schemas/education-v1.js";
+import { getCategoryForSchema } from "./schema-categories.js";
 import { checkForUpdates, type SchemaUpdateConfig } from "./schema-updater.js";
 import type { SchemaManifest } from "./types.js";
 
 /**
- * Create a registry pre-populated with every bundled credential schema.
- * Schemas are loaded from the build-time generated module (schema-data.ts +
- * generated-registry.ts), which is produced by scripts/fetch-and-embed-schemas.mjs
- * during `pnpm build`. The runtime never fetches schemas remotely.
+ * Create a registry pre-populated with every bundled credential schema
+ * plus locally-defined schemas (e.g. education/v1).
+ *
+ * After loading, categories are applied to all schemas via the
+ * schema-categories mapping.
  */
 export function createRegistry(): SchemaRegistry {
-  return createBuiltInRegistry();
+  const registry = createBuiltInRegistry();
+
+  // Register locally-defined schemas
+  registry.register(educationV1Definition);
+
+  // Apply categories to all schemas (bundled schemas don't have categories
+  // set by the code-generator, so we assign them here)
+  for (const id of registry.listSchemas()) {
+    const def = registry.getSchema(id);
+    if (!def.category) {
+      def.category = getCategoryForSchema(id);
+    }
+  }
+
+  return registry;
 }
 
 /**

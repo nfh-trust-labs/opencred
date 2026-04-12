@@ -45,9 +45,11 @@ describe("Schema management", () => {
     const schemas = listSchemas();
     expect(schemas).toBeInstanceOf(Array);
     expect(schemas.length).toBeGreaterThan(0);
-    expect(schemas).toContain("functional-identity/v1");
-    expect(schemas).toContain("immunization/v1");
-    expect(schemas).toContain("electricity/v1");
+    const ids = schemas.map((s) => s.id);
+    expect(ids).toContain("functional-identity/v1");
+    expect(ids).toContain("immunization/v1");
+    expect(ids).toContain("electricity/v1");
+    expect(ids).toContain("education/v1");
   });
 
   it("should get a schema definition by ID", () => {

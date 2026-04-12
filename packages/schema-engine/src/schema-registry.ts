@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { NotFoundError } from "@opencred/shared";
-import type { SchemaDefinition, SchemaManifest } from "./types.js";
+import type { SchemaCategory, SchemaDefinition, SchemaManifest } from "./types.js";
 
 export class SchemaRegistry {
   private readonly schemas = new Map<string, SchemaDefinition>();
@@ -30,6 +30,28 @@ export class SchemaRegistry {
 
   listSchemas(): string[] {
     return [...this.schemas.keys()];
+  }
+
+  /**
+   * Return schemas grouped by category.
+   * Schemas without a category are placed under "other".
+   */
+  listSchemasByCategory(): Record<SchemaCategory, string[]> {
+    const grouped: Record<SchemaCategory, string[]> = {
+      education: [],
+      employment: [],
+      identity: [],
+      health: [],
+      business: [],
+      utility: [],
+      "supply-chain": [],
+      other: [],
+    };
+    for (const [id, def] of this.schemas) {
+      const cat = def.category ?? "other";
+      grouped[cat].push(id);
+    }
+    return grouped;
   }
 
   getContextForType(type: string): string | undefined {
