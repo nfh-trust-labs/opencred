@@ -308,12 +308,11 @@ import {
   publicKeyFromEcPoint,
   publicKeyFromRsaComponents,
   rsaAlgorithmFromModulusBits,
-  deriveDidKeyIdFromPublicKey,
   deriveDidJwkIdFromPublicKey,
-  computeFingerprint,
   normalizeSignature,
   derCertToPem,
 } from "../pkcs11-utils.js";
+import { deriveDidKeyId as deriveDidKeyIdFromPublicKey, computeKeyFingerprint as computeFingerprint } from "@opencred/did";
 
 // ---------------------------------------------------------------------------
 // Generate a real EC key pair once, after imports resolve.

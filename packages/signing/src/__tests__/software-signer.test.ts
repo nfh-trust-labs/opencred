@@ -4,11 +4,11 @@ import { resolve } from "node:path";
 import { generateKeyPairSync, createVerify, constants } from "node:crypto";
 import {
   detectKeyFormat,
-  detectKeyAlgorithm,
   buildSigner,
   buildSignerFromPfx,
   createSoftwareSignerFromBuffer,
 } from "../software-signer.js";
+import { detectKeyAlgorithm } from "@opencred/crypto";
 import { CryptoError } from "@opencred/shared";
 
 const FIXTURES_DIR = resolve(import.meta.dirname, "../../test/fixtures");

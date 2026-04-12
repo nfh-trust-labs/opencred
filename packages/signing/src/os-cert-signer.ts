@@ -20,7 +20,7 @@
 
 import { createPublicKey } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
-import type { SigningAlgorithm } from "@opencred/crypto";
+import { publicKeyFromEcBytes, type SigningAlgorithm } from "@opencred/crypto";
 import {
   deriveDidKeyIdFromCompressedKey,
   computeKeyFingerprint,
@@ -133,47 +133,10 @@ function deriveEcIdentity(
   const id = deriveDidKeyIdFromCompressedKey(compressedPublicKey, curve);
 
   // Build a KeyObject from the compressed key so we can compute a standard fingerprint
-  const expectedLen = curve === "P-256" ? 33 : 49;
-  if (compressedPublicKey.length !== expectedLen) {
-    throw new CryptoError(
-      `Invalid compressed key length for ${curve}: expected ${expectedLen}, got ${compressedPublicKey.length}`,
-    );
-  }
-
-  const curveName = curve === "P-256" ? "prime256v1" : "secp384r1";
-  const ecPublicKey = createPublicKey({
-    key: buildEcSpkiDer(compressedPublicKey, curveName),
-    format: "der",
-    type: "spki",
-  });
+  const ecPublicKey = publicKeyFromEcBytes(compressedPublicKey);
   const fingerprint = computeKeyFingerprint(ecPublicKey);
 
   return { id, fingerprint };
-}
-
-/**
- * Build a minimal SPKI DER structure from a SEC1 compressed EC public key.
- * Used to construct a KeyObject for fingerprint computation.
- */
-function buildEcSpkiDer(compressedKey: Uint8Array, curveName: string): Buffer {
-  const ecPublicKeyOid = Buffer.from([0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01]);
-
-  let curveOid: Buffer;
-  if (curveName === "prime256v1") {
-    curveOid = Buffer.from([0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]);
-  } else {
-    // secp384r1
-    curveOid = Buffer.from([0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x22]);
-  }
-
-  const innerSeqContent = Buffer.concat([ecPublicKeyOid, curveOid]);
-  const innerSeq = Buffer.concat([Buffer.from([0x30, innerSeqContent.length]), innerSeqContent]);
-
-  const bitStringContent = Buffer.concat([Buffer.from([0x00]), compressedKey]);
-  const bitString = Buffer.concat([Buffer.from([0x03, bitStringContent.length]), bitStringContent]);
-
-  const outerContent = Buffer.concat([innerSeq, bitString]);
-  return Buffer.concat([Buffer.from([0x30, outerContent.length]), outerContent]);
 }
 
 /**

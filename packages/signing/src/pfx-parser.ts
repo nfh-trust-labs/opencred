@@ -14,7 +14,7 @@
 import forge from "node-forge";
 import { createPrivateKey, createPublicKey, type KeyObject } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
-import type { SigningAlgorithm } from "@opencred/crypto";
+import { detectKeyAlgorithm, type SigningAlgorithm } from "@opencred/crypto";
 
 export interface PfxContents {
   privateKey: KeyObject;
@@ -83,7 +83,7 @@ export function parsePfx(buffer: Buffer, password: string): PfxContents {
   const publicKey = createPublicKey(privateKey);
 
   // Detect algorithm from the Node.js KeyObject
-  const keyAlgorithm = detectAlgorithmFromKeyObject(publicKey);
+  const keyAlgorithm = detectKeyAlgorithm(publicKey);
 
   // Extract certificate chain
   const certBags = p12.getBags({ bagType: forge.pki.oids.certBag });
@@ -116,25 +116,3 @@ export function parsePfx(buffer: Buffer, password: string): PfxContents {
   };
 }
 
-/**
- * Detect the signing algorithm from a Node.js KeyObject.
- */
-function detectAlgorithmFromKeyObject(publicKey: KeyObject): SigningAlgorithm {
-  const jwk = publicKey.export({ format: "jwk" });
-
-  if (jwk.kty === "EC") {
-    if (jwk.crv === "P-256") return "P-256";
-    if (jwk.crv === "P-384") return "P-384";
-    throw new CryptoError(`Unsupported EC curve: ${String(jwk.crv)}`);
-  }
-
-  if (jwk.kty === "RSA") {
-    const modulusBits = Buffer.from(jwk.n!, "base64url").length * 8;
-    if (modulusBits >= 4096) return "RSA-4096";
-    if (modulusBits >= 3072) return "RSA-3072";
-    if (modulusBits >= 2048) return "RSA-2048";
-    throw new CryptoError(`RSA modulus too small: ${modulusBits} bits`);
-  }
-
-  throw new CryptoError(`Unsupported key type in PFX: ${String(jwk.kty)}`);
-}

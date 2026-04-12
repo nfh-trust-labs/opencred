@@ -27,7 +27,7 @@ import {
   encodeDidJwk,
   didJwkVerificationMethodId,
 } from "@opencred/did";
-import type { SigningAlgorithm } from "@opencred/crypto";
+import { detectKeyAlgorithm, type SigningAlgorithm } from "@opencred/crypto";
 import type { Signer, SignerMetadata, KeyFormat } from "./types.js";
 import { parsePfx } from "./pfx-parser.js";
 
@@ -65,34 +65,6 @@ export function detectKeyFormat(content: Buffer, filenameHint?: string): KeyForm
   }
 
   return "pkcs8-der";
-}
-
-/**
- * Detect the signing algorithm from a public key's JWK export.
- */
-export function detectKeyAlgorithm(publicKey: KeyObject): SigningAlgorithm {
-  const jwk = publicKey.export({ format: "jwk" });
-
-  if (jwk.kty === "EC") {
-    if (jwk.crv === "P-256") return "P-256";
-    if (jwk.crv === "P-384") return "P-384";
-    throw new CryptoError(`Unsupported EC curve: ${String(jwk.crv)}`);
-  }
-
-  if (jwk.kty === "OKP") {
-    if (jwk.crv === "Ed25519") return "Ed25519";
-    throw new CryptoError(`Unsupported OKP curve: ${String(jwk.crv)}`);
-  }
-
-  if (jwk.kty === "RSA") {
-    const modulusBits = Buffer.from(jwk.n!, "base64url").length * 8;
-    if (modulusBits >= 4096) return "RSA-4096";
-    if (modulusBits >= 3072) return "RSA-3072";
-    if (modulusBits >= 2048) return "RSA-2048";
-    throw new CryptoError(`RSA modulus too small: ${modulusBits} bits`);
-  }
-
-  throw new CryptoError(`Unsupported algorithm type: ${String(jwk.kty)}`);
 }
 
 /**
