@@ -11,6 +11,14 @@ describe("isPrivateIP", () => {
     ["192.168.1.1", true],
     ["169.254.1.1", true],
     ["0.0.0.0", true],
+    ["224.0.0.1", true],
+    ["239.255.255.255", true],
+    ["240.0.0.1", true],
+    ["255.255.255.255", true],
+    ["100.64.0.1", true],
+    ["100.127.255.254", true],
+    ["198.18.0.1", true],
+    ["198.19.255.255", true],
   ])("IPv4 %s → %s", (ip, expected) => {
     expect(isPrivateIP(ip)).toBe(expected);
   });
@@ -20,6 +28,8 @@ describe("isPrivateIP", () => {
     ["1.1.1.1", false],
     ["172.32.0.1", false],
     ["192.169.1.1", false],
+    ["100.63.255.255", false],
+    ["198.17.0.1", false],
   ])("IPv4 public %s → %s", (ip, expected) => {
     expect(isPrivateIP(ip)).toBe(expected);
   });
@@ -27,9 +37,12 @@ describe("isPrivateIP", () => {
   // IPv6 private ranges
   it.each([
     ["::1", true],
+    ["::", true],
     ["fc00::1", true],
     ["fd12::1", true],
     ["fe80::1", true],
+    ["ff02::1", true],
+    ["0100::1", true],
   ])("IPv6 %s → %s", (ip, expected) => {
     expect(isPrivateIP(ip)).toBe(expected);
   });
