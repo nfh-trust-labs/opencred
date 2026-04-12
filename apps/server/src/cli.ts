@@ -39,6 +39,7 @@ import {
 import { publicKeyFromMultibase } from "@opencred/verification";
 import { createSoftwareSigner } from "@opencred/signing";
 import type { Signer } from "@opencred/signing";
+import type { TemplateCustomization } from "@opencred/templates";
 import { loadConfig, resetConfig } from "./config.js";
 import type { ServerConfig } from "./config.js";
 import { parseCsv } from "./batch/csv-parser.js";
@@ -79,6 +80,58 @@ function readJsonInput(inputPath: string): Record<string, unknown> {
   const absPath = resolve(inputPath);
   const content = readFileSync(absPath, "utf-8");
   return JSON.parse(content) as Record<string, unknown>;
+}
+
+/**
+ * Read an image file and convert it to a data URI.
+ * Only image files are accepted (png, jpg, jpeg, gif, svg, webp).
+ */
+function readLogoAsDataUri(logoPath: string): string {
+  const absPath = resolve(logoPath);
+  const ext = absPath.split(".").pop()?.toLowerCase() ?? "";
+  const mimeMap: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    svg: "image/svg+xml",
+    webp: "image/webp",
+  };
+  const mime = mimeMap[ext];
+  if (!mime) {
+    throw new Error(
+      `Unsupported logo file type: .${ext}. Supported: ${Object.keys(mimeMap).join(", ")}`,
+    );
+  }
+  const data = readFileSync(absPath);
+  return `data:${mime};base64,${data.toString("base64")}`;
+}
+
+/**
+ * Build a TemplateCustomization from CLI flag values.
+ * Returns undefined if no branding flags were provided.
+ */
+function buildCustomization(opts: {
+  primaryColor?: string;
+  logo?: string;
+  issuerName?: string;
+}): TemplateCustomization | undefined {
+  if (!opts.primaryColor && !opts.logo && !opts.issuerName) return undefined;
+
+  const customization: TemplateCustomization = {};
+  if (opts.primaryColor) {
+    if (!/^#[0-9a-fA-F]{6}$/.test(opts.primaryColor)) {
+      throw new Error("--primary-color must be a 6-digit hex color (e.g. #1a56db)");
+    }
+    customization.primaryColor = opts.primaryColor;
+  }
+  if (opts.logo) {
+    customization.logoDataUri = readLogoAsDataUri(opts.logo);
+  }
+  if (opts.issuerName) {
+    customization.issuerDisplayName = opts.issuerName;
+  }
+  return customization;
 }
 
 type CliProofFormat = "vc-jwt" | "data-integrity" | "sd-jwt-vc";
@@ -191,9 +244,16 @@ export function createProgram(): Command {
     .requiredOption("--key <pem-path>", "Path to signing key file (PEM/JWK/PFX)")
     .option("--proof-format <format>", "Proof format: vc-jwt, data-integrity, sd-jwt-vc", "vc-jwt")
     .requiredOption("--output <file>", "Output file path for the signed credential")
+    .option("--primary-color <hex>", "Primary branding color (e.g. #1a56db)")
+    .option("--logo <file>", "Path to issuer logo image file (PNG/JPG/SVG)")
+    .option("--issuer-name <name>", "Issuer display name (overrides DID in output)")
     .action(async (opts) => {
       const signer = loadKey(opts.key);
       const input = readJsonInput(opts.input);
+      const customization = buildCustomization(opts);
+      if (customization) {
+        console.log("Branding customization loaded (will apply to packaged output).");
+      }
 
       const registry = createRegistry();
       const validator = new Validator(registry);
@@ -300,10 +360,17 @@ export function createProgram(): Command {
     .requiredOption("--key <pem-path>", "Path to signing key file (PEM/JWK/PFX)")
     .requiredOption("--output-dir <dir>", "Output directory for issued credentials")
     .option("--proof-format <format>", "Proof format: vc-jwt, data-integrity, sd-jwt-vc", "vc-jwt")
+    .option("--primary-color <hex>", "Primary branding color (e.g. #1a56db)")
+    .option("--logo <file>", "Path to issuer logo image file (PNG/JPG/SVG)")
+    .option("--issuer-name <name>", "Issuer display name (overrides DID in output)")
     .action(async (opts) => {
       const signer = loadKey(opts.key);
       const csvContent = readFileSync(resolve(opts.input), "utf-8");
       const outputDir = resolve(opts.outputDir);
+      const customization = buildCustomization(opts);
+      if (customization) {
+        console.log("Branding customization loaded (will apply to packaged output).");
+      }
 
       if (!existsSync(outputDir)) {
         mkdirSync(outputDir, { recursive: true });

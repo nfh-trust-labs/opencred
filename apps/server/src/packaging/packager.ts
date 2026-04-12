@@ -7,12 +7,21 @@
  */
 
 import type { VerifiableCredential } from "@opencred/vc-core";
+import type { TemplateCustomization } from "@opencred/templates";
 import { generateQrPng, generateQrSvg } from "./qr-generator.js";
 
 // Re-export for use by verification and other consumers
 export { decodeQrData } from "./qr-generator.js";
 import { generatePdf } from "./pdf-generator.js";
 import { exportAsJsonLd, exportAsCompactJson } from "./json-export.js";
+
+/**
+ * Options for credential packaging.
+ */
+export interface PackagingOptions {
+  /** Issuer branding customization (colors, logo, display name). */
+  customization?: TemplateCustomization;
+}
 
 /**
  * Supported output formats for credential packaging.
@@ -67,6 +76,7 @@ function suggestedBaseName(credential: VerifiableCredential): string {
 export async function packageCredential(
   credential: VerifiableCredential,
   formats: PackageFormat[] = ["qr-png", "qr-svg", "pdf", "json-ld"],
+  options?: PackagingOptions,
 ): Promise<PackagingResult> {
   const baseName = suggestedBaseName(credential);
   const outputs: PackagedOutput[] = [];
@@ -96,7 +106,7 @@ export async function packageCredential(
           break;
         }
         case "pdf": {
-          const pdfBuffer = await generatePdf(credential);
+          const pdfBuffer = await generatePdf(credential, { customization: options?.customization });
           outputs.push({
             format: "pdf",
             data: pdfBuffer,

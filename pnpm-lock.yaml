@@ -214,6 +214,9 @@ importers:
       '@opencred/signing':
         specifier: workspace:*
         version: link:../../packages/signing
+      '@opencred/templates':
+        specifier: workspace:*
+        version: link:../../packages/templates
       '@opencred/vc-core':
         specifier: workspace:*
         version: link:../../packages/vc-core
