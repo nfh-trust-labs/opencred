@@ -1,4 +1,4 @@
-import { VerificationError } from "@opencred/shared";
+import { VerificationError, assertJwtSize } from "@opencred/shared";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import { verifyDataIntegrity } from "./data-integrity.js";
 import { verifyJwsProof } from "./jws-proof.js";
@@ -32,6 +32,7 @@ export function detectFormat(input: VerificationInput): CredentialFormat {
   }
 
   if (typeof input === "string") {
+    assertJwtSize(input);
     if (input.includes("~")) {
       return "sd-jwt-vc";
     }

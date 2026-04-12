@@ -1,7 +1,7 @@
 import { createPublicKey, type KeyObject } from "node:crypto";
 import * as jose from "jose";
 import type { DIDResolver } from "@opencred/did";
-import { VerificationError } from "@opencred/shared";
+import { VerificationError, assertJwtSize } from "@opencred/shared";
 import { publicKeyFromMultibase } from "./key-utils.js";
 import type { VerificationCheck } from "./types.js";
 
@@ -30,6 +30,8 @@ export async function verifyVcJwt(
   didResolver?: DIDResolver,
 ): Promise<{ check: VerificationCheck; payload: VcJwtPayload | null }> {
   try {
+    assertJwtSize(jwt);
+
     const header = jose.decodeProtectedHeader(jwt);
     if (!header.alg) {
       return {
