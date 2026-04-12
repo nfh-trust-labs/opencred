@@ -577,6 +577,28 @@ describe("POST /credentials/batch", () => {
     const res = await app.request("/credentials/batch/nonexistent-job-id");
     expect(res.status).toBe(404);
   });
+
+  it("echoes webhookUrl in 202 response when provided", async () => {
+    const csvContent = "name,role,validFrom\nAlice,Medical Practitioner,2025-06-01T00:00:00Z\n";
+
+    const res = await app.request("/credentials/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        csvContent,
+        schemaId: "functional-identity/v1",
+        issuerDid: testKey.signer.id.split("#")[0],
+        validFrom: "2025-06-01T00:00:00Z",
+        webhookUrl: "https://example.com/webhook",
+      }),
+    });
+
+    expect(res.status).toBe(202);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toHaveProperty("jobId");
+    expect(body.webhookUrl).toBe("https://example.com/webhook");
+  });
 });
 
 // ---------------------------------------------------------------------------
