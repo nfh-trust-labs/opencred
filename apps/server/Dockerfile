@@ -56,8 +56,20 @@
 # Periodically update: docker pull node:20-alpine && docker inspect --format='{{index .RepoDigests 0}}' node:20-alpine
 FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS builder
 
+# Upgrade Alpine base packages to pick up security fixes (e.g. libcrypto3,
+# libssl3, zlib). This keeps the pinned digest for reproducibility while still
+# closing HIGH/CRITICAL OS-level CVEs flagged by Trivy.
+RUN apk upgrade --no-cache
+
 # Install pnpm via corepack (matches the pinned version in package.json).
-RUN corepack enable && corepack prepare pnpm@9 --activate
+RUN corepack enable && corepack prepare pnpm@10.30.1 --activate
+
+# Install native build tools required for pkcs11js and other native addons.
+RUN apk add --no-cache python3 make g++
+
+# pnpm aborts `install --prod` rebuilds without a TTY unless CI is set.
+# BuildKit has no TTY attached, so we set CI=true for the whole builder stage.
+ENV CI=true
 
 WORKDIR /build
 
@@ -69,7 +81,6 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 # workspace:* dependencies. Listing each one explicitly keeps the layer
 # cache stable when unrelated package.json files change.
 COPY apps/server/package.json apps/server/package.json
-COPY apps/desktop/package.json apps/desktop/package.json
 COPY packages/ca-adapter/package.json packages/ca-adapter/package.json
 COPY packages/crypto/package.json packages/crypto/package.json
 COPY packages/dedi-client/package.json packages/dedi-client/package.json
@@ -95,12 +106,17 @@ COPY apps/server/ apps/server/
 RUN pnpm --filter @opencred/server... build
 
 # Strip dev dependencies from the install to shrink the runtime image.
-RUN pnpm prune --prod
+# pnpm 10 removed the `prune` command — re-install with --prod instead.
+RUN pnpm install --prod --filter @opencred/server...
 
 # -----------------------------------------------------------------------------
 # Stage 2: runtime — minimal image with only production artifacts
 # -----------------------------------------------------------------------------
 FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS runtime
+
+# Upgrade Alpine base packages to pick up security fixes (e.g. libcrypto3,
+# libssl3, zlib). Must run before switching to the non-root node user.
+RUN apk upgrade --no-cache
 
 # Run as the non-root `node` user that ships with the alpine image.
 USER node

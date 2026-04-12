@@ -9,6 +9,7 @@ import {
   MAX_COMPRESSED_SIZE,
 } from "../checks.js";
 import type { DeDiClient } from "@opencred/dedi-client";
+import type { DIDResolver } from "@opencred/did";
 import { gzipSync } from "node:zlib";
 
 vi.mock("node:dns/promises", () => ({
@@ -657,7 +658,7 @@ describe("checkBitstringStatusList", () => {
         statusListIndex: "0",
         statusListCredential: "https://example.com/status/1",
       },
-      { didResolver: mockResolver as any },
+      { didResolver: mockResolver as unknown as DIDResolver },
     );
 
     expect(result.passed).toBe(false);
