@@ -22,8 +22,9 @@ import * as crypto from "node:crypto";
 import { CryptoError } from "@opencred/shared";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
-import { createRegistry, Validator } from "@opencred/schema-engine";
+import { Validator } from "@opencred/schema-engine";
 import type { SchemaRegistry, ValidationResult } from "@opencred/schema-engine";
+import { getSchemaRegistry } from "../main/schema-registry-singleton.js";
 import { signWithFormat } from "./proof-format-router.js";
 import type { UiProofFormat } from "../shared/ipc-types.js";
 import { deriveVerificationMethod } from "./types.js";
@@ -86,15 +87,10 @@ export interface LocalSigningResult {
   isCompactToken: boolean;
 }
 
-// Singleton registry -- created once and reused
-let registryInstance: SchemaRegistry | null = null;
 let validatorInstance: Validator | null = null;
 
 function getRegistry(): SchemaRegistry {
-  if (!registryInstance) {
-    registryInstance = createRegistry();
-  }
-  return registryInstance;
+  return getSchemaRegistry();
 }
 
 function getValidator(): Validator {

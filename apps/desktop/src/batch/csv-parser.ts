@@ -11,8 +11,9 @@
  * subject data is handled here.
  */
 
-import { createRegistry, Validator } from "@opencred/schema-engine";
+import { Validator } from "@opencred/schema-engine";
 import type { SchemaRegistry, ValidationResult } from "@opencred/schema-engine";
+import { getSchemaRegistry } from "../main/schema-registry-singleton.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -212,15 +213,10 @@ export function parseRawCsv(
 // Schema validation
 // ---------------------------------------------------------------------------
 
-// Singleton registry and validator
-let registryInstance: SchemaRegistry | null = null;
 let validatorInstance: Validator | null = null;
 
 function getRegistry(): SchemaRegistry {
-  if (!registryInstance) {
-    registryInstance = createRegistry();
-  }
-  return registryInstance;
+  return getSchemaRegistry();
 }
 
 function getValidator(): Validator {

@@ -1,28 +1,22 @@
 /**
  * Schema listing endpoint.
  *
- * Returns the available credential schemas from @opencred/schema-engine.
+ * Returns the available credential schemas from the server-wide registry.
  */
 
 import { Hono } from "hono";
-import { createRegistry } from "@opencred/schema-engine";
+import { getSchemaRegistry } from "../schema-registry-singleton.js";
 
 const schemas = new Hono();
 
-// Singleton registry
-let registry: ReturnType<typeof createRegistry> | null = null;
-
 function getRegistry() {
-  if (!registry) {
-    registry = createRegistry();
-  }
-  return registry;
+  return getSchemaRegistry();
 }
 
 schemas.get("/schemas", (c) => {
   const reg = getRegistry();
   const schemaIds = reg.listSchemas();
-  const schemaList = schemaIds.map((id) => {
+  const schemaList = schemaIds.map((id: string) => {
     const def = reg.getSchema(id);
     return {
       id: def.id,
