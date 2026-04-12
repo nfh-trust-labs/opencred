@@ -81,6 +81,8 @@ import type {
   CustomSchemaSaveResponse,
   CustomSchemaDeleteRequest,
   CustomSchemaDeleteResponse,
+  SchemaGenerateRequest,
+  SchemaGenerateResponse,
   DeDiConfigSetRequest,
   DeDiConfigSetResponse,
   DeDiStatusResponse,
@@ -108,6 +110,9 @@ const api: OpenCredDesktopAPI = {
 
   getSchema: (request: SchemaGetRequest): Promise<SchemaGetResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.SCHEMA_GET, request),
+
+  generateSchema: (request: SchemaGenerateRequest): Promise<SchemaGenerateResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SCHEMA_GENERATE, request),
 
   // Signing & verification
   signCredential: (request: SignCredentialRequest): Promise<SignCredentialResponse> =>

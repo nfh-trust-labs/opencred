@@ -732,6 +732,54 @@ describe("issuer branding customization", () => {
 // 404 handler
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// POST /schemas/generate
+// ---------------------------------------------------------------------------
+
+describe("POST /schemas/generate", () => {
+  it("generates schema from sample fields", async () => {
+    const res = await app.request("/schemas/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fields: { name: "Alice", age: 30, email: "alice@example.com" },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      schema: { properties: Record<string, unknown> };
+      fields: unknown[];
+    };
+    expect(body.schema).toHaveProperty("properties");
+    expect(body.schema.properties.name).toEqual({ type: "string" });
+    expect(body.schema.properties.age).toEqual({ type: "integer" });
+    expect(body.schema.properties.email).toEqual({ type: "string", format: "email" });
+    expect(body.fields).toHaveLength(3);
+  });
+
+  it("returns 400 for missing fields", async () => {
+    const res = await app.request("/schemas/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for array fields", async () => {
+    const res = await app.request("/schemas/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fields: [1, 2, 3] }),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 404
+// ---------------------------------------------------------------------------
+
 describe("404 handler", () => {
   it("returns 404 for unknown endpoints", async () => {
     const res = await app.request("/nonexistent");

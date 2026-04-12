@@ -5,6 +5,8 @@ export type {
   ValidationFieldError,
   SchemaManifest,
   SchemaManifestEntry,
+  InferredField,
+  GeneratedSchemaResult,
 } from "./types.js";
 export type {
   SchemaUpdateManifest,
@@ -14,6 +16,7 @@ export type {
 export { SchemaRegistry } from "./schema-registry.js";
 export { Validator } from "./validator.js";
 export { checkForUpdates } from "./schema-updater.js";
+export { generateSchemaFromFields } from "./schema-generator.js";
 
 import { SchemaRegistry } from "./schema-registry.js";
 import { createBuiltInRegistry } from "./generated-registry.js";

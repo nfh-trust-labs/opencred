@@ -5,6 +5,8 @@
  */
 
 import { Hono } from "hono";
+import { z } from "zod";
+import { generateSchemaFromFields } from "@opencred/schema-engine";
 import { getSchemaRegistry } from "../schema-registry-singleton.js";
 
 const schemas = new Hono();
@@ -49,6 +51,29 @@ schemas.get("/schemas/:id{.+}", (c) => {
   } catch {
     return c.json({ error: { code: "NOT_FOUND", message: `Schema not found: ${id}` } }, 404);
   }
+});
+
+const generateSchema = z.object({
+  fields: z.record(z.unknown()),
+});
+
+schemas.post("/schemas/generate", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body) {
+    return c.json(
+      { error: { code: "VALIDATION_ERROR", message: "Invalid JSON body" } },
+      400,
+    );
+  }
+  const parsed = generateSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json(
+      { error: { code: "VALIDATION_ERROR", message: "Body must include a fields object", details: parsed.error.flatten() } },
+      400,
+    );
+  }
+  const result = generateSchemaFromFields(parsed.data.fields);
+  return c.json({ schema: result.schema, fields: result.fields });
 });
 
 export { schemas };
