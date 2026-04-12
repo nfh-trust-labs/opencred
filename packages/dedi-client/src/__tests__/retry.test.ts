@@ -123,4 +123,63 @@ describe("withRetry", () => {
     );
     expect(fn).toHaveBeenCalledTimes(1);
   });
+
+  it("retries on ECONNREFUSED network error", async () => {
+    const err = Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+    const fn = vi.fn().mockRejectedValueOnce(err).mockResolvedValue("ok");
+
+    const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+    const result = await promise;
+
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries on ETIMEDOUT network error", async () => {
+    const err = Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" });
+    const fn = vi.fn().mockRejectedValueOnce(err).mockResolvedValue("ok");
+
+    const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+    const result = await promise;
+
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries on ECONNRESET network error", async () => {
+    const err = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+    const fn = vi.fn().mockRejectedValueOnce(err).mockResolvedValue("ok");
+
+    const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+    const result = await promise;
+
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries on error with transient cause code", async () => {
+    const cause = Object.assign(new Error("inner"), { code: "ENOTFOUND" });
+    const err = new TypeError("fetch failed");
+    (err as unknown as { cause: Error }).cause = cause;
+    const fn = vi.fn().mockRejectedValueOnce(err).mockResolvedValue("ok");
+
+    const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+    const result = await promise;
+
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("does NOT retry on validation error (DeDiClientError 422)", async () => {
+    const fn = vi.fn().mockRejectedValue(new DeDiClientError("validation failed", 422));
+
+    await expect(withRetry(fn, { maxRetries: 3, baseDelayMs: 100 })).rejects.toThrow(
+      "validation failed",
+    );
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
 });
