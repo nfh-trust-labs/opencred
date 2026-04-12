@@ -90,8 +90,8 @@ function createWindow(): void {
   // -------------------------------------------------------------------------
   // Permission handler: allow camera access for QR code scanning.
   // -------------------------------------------------------------------------
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    if (permission === "media") {
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+    if (permission === "media" && details?.mediaTypes?.includes("video")) {
       callback(true);
       return;
     }

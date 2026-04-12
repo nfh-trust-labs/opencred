@@ -711,7 +711,7 @@ async function handleVerifyCredential(
       };
     }
 
-    // Resolve using composite DID resolver    // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
+    // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
     const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
       await import("@opencred/did");
     const { verifyCredential, loadCscaTrustStore } = await import("@opencred/verification");
@@ -943,6 +943,14 @@ async function handleFileOpen(
   }
 
   const filePath = result.filePaths[0];
+  const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"];
+  const isImage = IMAGE_EXTENSIONS.some((ext) => filePath.toLowerCase().endsWith(ext));
+
+  if (isImage) {
+    const content = (await fs.readFile(filePath)).toString("base64");
+    return { content, filePath, encoding: "base64" };
+  }
+
   const content = await fs.readFile(filePath, "utf-8");
   return { content, filePath };
 }
