@@ -493,12 +493,9 @@ export function VerifyPage() {
         const isImage = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"].some((e) =>
           ext.endsWith(e),
         );
-        if (isImage) {
-          const response = await fetch(
-            `data:application/octet-stream;base64,${btoa(result.content)}`,
-          );
-          const blob = await response.blob();
-          const file = new File([blob], result.filePath.split("/").pop() ?? "image.png");
+        if (isImage && result.encoding === "base64") {
+          const binary = Uint8Array.from(atob(result.content), (c) => c.charCodeAt(0));
+          const file = new File([binary], result.filePath.split("/").pop() ?? "image.png");
           await handleImageQrDecode(file);
           return;
         }
