@@ -20,6 +20,7 @@
 #include <wincrypt.h>
 #include <ncrypt.h>
 #include <bcrypt.h>
+#include <cctype>
 #include <vector>
 #include <string>
 
@@ -170,15 +171,28 @@ static bool IsKeyExportable(PCCERT_CONTEXT certCtx) {
 
 // ---------------------------------------------------------------------------
 // Helper: Find certificate by thumbprint
+//
+// SECURITY: Validates that every character in the thumbprint is a hex digit
+// and checks sscanf return value to prevent using uninitialised stack memory
+// in the certificate store search blob.
 // ---------------------------------------------------------------------------
 static PCCERT_CONTEXT FindCertByThumbprint(HCERTSTORE store, const std::string &thumbprint) {
-    // Convert hex thumbprint to bytes
+    // SHA-256 thumbprint = 32 bytes = 64 hex characters
     if (thumbprint.size() != 64) return nullptr;
+
+    // Validate all characters are hex digits before parsing
+    for (char c : thumbprint) {
+        if (!std::isxdigit(static_cast<unsigned char>(c))) {
+            return nullptr;
+        }
+    }
 
     BYTE hashBytes[32];
     for (int i = 0; i < 32; i++) {
         unsigned int byte;
-        sscanf(thumbprint.c_str() + i * 2, "%02x", &byte);
+        if (sscanf(thumbprint.c_str() + i * 2, "%02x", &byte) != 1) {
+            return nullptr;
+        }
         hashBytes[i] = (BYTE)byte;
     }
 

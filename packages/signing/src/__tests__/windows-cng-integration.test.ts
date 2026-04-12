@@ -108,16 +108,62 @@ describe.skipIf(!IS_WINDOWS)("Windows CNG Native Addon — Integration", () => {
   it("should throw for non-existent certificate ID on sign", () => {
     if (!addon) return;
 
+    // Valid hex format but not matching any certificate in the store
     expect(() => {
-      addon.signWithCertificate("nonexistent-thumbprint", Buffer.alloc(32));
+      addon.signWithCertificate(
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        Buffer.alloc(32),
+      );
     }).toThrow();
   });
 
   it("should throw for non-existent certificate ID on getPublicKey", () => {
     if (!addon) return;
 
+    // Valid hex format but not matching any certificate in the store
+    expect(() => {
+      addon.getPublicKey(
+        "0000000000000000000000000000000000000000000000000000000000000000",
+      );
+    }).toThrow();
+  });
+
+  it("should throw for wrong-length certificate ID on sign", () => {
+    if (!addon) return;
+
+    expect(() => {
+      addon.signWithCertificate("nonexistent-thumbprint", Buffer.alloc(32));
+    }).toThrow();
+  });
+
+  it("should throw for wrong-length certificate ID on getPublicKey", () => {
+    if (!addon) return;
+
     expect(() => {
       addon.getPublicKey("nonexistent-thumbprint");
+    }).toThrow();
+  });
+
+  it("should throw for thumbprint with non-hex characters on sign", () => {
+    if (!addon) return;
+
+    // 64 characters but contains non-hex 'g', 'x', 'z' characters
+    expect(() => {
+      addon.signWithCertificate(
+        "ggggggggggggggggxxxxxxxxxxxxxxxxzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+        Buffer.alloc(32),
+      );
+    }).toThrow();
+  });
+
+  it("should throw for thumbprint with non-hex characters on getPublicKey", () => {
+    if (!addon) return;
+
+    // 64 characters but contains non-hex 'g', 'x', 'z' characters
+    expect(() => {
+      addon.getPublicKey(
+        "ggggggggggggggggxxxxxxxxxxxxxxxxzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      );
     }).toThrow();
   });
 
