@@ -1,16 +1,19 @@
 # Configuration Reference
 
-All configuration for your OpenCred Docker deployment is via environment variables, validated at startup with Zod. Invalid values cause the process to exit with a descriptive error.
+All configuration for your OpenCred Docker deployment is via environment variables, validated at startup with Zod (`apps/server/src/config.ts`). Invalid values cause the process to exit with a descriptive error.
 
 ## Core
 
 | Variable | Type | Default | Required | Description |
 |----------|------|---------|----------|-------------|
 | `OPENCRED_PORT` | integer (1-65535) | `3100` | No | HTTP listen port |
-| `OPENCRED_API_KEY` | string | -- | No | Bearer token for API auth. If unset, authentication is disabled (dev mode) |
+| `OPENCRED_API_KEY` | string | -- | Yes (unless dev mode) | Bearer token for API auth. Server refuses to start without it (fail-closed). Generate with `openssl rand -base64 32`. |
+| `OPENCRED_DEV_MODE_NO_AUTH` | boolean | `false` | No | Explicit opt-out of API-key auth for local development only. Mutually exclusive with `OPENCRED_API_KEY`. Refused when `NODE_ENV=production`. |
 | `OPENCRED_LOG_LEVEL` | enum | `info` | No | `fatal`, `error`, `warn`, `info`, `debug`, `trace` |
 
 ## Signing Key (File-based)
+
+Used when `OPENCRED_KMS_PROVIDER` is `none` (the default).
 
 | Variable | Type | Default | Required | Description |
 |----------|------|---------|----------|-------------|
@@ -20,7 +23,7 @@ All configuration for your OpenCred Docker deployment is via environment variabl
 
 ## Cloud HSM
 
-Mutually exclusive with file-based signing. See [Cloud HSM](cloud-hsm.md) for setup details.
+Mutually exclusive with file-based signing. Set `OPENCRED_KMS_PROVIDER` and the matching provider variables. See [Cloud HSM](cloud-hsm.md) for IAM/auth requirements per provider.
 
 | Variable | Type | Default | Required | Description |
 |----------|------|---------|----------|-------------|
@@ -28,7 +31,7 @@ Mutually exclusive with file-based signing. See [Cloud HSM](cloud-hsm.md) for se
 | `OPENCRED_KMS_KEY_ARN` | string | -- | If `aws` | AWS KMS key ARN |
 | `OPENCRED_AZURE_KEY_VAULT_URL` | URL | -- | If `azure` | Azure Key Vault URL |
 | `OPENCRED_AZURE_KEY_NAME` | string | -- | If `azure` | Key name in the vault |
-| `OPENCRED_GCP_KMS_KEY_NAME` | string | -- | If `gcp` | GCP KMS key resource name |
+| `OPENCRED_GCP_KMS_KEY_NAME` | string | -- | If `gcp` | GCP KMS key resource name (including version, e.g. `projects/.../cryptoKeyVersions/N`) |
 
 ## Batch and Session
 
@@ -37,15 +40,11 @@ Mutually exclusive with file-based signing. See [Cloud HSM](cloud-hsm.md) for se
 | `OPENCRED_BATCH_ROW_LIMIT` | integer | `1000` | No | Maximum rows per batch CSV |
 | `OPENCRED_SESSION_TTL` | integer (seconds, min 60) | `14400` | No | Ephemeral credential data TTL (default 4 hours) |
 
-## OID4VCI
-
-Required when using [OID4VCI endpoints](oid4vci.md).
+## Trust Store
 
 | Variable | Type | Default | Required | Description |
 |----------|------|---------|----------|-------------|
-| `OPENCRED_OID4VCI_ISSUER_URL` | URL | -- | For OID4VCI | Base URL for issuer metadata |
-| `OPENCRED_OID4VCI_ISSUER_NAME` | string | -- | No | Display name in issuer metadata |
-| `OPENCRED_OID4VCI_AUTHORIZATION_SERVERS` | comma-separated URLs | -- | No | External authorization server URLs |
+| `CSCA_TRUST_STORE_PATH` | string (path) | -- | For DSC verification | Path to a directory of PEM-encoded CSCA root certificates used as trust anchors when verifying credentials with X.509 certificate chains. Mount read-only. |
 
 ## Example .env File
 
@@ -62,7 +61,6 @@ OPENCRED_KEY_PATH=/secrets/issuer-key.pem
 # Batch
 OPENCRED_BATCH_ROW_LIMIT=1000
 
-# OID4VCI (optional)
-# OPENCRED_OID4VCI_ISSUER_URL=https://issuer.example.com
-# OPENCRED_OID4VCI_ISSUER_NAME=Example Issuer
+# Trust store (for DSC-backed credential verification)
+# CSCA_TRUST_STORE_PATH=/app/trust-store
 ```

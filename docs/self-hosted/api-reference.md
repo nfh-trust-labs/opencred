@@ -2,6 +2,8 @@
 
 These are the HTTP endpoints exposed by **your** OpenCred Docker deployment. All credential operations (issue, verify, batch, package) run entirely in your infrastructure using your signing keys. Nothing is sent to OpenCred.
 
+> **Canonical reference.** The authoritative API documentation is at [`docs/docker/api-reference.md`](../docker/api-reference.md), which covers the `/v1` prefix and all endpoint details. This page is kept as a quick reference.
+
 ## Authentication
 
 Protected endpoints require a Bearer token:
@@ -10,7 +12,7 @@ Protected endpoints require a Bearer token:
 Authorization: Bearer <OPENCRED_API_KEY>
 ```
 
-If `OPENCRED_API_KEY` is not set, authentication is disabled (development mode). The `/health` endpoint is always public.
+Authentication is **fail-closed by default**. The server refuses to start unless `OPENCRED_API_KEY` is set or `OPENCRED_DEV_MODE_NO_AUTH=true` is explicitly opted into (and only outside `NODE_ENV=production`). The `/health` endpoint is always public.
 
 ## Error Format
 
@@ -28,9 +30,9 @@ All errors follow this structure:
 
 ---
 
-## Local Endpoints (Your Deployment)
+## Endpoints
 
-These endpoints run in your infrastructure. Your signing key is loaded at startup and never leaves your environment.
+These endpoints run in your infrastructure. Your signing key is loaded at startup and never leaves your environment. Every endpoint is mounted under both `/` (legacy) and `/v1` (canonical). New consumers should target `/v1`.
 
 ### GET /health
 
@@ -47,6 +49,29 @@ Health check. No authentication required.
 
 ---
 
+### GET /keys
+
+Returns metadata about the configured signing key. Never returns private key material or filesystem paths.
+
+**Response** `200`
+```json
+{
+  "keys": [
+    {
+      "id": "did:key:zDnaerDaTF5BXEavCrfRZEk316dpbLsfPDZ3WJ5hRTPFU2169",
+      "fingerprint": "d6f4e2c9b7a8...e1f0",
+      "algorithm": "P-256",
+      "type": "software",
+      "hasCertificateChain": false,
+      "label": "server-key",
+      "source": "software-file"
+    }
+  ]
+}
+```
+
+---
+
 ### GET /schemas
 
 List available credential schemas.
@@ -55,10 +80,13 @@ List available credential schemas.
 ```json
 {
   "schemas": [
-    { "id": "education", "contextUrl": "https://opencred.dev/schemas/education/v1" }
+    { "id": "functional-identity/v1", "version": "1.0.0", "contextUrl": "...", "source": {...} },
+    { "id": "electricity/v1", "version": "1.0.0", "contextUrl": "...", "source": {...} }
   ]
 }
 ```
+
+The registry includes schemas from multiple sources (OpenCred built-in, DIF, W3C Traceability). Use `GET /schemas/:id` to retrieve the full JSON Schema for a specific id.
 
 ---
 
@@ -69,9 +97,11 @@ Get a schema definition by ID.
 **Response** `200`
 ```json
 {
-  "id": "education",
-  "schema": { "$id": "...", "title": "Education Credential", "properties": { "..." : "..." } },
-  "contextUrl": "https://opencred.dev/schemas/education/v1"
+  "id": "functional-identity/v1",
+  "version": "1.0.0",
+  "schema": { "$id": "...", "type": "object", "properties": { "...": "..." } },
+  "contextUrl": "...",
+  "source": {...}
 }
 ```
 
@@ -100,7 +130,7 @@ Issue a single Verifiable Credential. Signing happens locally using your loaded 
 **Response** `200`
 ```json
 {
-  "credential": { "..." : "..." },
+  "credential": { "...": "..." },
   "proofFormat": "vc-jwt",
   "isCompactToken": false,
   "packagedOutputs": [
@@ -118,27 +148,34 @@ Issue a single Verifiable Credential. Signing happens locally using your loaded 
 
 ### POST /credentials/verify
 
-Verify a signed Verifiable Credential. Runs locally — no network calls.
+Verify a signed Verifiable Credential. Uses a composite DID resolver supporting `did:key`, `did:jwk`, and `did:web`.
 
 **Request Body**
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `credential` | string | Yes | The signed credential as a JSON string |
+| `credential` | string | Yes | The signed credential as a JSON string, compact JWT, or SD-JWT VC token |
 
 **Response** `200`
 ```json
 {
   "valid": true,
+  "code": "VALID",
   "message": "Credential is valid.",
   "checks": [
     { "name": "signature", "passed": true },
-    { "name": "not-before", "passed": true },
-    { "name": "expiry", "passed": true }
+    { "name": "date", "passed": true }
   ]
 }
 ```
 
-Only `did:key` issuers are supported for verification.
+| Field | Type | Description |
+|-------|------|-------------|
+| `valid` | boolean | `true` if every check passed |
+| `code` | string | One of `VALID`, `REVOKED`, `EXPIRED`, `INVALID`, `UNRESOLVABLE`, `CONTEXT_MISSING` |
+| `message` | string | Human-readable summary |
+| `checks` | array | Verification checks, each with `name` and `passed` |
+
+Returns `200 OK` even for invalid credentials. Inspect `valid` or `code` for the trust decision. Note: `did:web` verification involves a network call to resolve the DID document. For credentials with X.509 certificate chains, set `CSCA_TRUST_STORE_PATH` to enable trust anchor validation.
 
 ---
 
@@ -207,7 +244,7 @@ Get batch job results. Returns `409` if the job is still running.
 {
   "jobId": "uuid",
   "results": [
-    { "rowIndex": 0, "status": "success", "credential": { "..." : "..." } },
+    { "rowIndex": 0, "status": "success", "credential": { "...": "..." } },
     { "rowIndex": 1, "status": "error", "error": "Validation failed" }
   ]
 }
@@ -221,7 +258,7 @@ Compute a single revocation hash (JCS canonicalization + SHA-256).
 
 **Request Body**
 ```json
-{ "credential": { "..." : "..." } }
+{ "credential": { "...": "..." } }
 ```
 
 **Response** `200`
@@ -237,7 +274,7 @@ Compute revocation hashes for multiple credentials.
 
 **Request Body**
 ```json
-{ "credentials": [{ "..." : "..." }, { "..." : "..." }] }
+{ "credentials": [{ "...": "..." }, { "...": "..." }] }
 ```
 
 **Response** `200`

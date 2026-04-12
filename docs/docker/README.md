@@ -52,7 +52,7 @@ The Docker image is built from `apps/server/Dockerfile` and runs `apps/server/di
 | Configuration | `apps/server/src/config.ts` | Zod-validated environment variables |
 | Logger | `apps/server/src/logger.ts` | pino structured logging to stdout |
 | Auth middleware | `apps/server/src/middleware/auth.ts` | Required Bearer token check (fail-closed per [#317](https://github.com/nfh-trust-labs/opencred/issues/317); see [API reference → Authentication](api-reference.md#authentication)) |
-| Routes | `apps/server/src/routes/*.ts` | `/health`, `/schemas`, `/credentials/*`, `/credentials/batch/*` |
+| Routes | `apps/server/src/routes/*.ts` | `/health`, `/schemas`, `/credentials/*`, `/credentials/batch/*`, `/credentials/revocation-hash/*`, `/credentials/package`, `/keys` |
 | Signer | `apps/server/src/signing/key-manager.ts` | Loads the active signer from a file or Cloud HSM |
 | CLI | `apps/server/src/cli.ts` | `opencred` command for one-off operations |
 
@@ -77,4 +77,4 @@ See [Security](../security/README.md) for the full model.
 * [Observability](observability.md)
 * [Security model](../security/README.md)
 * [Concepts: Verifiable Credentials](../concepts/verifiable-credentials.md)
-* Legacy: [`self-hosted/getting-started.md`](../self-hosted/getting-started.md), [`self-hosted/configuration.md`](../self-hosted/configuration.md), [`self-hosted/api-reference.md`](../self-hosted/api-reference.md)
+* Quick reference: [`self-hosted/getting-started.md`](../self-hosted/getting-started.md), [`self-hosted/configuration.md`](../self-hosted/configuration.md), [`self-hosted/api-reference.md`](../self-hosted/api-reference.md)

@@ -27,7 +27,7 @@
 * [API reference](docker/api-reference.md)
 * [Observability](docker/observability.md)
 
-## Self-Hosted (Legacy)
+## Self-Hosted (Quick Reference)
 
 * [Self-hosted overview](self-hosted/README.md)
 * [Getting started](self-hosted/getting-started.md)
@@ -35,7 +35,6 @@
 * [API reference](self-hosted/api-reference.md)
 * [CLI reference](self-hosted/cli-reference.md)
 * [Cloud HSM](self-hosted/cloud-hsm.md)
-* [OID4VCI](self-hosted/oid4vci.md)
 
 ## Security
 

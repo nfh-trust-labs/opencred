@@ -49,13 +49,12 @@ Headless deployment for cloud, on-prem, and CI/CD pipelines. The Docker image ru
 * [API reference](docker/api-reference.md) — HTTP endpoints (final endpoint contract under #301)
 * [Observability](docker/observability.md) — logging, health checks, metrics
 
-The legacy `self-hosted/` directory contains the historical operator docs and is kept for compatibility:
+The `self-hosted/` directory provides a quick reference for the same content:
 
-* [Configuration reference (legacy)](self-hosted/configuration.md)
-* [API reference (legacy)](self-hosted/api-reference.md)
+* [Configuration reference](self-hosted/configuration.md)
+* [API reference](self-hosted/api-reference.md)
 * [CLI reference](self-hosted/cli-reference.md)
 * [Cloud HSM](self-hosted/cloud-hsm.md)
-* [OID4VCI](self-hosted/oid4vci.md)
 
 ### Security Model
 
