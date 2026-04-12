@@ -17,7 +17,15 @@
 
 import PDFDocument from "pdfkit";
 import type { VerifiableCredential } from "@opencred/vc-core";
+import type { TemplateCustomization } from "@opencred/templates";
 import { generateQrBuffer } from "./qr-generator.js";
+
+/**
+ * Options for PDF generation.
+ */
+export interface PdfOptions {
+  customization?: TemplateCustomization;
+}
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -145,9 +153,17 @@ async function generateQrPngBuffer(credential: VerifiableCredential): Promise<Bu
  * @param credential - The signed VerifiableCredential.
  * @returns A Buffer containing the PDF document.
  */
-export async function generatePdf(credential: VerifiableCredential): Promise<Buffer> {
+export async function generatePdf(
+  credential: VerifiableCredential,
+  options?: PdfOptions,
+): Promise<Buffer> {
   // Generate QR code first (async), then build PDF
   const qrBuffer = await generateQrPngBuffer(credential);
+  const customization = options?.customization;
+  const accentColor = customization?.primaryColor ?? COLOR_ACCENT;
+  const primaryHeadingColor = customization?.primaryColor ?? COLOR_PRIMARY;
+  const borderColor = customization?.primaryColor ?? COLOR_BORDER;
+  const issuerDisplay = customization?.issuerDisplayName ?? getIssuerDisplay(credential);
 
   return new Promise((resolve, reject) => {
     try {
@@ -177,7 +193,7 @@ export async function generatePdf(credential: VerifiableCredential): Promise<Buf
           595.28 - 2 * PAGE_MARGIN + 10,
           841.89 - 2 * PAGE_MARGIN + 10,
         )
-        .strokeColor(COLOR_BORDER)
+        .strokeColor(borderColor)
         .lineWidth(2)
         .stroke();
 
@@ -201,7 +217,7 @@ export async function generatePdf(credential: VerifiableCredential): Promise<Buf
       // Top accent line
       const accentY = doc.y;
       doc
-        .strokeColor(COLOR_ACCENT)
+        .strokeColor(accentColor)
         .lineWidth(3)
         .moveTo(CONTENT_LEFT + 60, accentY)
         .lineTo(PAGE_RIGHT - 75, accentY)
@@ -222,7 +238,7 @@ export async function generatePdf(credential: VerifiableCredential): Promise<Buf
       doc
         .font("Helvetica-Bold")
         .fontSize(22)
-        .fillColor(COLOR_PRIMARY)
+        .fillColor(primaryHeadingColor)
         .text(getCredentialTitle(credential), { align: "center" });
 
       doc.moveDown(0.8);
@@ -230,7 +246,7 @@ export async function generatePdf(credential: VerifiableCredential): Promise<Buf
       // Bottom accent line
       const accentY2 = doc.y;
       doc
-        .strokeColor(COLOR_ACCENT)
+        .strokeColor(accentColor)
         .lineWidth(3)
         .moveTo(CONTENT_LEFT + 60, accentY2)
         .lineTo(PAGE_RIGHT - 75, accentY2)
@@ -263,7 +279,7 @@ export async function generatePdf(credential: VerifiableCredential): Promise<Buf
         .font("Helvetica-Bold")
         .fontSize(11)
         .fillColor(COLOR_TEXT)
-        .text(getIssuerDisplay(credential), CONTENT_LEFT, doc.y, { width: leftColWidth });
+        .text(issuerDisplay, CONTENT_LEFT, doc.y, { width: leftColWidth });
       doc.moveDown(0.8);
 
       // Subject ID (if present)

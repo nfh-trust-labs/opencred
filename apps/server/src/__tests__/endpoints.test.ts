@@ -580,6 +580,133 @@ describe("POST /credentials/batch", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issuer branding customization
+// ---------------------------------------------------------------------------
+
+describe("issuer branding customization", () => {
+  it("POST /credentials/issue accepts customization and returns packaged output", async () => {
+    const res = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...VALID_ISSUE_REQUEST,
+        packageFormats: ["json-ld"],
+        customization: {
+          primaryColor: "#ff5500",
+          issuerDisplayName: "Acme Corp",
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.credential).toHaveProperty("proof");
+    expect(body.packagedOutputs).toBeDefined();
+  });
+
+  it("POST /credentials/issue rejects invalid hex color", async () => {
+    const res = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...VALID_ISSUE_REQUEST,
+        customization: {
+          primaryColor: "not-a-color",
+        },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /credentials/issue rejects non-data-URI logo", async () => {
+    const res = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...VALID_ISSUE_REQUEST,
+        customization: {
+          logoDataUri: "https://example.com/logo.png",
+        },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /credentials/issue accepts valid data URI logo", async () => {
+    const res = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...VALID_ISSUE_REQUEST,
+        customization: {
+          logoDataUri: "data:image/png;base64,iVBORw0KGgo=",
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("POST /credentials/package accepts customization", async () => {
+    // First issue a credential
+    const issueRes = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(VALID_ISSUE_REQUEST),
+    });
+    const issued = (await issueRes.json()) as { credential: Record<string, unknown> };
+
+    // Package with customization
+    const res = await app.request("/credentials/package", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        credential: issued.credential,
+        formats: ["json-ld"],
+        customization: {
+          primaryColor: "#00aa33",
+          issuerDisplayName: "Test Issuer",
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { outputs: unknown[] };
+    expect(body.outputs).toBeDefined();
+    expect(body.outputs.length).toBeGreaterThan(0);
+  });
+
+  it("POST /credentials/batch accepts customization", async () => {
+    const csvContent = [
+      "name,role,validFrom",
+      "Alice,Medical Practitioner,2025-06-01T00:00:00Z",
+    ].join("\n");
+
+    const res = await app.request("/credentials/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        csvContent,
+        schemaId: "functional-identity/v1",
+        issuerDid: testKey.signer.id.split("#")[0],
+        validFrom: "2025-06-01T00:00:00Z",
+        proofFormat: "vc-jwt",
+        customization: {
+          primaryColor: "#123456",
+          issuerDisplayName: "Batch Issuer",
+        },
+      }),
+    });
+
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toHaveProperty("jobId");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 404 handler
 // ---------------------------------------------------------------------------
 

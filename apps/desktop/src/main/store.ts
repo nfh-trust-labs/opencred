@@ -136,6 +136,12 @@ export interface StoreSchema {
   dediPublishedSchemas: string[];
   /** ISO 8601 date until which the key rotation reminder is snoozed. */
   keyRotationDismissedUntil?: string;
+  /** Issuer branding customization for credential templates. */
+  branding?: {
+    primaryColor?: string;
+    logoDataUri?: string;
+    issuerDisplayName?: string;
+  };
 }
 
 const DEFAULTS: StoreSchema = {

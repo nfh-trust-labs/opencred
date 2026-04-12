@@ -19,7 +19,7 @@ import { parseCsv } from "../batch/csv-parser.js";
 import type { Delimiter } from "../batch/csv-parser.js";
 import { createBatchEngine } from "../batch/batch-engine.js";
 import type { BatchEngine, BatchProgress, ProofFormat } from "../batch/batch-engine.js";
-import { rejectKeyMaterial } from "./credentials.js";
+import { rejectKeyMaterial, customizationSchema } from "./credentials.js";
 
 const batch = new Hono();
 
@@ -46,6 +46,7 @@ const batchRequestSchema = z.object({
   selectiveDisclosureClaims: z.array(z.string()).optional(),
   columnMapping: z.record(z.string()).optional(),
   delimiter: z.enum([",", ";", "\t"]).optional(),
+  customization: customizationSchema,
 });
 
 // --- Start batch ---
