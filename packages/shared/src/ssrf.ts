@@ -6,6 +6,7 @@
  * resolver to prevent fetching DID documents from internal networks.
  */
 
+import { promises as dns } from "node:dns";
 import { isIP } from "node:net";
 
 /** IPv4 private/loopback prefixes for SSRF prevention. */
@@ -110,4 +111,83 @@ export function isPrivateIP(ip: string): boolean {
   if (isIP(ip) === 4) return isPrivateIPv4(ip);
   if (isIP(ip) === 6) return isPrivateIPv6(ip);
   return false;
+}
+
+/**
+ * DNS error codes that indicate "no records of this type exist" —
+ * benign for AAAA lookups since most hosts lack IPv6 records.
+ * Any other error (ETIMEOUT, ESERVFAIL, ECONNREFUSED, etc.) is
+ * treated as a transient failure and triggers fail-closed behavior.
+ */
+const BENIGN_DNS_CODES = new Set(["ENODATA", "ENOTFOUND"]);
+
+/**
+ * Resolve a hostname's DNS records and validate all returned IPs
+ * against SSRF protections. Fail-closed: if DNS resolution encounters
+ * a non-benign error, the request is blocked.
+ *
+ * Resolution strategy:
+ * - Both A and AAAA are resolved concurrently via `Promise.allSettled`
+ * - ENODATA/ENOTFOUND on either lookup = "no records of that type" (benign)
+ * - Any other DNS error (ETIMEOUT, ESERVFAIL, etc.) = fail-closed (blocked)
+ * - If both lookups produce no addresses (both benign failures) = blocked
+ * - Every resolved IP is checked against private/reserved ranges
+ *
+ * @param hostname - The hostname to resolve (not a literal IP)
+ * @returns Array of resolved public IP addresses
+ * @throws Error if DNS fails, returns no addresses, or any IP is private
+ */
+export async function resolveDnsForSsrf(hostname: string): Promise<string[]> {
+  const [v4Result, v6Result] = await Promise.allSettled([
+    dns.resolve4(hostname),
+    dns.resolve6(hostname),
+  ]);
+
+  // Check for non-benign DNS errors (transient failures → fail-closed)
+  if (v4Result.status === "rejected" && !isBenignDnsError(v4Result.reason)) {
+    throw new Error(
+      `DNS A lookup failed for ${hostname}: ${getDnsErrorCode(v4Result.reason)}`,
+    );
+  }
+  if (v6Result.status === "rejected" && !isBenignDnsError(v6Result.reason)) {
+    throw new Error(
+      `DNS AAAA lookup failed for ${hostname}: ${getDnsErrorCode(v6Result.reason)}`,
+    );
+  }
+
+  const addresses = [
+    ...(v4Result.status === "fulfilled" ? v4Result.value : []),
+    ...(v6Result.status === "fulfilled" ? v6Result.value : []),
+  ];
+
+  if (addresses.length === 0) {
+    throw new Error(`DNS resolution returned no addresses for ${hostname}`);
+  }
+
+  for (const ip of addresses) {
+    if (isPrivateIP(ip)) {
+      throw new Error(
+        `SSRF protection: ${hostname} resolves to private/reserved IP`,
+      );
+    }
+  }
+
+  return addresses;
+}
+
+function isBenignDnsError(error: unknown): boolean {
+  const code = getDnsErrorCode(error);
+  return code !== undefined && BENIGN_DNS_CODES.has(code);
+}
+
+function getDnsErrorCode(error: unknown): string | undefined {
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof (error as { code: unknown }).code === "string"
+  ) {
+    return (error as { code: string }).code;
+  }
+  return undefined;
 }
