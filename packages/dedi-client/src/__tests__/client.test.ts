@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DeDiClientError } from "@opencred/shared";
 import { DeDiClient } from "../adapter/client.js";
 import { DeDiApiClient } from "../api/api-client.js";
-import type { DelegationRecord, SchemaRecord } from "../adapter/types.js";
+import type { ContextRecord, DelegationRecord, SchemaRecord } from "../adapter/types.js";
 import {
   REVOCATION_REGISTRY,
   DELEGATION_REGISTRY,
@@ -899,6 +899,219 @@ describe("DeDiClient (adapter)", () => {
 
       await expect(client.resolveSchema("bad", "1")).rejects.toThrow(
         "Schema record detail missing required field",
+      );
+    });
+
+    it("throws when checksum is not a string", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "test-v1",
+        registry: SCHEMA_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          schemaId: "test",
+          version: "1",
+          schema: { type: "object" },
+          checksum: 12345,
+          publishedAt: "2026-01-01T00:00:00Z",
+        },
+        state: "live",
+        version: 1,
+        created_at: "",
+        updated_at: "",
+      });
+
+      await expect(client.resolveSchema("test", "1")).rejects.toThrow(
+        "Schema record field 'checksum' must be a string",
+      );
+    });
+
+    it("throws when publishedAt is not a string", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "test-v1",
+        registry: SCHEMA_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          schemaId: "test",
+          version: "1",
+          schema: { type: "object" },
+          checksum: "abc",
+          publishedAt: null,
+        },
+        state: "live",
+        version: 1,
+        created_at: "",
+        updated_at: "",
+      });
+
+      await expect(client.resolveSchema("test", "1")).rejects.toThrow(
+        "Schema record field 'publishedAt' must be a string",
+      );
+    });
+  });
+
+  // ── resolveContext ───────────────────────────────────────────────
+
+  describe("resolveContext", () => {
+    it("looks up a context from the context_registry", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const contextDetail: ContextRecord = {
+        schemaId: "functional-identity/v1",
+        version: "1",
+        context: { "@context": {} },
+        publishedAt: "2026-03-25T00:00:00Z",
+      };
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "functional-identity-ctx-v1",
+        registry: CONTEXT_REGISTRY,
+        namespace: "example.com",
+        detail: contextDetail,
+        state: "live",
+        version: 1,
+        created_at: "",
+        updated_at: "",
+      });
+
+      const result = await client.resolveContext("functional-identity/v1", "1");
+
+      expect(api.lookupRecord).toHaveBeenCalledWith(
+        "example.com",
+        CONTEXT_REGISTRY,
+        expect.any(String),
+      );
+      expect(result.schemaId).toBe("functional-identity/v1");
+    });
+
+    it("throws on malformed context record", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "bad-ctx-v1",
+        registry: CONTEXT_REGISTRY,
+        namespace: "example.com",
+        detail: { schemaId: "bad" },
+        state: "live",
+        version: 1,
+        created_at: "",
+        updated_at: "",
+      });
+
+      await expect(client.resolveContext("bad", "1")).rejects.toThrow(
+        "Context record detail missing required field",
+      );
+    });
+
+    it("throws when publishedAt is not a string", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "test-ctx-v1",
+        registry: CONTEXT_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          schemaId: "test",
+          version: "1",
+          context: { "@context": {} },
+          publishedAt: 12345,
+        },
+        state: "live",
+        version: 1,
+        created_at: "",
+        updated_at: "",
+      });
+
+      await expect(client.resolveContext("test", "1")).rejects.toThrow(
+        "Context record field 'publishedAt' must be a string",
+      );
+    });
+
+    it("throws when context is not an object", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "test-ctx-v1",
+        registry: CONTEXT_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          schemaId: "test",
+          version: "1",
+          context: "not-an-object",
+          publishedAt: "2026-01-01T00:00:00Z",
+        },
+        state: "live",
+        version: 1,
+        created_at: "",
+        updated_at: "",
+      });
+
+      await expect(client.resolveContext("test", "1")).rejects.toThrow(
+        "Context record field 'context' must be an object",
+      );
+    });
+  });
+
+  // ── DeDi record wrapper validation ──────────────────────────────
+
+  describe("DeDi record wrapper validation", () => {
+    it("throws when lookupRecord returns response without detail field", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "test",
+      } as never);
+
+      await expect(client.resolveDID("did:key:z6Mk123")).rejects.toThrow(
+        "DeDi API lookupRecord response missing required field: detail",
+      );
+    });
+
+    it("throws when lookupRecord returns response without name field", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        detail: { did: "did:key:z6Mk123", document: {}, resolvedAt: "" },
+      } as never);
+
+      await expect(client.resolveDID("did:key:z6Mk123")).rejects.toThrow(
+        "DeDi API lookupRecord response missing required field: name",
+      );
+    });
+
+    it("throws when publishRecord returns null", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord).mockResolvedValue(null as never);
+
+      await expect(client.publishRevocationHash("abc")).rejects.toThrow(
+        "DeDi API publishRecord response is missing or not an object",
+      );
+    });
+  });
+
+  // ── Search result wrapper validation ────────────────────────────
+
+  describe("search result wrapper validation", () => {
+    it("throws when search returns response without records array", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.search).mockResolvedValue({ total: 0 } as never);
+
+      await expect(client.queryRevocationHash("abc")).rejects.toThrow(
+        "DeDi API search response field 'records' must be an array",
+      );
+    });
+
+    it("throws when search returns null", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.search).mockResolvedValue(null as never);
+
+      await expect(client.queryRevocationHash("abc")).rejects.toThrow(
+        "DeDi API search response is missing or not an object",
       );
     });
   });

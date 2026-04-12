@@ -134,6 +134,61 @@ function assertSchemaRecordShape(detail: unknown): asserts detail is SchemaRecor
   if (rec["schema"] == null || typeof rec["schema"] !== "object") {
     throw new DeDiClientError("Schema record field 'schema' must be an object", 502);
   }
+  if (typeof rec["checksum"] !== "string") {
+    throw new DeDiClientError("Schema record field 'checksum' must be a string", 502);
+  }
+  if (typeof rec["publishedAt"] !== "string") {
+    throw new DeDiClientError("Schema record field 'publishedAt' must be a string", 502);
+  }
+}
+
+const CONTEXT_RECORD_KEYS = ["schemaId", "version", "context", "publishedAt"] as const;
+
+function assertContextRecordShape(detail: unknown): asserts detail is ContextRecord {
+  if (detail == null || typeof detail !== "object") {
+    throw new DeDiClientError("Context record detail is missing or not an object", 502);
+  }
+  const rec = detail as Record<string, unknown>;
+  for (const key of CONTEXT_RECORD_KEYS) {
+    if (!(key in rec)) {
+      throw new DeDiClientError(`Context record detail missing required field: ${key}`, 502);
+    }
+  }
+  if (typeof rec["schemaId"] !== "string") {
+    throw new DeDiClientError("Context record field 'schemaId' must be a string", 502);
+  }
+  if (typeof rec["version"] !== "string") {
+    throw new DeDiClientError("Context record field 'version' must be a string", 502);
+  }
+  if (rec["context"] == null || typeof rec["context"] !== "object") {
+    throw new DeDiClientError("Context record field 'context' must be an object", 502);
+  }
+  if (typeof rec["publishedAt"] !== "string") {
+    throw new DeDiClientError("Context record field 'publishedAt' must be a string", 502);
+  }
+}
+
+function assertDeDiRecordShape(value: unknown, label: string): void {
+  if (value == null || typeof value !== "object") {
+    throw new DeDiClientError(`DeDi API ${label} response is missing or not an object`, 502);
+  }
+  const rec = value as Record<string, unknown>;
+  if (typeof rec["name"] !== "string") {
+    throw new DeDiClientError(`DeDi API ${label} response missing required field: name`, 502);
+  }
+  if (!("detail" in rec)) {
+    throw new DeDiClientError(`DeDi API ${label} response missing required field: detail`, 502);
+  }
+}
+
+function assertSearchResultShape(value: unknown): void {
+  if (value == null || typeof value !== "object") {
+    throw new DeDiClientError("DeDi API search response is missing or not an object", 502);
+  }
+  const rec = value as Record<string, unknown>;
+  if (!Array.isArray(rec["records"])) {
+    throw new DeDiClientError("DeDi API search response field 'records' must be an array", 502);
+  }
 }
 
 export class DeDiClient {
@@ -159,6 +214,7 @@ export class DeDiClient {
       revoked: true,
       revokedAt,
     });
+    assertDeDiRecordShape(record, "publishRecord");
     assertRevocationHashShape(record.detail);
     return record.detail;
   }
@@ -170,11 +226,13 @@ export class DeDiClient {
       registry_name: REVOCATION_REGISTRY,
       "detail.hash": hash,
     });
+    assertSearchResultShape(result);
 
     if (result.records.length === 0) {
       return { hash, revoked: false as const };
     }
 
+    assertDeDiRecordShape(result.records[0], "search record");
     const detail = result.records[0]!.detail;
     assertRevocationHashShape(detail);
     return detail;
@@ -196,6 +254,7 @@ export class DeDiClient {
     const ns = this.resolveNamespace(namespace);
     const recordName = didToRecordName(did);
     const record = await this.api.lookupRecord(ns, PUBLIC_KEY_REGISTRY, recordName);
+    assertDeDiRecordShape(record, "lookupRecord");
     assertDIDRecordShape(record.detail);
     return record.detail;
   }
@@ -215,6 +274,7 @@ export class DeDiClient {
     const ns = this.resolveNamespace(namespace);
     const recordName = schemaToRecordName(schemaId, version);
     const record = await this.api.lookupRecord(ns, SCHEMA_REGISTRY, recordName);
+    assertDeDiRecordShape(record, "lookupRecord");
     assertSchemaRecordShape(record.detail);
     return record.detail;
   }
@@ -234,6 +294,7 @@ export class DeDiClient {
     const ns = this.resolveNamespace(namespace);
     const recordName = contextToRecordName(schemaId, version);
     const record = await this.api.lookupRecord(ns, CONTEXT_REGISTRY, recordName);
+    assertDeDiRecordShape(record, "lookupRecord");
     assertContextRecordShape(record.detail);
     return record.detail;
   }
@@ -245,6 +306,7 @@ export class DeDiClient {
     validateDelegation(delegation);
     const ns = this.resolveNamespace(namespace);
     const record = await this.api.publishRecord(ns, DELEGATION_REGISTRY, delegation.id, delegation);
+    assertDeDiRecordShape(record, "publishRecord");
     assertDelegationShape(record.detail);
     return record.detail;
   }
@@ -252,6 +314,7 @@ export class DeDiClient {
   async resolveDelegation(delegationId: string, namespace?: string): Promise<DelegationRecord> {
     const ns = this.resolveNamespace(namespace);
     const record = await this.api.lookupRecord(ns, DELEGATION_REGISTRY, delegationId);
+    assertDeDiRecordShape(record, "lookupRecord");
     assertDelegationShape(record.detail);
     return record.detail;
   }
@@ -333,29 +396,6 @@ export class DeDiClient {
 function didToRecordName(did: string): string {
   // Replace characters that aren't safe for DeDi record names
   return did.replace(/:/g, "-");
-}
-
-const CONTEXT_RECORD_KEYS = ["schemaId", "version", "context", "publishedAt"] as const;
-
-function assertContextRecordShape(detail: unknown): asserts detail is ContextRecord {
-  if (detail == null || typeof detail !== "object") {
-    throw new DeDiClientError("Context record detail is missing or not an object", 502);
-  }
-  const rec = detail as Record<string, unknown>;
-  for (const key of CONTEXT_RECORD_KEYS) {
-    if (!(key in rec)) {
-      throw new DeDiClientError(`Context record detail missing required field: ${key}`, 502);
-    }
-  }
-  if (typeof rec["schemaId"] !== "string") {
-    throw new DeDiClientError("Context record field 'schemaId' must be a string", 502);
-  }
-  if (typeof rec["version"] !== "string") {
-    throw new DeDiClientError("Context record field 'version' must be a string", 502);
-  }
-  if (rec["context"] == null || typeof rec["context"] !== "object") {
-    throw new DeDiClientError("Context record field 'context' must be an object", 502);
-  }
 }
 
 async function ignoreConflict(fn: () => Promise<unknown>): Promise<void> {
