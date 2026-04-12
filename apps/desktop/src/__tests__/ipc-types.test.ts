@@ -109,7 +109,7 @@ describe("IPC type contracts", () => {
       id: "functional-identity/v1",
       schema: { type: "object" },
       contextUrl:
-        "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/functional-identity/v1/context.jsonld",
+        "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/functional-identity/v1/context.json",
     };
     expect(resp.id).toBe("functional-identity/v1");
     expect(resp.schema).toBeDefined();
@@ -150,10 +150,10 @@ describe("IPC type contracts", () => {
       signedCredential: "{}",
       packagedOutputs: [
         {
-          format: "json-ld",
+          format: "json",
           data: "{}",
-          mimeType: "application/ld+json",
-          suggestedFileName: "cred.jsonld",
+          mimeType: "application/json",
+          suggestedFileName: "cred.json",
         },
       ],
     };
@@ -178,7 +178,7 @@ describe("IPC type contracts", () => {
   it("PackageCredentialRequest should require credential and formats", () => {
     const req: PackageCredentialRequest = {
       credential: "{}",
-      formats: ["json-ld", "qr-png"],
+      formats: ["json", "qr-png"],
     };
     expect(req.formats).toHaveLength(2);
   });

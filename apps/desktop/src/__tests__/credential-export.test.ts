@@ -157,7 +157,7 @@ vi.mock("qrcode", () => ({
 // Now import the module under test (after mocks are set up)
 import {
   renderCredentialSvg,
-  exportAsJsonLd,
+  exportAsJson,
   exportAsQrCode,
   packageCredential,
   extractIssuerName,
@@ -274,9 +274,9 @@ describe("renderCredentialSvg", () => {
   });
 });
 
-describe("exportAsJsonLd", () => {
+describe("exportAsJson", () => {
   it("should return formatted JSON matching the credential", () => {
-    const json = exportAsJsonLd(testCredential);
+    const json = exportAsJson(testCredential);
 
     const parsed = JSON.parse(json);
     expect(parsed["@context"]).toEqual(["https://www.w3.org/ns/credentials/v2"]);
@@ -287,7 +287,7 @@ describe("exportAsJsonLd", () => {
   });
 
   it("should produce formatted output with indentation", () => {
-    const json = exportAsJsonLd(testCredential);
+    const json = exportAsJson(testCredential);
     expect(json).toContain("\n");
     expect(json).toContain("  ");
   });
@@ -305,12 +305,12 @@ describe("packageCredential", () => {
     vi.clearAllMocks();
   });
 
-  it('should return correct output for ["json-ld"] format', async () => {
-    const outputs = await packageCredential(testCredential, "functional-identity/v1", ["json-ld"]);
+  it('should return correct output for ["json"] format', async () => {
+    const outputs = await packageCredential(testCredential, "functional-identity/v1", ["json"]);
 
     expect(outputs.length).toBe(1);
-    expect(outputs[0].format).toBe("json-ld");
-    expect(outputs[0].mimeType).toBe("application/ld+json");
+    expect(outputs[0].format).toBe("json");
+    expect(outputs[0].mimeType).toBe("application/json");
     expect(outputs[0].suggestedFileName).toMatch(/\.jsonld$/);
     const parsed = JSON.parse(outputs[0].data);
     expect(parsed.id).toBe("urn:uuid:test-123");
@@ -328,21 +328,21 @@ describe("packageCredential", () => {
 
   it("should return all outputs for multiple formats", async () => {
     const outputs = await packageCredential(testCredential, "functional-identity/v1", [
-      "json-ld",
+      "json",
       "svg",
       "qr",
     ]);
 
     expect(outputs.length).toBe(3);
     const formats = outputs.map((o) => o.format);
-    expect(formats).toContain("json-ld");
+    expect(formats).toContain("json");
     expect(formats).toContain("svg");
     expect(formats).toContain("qr");
   });
 
   it("should generate suggested file names", async () => {
     const outputs = await packageCredential(testCredential, "functional-identity/v1", [
-      "json-ld",
+      "json",
       "svg",
       "qr",
     ]);
@@ -363,7 +363,7 @@ describe("packageCredential", () => {
   });
 
   it("should handle credential with only VerifiableCredential type in filename", async () => {
-    const outputs = await packageCredential(testCredentialOnlyVC, "default", ["json-ld"]);
+    const outputs = await packageCredential(testCredentialOnlyVC, "default", ["json"]);
 
     expect(outputs.length).toBe(1);
     // Filename should use "credential" as the type slug

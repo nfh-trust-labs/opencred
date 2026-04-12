@@ -817,7 +817,7 @@ describe("DeDiClient (adapter)", () => {
       version: "1",
       schema: { type: "object", properties: {} },
       contextUrl:
-        "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/functional-identity/v1/context.jsonld",
+        "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/functional-identity/v1/context.json",
       checksum: "abc123",
       publishedAt: "2026-03-25T00:00:00Z",
     };

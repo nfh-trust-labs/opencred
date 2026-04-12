@@ -85,7 +85,7 @@ function sanitizeFileName(name: string): string {
  */
 function formatToExtension(format: string): string {
   switch (format) {
-    case "json-ld":
+    case "json":
       return "jsonld";
     case "json-compact":
       return "json";

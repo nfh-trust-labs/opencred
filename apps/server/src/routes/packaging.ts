@@ -19,8 +19,8 @@ const packaging = new Hono();
 const packageRequestSchema = z.object({
   credential: z.record(z.unknown()),
   formats: z
-    .array(z.enum(["qr-png", "qr-svg", "pdf", "json-ld", "json-compact"]))
-    .default(["json-ld"]),
+    .array(z.enum(["qr-png", "qr-svg", "pdf", "json", "json-compact"]))
+    .default(["json"]),
   customization: customizationSchema,
 });
 

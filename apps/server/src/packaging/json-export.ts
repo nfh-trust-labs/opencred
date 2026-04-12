@@ -13,7 +13,7 @@ import type { VerifiableCredential } from "@opencred/vc-core";
  * @param credential - The signed VerifiableCredential.
  * @returns A pretty-printed JSON string.
  */
-export function exportAsJsonLd(credential: VerifiableCredential): string {
+export function exportAsJson(credential: VerifiableCredential): string {
   return JSON.stringify(credential, null, 2);
 }
 
