@@ -34,6 +34,7 @@ import type { TemplateCustomization } from "@opencred/templates";
 import { requireSigner } from "../signing/key-manager.js";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
+import { credentialsIssuedTotal, credentialsVerifiedTotal } from "../metrics.js";
 
 const credentials = new Hono();
 
@@ -376,6 +377,8 @@ credentials.post("/credentials/issue", async (c) => {
     }));
   }
 
+  credentialsIssuedTotal.inc({ proof_format: proofFormat, schema_id: parsed.schemaId });
+
   return c.json({
     credential: isCompactToken ? signedOutput : JSON.parse(signedOutput),
     proofFormat,
@@ -481,6 +484,8 @@ credentials.post("/credentials/verify", async (c) => {
   // `code` enum for programmatic handling instead. See
   // `sanitizeChecksForServerResponse` / `buildVerifyResponseBody` above for
   // the rationale.
+  credentialsVerifiedTotal.inc({ result: verificationResult.verified ? "valid" : "invalid" });
+
   return c.json(buildVerifyResponseBody(verificationResult));
 });
 

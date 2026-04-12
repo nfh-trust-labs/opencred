@@ -24,7 +24,7 @@ import { getConfig } from "../config.js";
 import { AuthenticationError } from "@opencred/shared";
 
 /** Paths that are always reachable without an Authorization header. */
-const PUBLIC_PATHS = new Set<string>(["/health", "/v1/health"]);
+const PUBLIC_PATHS = new Set<string>(["/health", "/v1/health", "/metrics", "/v1/metrics"]);
 
 export async function authMiddleware(c: Context, next: Next): Promise<void> {
   const config = getConfig();

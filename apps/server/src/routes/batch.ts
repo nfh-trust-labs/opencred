@@ -20,6 +20,7 @@ import type { Delimiter } from "../batch/csv-parser.js";
 import { createBatchEngine } from "../batch/batch-engine.js";
 import type { BatchEngine, BatchProgress, ProofFormat } from "../batch/batch-engine.js";
 import { rejectKeyMaterial, customizationSchema } from "./credentials.js";
+import { batchJobsTotal } from "../metrics.js";
 
 const batch = new Hono();
 
@@ -96,9 +97,12 @@ batch.post("/credentials/batch", async (c) => {
   };
   jobs.set(jobId, job);
 
+  batchJobsTotal.inc({ status: "started" });
+
   // Start processing in background
   void engine.start().then((finalProgress) => {
     job.progress = finalProgress;
+    batchJobsTotal.inc({ status: finalProgress.cancelled ? "cancelled" : "completed" });
   });
 
   const parseErrors = parseResult.rows
