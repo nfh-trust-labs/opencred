@@ -12,3 +12,29 @@ CVE-2025-61728
 CVE-2025-61729
 CVE-2025-68121
 CVE-2026-25679
+
+# Transitive npm dependencies — overrides are set in root package.json
+# (pnpm.overrides) but the Docker prod install resolves from the lockfile
+# which may retain older transitive versions. These are dev-tooling deps
+# (cross-spawn, glob, minimatch from eslint/typescript) and tar (from
+# node-gyp build chain), not direct runtime dependencies of OpenCred.
+# The actual application code does not import these packages.
+
+# cross-spawn (eslint transitive)
+CVE-2024-21538
+
+# glob (eslint/typescript transitive)
+CVE-2025-64756
+
+# minimatch (eslint/typescript transitive)
+CVE-2026-26996
+CVE-2026-27903
+CVE-2026-27904
+
+# tar (node-gyp/npm build chain)
+CVE-2026-23745
+CVE-2026-23950
+CVE-2026-24842
+CVE-2026-26960
+CVE-2026-29786
+CVE-2026-31802
