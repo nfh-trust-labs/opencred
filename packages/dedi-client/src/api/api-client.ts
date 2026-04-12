@@ -323,7 +323,9 @@ export class DeDiApiClient {
               );
             }
 
-            return (await response.json()) as { job_id: string };
+            const body: unknown = await response.json();
+            assertBulkUploadResultShape(body);
+            return body;
           } catch (error) {
             if (error instanceof DeDiClientError) throw error;
             if (error instanceof DOMException && error.name === "AbortError") {
@@ -575,6 +577,19 @@ function stripIpv6Brackets(hostname: string): string {
 
 function enc(value: string): string {
   return encodeURIComponent(value);
+}
+
+function assertBulkUploadResultShape(value: unknown): asserts value is { job_id: string } {
+  if (value == null || typeof value !== "object") {
+    throw new DeDiClientError("DeDi API bulk upload response is missing or not an object", 502);
+  }
+  const rec = value as Record<string, unknown>;
+  if (typeof rec["job_id"] !== "string") {
+    throw new DeDiClientError(
+      "DeDi API bulk upload response missing required field: job_id",
+      502,
+    );
+  }
 }
 
 function toQueryString(params: Record<string, unknown>): string {
