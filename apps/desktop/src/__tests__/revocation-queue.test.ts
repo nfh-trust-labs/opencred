@@ -10,6 +10,18 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Mock logger
+const mockLoggerError = vi.fn();
+vi.mock("../main/logger", () => ({
+  createLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: mockLoggerError,
+    debug: vi.fn(),
+    child: vi.fn(),
+  }),
+}));
+
 // Mock electron-store
 const storeData: Record<string, unknown> = {};
 const mockGet = vi.fn((key: string) => storeData[key]);
@@ -57,6 +69,12 @@ describe("Revocation Queue", () => {
       delete storeData[key];
     }
     vi.clearAllMocks();
+
+    // Restore default mock implementations after tests that override them
+    mockGet.mockImplementation((key: string) => storeData[key]);
+    mockSet.mockImplementation((key: string, value: unknown) => {
+      storeData[key] = value;
+    });
 
     // Default: DeDi is configured with a namespace
     storeData["dediConfig"] = {
@@ -477,6 +495,70 @@ describe("Revocation Queue", () => {
 
       const items = getQueueItems();
       expect(items).toEqual([]);
+    });
+
+    it("should log an error and return cached queue when store.get throws", () => {
+      // First, populate the cache with a successful load
+      queueRevocation("urn:uuid:cached-item", "https://dedi.example/revocations/test");
+      const cachedItems = getQueueItems();
+      expect(cachedItems.length).toBeGreaterThan(0);
+
+      // Now make store.get throw
+      mockGet.mockImplementationOnce(() => {
+        throw new Error("EACCES: permission denied");
+      });
+
+      const items = getQueueItems();
+
+      // Should return the cached queue, not an empty array
+      expect(items.length).toBe(cachedItems.length);
+      expect(items[0].credentialId).toBe("urn:uuid:cached-item");
+
+      // Should log the error
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        "Failed to load revocation queue from store",
+        expect.objectContaining({ error: "EACCES: permission denied" }),
+      );
+    });
+
+    it("should throw and log when store.set fails during save", () => {
+      mockSet.mockImplementationOnce(() => {
+        throw new Error("ENOSPC: no space left on device");
+      });
+
+      expect(() => {
+        queueRevocation("urn:uuid:fail-save", "https://dedi.example/revocations/test");
+      }).toThrow("ENOSPC: no space left on device");
+
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        "Failed to save revocation queue to store",
+        expect.objectContaining({
+          error: "ENOSPC: no space left on device",
+          itemCount: expect.any(Number),
+        }),
+      );
+    });
+
+    it("should not flood logs on repeated load failures", () => {
+      mockLoggerError.mockClear();
+
+      // Make store.get throw repeatedly
+      mockGet.mockImplementation(() => {
+        throw new Error("Store corrupted");
+      });
+
+      getQueueItems();
+      getQueueItems();
+      getQueueItems();
+
+      // Should only log the error once
+      const loadErrors = mockLoggerError.mock.calls.filter(
+        (call) => call[0] === "Failed to load revocation queue from store",
+      );
+      expect(loadErrors.length).toBe(1);
+
+      // Restore mock
+      mockGet.mockImplementation((key: string) => storeData[key]);
     });
   });
 });
