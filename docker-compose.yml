@@ -48,15 +48,21 @@ services:
       start_period: 10s
 
   # ---------- Reverse proxy (optional) ----------
-  # Uncomment to add nginx in front of the server.
+  # Uncomment the nginx service below to add a hardened reverse proxy in
+  # front of the server. See deploy/nginx.conf for the full configuration.
   #
   # nginx:
   #   image: nginx:1-alpine
   #   ports:
-  #     - "443:443"
-  #     - "80:80"
+  #     - "${OPENCRED_HTTP_PORT:-80}:80"
+  #     - "${OPENCRED_HTTPS_PORT:-443}:443"
+  #   environment:
+  #     # CORS origin is substituted into nginx.conf via envsubst at startup.
+  #     # Set OPENCRED_CORS_ORIGIN in your .env file — never hardcode (#159).
+  #     - OPENCRED_CORS_ORIGIN=${OPENCRED_CORS_ORIGIN:-}
   #   volumes:
-  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./deploy/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+  #     - ./deploy/security-headers.conf:/etc/nginx/snippets/security-headers.conf:ro
   #     - ./certs:/etc/nginx/certs:ro
   #   depends_on:
   #     server:
@@ -64,6 +70,17 @@ services:
   #   networks:
   #     - opencred-net
   #   restart: unless-stopped
+  #   read_only: true
+  #   tmpfs:
+  #     - /var/cache/nginx:noexec,nosuid,size=32m
+  #     - /var/run:noexec,nosuid,size=1m
+  #     - /tmp:noexec,nosuid,size=8m
+  #   cap_drop:
+  #     - ALL
+  #   cap_add:
+  #     - NET_BIND_SERVICE
+  #   security_opt:
+  #     - no-new-privileges:true
 
 volumes:
   csca-trust-store:

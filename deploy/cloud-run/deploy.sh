@@ -133,7 +133,7 @@ deploy_api() {
     --max-instances "${API_MAX_INSTANCES}"
     --concurrency "${API_CONCURRENCY}"
     --timeout "${API_TIMEOUT}"
-    --set-env-vars "NODE_ENV=production,LOG_LEVEL=info,CORS_ORIGIN=${CORS_ORIGIN:-*}"
+    --set-env-vars "NODE_ENV=production,LOG_LEVEL=info,CORS_ORIGIN=${CORS_ORIGIN:?CORS_ORIGIN must be set (e.g. https://app.opencred.example.com)}"
     --set-secrets "${secrets_flag}"
     --no-allow-unauthenticated
   )
@@ -383,7 +383,7 @@ Environment variables:
   WEB_IMAGE           Web UI container image reference
   API_SERVICE_NAME    Cloud Run API service name (default: opencred-api)
   WEB_SERVICE_NAME    Cloud Run Web service name (default: opencred-web)
-  CORS_ORIGIN         Allowed CORS origin for API (default: *)
+  CORS_ORIGIN         Allowed CORS origin for API (REQUIRED, no default)
   VPC_CONNECTOR       VPC connector name for private networking (optional)
 HELP
         exit 0
