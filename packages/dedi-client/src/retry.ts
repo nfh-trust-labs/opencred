@@ -12,6 +12,26 @@ const DEFAULT_OPTIONS: RetryOptions = {
   baseDelayMs: 200,
 };
 
+const TRANSIENT_NETWORK_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EPIPE",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+]);
+
+function hasTransientNetworkCode(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const code = (error as { code?: string }).code;
+  if (code && TRANSIENT_NETWORK_CODES.has(code)) return true;
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause) return hasTransientNetworkCode(cause);
+  return false;
+}
+
 function isTransientError(error: unknown): boolean {
   if (error instanceof DeDiClientError) {
     return error.statusCode >= 500;
@@ -20,6 +40,9 @@ function isTransientError(error: unknown): boolean {
     return true;
   }
   if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  if (hasTransientNetworkCode(error)) {
     return true;
   }
   return false;
