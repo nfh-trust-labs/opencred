@@ -289,12 +289,16 @@ export class DeDiApiClient {
           formData.append("file", file);
           const token = await this.tokenManager.getToken();
 
-          const url = `${this.config.baseUrl}/dedi/bulk-upload`;
+          const path = "/dedi/bulk-upload";
+          const url = `${this.config.baseUrl}${path}`;
           // Re-check SSRF on every request — DNS records can change
           // between construction and the first call (rebinding).
           await this.assertHostIsPublic(url);
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), this.effectiveTimeoutMs);
+
+          this.logger.info(`DeDi request`, { method: "POST", path });
+          const start = Date.now();
 
           try {
             const response = await globalThis.fetch(url, {
@@ -303,6 +307,13 @@ export class DeDiApiClient {
               body: formData,
               redirect: "error",
               signal: controller.signal,
+            });
+
+            this.logger.info(`DeDi response`, {
+              method: "POST",
+              path,
+              status: response.status,
+              durationMs: Date.now() - start,
             });
 
             if (!response.ok) {
@@ -316,11 +327,22 @@ export class DeDiApiClient {
           } catch (error) {
             if (error instanceof DeDiClientError) throw error;
             if (error instanceof DOMException && error.name === "AbortError") {
+              this.logger.error(`DeDi request timed out`, {
+                method: "POST",
+                path,
+                durationMs: Date.now() - start,
+              });
               throw new DeDiClientError(
                 `DeDi API request timed out after ${this.effectiveTimeoutMs}ms`,
                 504,
               );
             }
+            this.logger.error(`DeDi network error`, {
+              method: "POST",
+              path,
+              durationMs: Date.now() - start,
+              error: error instanceof Error ? error.message : "unknown",
+            });
             throw new DeDiClientError(
               `DeDi API network error: ${error instanceof Error ? error.message : "unknown"}`,
               502,
@@ -427,6 +449,7 @@ export class DeDiApiClient {
   }
 
   private async doFetch(path: string, init?: RequestInit): Promise<Response> {
+    const method = init?.method ?? "GET";
     const url = `${this.config.baseUrl}${path}`;
     // SSRF re-check on every request — see `bulkUpload` for rationale.
     await this.assertHostIsPublic(url);
@@ -434,8 +457,11 @@ export class DeDiApiClient {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.effectiveTimeoutMs);
 
+    this.logger.info(`DeDi request`, { method, path });
+    const start = Date.now();
+
     try {
-      return await globalThis.fetch(url, {
+      const response = await globalThis.fetch(url, {
         ...init,
         signal: controller.signal,
         redirect: "error",
@@ -446,16 +472,32 @@ export class DeDiApiClient {
           ...init?.headers,
         },
       });
+      this.logger.info(`DeDi response`, {
+        method,
+        path,
+        status: response.status,
+        durationMs: Date.now() - start,
+      });
+      return response;
     } catch (error) {
+      const durationMs = Date.now() - start;
       if (error instanceof DeDiClientError) {
+        this.logger.error(`DeDi request failed`, { method, path, durationMs, error: error.message });
         throw error;
       }
       if (error instanceof DOMException && error.name === "AbortError") {
+        this.logger.error(`DeDi request timed out`, { method, path, durationMs });
         throw new DeDiClientError(
           `DeDi API request timed out after ${this.effectiveTimeoutMs}ms`,
           504,
         );
       }
+      this.logger.error(`DeDi network error`, {
+        method,
+        path,
+        durationMs,
+        error: error instanceof Error ? error.message : "unknown",
+      });
       throw new DeDiClientError(
         `DeDi API network error: ${error instanceof Error ? error.message : "unknown"}`,
         502,
