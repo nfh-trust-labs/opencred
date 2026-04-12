@@ -19,6 +19,9 @@ import { parseCsv } from "../batch/csv-parser.js";
 import type { Delimiter } from "../batch/csv-parser.js";
 import { createBatchEngine } from "../batch/batch-engine.js";
 import type { BatchEngine, BatchProgress, ProofFormat } from "../batch/batch-engine.js";
+import { deliverWebhook } from "../batch/webhook.js";
+import type { WebhookPayload } from "../batch/webhook.js";
+import { getLogger } from "../logger.js";
 import { rejectKeyMaterial } from "./credentials.js";
 
 const batch = new Hono();
@@ -30,6 +33,7 @@ const jobs = new Map<
     engine: BatchEngine;
     progress: BatchProgress | null;
     createdAt: string;
+    webhookUrl?: string;
   }
 >();
 
@@ -46,6 +50,11 @@ const batchRequestSchema = z.object({
   selectiveDisclosureClaims: z.array(z.string()).optional(),
   columnMapping: z.record(z.string()).optional(),
   delimiter: z.enum([",", ";", "\t"]).optional(),
+  webhookUrl: z
+    .string()
+    .url()
+    .refine((u) => u.startsWith("https://"), { message: "Webhook URL must use HTTPS" })
+    .optional(),
 });
 
 // --- Start batch ---
@@ -92,12 +101,29 @@ batch.post("/credentials/batch", async (c) => {
     engine,
     progress: null as BatchProgress | null,
     createdAt: new Date().toISOString(),
+    webhookUrl: parsed.webhookUrl,
   };
   jobs.set(jobId, job);
 
   // Start processing in background
   void engine.start().then((finalProgress) => {
     job.progress = finalProgress;
+
+    // Deliver webhook notification on completion (best-effort)
+    if (job.webhookUrl) {
+      const webhookPayload: WebhookPayload = {
+        jobId,
+        status: finalProgress.cancelled ? "cancelled" : "completed",
+        total: finalProgress.total,
+        successCount: finalProgress.successCount,
+        errorCount: finalProgress.errorCount,
+        skippedCount: finalProgress.skippedCount,
+      };
+      const secret = config.OPENCRED_API_KEY ?? "";
+      deliverWebhook(job.webhookUrl, webhookPayload, secret).catch((err) => {
+        getLogger().warn({ jobId, webhookUrl: job.webhookUrl, err }, "Webhook delivery failed");
+      });
+    }
   });
 
   const parseErrors = parseResult.rows
@@ -112,6 +138,7 @@ batch.post("/credentials/batch", async (c) => {
       invalidCount: parseResult.invalidCount,
       totalCount: parseResult.totalCount,
       parseErrors: parseErrors.length > 0 ? parseErrors : undefined,
+      webhookUrl: parsed.webhookUrl,
     },
     202,
   );
