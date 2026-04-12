@@ -21,6 +21,8 @@ export const IPC_CHANNELS = {
   SCHEMA_LIST: "schema:list",
   /** Get a specific schema definition. Payload: schemaId. Response: schema definition. */
   SCHEMA_GET: "schema:get",
+  /** Generate a JSON Schema from sample data fields. Payload: fields object. Response: schema + inferred fields. */
+  SCHEMA_GENERATE: "schema:generate",
 
   // --- Signing ---
   /** Request the main process to sign a credential. Payload: unsigned VC + key ID. Response: signed VC. */

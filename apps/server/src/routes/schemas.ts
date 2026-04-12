@@ -1,23 +1,19 @@
 /**
  * Schema listing endpoint.
  *
- * Returns the available credential schemas from @opencred/schema-engine.
+ * Returns the available credential schemas from the server-wide registry.
  */
 
 import { Hono } from "hono";
-import { createRegistry } from "@opencred/schema-engine";
+import { z } from "zod";
+import { generateSchemaFromFields } from "@opencred/schema-engine";
 import type { SchemaCategory } from "@opencred/schema-engine";
+import { getSchemaRegistry } from "../schema-registry-singleton.js";
 
 const schemas = new Hono();
 
-// Singleton registry
-let registry: ReturnType<typeof createRegistry> | null = null;
-
 function getRegistry() {
-  if (!registry) {
-    registry = createRegistry();
-  }
-  return registry;
+  return getSchemaRegistry();
 }
 
 schemas.get("/schemas", (c) => {
@@ -26,7 +22,7 @@ schemas.get("/schemas", (c) => {
 
   const schemaIds = reg.listSchemas();
   const schemaList = schemaIds
-    .map((id) => {
+    .map((id: string) => {
       const def = reg.getSchema(id);
       return {
         id: def.id,
@@ -62,6 +58,29 @@ schemas.get("/schemas/:id{.+}", (c) => {
   } catch {
     return c.json({ error: { code: "NOT_FOUND", message: `Schema not found: ${id}` } }, 404);
   }
+});
+
+const generateSchema = z.object({
+  fields: z.record(z.unknown()),
+});
+
+schemas.post("/schemas/generate", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body) {
+    return c.json(
+      { error: { code: "VALIDATION_ERROR", message: "Invalid JSON body" } },
+      400,
+    );
+  }
+  const parsed = generateSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json(
+      { error: { code: "VALIDATION_ERROR", message: "Body must include a fields object", details: parsed.error.flatten() } },
+      400,
+    );
+  }
+  const result = generateSchemaFromFields(parsed.data.fields);
+  return c.json({ schema: result.schema, fields: result.fields });
 });
 
 export { schemas };

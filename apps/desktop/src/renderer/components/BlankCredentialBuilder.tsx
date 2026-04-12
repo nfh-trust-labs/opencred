@@ -46,7 +46,10 @@ type InputMode = "visual" | "url" | "paste";
 const FIELD_TYPES: { value: FieldType; label: string }[] = [
   { value: "string", label: "Text" },
   { value: "number", label: "Number" },
+  { value: "boolean", label: "Boolean" },
+  { value: "integer", label: "Integer" },
   { value: "date", label: "Date" },
+  { value: "datetime", label: "Date-Time" },
   { value: "email", label: "Email" },
   { value: "url", label: "URL" },
 ];
@@ -75,6 +78,8 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
   // Paste mode state
   const [jsonText, setJsonText] = useState("");
   const [jsonError, setJsonError] = useState<string | null>(null);
+  // Save as reusable schema
+  const [saveAsReusable, setSaveAsReusable] = useState(false);
 
   // ------------------------------------------------------------------
   // Shared: convert fields to SchemaFields and call onSchemaReady
@@ -89,21 +94,37 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
 
       const schemaFields: SchemaField[] = validFields.map((f) => ({
         name: f.name,
-        type: f.type === "number" ? "number" : "string",
+        type:
+          f.type === "number"
+            ? "number"
+            : f.type === "integer"
+              ? "integer"
+              : f.type === "boolean"
+                ? "boolean"
+                : "string",
         required: f.required,
         format:
           f.type === "date"
             ? "date"
-            : f.type === "email"
-              ? "email"
-              : f.type === "url"
-                ? "uri"
-                : undefined,
+            : f.type === "datetime"
+              ? "date-time"
+              : f.type === "email"
+                ? "email"
+                : f.type === "url"
+                  ? "uri"
+                  : undefined,
       }));
 
       onSchemaReady(schemaFields, schema, name || credentialName || "Custom Credential", sourceUrl);
+
+      if (saveAsReusable) {
+        window.opencred.customSchemaSave({
+          name: name || credentialName || "Custom Credential",
+          schema,
+        });
+      }
     },
-    [onSchemaReady, credentialName],
+    [onSchemaReady, credentialName, saveAsReusable],
   );
 
   // ------------------------------------------------------------------
@@ -322,6 +343,15 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
               </svg>
               Add field
             </button>
+            <label className="flex items-center gap-1.5 text-xs text-gray-500">
+              <input
+                type="checkbox"
+                checked={saveAsReusable}
+                onChange={(e) => setSaveAsReusable(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              Save as reusable schema
+            </label>
             {validFieldCount > 0 && (
               <Button size="sm" onClick={() => applyFields(fields)}>
                 Apply ({validFieldCount} field{validFieldCount !== 1 ? "s" : ""})

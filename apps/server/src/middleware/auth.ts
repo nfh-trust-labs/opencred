@@ -12,8 +12,8 @@
  *     development. The server logged a loud warning at startup, and refused
  *     to start if NODE_ENV=production.
  *
- * Public paths (currently /health and /v1/health) are always reachable without
- * an Authorization header.
+ * Public paths (currently /health, /v1/health, /metrics, and /v1/metrics) are
+ * always reachable without an Authorization header.
  *
  * SECURITY: Uses constant-time comparison to prevent timing attacks.
  */
@@ -24,7 +24,7 @@ import { getConfig } from "../config.js";
 import { AuthenticationError } from "@opencred/shared";
 
 /** Paths that are always reachable without an Authorization header. */
-const PUBLIC_PATHS = new Set<string>(["/health", "/v1/health"]);
+const PUBLIC_PATHS = new Set<string>(["/health", "/v1/health", "/metrics", "/v1/metrics"]);
 
 export async function authMiddleware(c: Context, next: Next): Promise<void> {
   const config = getConfig();

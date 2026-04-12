@@ -82,6 +82,15 @@ export interface SchemaGetResponse {
   contextUrl?: string;
 }
 
+export interface SchemaGenerateRequest {
+  fields: Record<string, unknown>;
+}
+
+export interface SchemaGenerateResponse {
+  schema: Record<string, unknown>;
+  fields: Array<{ name: string; type: string; format?: string; required: boolean }>;
+}
+
 // ---------------------------------------------------------------------------
 // Credential signing
 // ---------------------------------------------------------------------------
@@ -295,6 +304,8 @@ export interface FileOpenResponse {
   content: string | null;
   /** The selected file path, or null if cancelled. */
   filePath: string | null;
+  /** When set to "base64", content is base64-encoded binary data. */
+  encoding?: "base64";
 }
 
 export interface FileSaveRequest {
@@ -311,6 +322,8 @@ export interface FileSaveRequest {
 export interface FileSaveResponse {
   /** The path where the file was saved, or null if cancelled. */
   filePath: string | null;
+  /** When set to "base64", content is base64-encoded binary data. */
+  encoding?: "base64";
 }
 
 // ---------------------------------------------------------------------------
@@ -861,6 +874,7 @@ export interface OpenCredDesktopAPI {
   // Schema
   listSchemas: () => Promise<SchemaListResponse>;
   getSchema: (request: SchemaGetRequest) => Promise<SchemaGetResponse>;
+  generateSchema: (request: SchemaGenerateRequest) => Promise<SchemaGenerateResponse>;
 
   // Signing & verification
   signCredential: (request: SignCredentialRequest) => Promise<SignCredentialResponse>;

@@ -35,6 +35,9 @@ services:
       - no-new-privileges:true
     volumes:
       - csca-trust-store:/app/trust-store:ro
+      - schema-cache:/app/schema-cache
+    environment:
+      - OPENCRED_SCHEMA_CACHE_DIR=/app/schema-cache
     # Mount signing key at runtime (uncomment and set path):
     # - ./path/to/key.pem:/app/keys/key.pem:ro
     healthcheck:
@@ -64,6 +67,8 @@ services:
 
 volumes:
   csca-trust-store:
+    driver: local
+  schema-cache:
     driver: local
 
 networks:

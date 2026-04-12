@@ -17,8 +17,9 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { VerifiableCredential } from "@opencred/vc-core";
-import { createRegistry, Validator } from "@opencred/schema-engine";
+import { Validator } from "@opencred/schema-engine";
 import type { SchemaRegistry } from "@opencred/schema-engine";
+import { getSchemaRegistry } from "../schema-registry-singleton.js";
 import {
   prepareVcJwtProof,
   completeVcJwtProof,
@@ -29,11 +30,12 @@ import {
   prepareSdJwtVcProof,
   completeSdJwtVcProof,
 } from "@opencred/crypto";
-import { CryptoError, ValidationError } from "@opencred/shared";
+import { CryptoError, ValidationError, detectCredentialInputFormat } from "@opencred/shared";
 import type { TemplateCustomization } from "@opencred/templates";
 import { requireSigner } from "../signing/key-manager.js";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
+import { credentialsIssuedTotal, credentialsVerifiedTotal } from "../metrics.js";
 
 const credentials = new Hono();
 
@@ -136,15 +138,10 @@ export function rejectKeyMaterial(value: unknown, path = ""): void {
   }
 }
 
-// Singleton schema registry and validator
-let registryInstance: SchemaRegistry | null = null;
 let validatorInstance: Validator | null = null;
 
 function getRegistry(): SchemaRegistry {
-  if (!registryInstance) {
-    registryInstance = createRegistry();
-  }
-  return registryInstance;
+  return getSchemaRegistry();
 }
 
 function getValidator(): Validator {
@@ -376,6 +373,8 @@ credentials.post("/credentials/issue", async (c) => {
     }));
   }
 
+  credentialsIssuedTotal.inc({ proof_format: proofFormat, schema_id: parsed.schemaId });
+
   return c.json({
     credential: isCompactToken ? signedOutput : JSON.parse(signedOutput),
     proofFormat,
@@ -447,7 +446,30 @@ credentials.post("/credentials/verify", async (c) => {
   rejectKeyMaterial(body);
   const parsed = verifyRequestSchema.parse(body);
 
-  const credential = JSON.parse(parsed.credential);
+  const format = detectCredentialInputFormat(parsed.credential);
+
+  let credential: Record<string, unknown> | string;
+  switch (format) {
+    case "pixelpass": {
+      const { decodeQrData } = await import("../packaging/qr-generator.js");
+      const decodedJson = decodeQrData(parsed.credential);
+      credential = JSON.parse(decodedJson);
+      break;
+    }
+    case "json":
+      credential = JSON.parse(parsed.credential);
+      break;
+    case "jwt-compact":
+      // Pass raw compact string — the verification engine's detectFormat()
+      // already handles VC-JWT and SD-JWT compact serializations.
+      credential = parsed.credential;
+      break;
+    case "unknown":
+      return c.json(
+        { error: { code: "BAD_REQUEST", message: "Unrecognized credential format" } },
+        400,
+      );
+  }
 
   // Verify using composite DID resolver (supports did:key, did:jwk, did:web)
   const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
@@ -481,6 +503,8 @@ credentials.post("/credentials/verify", async (c) => {
   // `code` enum for programmatic handling instead. See
   // `sanitizeChecksForServerResponse` / `buildVerifyResponseBody` above for
   // the rationale.
+  credentialsVerifiedTotal.inc({ result: verificationResult.verified ? "valid" : "invalid" });
+
   return c.json(buildVerifyResponseBody(verificationResult));
 });
 

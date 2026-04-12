@@ -22,8 +22,12 @@ import { authMiddleware } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { loadSigningKey, setActiveSigner } from "./signing/key-manager.js";
 import { createSignerFromConfig } from "./signing/cloud-hsm/factory.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { createRegistryWithUpdates } from "@opencred/schema-engine";
 import { CscaTrustStore } from "@opencred/verification";
 import { setTrustStore } from "./trust-store.js";
+import { setSchemaRegistry } from "./schema-registry-singleton.js";
 import { health } from "./routes/health.js";
 import { schemas } from "./routes/schemas.js";
 import { credentials } from "./routes/credentials.js";
@@ -31,6 +35,9 @@ import { batch } from "./routes/batch.js";
 import { revocation } from "./routes/revocation.js";
 import { packaging } from "./routes/packaging.js";
 import { keys } from "./routes/keys.js";
+import { metrics } from "./routes/metrics.js";
+import { initTracing } from "./tracing.js";
+import { metricsMiddleware } from "./middleware/metrics.js";
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -74,6 +81,13 @@ if (config.OPENCRED_DEV_MODE_NO_AUTH) {
   logger.warn(banner);
 }
 
+
+// Tracing (opt-in via OTEL_EXPORTER_OTLP_ENDPOINT)
+const tracer = initTracing();
+if (tracer) {
+  logger.info("OpenTelemetry tracing enabled");
+}
+
 logger.info({ port: config.OPENCRED_PORT }, "Starting OpenCred Server");
 
 // Load signing key.
@@ -93,6 +107,22 @@ if (cloudSigner) {
 } else {
   loadSigningKey();
 }
+
+// ---------------------------------------------------------------------------
+// Schema Registry (with optional remote updates)
+// ---------------------------------------------------------------------------
+// The registry is initialised ONCE at startup. If OPENCRED_SCHEMA_UPDATE_URL
+// is configured, newer schemas are fetched from the manifest, verified, and
+// merged into the bundled set. On any failure the bundled schemas are used.
+
+const schemaRegistry = await createRegistryWithUpdates({
+  manifestUrl: config.OPENCRED_SCHEMA_UPDATE_URL,
+  cacheDir: config.OPENCRED_SCHEMA_CACHE_DIR ?? join(homedir(), ".opencred", "schemas"),
+  timeoutMs: 10_000,
+  logger,
+});
+setSchemaRegistry(schemaRegistry);
+logger.info({ count: schemaRegistry.listSchemas().length }, "Schema registry initialised");
 
 // ---------------------------------------------------------------------------
 // CSCA Trust Store
@@ -130,6 +160,7 @@ if (config.OPENCRED_CSCA_TRUST_STORE_PATH) {
 const app = new Hono();
 
 // Global middleware
+app.use("*", metricsMiddleware);
 app.use("*", authMiddleware);
 
 // Mount routes.
@@ -139,6 +170,7 @@ app.use("*", authMiddleware);
 // should target the /v1 prefix; the unprefixed routes are kept for the
 // existing desktop main process and tests.
 app.route("/", health);
+app.route("/", metrics);
 app.route("/", schemas);
 app.route("/", credentials);
 app.route("/", batch);
@@ -147,6 +179,7 @@ app.route("/", packaging);
 app.route("/", keys);
 
 app.route("/v1", health);
+app.route("/v1", metrics);
 app.route("/v1", schemas);
 app.route("/v1", credentials);
 app.route("/v1", batch);
@@ -200,7 +233,8 @@ logger.info({ port: config.OPENCRED_PORT }, "OpenCred Server listening");
 // Graceful shutdown
 function shutdown(signal: string) {
   logger.info({ signal }, "Shutting down");
-  server.close(() => {
+  server.close(async () => {
+    if (tracer) await tracer.shutdown();
     logger.info("Server closed");
     process.exit(0);
   });
