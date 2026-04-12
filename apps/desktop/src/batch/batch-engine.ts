@@ -80,7 +80,7 @@ export interface BatchConfig {
   revocationRegistryUrl?: string;
   /** Additional credential types (optional). */
   additionalTypes?: string[];
-  /** Output packaging formats. Defaults to ["json-ld"]. */
+  /** Output packaging formats. Defaults to ["json"]. */
   packageFormats?: PackageFormat[];
   /** Proof format (default: "vc-jwt"). */
   proofFormat?: UiProofFormat;
@@ -107,7 +107,7 @@ export interface BatchConfig {
  * @returns An object with start(), cancel(), and getProgress() methods.
  */
 export function createBatchEngine(signer: Signer, parsedRows: ParsedRow[], config: BatchConfig) {
-  const packageFormats = config.packageFormats ?? ["json-ld"];
+  const packageFormats = config.packageFormats ?? ["json"];
 
   // Initialize progress
   const progress: BatchProgress = {

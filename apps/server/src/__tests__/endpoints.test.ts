@@ -612,7 +612,7 @@ describe("issuer branding customization", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...VALID_ISSUE_REQUEST,
-        packageFormats: ["json-ld"],
+        packageFormats: ["json"],
         customization: {
           primaryColor: "#ff5500",
           issuerDisplayName: "Acme Corp",
@@ -686,7 +686,7 @@ describe("issuer branding customization", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         credential: issued.credential,
-        formats: ["json-ld"],
+        formats: ["json"],
         customization: {
           primaryColor: "#00aa33",
           issuerDisplayName: "Test Issuer",

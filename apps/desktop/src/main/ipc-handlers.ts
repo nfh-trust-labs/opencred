@@ -824,7 +824,7 @@ async function handlePackageCredential(
     const credential = parseCredentialJson(request.credential);
 
     // Partition formats: template-aware formats vs legacy packager formats.
-    const templateFormats = ["svg", "qr", "json-ld"];
+    const templateFormats = ["svg", "qr", "json"];
     const templateRequested = request.formats.filter((f) => templateFormats.includes(f));
     const legacyRequested = request.formats.filter((f) => !templateFormats.includes(f));
 
@@ -1090,7 +1090,7 @@ async function handleBatchStart(
       validUntil: request.validUntil,
       revocationRegistryUrl: request.revocationRegistryUrl,
       additionalTypes: request.additionalTypes,
-      packageFormats: (request.packageFormats as PackageFormat[]) ?? ["json-ld"],
+      packageFormats: (request.packageFormats as PackageFormat[]) ?? ["json"],
       proofFormat: request.proofFormat,
       selectiveDisclosureClaims: request.selectiveDisclosureClaims,
       credentialSchemaUrl: request.credentialSchemaUrl,
@@ -1719,7 +1719,7 @@ async function fetchJsonLdContextDocument(url: string): Promise<ContextFetchResu
     try {
       response = await fetch(url, {
         signal: controller.signal,
-        headers: { Accept: "application/ld+json, application/json" },
+        headers: { Accept: "application/json, application/json" },
         redirect: "error",
       });
     } catch (err) {

@@ -354,7 +354,7 @@ export interface BatchStartRequest {
   columnMapping?: BatchColumnMapping;
   /** ID of the signing key. */
   keyId: string;
-  /** Output packaging formats. Defaults to ["json-ld"]. */
+  /** Output packaging formats. Defaults to ["json"]. */
   packageFormats?: string[];
   /** Force a specific delimiter instead of auto-detecting. */
   delimiter?: "," | ";" | "\t";

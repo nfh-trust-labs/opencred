@@ -388,7 +388,7 @@ describe("rejectKeyMaterial — defense-in-depth on every POST route", () => {
           id: "urn:test:1",
           notes: sec1Pem,
         },
-        formats: ["json-ld"],
+        formats: ["json"],
       }),
     });
     expect(res.status).toBe(400);

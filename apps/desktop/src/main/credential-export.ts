@@ -147,7 +147,7 @@ export function renderCredentialSvg(
  * @param credential - The signed VerifiableCredential.
  * @returns A pretty-printed JSON string.
  */
-export function exportAsJsonLd(credential: VerifiableCredential): string {
+export function exportAsJson(credential: VerifiableCredential): string {
   return JSON.stringify(credential, null, 2);
 }
 
@@ -174,7 +174,7 @@ export async function exportAsQrCode(credential: VerifiableCredential): Promise<
  * Package a credential into multiple export formats.
  *
  * Supported formats:
- * - "json-ld" — formatted JSON-LD string
+ * - "json" — formatted JSON-LD string
  * - "svg"     — rendered SVG from template
  * - "qr"      — QR code as PNG data URI
  *
@@ -195,12 +195,12 @@ export async function packageCredential(
 
   for (const format of formats) {
     switch (format) {
-      case "json-ld": {
-        const jsonLd = exportAsJsonLd(credential);
+      case "json": {
+        const jsonLd = exportAsJson(credential);
         outputs.push({
-          format: "json-ld",
+          format: "json",
           data: jsonLd,
-          mimeType: "application/ld+json",
+          mimeType: "application/json",
           suggestedFileName: `${baseName}.jsonld`,
         });
         break;

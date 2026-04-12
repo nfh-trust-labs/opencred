@@ -316,7 +316,7 @@ describe("Preload API completeness", () => {
     const verifyResult = api.verifyCredential({ credential: "{}" });
     expect(verifyResult).toBeInstanceOf(Promise);
 
-    const packageResult = api.packageCredential({ credential: "{}", formats: ["json-ld"] });
+    const packageResult = api.packageCredential({ credential: "{}", formats: ["json"] });
     expect(packageResult).toBeInstanceOf(Promise);
 
     const revQueueResult = api.queueRevocation({

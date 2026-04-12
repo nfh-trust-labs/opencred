@@ -13,7 +13,7 @@ import { generateQrPng, generateQrSvg } from "./qr-generator.js";
 // Re-export for use by verification and other consumers
 export { decodeQrData } from "./qr-generator.js";
 import { generatePdf } from "./pdf-generator.js";
-import { exportAsJsonLd, exportAsCompactJson } from "./json-export.js";
+import { exportAsJson, exportAsCompactJson } from "./json-export.js";
 
 /**
  * Options for credential packaging.
@@ -26,7 +26,7 @@ export interface PackagingOptions {
 /**
  * Supported output formats for credential packaging.
  */
-export type PackageFormat = "qr-png" | "qr-svg" | "pdf" | "json-ld" | "json-compact";
+export type PackageFormat = "qr-png" | "qr-svg" | "pdf" | "json" | "json-compact";
 
 /**
  * A single packaged output item.
@@ -75,7 +75,7 @@ function suggestedBaseName(credential: VerifiableCredential): string {
  */
 export async function packageCredential(
   credential: VerifiableCredential,
-  formats: PackageFormat[] = ["qr-png", "qr-svg", "pdf", "json-ld"],
+  formats: PackageFormat[] = ["qr-png", "qr-svg", "pdf", "json"],
   options?: PackagingOptions,
 ): Promise<PackagingResult> {
   const baseName = suggestedBaseName(credential);
@@ -115,12 +115,12 @@ export async function packageCredential(
           });
           break;
         }
-        case "json-ld": {
-          const jsonLd = exportAsJsonLd(credential);
+        case "json": {
+          const jsonLd = exportAsJson(credential);
           outputs.push({
-            format: "json-ld",
+            format: "json",
             data: jsonLd,
-            mimeType: "application/ld+json",
+            mimeType: "application/json",
             suggestedFileName: `${baseName}.jsonld`,
           });
           break;

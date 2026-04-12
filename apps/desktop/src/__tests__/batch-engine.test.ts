@@ -83,7 +83,7 @@ describe("Batch engine — valid rows", () => {
       schemaId: "functional-identity/v1",
       issuerDid: "did:web:university.example",
       validFrom: "2025-06-15T00:00:00Z",
-      packageFormats: ["json-ld"],
+      packageFormats: ["json"],
     });
 
     const result = await engine.start();
@@ -345,7 +345,7 @@ describe("Batch engine — offline operation", () => {
       schemaId: "functional-identity/v1",
       issuerDid: "did:web:university.example",
       validFrom: "2025-06-15T00:00:00Z",
-      packageFormats: ["json-ld"],
+      packageFormats: ["json"],
     });
 
     const result = await engine.start();
@@ -354,9 +354,9 @@ describe("Batch engine — offline operation", () => {
       if (row.status === "success") {
         expect(row.packagingResult).toBeDefined();
         expect(row.packagingResult!.outputs.length).toBeGreaterThan(0);
-        const jsonLdOutput = row.packagingResult!.outputs.find((o) => o.format === "json-ld");
+        const jsonLdOutput = row.packagingResult!.outputs.find((o) => o.format === "json");
         expect(jsonLdOutput).toBeDefined();
-        expect(jsonLdOutput!.mimeType).toBe("application/ld+json");
+        expect(jsonLdOutput!.mimeType).toBe("application/json");
       }
     }
   });

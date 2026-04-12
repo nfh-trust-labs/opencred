@@ -198,7 +198,7 @@ function jsonResponseMock(body: unknown, status = 200): typeof globalThis.fetch 
     async () =>
       new Response(JSON.stringify(body), {
         status,
-        headers: { "Content-Type": "application/ld+json" },
+        headers: { "Content-Type": "application/json" },
       }),
   ) as unknown as typeof globalThis.fetch;
 }
@@ -214,14 +214,14 @@ describe("Custom schema context fetching", () => {
     const result = await callCustomSchemaSave({
       name: "Custom A",
       schema: { type: "object", properties: { name: { type: "string" } } },
-      contextUrl: "https://example.com/context.jsonld",
+      contextUrl: "https://example.com/context.json",
     });
     restoreFetch();
 
     expect(result.success).toBe(true);
     expect(result.contextCached).toBe(true);
     expect(typeof result.cachedContextFetchedAt).toBe("string");
-    expect(result.contextUrl).toBe("https://example.com/context.jsonld");
+    expect(result.contextUrl).toBe("https://example.com/context.json");
 
     const stored = (storeData["customSchemas"] as Array<Record<string, unknown>>)[0];
     expect(stored).toBeDefined();
@@ -229,7 +229,7 @@ describe("Custom schema context fetching", () => {
     expect(typeof stored.cachedContextFetchedAt).toBe("string");
 
     // Cache is populated regardless of scope.
-    const direct = findCachedCustomContext("https://example.com/context.jsonld");
+    const direct = findCachedCustomContext("https://example.com/context.json");
     expect(direct?.document).toEqual(SAMPLE_JSONLD_CONTEXT);
   });
 
@@ -237,7 +237,7 @@ describe("Custom schema context fetching", () => {
     const result = await callCustomSchemaSave({
       name: "Custom B",
       schema: { type: "object", properties: { name: { type: "string" } } },
-      contextUrl: "http://example.com/context.jsonld",
+      contextUrl: "http://example.com/context.json",
     });
 
     expect(result.success).toBe(true); // schema saved
@@ -301,7 +301,7 @@ describe("Custom schema context fetching", () => {
     const result = await callCustomSchemaSave({
       name: "Custom G",
       schema: { type: "object", properties: { name: { type: "string" } } },
-      contextUrl: "https://example.com/broken.jsonld",
+      contextUrl: "https://example.com/broken.json",
     });
     restoreFetch();
 
@@ -319,7 +319,7 @@ describe("Custom schema context fetching", () => {
         new Response(JSON.stringify(SAMPLE_JSONLD_CONTEXT), {
           status: 200,
           headers: {
-            "Content-Type": "application/ld+json",
+            "Content-Type": "application/json",
             "Content-Length": String(5 * 1024 * 1024),
           },
         }),
@@ -329,7 +329,7 @@ describe("Custom schema context fetching", () => {
     const result = await callCustomSchemaSave({
       name: "Custom oversize",
       schema: { type: "object", properties: { name: { type: "string" } } },
-      contextUrl: "https://example.com/oversize.jsonld",
+      contextUrl: "https://example.com/oversize.json",
     });
     restoreFetch();
 
@@ -349,7 +349,7 @@ describe("Custom schema context fetching", () => {
     const result = await callCustomSchemaSave({
       name: "Custom oversize-stream",
       schema: { type: "object", properties: { name: { type: "string" } } },
-      contextUrl: "https://example.com/oversize-stream.jsonld",
+      contextUrl: "https://example.com/oversize-stream.json",
     });
     restoreFetch();
 
@@ -367,7 +367,7 @@ describe("Custom schema context fetching", () => {
     const result = await callCustomSchemaSave({
       name: "Custom net-fail",
       schema: { type: "object", properties: { name: { type: "string" } } },
-      contextUrl: "https://example.com/net-fail.jsonld",
+      contextUrl: "https://example.com/net-fail.json",
     });
     restoreFetch();
 

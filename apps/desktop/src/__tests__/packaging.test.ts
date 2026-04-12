@@ -20,7 +20,7 @@ import {
   decodeQrData,
 } from "../packaging/qr-generator";
 import { generatePdf } from "../packaging/pdf-generator";
-import { exportAsJsonLd, exportAsCompactJson, parseCredentialJson } from "../packaging/json-export";
+import { exportAsJson, exportAsCompactJson, parseCredentialJson } from "../packaging/json-export";
 import { packageCredential } from "../packaging/packager";
 import type { VerifiableCredential } from "@opencred/vc-core";
 
@@ -133,7 +133,7 @@ describe("PDF Generator", () => {
 
 describe("JSON Export", () => {
   it("should export a credential as formatted JSON-LD", () => {
-    const jsonLd = exportAsJsonLd(testCredential);
+    const jsonLd = exportAsJson(testCredential);
 
     expect(jsonLd).toContain("@context");
     expect(jsonLd).toContain("VerifiableCredential");
@@ -160,7 +160,7 @@ describe("JSON Export", () => {
   });
 
   it("should parse valid credential JSON", () => {
-    const json = exportAsJsonLd(testCredential);
+    const json = exportAsJson(testCredential);
     const parsed = parseCredentialJson(json);
 
     expect(parsed["@context"]).toBeDefined();
@@ -187,15 +187,15 @@ describe("Packager orchestrator", () => {
     expect(result.outputs.length).toBeGreaterThan(0);
 
     const formats = result.outputs.map((o) => o.format);
-    expect(formats).toContain("json-ld");
+    expect(formats).toContain("json");
   });
 
   it("should package a credential as JSON-LD", async () => {
-    const result = await packageCredential(testCredential, ["json-ld"]);
+    const result = await packageCredential(testCredential, ["json"]);
 
     expect(result.outputs.length).toBe(1);
-    expect(result.outputs[0].format).toBe("json-ld");
-    expect(result.outputs[0].mimeType).toBe("application/ld+json");
+    expect(result.outputs[0].format).toBe("json");
+    expect(result.outputs[0].mimeType).toBe("application/json");
     expect(result.outputs[0].suggestedFileName).toMatch(/\.jsonld$/);
     expect(typeof result.outputs[0].data).toBe("string");
   });
@@ -246,16 +246,16 @@ describe("Packager orchestrator", () => {
     };
 
     // With PixelPass compression, both QR and JSON should succeed
-    const result = await packageCredential(largeCredential, ["qr-png", "json-ld"]);
+    const result = await packageCredential(largeCredential, ["qr-png", "json"]);
 
     expect(result.errors.length).toBe(0);
     expect(result.outputs.length).toBe(2);
     expect(result.outputs[0].format).toBe("qr-png");
-    expect(result.outputs[1].format).toBe("json-ld");
+    expect(result.outputs[1].format).toBe("json");
   });
 
   it("should generate appropriate file names", async () => {
-    const result = await packageCredential(testCredential, ["json-ld", "pdf"]);
+    const result = await packageCredential(testCredential, ["json", "pdf"]);
 
     for (const output of result.outputs) {
       expect(output.suggestedFileName).toBeTruthy();

@@ -76,7 +76,7 @@ async function runBatch(count: number) {
     schemaId: "functional-identity/v1",
     issuerDid: "did:web:authority.example",
     validFrom: "2025-06-15T00:00:00Z",
-    packageFormats: ["json-ld"],
+    packageFormats: ["json"],
   });
 
   return engine.start();
@@ -152,7 +152,7 @@ describe("exportBatchAsZip", () => {
       schemaId: "functional-identity/v1",
       issuerDid: "did:web:authority.example",
       validFrom: "2025-06-15T00:00:00Z",
-      packageFormats: ["json-ld"],
+      packageFormats: ["json"],
     });
 
     const batchResult = await engine.start();

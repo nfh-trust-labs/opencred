@@ -166,7 +166,7 @@ const issueRequestSchema = z.object({
   revocationRegistryUrl: z.string().url().optional(),
   credentialSchemaUrl: z.string().url().optional(),
   packageFormats: z
-    .array(z.enum(["qr-png", "qr-svg", "pdf", "json-ld", "json-compact"]))
+    .array(z.enum(["qr-png", "qr-svg", "pdf", "json", "json-compact"]))
     .optional(),
   customization: customizationSchema,
 });
