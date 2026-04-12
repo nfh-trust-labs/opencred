@@ -6,6 +6,7 @@
 
 import { Hono } from "hono";
 import { createRegistry } from "@opencred/schema-engine";
+import type { SchemaCategory } from "@opencred/schema-engine";
 
 const schemas = new Hono();
 
@@ -21,16 +22,21 @@ function getRegistry() {
 
 schemas.get("/schemas", (c) => {
   const reg = getRegistry();
+  const categoryFilter = c.req.query("category") as SchemaCategory | undefined;
+
   const schemaIds = reg.listSchemas();
-  const schemaList = schemaIds.map((id) => {
-    const def = reg.getSchema(id);
-    return {
-      id: def.id,
-      version: def.version,
-      contextUrl: def.contextUrl,
-      source: def.source,
-    };
-  });
+  const schemaList = schemaIds
+    .map((id) => {
+      const def = reg.getSchema(id);
+      return {
+        id: def.id,
+        version: def.version,
+        contextUrl: def.contextUrl,
+        source: def.source,
+        category: def.category,
+      };
+    })
+    .filter((s) => !categoryFilter || s.category === categoryFilter);
 
   return c.json({ schemas: schemaList });
 });
@@ -51,6 +57,7 @@ schemas.get("/schemas/:id{.+}", (c) => {
       schema: def.schema,
       contextUrl: def.contextUrl,
       source: def.source,
+      category: def.category,
     });
   } catch {
     return c.json({ error: { code: "NOT_FOUND", message: `Schema not found: ${id}` } }, 404);

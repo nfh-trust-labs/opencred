@@ -5,6 +5,7 @@ exports[`createRegistry (built-in) > registry id list is stable (snapshot) 1`] =
   "business-entity/v1",
   "dif/proof-of-age/v1",
   "dif/verified-person/v1",
+  "education/v1",
   "electricity/v1",
   "employment-offer-letter/v1",
   "functional-identity/v1",

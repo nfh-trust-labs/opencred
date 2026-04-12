@@ -105,10 +105,14 @@ function getValidator(): Validator {
 }
 
 /**
- * List all available schema IDs.
+ * List all available schemas with their categories.
  */
-export function listSchemas(): string[] {
-  return getRegistry().listSchemas();
+export function listSchemas(): Array<{ id: string; category?: string }> {
+  const registry = getRegistry();
+  return registry.listSchemas().map((id) => {
+    const def = registry.getSchema(id);
+    return { id, category: def.category };
+  });
 }
 
 /**

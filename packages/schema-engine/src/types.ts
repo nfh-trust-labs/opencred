@@ -9,6 +9,16 @@ export interface SchemaSource {
   upstreamLicense: string;
 }
 
+export type SchemaCategory =
+  | "education"
+  | "employment"
+  | "identity"
+  | "health"
+  | "business"
+  | "utility"
+  | "supply-chain"
+  | "other";
+
 export interface SchemaDefinition {
   id: string;
   schema: Record<string, unknown>;
@@ -21,6 +31,8 @@ export interface SchemaDefinition {
   checksum: string;
   /** Provenance metadata: where the schema came from, who owns it, and under what license. */
   source: SchemaSource;
+  /** Optional category for UI grouping. */
+  category?: SchemaCategory;
 }
 
 export interface ValidationResult {

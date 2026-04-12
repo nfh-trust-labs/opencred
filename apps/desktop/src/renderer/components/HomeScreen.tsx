@@ -30,7 +30,7 @@ const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 export function HomeScreen({ onSelectTemplate }: Props) {
-  const [schemas, setSchemas] = useState<string[]>([]);
+  const [schemas, setSchemas] = useState<Array<{ id: string; category?: string }>>([]);
   const [customSchemas, setCustomSchemas] = useState<CustomSchema[]>([]);
   const [loading, setLoading] = useState(true);
   const [renamingSchemaId, setRenamingSchemaId] = useState<string | null>(null);
@@ -97,13 +97,13 @@ export function HomeScreen({ onSelectTemplate }: Props) {
           Issue a new credential
         </h2>
         <div className="oc-template-grid">
-          {schemas.map((id) => (
+          {schemas.map((s) => (
             <TemplateCard
-              key={id}
-              schemaId={id}
-              name={formatSchemaLabel(id)}
-              subtitle={TEMPLATE_DESCRIPTIONS[id]}
-              onClick={() => onSelectTemplate(id, false)}
+              key={s.id}
+              schemaId={s.id}
+              name={formatSchemaLabel(s.id)}
+              subtitle={TEMPLATE_DESCRIPTIONS[s.id]}
+              onClick={() => onSelectTemplate(s.id, false)}
             />
           ))}
           {customSchemas.map((cs) => (

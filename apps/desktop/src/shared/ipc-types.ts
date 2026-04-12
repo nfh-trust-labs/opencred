@@ -63,8 +63,13 @@ export interface KeyGenerateResponse {
 // Schema
 // ---------------------------------------------------------------------------
 
+export interface SchemaListEntry {
+  id: string;
+  category?: string;
+}
+
 export interface SchemaListResponse {
-  schemas: string[];
+  schemas: SchemaListEntry[];
 }
 
 export interface SchemaGetRequest {

@@ -298,7 +298,7 @@ function CredentialResult({
 
 export function IssuePage() {
   // Schema
-  const [schemas, setSchemas] = useState<string[]>([]);
+  const [schemas, setSchemas] = useState<Array<{ id: string; category?: string }>>([]);
   const [schemasLoading, setSchemasLoading] = useState(true);
   const [schemaId, setSchemaId] = useState("");
   const [schemaFields, setSchemaFields] = useState<SchemaField[]>([]);
@@ -487,9 +487,9 @@ export function IssuePage() {
             className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           >
             <option value="">Select a credential type...</option>
-            {schemas.map((id) => (
-              <option key={id} value={id}>
-                {formatSchemaLabel(id)}
+            {schemas.map((s) => (
+              <option key={s.id} value={s.id}>
+                {formatSchemaLabel(s.id)}
               </option>
             ))}
           </select>

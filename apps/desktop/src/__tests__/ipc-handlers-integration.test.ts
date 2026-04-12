@@ -584,11 +584,16 @@ describe("IPC Handler Integration Tests", () => {
   describe("Schema operations", () => {
     it("should list available schemas", async () => {
       const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_LIST];
-      const result = (await handler(fakeEvent)) as { schemas: string[] };
+      const result = (await handler(fakeEvent)) as { schemas: Array<{ id: string; category?: string }> };
 
-      expect(result.schemas).toContain("functional-identity/v1");
-      expect(result.schemas).toContain("immunization/v1");
-      expect(result.schemas).toContain("electricity/v1");
+      const ids = result.schemas.map((s) => s.id);
+      expect(ids).toContain("functional-identity/v1");
+      expect(ids).toContain("immunization/v1");
+      expect(ids).toContain("electricity/v1");
+      expect(ids).toContain("education/v1");
+
+      const edu = result.schemas.find((s) => s.id === "education/v1");
+      expect(edu?.category).toBe("education");
     });
 
     it("should get a specific schema definition", async () => {

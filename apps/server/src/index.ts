@@ -192,6 +192,11 @@ const server = serve({
 
 logger.info({ port: config.OPENCRED_PORT }, "OpenCred Server listening");
 
+// TODO(#109): When a DeDi client is available in the server, add optional
+// startup behaviour: if OPENCRED_DEDI_PUBLISH_BUNDLED=true, iterate through
+// the schema registry and publish each schema to DeDi via
+// DeDiClient.publishSchema(). Errors should be logged, not thrown.
+
 // Graceful shutdown
 function shutdown(signal: string) {
   logger.info({ signal }, "Shutting down");
