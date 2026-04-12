@@ -12,7 +12,7 @@
 
 export interface FieldDefinition {
   name: string;
-  type: "string" | "number" | "date" | "email" | "url";
+  type: "string" | "number" | "boolean" | "integer" | "date" | "datetime" | "email" | "url";
   required: boolean;
 }
 
@@ -32,9 +32,19 @@ export function fieldsToJsonSchema(fields: FieldDefinition[]): Record<string, un
       case "number":
         prop.type = "number";
         break;
+      case "integer":
+        prop.type = "integer";
+        break;
+      case "boolean":
+        prop.type = "boolean";
+        break;
       case "date":
         prop.type = "string";
         prop.format = "date";
+        break;
+      case "datetime":
+        prop.type = "string";
+        prop.format = "date-time";
         break;
       case "email":
         prop.type = "string";
@@ -124,11 +134,17 @@ export function jsonSchemaToFields(schema: Record<string, unknown>): FieldDefini
   return Object.entries(properties).map(([name, prop]) => {
     let type: FieldDefinition["type"] = "string";
 
-    if (prop.type === "number" || prop.type === "integer") {
+    if (prop.type === "integer") {
+      type = "integer";
+    } else if (prop.type === "number") {
       type = "number";
+    } else if (prop.type === "boolean") {
+      type = "boolean";
     } else if (prop.type === "string") {
       const format = prop.format as string | undefined;
-      if (format === "date" || format === "date-time") {
+      if (format === "date-time") {
+        type = "datetime";
+      } else if (format === "date") {
         type = "date";
       } else if (format === "email") {
         type = "email";
