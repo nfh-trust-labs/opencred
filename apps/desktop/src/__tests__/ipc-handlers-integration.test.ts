@@ -748,4 +748,87 @@ describe("IPC Handler Integration Tests", () => {
       });
     }
   });
+
+  // -----------------------------------------------------------------------
+  // Config key allowlist (getConfig / setConfig)
+  // -----------------------------------------------------------------------
+  describe("Config key allowlist", () => {
+    it("getConfig should succeed for an allowed key", async () => {
+      storeData["theme"] = "dark";
+      const handler = registeredHandlers[IPC_CHANNELS.GET_CONFIG];
+      const result = await handler(fakeEvent, { key: "theme" });
+      expect(result).toBe("dark");
+    });
+
+    it("getConfig should throw for a disallowed key (dediCredentials)", async () => {
+      const handler = registeredHandlers[IPC_CHANNELS.GET_CONFIG];
+      await expect(handler(fakeEvent, { key: "dediCredentials" })).rejects.toThrow(
+        /not accessible via getConfig/,
+      );
+    });
+
+    it("getConfig should throw for a disallowed key (credentialHistory)", async () => {
+      const handler = registeredHandlers[IPC_CHANNELS.GET_CONFIG];
+      await expect(handler(fakeEvent, { key: "credentialHistory" })).rejects.toThrow(
+        /not accessible via getConfig/,
+      );
+    });
+
+    it("getConfig should throw for a disallowed key (customSchemas)", async () => {
+      const handler = registeredHandlers[IPC_CHANNELS.GET_CONFIG];
+      await expect(handler(fakeEvent, { key: "customSchemas" })).rejects.toThrow(
+        /not accessible via getConfig/,
+      );
+    });
+
+    it("setConfig should succeed for an allowed key", async () => {
+      const handler = registeredHandlers[IPC_CHANNELS.SET_CONFIG];
+      await handler(fakeEvent, { key: "theme", value: "light" });
+      expect(storeData["theme"]).toBe("light");
+    });
+
+    it("setConfig should throw for a disallowed key (dediCredentials)", async () => {
+      const handler = registeredHandlers[IPC_CHANNELS.SET_CONFIG];
+      await expect(
+        handler(fakeEvent, { key: "dediCredentials", value: "stolen" }),
+      ).rejects.toThrow(/not accessible via setConfig/);
+    });
+
+    it("setConfig should throw for a disallowed key (credentialHistory)", async () => {
+      const handler = registeredHandlers[IPC_CHANNELS.SET_CONFIG];
+      await expect(
+        handler(fakeEvent, { key: "credentialHistory", value: [] }),
+      ).rejects.toThrow(/not accessible via setConfig/);
+    });
+
+    it("setConfig should throw for a disallowed key (dediConfig)", async () => {
+      const handler = registeredHandlers[IPC_CHANNELS.SET_CONFIG];
+      await expect(
+        handler(fakeEvent, { key: "dediConfig", value: {} }),
+      ).rejects.toThrow(/not accessible via setConfig/);
+    });
+
+    it("getConfig should succeed for organizationName (used by renderer)", async () => {
+      storeData["organizationName"] = "Test Org";
+      const handler = registeredHandlers[IPC_CHANNELS.GET_CONFIG];
+      const result = await handler(fakeEvent, { key: "organizationName" });
+      expect(result).toBe("Test Org");
+    });
+
+    it("getConfig should succeed for bugReportFormUrl (used by renderer)", async () => {
+      storeData["bugReportFormUrl"] = "https://forms.example.com";
+      const handler = registeredHandlers[IPC_CHANNELS.GET_CONFIG];
+      const result = await handler(fakeEvent, { key: "bugReportFormUrl" });
+      expect(result).toBe("https://forms.example.com");
+    });
+
+    it("setConfig should succeed for keyRotationDismissedUntil (used by renderer)", async () => {
+      const handler = registeredHandlers[IPC_CHANNELS.SET_CONFIG];
+      await handler(fakeEvent, {
+        key: "keyRotationDismissedUntil",
+        value: "2026-05-01T00:00:00.000Z",
+      });
+      expect(storeData["keyRotationDismissedUntil"]).toBe("2026-05-01T00:00:00.000Z");
+    });
+  });
 });

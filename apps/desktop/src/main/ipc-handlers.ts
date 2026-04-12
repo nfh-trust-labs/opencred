@@ -126,6 +126,30 @@ import type { ContextRecord } from "@opencred/dedi-client";
 import { generateInlineContext } from "@opencred/vc-core";
 
 // ---------------------------------------------------------------------------
+// Config key allowlist
+// ---------------------------------------------------------------------------
+
+/**
+ * Keys the renderer may read/write via the generic getConfig/setConfig IPC.
+ *
+ * Sensitive keys (dediCredentials, credentialHistory, customSchemas, etc.)
+ * have dedicated IPC handlers and must NOT appear here. Adding a key to this
+ * set is a security decision — only non-sensitive preference keys belong.
+ */
+export const ALLOWED_CONFIG_KEYS = new Set([
+  "theme",
+  "offlineMode",
+  "persistKeyPaths",
+  "preferences",
+  "bugReportFormUrl",
+  "keyRotationDismissedUntil",
+  "recentTemplates",
+  "lastKeyId",
+  "selfPublishedKeyDomain",
+  "organizationName",
+]);
+
+// ---------------------------------------------------------------------------
 // In-memory registries
 // ---------------------------------------------------------------------------
 
@@ -936,6 +960,9 @@ async function handleGetConfig(
   _event: IpcMainInvokeEvent,
   request: ConfigGetRequest,
 ): Promise<unknown> {
+  if (!ALLOWED_CONFIG_KEYS.has(request.key)) {
+    throw new Error(`Config key '${request.key}' is not accessible via getConfig`);
+  }
   const store = getStore();
   return store.get(request.key as keyof typeof store.store);
 }
@@ -945,6 +972,9 @@ async function handleSetConfig(
   _event: IpcMainInvokeEvent,
   request: ConfigSetRequest,
 ): Promise<void> {
+  if (!ALLOWED_CONFIG_KEYS.has(request.key)) {
+    throw new Error(`Config key '${request.key}' is not accessible via setConfig`);
+  }
   const store = getStore();
   store.set(request.key as keyof typeof store.store, request.value);
 }
