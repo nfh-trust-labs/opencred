@@ -30,11 +30,30 @@ import {
   completeSdJwtVcProof,
 } from "@opencred/crypto";
 import { CryptoError, ValidationError } from "@opencred/shared";
+import type { TemplateCustomization } from "@opencred/templates";
 import { requireSigner } from "../signing/key-manager.js";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 
 const credentials = new Hono();
+
+/**
+ * Zod schema for issuer branding customization. Only data URIs are accepted
+ * for logos — never remote URLs (prevents SSRF). See CLAUDE.md rule 7.
+ */
+export const customizationSchema = z
+  .object({
+    primaryColor: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/, "primaryColor must be a 6-digit hex color (e.g. #1a56db)")
+      .optional(),
+    logoDataUri: z
+      .string()
+      .startsWith("data:image/", "logoDataUri must be a data URI starting with data:image/")
+      .optional(),
+    issuerDisplayName: z.string().max(200).optional(),
+  })
+  .optional();
 
 /**
  * Hard-coded list of fields that MUST NOT appear in any request body.
@@ -152,6 +171,7 @@ const issueRequestSchema = z.object({
   packageFormats: z
     .array(z.enum(["qr-png", "qr-svg", "pdf", "json-ld", "json-compact"]))
     .optional(),
+  customization: customizationSchema,
 });
 
 const verifyRequestSchema = z.object({
@@ -343,7 +363,10 @@ credentials.post("/credentials/issue", async (c) => {
     | undefined;
   if (!isCompactToken && parsed.packageFormats && parsed.packageFormats.length > 0) {
     const credential = JSON.parse(signedOutput) as Parameters<typeof packageCredential>[0];
-    const result = await packageCredential(credential, parsed.packageFormats as PackageFormat[]);
+    const customization = parsed.customization as TemplateCustomization | undefined;
+    const result = await packageCredential(credential, parsed.packageFormats as PackageFormat[], {
+      customization,
+    });
     packagedOutputs = result.outputs.map((output) => ({
       format: output.format,
       data: Buffer.isBuffer(output.data) ? output.data.toString("base64") : output.data,

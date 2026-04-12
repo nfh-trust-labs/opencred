@@ -9,9 +9,10 @@
 
 import { Hono } from "hono";
 import { z } from "zod";
+import type { TemplateCustomization } from "@opencred/templates";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
-import { rejectKeyMaterial } from "./credentials.js";
+import { rejectKeyMaterial, customizationSchema } from "./credentials.js";
 
 const packaging = new Hono();
 
@@ -20,6 +21,7 @@ const packageRequestSchema = z.object({
   formats: z
     .array(z.enum(["qr-png", "qr-svg", "pdf", "json-ld", "json-compact"]))
     .default(["json-ld"]),
+  customization: customizationSchema,
 });
 
 packaging.post("/credentials/package", async (c) => {
@@ -30,8 +32,9 @@ packaging.post("/credentials/package", async (c) => {
 
   const credential = parsed.credential as unknown as Parameters<typeof packageCredential>[0];
   const formats = parsed.formats as PackageFormat[];
+  const customization = parsed.customization as TemplateCustomization | undefined;
 
-  const result = await packageCredential(credential, formats);
+  const result = await packageCredential(credential, formats, { customization });
 
   const outputs = result.outputs.map((output) => ({
     format: output.format,
