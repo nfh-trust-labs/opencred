@@ -245,6 +245,74 @@ function parseX5cCert(base64Der: string): X509Certificate {
 }
 
 /**
+ * Check whether the leaf certificate's Key Usage extension includes
+ * `digitalSignature`.
+ *
+ * Node.js's `X509Certificate.keyUsage` returns Extended Key Usage OIDs, NOT
+ * the basic Key Usage bits (digitalSignature, keyEncipherment, etc.). To
+ * inspect basic Key Usage we parse the extension directly from the
+ * certificate's DER-encoded `raw` buffer.
+ *
+ * The Key Usage extension (OID 2.5.29.15, encoded as `55 1d 0f`) wraps a
+ * BIT STRING whose first byte contains the usage flags in MSB-first order:
+ *
+ *   bit 0 (0x80) = digitalSignature
+ *   bit 1 (0x40) = nonRepudiation / contentCommitment
+ *   bit 2 (0x20) = keyEncipherment
+ *   bit 3 (0x10) = dataEncipherment
+ *   bit 4 (0x08) = keyAgreement
+ *   bit 5 (0x04) = keyCertSign
+ *   bit 6 (0x02) = cRLSign
+ *   bit 7 (0x01) = encipherOnly
+ *
+ * Returns:
+ *  - `true`  when the extension is present AND `digitalSignature` is set.
+ *  - `false` when the extension is present AND `digitalSignature` is NOT set.
+ *  - `null`  when the Key Usage extension is absent (the extension is optional
+ *            in X.509 and its absence should not cause a failure).
+ */
+function checkLeafKeyUsage(cert: X509Certificate): boolean | null {
+  const raw = cert.raw;
+
+  // Locate the Key Usage OID (2.5.29.15) in the DER-encoded certificate.
+  // The OID is encoded as 06 03 55 1d 0f (tag=OBJECT IDENTIFIER, length=3,
+  // value=55 1d 0f).
+  const keyUsageOid = Buffer.from([0x55, 0x1d, 0x0f]);
+  const oidIdx = raw.indexOf(keyUsageOid);
+  if (oidIdx === -1) {
+    // No Key Usage extension present.
+    return null;
+  }
+
+  // After the OID there may be:
+  //   [optional] BOOLEAN critical (01 01 ff)
+  //   OCTET STRING wrapping the extension value (04 LL ...)
+  //     inside: BIT STRING (03 LL unused-bits byte0 [byte1 ...])
+  //
+  // We search forward from the OID for the BIT STRING tag (0x03) that
+  // contains the usage bits. The search window is small (< 20 bytes).
+  const searchStart = oidIdx + 3; // skip past OID value bytes
+  const searchEnd = Math.min(searchStart + 20, raw.length);
+
+  for (let i = searchStart; i < searchEnd - 2; i++) {
+    // Look for BIT STRING tag (0x03) with a reasonable length.
+    if (raw[i] === 0x03 && raw[i + 1] >= 2 && raw[i + 1] <= 4) {
+      // raw[i+2] = number of unused bits in the last byte
+      // raw[i+3] = first byte of the bit string content (the key usage bits)
+      const usageByte = raw[i + 3];
+      if (usageByte === undefined) {
+        return null;
+      }
+      // digitalSignature is bit 0 (MSB) = 0x80
+      return (usageByte & 0x80) !== 0;
+    }
+  }
+
+  // Could not locate the BIT STRING — treat as absent.
+  return null;
+}
+
+/**
  * Check whether the leaf certificate's public key matches the DID's public key.
  *
  * Comparison is done over the SPKI fingerprint, which works uniformly for
@@ -402,6 +470,18 @@ export async function checkX509Chain(
       name: "x509-chain",
       passed: false,
       detail: "x5c chain is empty",
+    };
+  }
+
+  // Check 0: The leaf certificate's Key Usage extension (if present) must
+  // include digitalSignature. A certificate intended solely for key agreement
+  // or encryption must not be accepted for credential signing.
+  const leafKeyUsage = checkLeafKeyUsage(certs[0]);
+  if (leafKeyUsage === false) {
+    return {
+      name: "x509-chain",
+      passed: false,
+      detail: "Leaf certificate keyUsage does not include digitalSignature",
     };
   }
 

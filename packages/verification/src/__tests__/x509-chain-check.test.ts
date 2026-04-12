@@ -43,6 +43,12 @@ interface CertOptions {
   notBefore?: Date;
   notAfter?: Date;
   serial?: string;
+  /**
+   * Override the default keyUsage extension. When provided, replaces the
+   * automatic CA / leaf keyUsage. Set to `null` to omit the keyUsage
+   * extension entirely.
+   */
+  keyUsageOverride?: Record<string, unknown> | null;
 }
 
 /**
@@ -91,11 +97,18 @@ function generateCert(
     });
   } else {
     extensions.push({ name: "basicConstraints", cA: false });
-    extensions.push({
-      name: "keyUsage",
-      digitalSignature: true,
-      keyEncipherment: true,
-    });
+    // Allow tests to override or omit the keyUsage extension entirely.
+    if (opts.keyUsageOverride === null) {
+      // Explicitly omit keyUsage — do not push any keyUsage extension.
+    } else if (opts.keyUsageOverride) {
+      extensions.push({ name: "keyUsage", ...opts.keyUsageOverride });
+    } else {
+      extensions.push({
+        name: "keyUsage",
+        digitalSignature: true,
+        keyEncipherment: true,
+      });
+    }
   }
   cert.setExtensions(extensions);
 
@@ -146,6 +159,47 @@ function buildCertChain(): ChainBundle {
       keys: intermediate.forgeKeys,
       cert: intermediateForgeCert,
       commonName: "Test Intermediate CA",
+    },
+  );
+
+  return {
+    rootPem: root.pem,
+    intermediatePem: intermediate.pem,
+    leafPem: leaf.pem,
+    rootBase64: root.derBase64,
+    intermediateBase64: intermediate.derBase64,
+    leafBase64: leaf.derBase64,
+    leafJwk: leaf.jwk,
+  };
+}
+
+/**
+ * Build a 3-cert chain with a custom keyUsage on the leaf certificate.
+ * `leafKeyUsage` is passed directly as `keyUsageOverride` to `generateCert`.
+ * Pass `null` to omit the keyUsage extension from the leaf entirely.
+ */
+function buildCertChainWithLeafKeyUsage(
+  leafKeyUsage: Record<string, unknown> | null,
+): ChainBundle {
+  const root = generateCert({ commonName: "Test Root CA KU", isCa: true });
+  const rootForgeCert = forge.pki.certificateFromPem(root.pem);
+
+  const intermediate = generateCert(
+    { commonName: "Test Intermediate CA KU", isCa: true, serial: "02" },
+    { keys: root.forgeKeys, cert: rootForgeCert, commonName: "Test Root CA KU" },
+  );
+  const intermediateForgeCert = forge.pki.certificateFromPem(intermediate.pem);
+
+  const leaf = generateCert(
+    {
+      commonName: "Test DSC Leaf KU",
+      serial: "03",
+      keyUsageOverride: leafKeyUsage,
+    },
+    {
+      keys: intermediate.forgeKeys,
+      cert: intermediateForgeCert,
+      commonName: "Test Intermediate CA KU",
     },
   );
 
@@ -436,6 +490,65 @@ describe("checkX509Chain", () => {
 
       expect(result.passed).toBe(false);
       expect(result.detail).toContain("expired");
+    });
+  });
+
+  describe("#326 — leaf certificate keyUsage check", () => {
+    it("passes when the leaf cert has digitalSignature in keyUsage", async () => {
+      const chain = buildCertChainWithLeafKeyUsage({ digitalSignature: true, keyEncipherment: true });
+      const did = "did:web:test.example";
+      const vmId = `${did}#key-0`;
+
+      const credential = buildCredential({
+        x5c: [chain.leafBase64, chain.intermediateBase64, chain.rootBase64],
+        verificationMethod: vmId,
+      });
+
+      const result = await checkX509Chain(credential, {
+        didResolver: makeResolver(did, vmId, chain.leafJwk),
+        trustAnchors: [chain.rootPem],
+      });
+
+      expect(result.passed).toBe(true);
+      expect(result.detail).toContain("DSC verified");
+    });
+
+    it("fails when the leaf cert's keyUsage does NOT include digitalSignature", async () => {
+      const chain = buildCertChainWithLeafKeyUsage({ keyEncipherment: true });
+      const did = "did:web:test.example";
+      const vmId = `${did}#key-0`;
+
+      const credential = buildCredential({
+        x5c: [chain.leafBase64, chain.intermediateBase64, chain.rootBase64],
+        verificationMethod: vmId,
+      });
+
+      const result = await checkX509Chain(credential, {
+        didResolver: makeResolver(did, vmId, chain.leafJwk),
+        trustAnchors: [chain.rootPem],
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("keyUsage does not include digitalSignature");
+    });
+
+    it("passes when the leaf cert has no keyUsage extension at all", async () => {
+      const chain = buildCertChainWithLeafKeyUsage(null);
+      const did = "did:web:test.example";
+      const vmId = `${did}#key-0`;
+
+      const credential = buildCredential({
+        x5c: [chain.leafBase64, chain.intermediateBase64, chain.rootBase64],
+        verificationMethod: vmId,
+      });
+
+      const result = await checkX509Chain(credential, {
+        didResolver: makeResolver(did, vmId, chain.leafJwk),
+        trustAnchors: [chain.rootPem],
+      });
+
+      expect(result.passed).toBe(true);
+      expect(result.detail).toContain("DSC verified");
     });
   });
 
