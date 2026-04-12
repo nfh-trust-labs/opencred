@@ -155,4 +155,64 @@ describe("deliverWebhook", () => {
 
     await expect(deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, TEST_SECRET)).resolves.toBeUndefined();
   });
+
+  // DNS rebinding protection tests
+  it("fetches using validated IP, not original hostname (DNS rebinding protection)", async () => {
+    vi.mocked(dnsPromises.resolve).mockResolvedValue(["93.184.216.34"]);
+    const calls = mockFetch(new Response("ok", { status: 200 }));
+
+    await deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, TEST_SECRET);
+
+    expect(calls).toHaveLength(1);
+    const fetchedUrl = calls[0][0] as string;
+    // The URL should contain the resolved IP, not the original hostname
+    expect(fetchedUrl).toContain("93.184.216.34");
+    expect(fetchedUrl).not.toContain("example.com");
+    // Original hostname should be passed via Host header
+    const headers = (calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(headers.Host).toBe("example.com");
+  });
+
+  it("wraps IPv6 addresses in brackets when rewriting URL", async () => {
+    vi.mocked(dnsPromises.resolve).mockResolvedValue(["2606:2800:220:1:248:1893:25c8:1946"]);
+    const calls = mockFetch(new Response("ok", { status: 200 }));
+
+    await deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, TEST_SECRET);
+
+    expect(calls).toHaveLength(1);
+    const fetchedUrl = calls[0][0] as string;
+    expect(fetchedUrl).toContain("[2606:2800:220:1:248:1893:25c8:1946]");
+    const headers = (calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(headers.Host).toBe("example.com");
+  });
+
+  it("preserves path and query when rewriting URL to validated IP", async () => {
+    vi.mocked(dnsPromises.resolve).mockResolvedValue(["93.184.216.34"]);
+    const calls = mockFetch(new Response("ok", { status: 200 }));
+
+    await deliverWebhook("https://example.com/hooks/batch?token=abc", SAMPLE_PAYLOAD, TEST_SECRET);
+
+    const fetchedUrl = new URL(calls[0][0] as string);
+    expect(fetchedUrl.hostname).toBe("93.184.216.34");
+    expect(fetchedUrl.pathname).toBe("/hooks/batch");
+    expect(fetchedUrl.searchParams.get("token")).toBe("abc");
+  });
+
+  it("retries all use the validated IP, not the original hostname", async () => {
+    vi.mocked(dnsPromises.resolve).mockResolvedValue(["93.184.216.34"]);
+    const calls = mockFetch(
+      new Response("error", { status: 500 }),
+      new Response("error", { status: 502 }),
+      new Response("ok", { status: 200 }),
+    );
+
+    await deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, TEST_SECRET);
+
+    expect(calls).toHaveLength(3);
+    for (const call of calls) {
+      const fetchedUrl = call[0] as string;
+      expect(fetchedUrl).toContain("93.184.216.34");
+      expect(fetchedUrl).not.toContain("example.com");
+    }
+  });
 });

@@ -25,9 +25,10 @@ export interface WebhookPayload {
  *
  * 1. Resolves the hostname and validates it is not a private IP (SSRF).
  * 2. Requires HTTPS.
- * 3. Computes HMAC-SHA256 signature of the JSON body.
- * 4. Retries up to 3 total attempts with exponential backoff (1s, 4s).
- * 5. Any 2xx response is treated as success.
+ * 3. Rewrites the URL to the validated IP to prevent DNS rebinding (TOCTOU).
+ * 4. Computes HMAC-SHA256 signature of the JSON body.
+ * 5. Retries up to 3 total attempts with exponential backoff (1s, 4s).
+ * 6. Any 2xx response is treated as success.
  *
  * Throws on final failure — the caller catches and logs.
  */
@@ -50,6 +51,15 @@ export async function deliverWebhook(
     }
   }
 
+  // SSRF: rewrite URL to use validated IP directly, preventing DNS rebinding
+  // (TOCTOU: DNS could resolve differently between our check and fetch)
+  const validatedIp = addresses[0];
+  const rewritten = new URL(url);
+  const originalHost = rewritten.hostname;
+  rewritten.hostname = validatedIp.includes(":")
+    ? `[${validatedIp}]`
+    : validatedIp;
+
   const body = JSON.stringify(payload);
 
   // Compute HMAC-SHA256 signature
@@ -62,6 +72,7 @@ export async function deliverWebhook(
     "X-OpenCred-Signature": signature,
     "X-OpenCred-Event": "batch.completed",
     "User-Agent": "OpenCred-Server",
+    Host: originalHost,
   };
 
   const delays = [0, 1000, 4000]; // 3 attempts: immediate, 1s, 4s backoff
@@ -73,7 +84,7 @@ export async function deliverWebhook(
     }
 
     try {
-      const res = await fetch(url, {
+      const res = await fetch(rewritten.toString(), {
         method: "POST",
         headers,
         body,
