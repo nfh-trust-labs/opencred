@@ -5,6 +5,8 @@
  *  - Pasting credential JSON directly into a textarea
  *  - Loading a credential from a file via native dialog
  *  - Drag-and-drop of .json files onto the input area
+ *  - Scanning QR codes via camera or image file
+ *  - Pasting encoded QR strings (OPENCRED1:, JWT, SD-JWT)
  *  - Verifying the credential and displaying per-check results
  *  - Downloading a verification report (plain-text)
  *  - Session-scoped recent verification history (last 5)
@@ -14,10 +16,16 @@
  * require connectivity and show appropriate messaging.
  */
 
-import { useState, useCallback, type DragEvent } from "react";
+import { useState, useCallback, useRef, useEffect, type DragEvent } from "react";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
 import { Badge } from "./ui/Badge";
+
+// ---------------------------------------------------------------------------
+// Input mode types
+// ---------------------------------------------------------------------------
+
+type InputMode = "paste-json" | "upload-file" | "scan-qr" | "paste-qr-string";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -149,7 +157,6 @@ function buildReport(
   verificationChecks: VerificationCheck[],
   verifiedAt: Date,
 ): string {
-  // Parse once and derive issuer + subject from the parsed object
   let parsed: Record<string, unknown> | null = null;
   try {
     parsed = JSON.parse(credential) as Record<string, unknown>;
@@ -215,7 +222,6 @@ function buildReport(
   try {
     const parsed = JSON.parse(credential);
     const pretty = JSON.stringify(parsed, null, 2);
-    // Truncate very long credentials in the report
     if (pretty.length > 3000) {
       lines.push(pretty.slice(0, 3000));
       lines.push(`... (${pretty.length - 3000} characters omitted)`);
@@ -258,10 +264,89 @@ export function VerifyPage() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [history, setHistory] = useState<VerificationHistoryEntry[]>([]);
   const [verifiedAt, setVerifiedAt] = useState<Date | null>(null);
+  const [inputMode, setInputMode] = useState<InputMode>("paste-json");
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [scannerActive, setScannerActive] = useState(false);
+  const scannerRef = useRef<{ stop: () => Promise<void>; clear: () => void } | null>(null);
+  const scannerContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // ------------------------------------------------------------------
-  // Drag-and-drop handlers
-  // ------------------------------------------------------------------
+  const stopScanner = useCallback(async () => {
+    if (scannerRef.current) {
+      try {
+        await scannerRef.current.stop();
+        scannerRef.current.clear();
+      } catch {
+        // scanner may already be stopped
+      }
+      scannerRef.current = null;
+    }
+    setScannerActive(false);
+  }, []);
+
+  const startScanner = useCallback(async () => {
+    setCameraError(null);
+    try {
+      const { Html5Qrcode } = await import("html5-qrcode");
+      const containerId = "qr-scanner-container";
+      const scanner = new Html5Qrcode(containerId);
+      scannerRef.current = scanner;
+
+      await scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        (decodedText) => {
+          void scanner.stop().then(() => {
+            scanner.clear();
+            scannerRef.current = null;
+            setScannerActive(false);
+            setCredential(decodedText);
+            setValid(null);
+            setMessage(null);
+            setChecks([]);
+          });
+        },
+        () => {},
+      );
+      setScannerActive(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("NotAllowedError") || msg.includes("Permission")) {
+        setCameraError(
+          "Camera permission denied. Please allow camera access in your system settings.",
+        );
+      } else if (msg.includes("NotFoundError") || msg.includes("no camera")) {
+        setCameraError("No camera found. Please connect a camera and try again.");
+      } else {
+        setCameraError(`Camera error: ${msg}`);
+      }
+      setScannerActive(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (inputMode !== "scan-qr") {
+      void stopScanner();
+    }
+    return () => {
+      void stopScanner();
+    };
+  }, [inputMode, stopScanner]);
+
+  async function handleImageQrDecode(file: File) {
+    try {
+      const { Html5Qrcode } = await import("html5-qrcode");
+      const decoded = await Html5Qrcode.scanFile(file, false);
+      setCredential(decoded);
+      setValid(null);
+      setMessage(null);
+      setChecks([]);
+    } catch {
+      setMessage(
+        "Could not decode a QR code from this image. Make sure the image contains a clear QR code.",
+      );
+      setValid(false);
+    }
+  }
 
   const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -277,7 +362,6 @@ export function VerifyPage() {
   const handleDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    // Only set false when leaving the drop zone (not entering a child)
     const rect = e.currentTarget.getBoundingClientRect();
     const { clientX, clientY } = e;
     if (
@@ -299,12 +383,10 @@ export function VerifyPage() {
     if (!files || files.length === 0) return;
 
     const file = files[0];
-    // Accept .json, .jsonld, or any file that looks like JSON
     const validExtensions = [".json", ".jsonld"];
     const hasValidExt = validExtensions.some((ext) => file.name.toLowerCase().endsWith(ext));
 
     if (!hasValidExt) {
-      // Silently ignore non-JSON files
       return;
     }
 
@@ -321,10 +403,6 @@ export function VerifyPage() {
     reader.readAsText(file);
   }, []);
 
-  // ------------------------------------------------------------------
-  // Handlers
-  // ------------------------------------------------------------------
-
   async function handleVerify() {
     if (!credential.trim()) return;
 
@@ -337,7 +415,6 @@ export function VerifyPage() {
     setVerifiedAt(now);
 
     try {
-      // Check connectivity for user messaging
       try {
         const offline = await window.opencred.getOfflineStatus();
         setIsOffline(offline);
@@ -356,7 +433,6 @@ export function VerifyPage() {
         setMessage(msg);
         setChecks(responseChecks);
 
-        // Add to history
         const derivedStatus = deriveStatus(isValid, responseChecks);
         const issuer = extractIssuerDid(credential);
         const entry: VerificationHistoryEntry = {
@@ -374,7 +450,6 @@ export function VerifyPage() {
         setValid(false);
         setMessage(errMsg);
 
-        // Add failed verification to history
         const issuer = extractIssuerDid(credential);
         const entry: VerificationHistoryEntry = {
           id: nextHistoryId(),
@@ -398,15 +473,40 @@ export function VerifyPage() {
 
   async function handleLoadFile() {
     try {
+      const isImageMode = inputMode === "upload-file";
       const result = await window.opencred.openFile({
-        title: "Load Verifiable Credential",
-        filters: [
-          { name: "JSON", extensions: ["json", "jsonld"] },
-          { name: "All Files", extensions: ["*"] },
-        ],
+        title: isImageMode ? "Load Credential or QR Code Image" : "Load Verifiable Credential",
+        filters: isImageMode
+          ? [
+              { name: "JSON", extensions: ["json", "jsonld"] },
+              { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "bmp", "webp"] },
+              { name: "All Files", extensions: ["*"] },
+            ]
+          : [
+              { name: "JSON", extensions: ["json", "jsonld"] },
+              { name: "All Files", extensions: ["*"] },
+            ],
       });
 
-      if (result.content) {
+      if (result.filePath && result.content) {
+        const ext = result.filePath.toLowerCase();
+        const isImage = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"].some((e) =>
+          ext.endsWith(e),
+        );
+        if (isImage) {
+          const response = await fetch(
+            `data:application/octet-stream;base64,${btoa(result.content)}`,
+          );
+          const blob = await response.blob();
+          const file = new File([blob], result.filePath.split("/").pop() ?? "image.png");
+          await handleImageQrDecode(file);
+          return;
+        }
+        setCredential(result.content);
+        setValid(null);
+        setMessage(null);
+        setChecks([]);
+      } else if (result.content) {
         setCredential(result.content);
         setValid(null);
         setMessage(null);
@@ -453,53 +553,138 @@ export function VerifyPage() {
     setVerifiedAt(null);
   }
 
-  // ------------------------------------------------------------------
-  // Derived state
-  // ------------------------------------------------------------------
-
   const status: VerificationStatus | null = valid !== null ? deriveStatus(valid, checks) : null;
-
-  // ------------------------------------------------------------------
-  // Render
-  // ------------------------------------------------------------------
 
   return (
     <div className="space-y-4">
-      {/* Input with drag-and-drop */}
       <Card className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="oc-card-label">Input</h2>
-          <div className="flex gap-2">
+          {credential && (
             <button
-              onClick={() => void handleLoadFile()}
-              className="rounded-md bg-gray-100 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-200"
+              onClick={handleClear}
+              className="rounded-md bg-gray-100 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-200"
             >
-              Upload File
+              Clear
             </button>
-            {credential && (
-              <button
-                onClick={handleClear}
-                className="rounded-md bg-gray-100 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-200"
-              >
-                Clear
-              </button>
-            )}
-          </div>
+          )}
         </div>
 
-        {!credential && (
+        {/* Mode selector tabs */}
+        <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
+          {(
+            [
+              { key: "paste-json", label: "Paste JSON" },
+              { key: "upload-file", label: "Upload File" },
+              { key: "scan-qr", label: "Scan QR" },
+              { key: "paste-qr-string", label: "Paste QR String" },
+            ] as const
+          ).map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setInputMode(key)}
+              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                inputMode === key
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {!credential && inputMode !== "scan-qr" && (
           <p className="text-xs text-gray-500">
             You can get this from the person or organization that issued the credential.
           </p>
         )}
 
-        <div
-          className="relative"
-          onDragOver={handleDragOver}
-          onDragEnter={handleDragEnter}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-        >
+        {inputMode === "paste-json" && (
+          <div
+            className="relative"
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <textarea
+              rows={8}
+              value={credential}
+              onChange={(e) => {
+                setCredential(e.target.value);
+                setValid(null);
+                setMessage(null);
+                setChecks([]);
+              }}
+              placeholder="Paste credential JSON here, or drag a .json file onto this area"
+              className={`block w-full rounded-md border px-3 py-2 font-mono text-xs shadow-sm transition-colors duration-150 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
+                isDragOver
+                  ? "border-2 border-dashed border-blue-400 bg-blue-50"
+                  : "border-gray-300"
+              }`}
+            />
+            {isDragOver && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-blue-50/80">
+                <p className="text-sm font-medium text-blue-600">Drop credential file here</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {inputMode === "upload-file" && (
+          <div className="space-y-3">
+            <button
+              onClick={() => void handleLoadFile()}
+              className="w-full rounded-md border-2 border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-500 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+            >
+              Click to select a credential file (.json) or QR code image (.png, .jpg)
+            </button>
+            {credential && (
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                <p className="text-xs text-gray-500 mb-1">Loaded content:</p>
+                <pre className="max-h-32 overflow-auto text-xs font-mono text-gray-700">
+                  {credential.slice(0, 500)}
+                  {credential.length > 500 ? "..." : ""}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+
+        {inputMode === "scan-qr" && (
+          <div className="space-y-3">
+            <div
+              id="qr-scanner-container"
+              ref={scannerContainerRef}
+              className="w-full overflow-hidden rounded-md bg-black"
+              style={{ minHeight: scannerActive ? 300 : 0 }}
+            />
+            {cameraError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2">
+                <p className="text-xs text-red-700">{cameraError}</p>
+              </div>
+            )}
+            <div className="flex gap-2">
+              {!scannerActive ? (
+                <Button onClick={() => void startScanner()}>Start Camera</Button>
+              ) : (
+                <Button onClick={() => void stopScanner()}>Stop Camera</Button>
+              )}
+            </div>
+            {credential && (
+              <div className="rounded-md border border-green-200 bg-green-50 p-3">
+                <p className="text-xs text-green-700 mb-1">QR code decoded:</p>
+                <pre className="max-h-32 overflow-auto text-xs font-mono text-green-800">
+                  {credential.slice(0, 500)}
+                  {credential.length > 500 ? "..." : ""}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+
+        {inputMode === "paste-qr-string" && (
           <textarea
             rows={8}
             value={credential}
@@ -509,24 +694,16 @@ export function VerifyPage() {
               setMessage(null);
               setChecks([]);
             }}
-            placeholder="Paste credential text here, drag a .json file, or use 'Upload File'"
-            className={`block w-full rounded-md border px-3 py-2 font-mono text-xs shadow-sm transition-colors duration-150 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
-              isDragOver ? "border-2 border-dashed border-blue-400 bg-blue-50" : "border-gray-300"
-            }`}
+            placeholder="Paste an OPENCRED1:... compressed string, a JWT (eyJ...), or an SD-JWT here"
+            className="block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
-          {isDragOver && (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-blue-50/80">
-              <p className="text-sm font-medium text-blue-600">Drop credential file here</p>
-            </div>
-          )}
-        </div>
+        )}
 
         <Button onClick={() => void handleVerify()} disabled={!credential.trim() || loading}>
           {loading ? "Verifying..." : "Verify"}
         </Button>
       </Card>
 
-      {/* Overall result */}
       {status !== null && message && (
         <Card
           className={`space-y-3 ${
@@ -580,7 +757,6 @@ export function VerifyPage() {
         </Card>
       )}
 
-      {/* Per-check results */}
       {checks.length > 0 && (
         <Card className="space-y-3">
           <h3 className="oc-card-label">Verification Checks</h3>
@@ -613,7 +789,6 @@ export function VerifyPage() {
         </Card>
       )}
 
-      {/* Offline warning */}
       {isOffline && valid !== null && (
         <Card className="border-amber-200 bg-amber-50">
           <p className="text-xs text-amber-700">
@@ -623,7 +798,6 @@ export function VerifyPage() {
         </Card>
       )}
 
-      {/* Recent verifications (session-only) */}
       {history.length > 0 && (
         <Card variant="neutral" className="space-y-3">
           <h3 className="oc-card-label">Recent Verifications</h3>
