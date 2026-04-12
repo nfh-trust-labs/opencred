@@ -19,11 +19,13 @@ import type { DeDiLogger } from "../logger.js";
 import type { DeDiApiClientConfig } from "../api/api-client.js";
 
 function createLogger(): DeDiLogger & {
+  info: ReturnType<typeof vi.fn>;
   debug: ReturnType<typeof vi.fn>;
   warn: ReturnType<typeof vi.fn>;
   error: ReturnType<typeof vi.fn>;
 } {
   return {
+    info: vi.fn(),
     debug: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
@@ -307,6 +309,92 @@ describe("DeDiClient 404 error propagation", () => {
   });
 });
 
+// ── Request/response logging ─────────────────────────────────────────
+
+describe("request/response logging", () => {
+  const originalFetch = globalThis.fetch;
+  let mockFetch: ReturnType<typeof vi.fn<typeof globalThis.fetch>>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockFetch = vi.fn<typeof globalThis.fetch>();
+    globalThis.fetch = mockFetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.useRealTimers();
+  });
+
+  it("logs info for request and response with method, path, status, and duration", async () => {
+    const logger = createLogger();
+    mockFetch.mockResolvedValue(jsonResponse({ data: {} }));
+
+    const client = new DeDiApiClient(createConfig({ logger }));
+    await client.getStats();
+
+    expect(logger.info).toHaveBeenCalledWith("DeDi request", { method: "GET", path: "/dedi/stats" });
+    expect(logger.info).toHaveBeenCalledWith(
+      "DeDi response",
+      expect.objectContaining({ method: "GET", path: "/dedi/stats", status: 200 }),
+    );
+    // durationMs should be a number
+    const responseCall = logger.info.mock.calls.find(
+      (c: unknown[]) => c[0] === "DeDi response",
+    );
+    expect(responseCall).toBeDefined();
+    expect(typeof (responseCall![1] as Record<string, unknown>).durationMs).toBe("number");
+  });
+
+  it("logs info for POST requests", async () => {
+    const logger = createLogger();
+    mockFetch.mockResolvedValue(jsonResponse({ id: "ns1" }));
+
+    const client = new DeDiApiClient(createConfig({ logger }));
+    await client.createNamespace("test-ns", "desc");
+
+    expect(logger.info).toHaveBeenCalledWith("DeDi request", {
+      method: "POST",
+      path: "/dedi/create-namespace",
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      "DeDi response",
+      expect.objectContaining({ method: "POST", path: "/dedi/create-namespace", status: 200 }),
+    );
+  });
+
+  it("logs error with method, path, and duration on network failure", async () => {
+    const logger = createLogger();
+    mockFetch.mockRejectedValue(new TypeError("fetch failed"));
+
+    const client = new DeDiApiClient(createConfig({ logger, maxRetries: 0 }));
+    await expect(client.getStats()).rejects.toThrow();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      "DeDi network error",
+      expect.objectContaining({ method: "GET", path: "/dedi/stats", error: "fetch failed" }),
+    );
+  });
+
+  it("does not include auth tokens in request logs", async () => {
+    const logger = createLogger();
+    const apiKey = "dk_secret_key_999";
+    mockFetch.mockResolvedValue(jsonResponse({ data: {} }));
+
+    const client = new DeDiApiClient(createConfig({ auth: { type: "api-key", apiKey }, logger }));
+    await client.getStats();
+
+    const allCalls = [
+      ...logger.info.mock.calls,
+      ...logger.debug.mock.calls,
+      ...logger.warn.mock.calls,
+      ...logger.error.mock.calls,
+    ];
+    const allOutput = JSON.stringify(allCalls);
+    expect(allOutput).not.toContain(apiKey);
+  });
+});
+
 // ── Security: no credential logging ──────────────────────────────────
 
 describe("security: no credential logging", () => {
@@ -353,6 +441,7 @@ describe("security: no credential logging", () => {
     await apiKeyClient.getStats();
 
     const allCalls = [
+      ...logger.info.mock.calls,
       ...logger.debug.mock.calls,
       ...logger.warn.mock.calls,
       ...logger.error.mock.calls,
@@ -381,6 +470,7 @@ describe("security: no credential logging", () => {
     await expect(client.getStats()).rejects.toThrow();
 
     const allCalls = [
+      ...logger.info.mock.calls,
       ...logger.debug.mock.calls,
       ...logger.warn.mock.calls,
       ...logger.error.mock.calls,
@@ -395,6 +485,7 @@ describe("security: no credential logging", () => {
 
 describe("noopLogger", () => {
   it("does not throw when called", () => {
+    expect(() => noopLogger.info("test")).not.toThrow();
     expect(() => noopLogger.debug("test")).not.toThrow();
     expect(() => noopLogger.warn("test")).not.toThrow();
     expect(() => noopLogger.error("test")).not.toThrow();

@@ -9,7 +9,7 @@ vi.mock("../adapter/client.js", () => {
   MockDeDiClient.prototype.publishSchema = vi.fn();
   MockDeDiClient.prototype.publishDID = vi.fn();
   MockDeDiClient.prototype.ensureRegistries = vi.fn();
-  MockDeDiClient.prototype.logger = { debug() {}, warn() {}, error() {} };
+  MockDeDiClient.prototype.logger = { info() {}, debug() {}, warn() {}, error() {} };
   return { DeDiClient: MockDeDiClient };
 });
 
@@ -167,7 +167,7 @@ describe("createPublishManager", () => {
   });
 
   it("returns DeDiPublishManager when config and logger are provided", () => {
-    const testLogger = { debug() {}, warn() {}, error() {} };
+    const testLogger = { info() {}, debug() {}, warn() {}, error() {} };
     const result = createPublishManager(
       {
         baseUrl: "https://dedi.example.com",
