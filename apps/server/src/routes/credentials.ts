@@ -29,7 +29,7 @@ import {
   prepareSdJwtVcProof,
   completeSdJwtVcProof,
 } from "@opencred/crypto";
-import { CryptoError, ValidationError } from "@opencred/shared";
+import { CryptoError, ValidationError, detectCredentialInputFormat } from "@opencred/shared";
 import { requireSigner } from "../signing/key-manager.js";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
@@ -424,7 +424,30 @@ credentials.post("/credentials/verify", async (c) => {
   rejectKeyMaterial(body);
   const parsed = verifyRequestSchema.parse(body);
 
-  const credential = JSON.parse(parsed.credential);
+  const format = detectCredentialInputFormat(parsed.credential);
+
+  let credential: Record<string, unknown> | string;
+  switch (format) {
+    case "pixelpass": {
+      const { decodeQrData } = await import("../packaging/qr-generator.js");
+      const decodedJson = decodeQrData(parsed.credential);
+      credential = JSON.parse(decodedJson);
+      break;
+    }
+    case "json":
+      credential = JSON.parse(parsed.credential);
+      break;
+    case "jwt-compact":
+      // Pass raw compact string — the verification engine's detectFormat()
+      // already handles VC-JWT and SD-JWT compact serializations.
+      credential = parsed.credential;
+      break;
+    case "unknown":
+      return c.json(
+        { error: { code: "BAD_REQUEST", message: "Unrecognized credential format" } },
+        400,
+      );
+  }
 
   // Verify using composite DID resolver (supports did:key, did:jwk, did:web)
   const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
