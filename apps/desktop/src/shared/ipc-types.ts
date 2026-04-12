@@ -77,6 +77,15 @@ export interface SchemaGetResponse {
   contextUrl?: string;
 }
 
+export interface SchemaGenerateRequest {
+  fields: Record<string, unknown>;
+}
+
+export interface SchemaGenerateResponse {
+  schema: Record<string, unknown>;
+  fields: Array<{ name: string; type: string; format?: string; required: boolean }>;
+}
+
 // ---------------------------------------------------------------------------
 // Credential signing
 // ---------------------------------------------------------------------------
@@ -856,6 +865,7 @@ export interface OpenCredDesktopAPI {
   // Schema
   listSchemas: () => Promise<SchemaListResponse>;
   getSchema: (request: SchemaGetRequest) => Promise<SchemaGetResponse>;
+  generateSchema: (request: SchemaGenerateRequest) => Promise<SchemaGenerateResponse>;
 
   // Signing & verification
   signCredential: (request: SignCredentialRequest) => Promise<SignCredentialResponse>;

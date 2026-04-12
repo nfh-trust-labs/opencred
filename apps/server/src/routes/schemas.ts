@@ -5,7 +5,7 @@
  */
 
 import { Hono } from "hono";
-import { createRegistry } from "@opencred/schema-engine";
+import { createRegistry, generateSchemaFromFields } from "@opencred/schema-engine";
 
 const schemas = new Hono();
 
@@ -55,6 +55,18 @@ schemas.get("/schemas/:id{.+}", (c) => {
   } catch {
     return c.json({ error: { code: "NOT_FOUND", message: `Schema not found: ${id}` } }, 404);
   }
+});
+
+schemas.post("/schemas/generate", async (c) => {
+  const body = await c.req.json();
+  if (!body.fields || typeof body.fields !== "object" || Array.isArray(body.fields)) {
+    return c.json(
+      { error: { code: "VALIDATION_ERROR", message: "Body must include a fields object" } },
+      400,
+    );
+  }
+  const result = generateSchemaFromFields(body.fields);
+  return c.json({ schema: result.schema, fields: result.fields });
 });
 
 export { schemas };

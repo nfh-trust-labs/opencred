@@ -76,6 +76,8 @@ import type {
   CustomSchemaListResponse,
   CustomSchemaDeleteRequest,
   CustomSchemaDeleteResponse,
+  SchemaGenerateRequest,
+  SchemaGenerateResponse,
   SystemInfoResponse,
   LogTailResponse,
 } from "../shared/ipc-types.js";
@@ -94,7 +96,7 @@ import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
 import { CryptoError, ValidationError, SchemaValidationError, isPrivateIP } from "@opencred/shared";
-import { SchemaRegistry } from "@opencred/schema-engine";
+import { SchemaRegistry, generateSchemaFromFields } from "@opencred/schema-engine";
 import { packageCredential as packageCredentialWithTemplates } from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
 import { deriveVerificationMethod } from "../signing/types.js";
@@ -327,6 +329,26 @@ async function handleSchemaGet(
     id: definition.id,
     schema: definition.schema,
     contextUrl: definition.contextUrl,
+  };
+}
+
+/** SCHEMA_GENERATE — generate a JSON Schema from sample data fields. */
+async function handleSchemaGenerate(
+  _event: IpcMainInvokeEvent,
+  request: SchemaGenerateRequest,
+): Promise<SchemaGenerateResponse> {
+  if (!request.fields || typeof request.fields !== "object") {
+    throw new ValidationError("Request must include a fields object");
+  }
+  const result = generateSchemaFromFields(request.fields);
+  return {
+    schema: result.schema,
+    fields: result.fields.map((f) => ({
+      name: f.name,
+      type: f.type,
+      ...(f.format ? { format: f.format } : {}),
+      required: f.required,
+    })),
   };
 }
 
@@ -2431,6 +2453,7 @@ export function registerIpcHandlers(): void {
   // Schema
   ipcMain.handle(IPC_CHANNELS.SCHEMA_LIST, handleSchemaList);
   ipcMain.handle(IPC_CHANNELS.SCHEMA_GET, handleSchemaGet);
+  ipcMain.handle(IPC_CHANNELS.SCHEMA_GENERATE, handleSchemaGenerate);
 
   // Signing
   ipcMain.handle(IPC_CHANNELS.SIGN_CREDENTIAL, handleSignCredential);
