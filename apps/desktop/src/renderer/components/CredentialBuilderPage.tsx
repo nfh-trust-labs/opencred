@@ -921,6 +921,13 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
   // Organization name for issuer display
   const [organizationName, setOrganizationName] = useState<string | undefined>(undefined);
 
+  // Issuer branding for credential templates
+  const [branding, setBranding] = useState<{
+    primaryColor?: string;
+    logoDataUri?: string;
+    issuerDisplayName?: string;
+  } | undefined>(undefined);
+
   // did:web publication warning
   const [showDidWebWarning, setShowDidWebWarning] = useState(false);
   const [didWarningDismissed, setDidWarningDismissed] = useState(false);
@@ -994,6 +1001,16 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
       try {
         const saved = (await window.opencred.getConfig("organizationName")) as string | undefined;
         if (saved) setOrganizationName(saved);
+      } catch {
+        /* non-fatal */
+      }
+    })();
+    void (async () => {
+      try {
+        const stored = (await window.opencred.getConfig("branding")) as
+          | { primaryColor?: string; logoDataUri?: string; issuerDisplayName?: string }
+          | undefined;
+        if (stored) setBranding(stored);
       } catch {
         /* non-fatal */
       }
@@ -1137,6 +1154,8 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
       const result = await window.opencred.packageCredential({
         credential: signedCredential,
         formats: ["pdf"],
+        schemaId: isBlank ? undefined : schemaId,
+        customization: branding,
       });
       if (result.success && result.outputs && result.outputs.length > 0) {
         const pdfOutput = result.outputs[0];
@@ -1158,6 +1177,8 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
       const result = await window.opencred.packageCredential({
         credential: signedCredential,
         formats: ["qr-png"],
+        schemaId: isBlank ? undefined : schemaId,
+        customization: branding,
       });
       if (result.success && result.outputs && result.outputs.length > 0) {
         const qrOutput = result.outputs[0];
