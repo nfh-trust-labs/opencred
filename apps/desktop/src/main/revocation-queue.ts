@@ -14,7 +14,10 @@
 import * as crypto from "node:crypto";
 import { DeDiClient } from "@opencred/dedi-client";
 import { getStore } from "./store.js";
+import { createLogger } from "./logger.js";
 import type { DeDiCredentials } from "../shared/ipc-types.js";
+
+const logger = createLogger("revocation-queue");
 
 /**
  * Status of a queued revocation item.
@@ -51,7 +54,20 @@ export interface RevocationQueueItem {
 const QUEUE_STORE_KEY = "revocationQueue";
 
 /**
+ * Whether a load error has already been logged this session.
+ * Prevents flooding the log with repeated errors on every read.
+ */
+let loadErrorLogged = false;
+
+/** Cache of the last successfully loaded queue for resilience against read failures. */
+let lastKnownQueue: RevocationQueueItem[] = [];
+
+/**
  * Load the revocation queue from persistent storage.
+ *
+ * On I/O failure the last successfully loaded queue is returned so that
+ * in-memory items are not silently dropped. If no successful load has
+ * occurred yet, an empty array is returned and the error is logged.
  */
 function loadQueue(): RevocationQueueItem[] {
   try {
@@ -59,21 +75,38 @@ function loadQueue(): RevocationQueueItem[] {
     const data = store.get(QUEUE_STORE_KEY as keyof typeof store.store) as
       | RevocationQueueItem[]
       | undefined;
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
+    const queue = Array.isArray(data) ? data : [];
+    loadErrorLogged = false;
+    lastKnownQueue = queue;
+    return queue;
+  } catch (error) {
+    if (!loadErrorLogged) {
+      logger.error("Failed to load revocation queue from store", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      loadErrorLogged = true;
+    }
+    return lastKnownQueue;
   }
 }
 
 /**
  * Save the revocation queue to persistent storage.
+ *
+ * @throws Error if the write fails — callers must handle this so that
+ *   queue mutations are not silently lost.
  */
 function saveQueue(queue: RevocationQueueItem[]): void {
   try {
     const store = getStore();
     store.set(QUEUE_STORE_KEY as keyof typeof store.store, queue);
-  } catch {
-    // Store may not be initialized in test environments
+    lastKnownQueue = queue;
+  } catch (error) {
+    logger.error("Failed to save revocation queue to store", {
+      error: error instanceof Error ? error.message : String(error),
+      itemCount: queue.length,
+    });
+    throw error;
   }
 }
 
