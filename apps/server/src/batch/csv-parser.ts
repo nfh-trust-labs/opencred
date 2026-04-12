@@ -8,8 +8,9 @@
  * SECURITY: No key material is ever involved in parsing.
  */
 
-import { createRegistry, Validator } from "@opencred/schema-engine";
+import { Validator } from "@opencred/schema-engine";
 import type { SchemaRegistry, ValidationResult } from "@opencred/schema-engine";
+import { getSchemaRegistry } from "../schema-registry-singleton.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -154,12 +155,10 @@ function parseRawCsv(
 // Schema validation
 // ---------------------------------------------------------------------------
 
-let registryInstance: SchemaRegistry | null = null;
 let validatorInstance: Validator | null = null;
 
 function getRegistry(): SchemaRegistry {
-  if (!registryInstance) registryInstance = createRegistry();
-  return registryInstance;
+  return getSchemaRegistry();
 }
 
 function getValidator(): Validator {

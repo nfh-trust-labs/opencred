@@ -30,6 +30,8 @@ import {
   uninstallCustomContextResolver,
 } from "./document-loader-with-cache.js";
 import { createLogger } from "./logger.js";
+import { createRegistryWithUpdates } from "@opencred/schema-engine";
+import { setSchemaRegistry } from "./schema-registry-singleton.js";
 
 // ---------------------------------------------------------------------------
 // Global crash handlers — catch unhandled errors before app.whenReady()
@@ -220,9 +222,19 @@ function buildAppMenu(): void {
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   logger.info("App ready, initialising");
   initStore();
+
+  // Schema registry with optional remote updates
+  const store = getStore();
+  const schemaRegistry = await createRegistryWithUpdates({
+    manifestUrl: (store.get("schemaUpdateUrl") as string | undefined) ?? undefined,
+    cacheDir: path.join(app.getPath("userData"), "schemas"),
+    logger: { info: logger.info.bind(logger), warn: logger.warn.bind(logger) },
+  });
+  setSchemaRegistry(schemaRegistry);
+  logger.info("Schema registry initialised", { count: schemaRegistry.listSchemas().length });
 
   // Register the process-wide JSON-LD document loader extension so that
   // user-provided custom-schema contexts (cached in electron-store) are

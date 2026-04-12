@@ -733,7 +733,7 @@ async function handleVerifyCredential(
       };
     }
 
-    // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
+    // Resolve using composite DID resolver    // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
     const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
       await import("@opencred/did");
     const { verifyCredential, loadCscaTrustStore } = await import("@opencred/verification");

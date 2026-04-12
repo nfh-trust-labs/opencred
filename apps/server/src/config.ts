@@ -98,6 +98,14 @@ const configSchema = z.object({
    * and shared across all verification requests.
    */
   OPENCRED_CSCA_TRUST_STORE_PATH: z.string().optional(),
+
+  // --- Schema update configuration ---
+
+  /** HTTPS URL of the schema update manifest. If unset, schema updates are disabled. */
+  OPENCRED_SCHEMA_UPDATE_URL: z.string().url().optional(),
+
+  /** Local directory for caching updated schemas between restarts. */
+  OPENCRED_SCHEMA_CACHE_DIR: z.string().optional(),
 });
 
 export type ServerConfig = z.infer<typeof configSchema>;

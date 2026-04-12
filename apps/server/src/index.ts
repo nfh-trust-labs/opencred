@@ -22,8 +22,12 @@ import { authMiddleware } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { loadSigningKey, setActiveSigner } from "./signing/key-manager.js";
 import { createSignerFromConfig } from "./signing/cloud-hsm/factory.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { createRegistryWithUpdates } from "@opencred/schema-engine";
 import { CscaTrustStore } from "@opencred/verification";
 import { setTrustStore } from "./trust-store.js";
+import { setSchemaRegistry } from "./schema-registry-singleton.js";
 import { health } from "./routes/health.js";
 import { schemas } from "./routes/schemas.js";
 import { credentials } from "./routes/credentials.js";
@@ -103,6 +107,22 @@ if (cloudSigner) {
 } else {
   loadSigningKey();
 }
+
+// ---------------------------------------------------------------------------
+// Schema Registry (with optional remote updates)
+// ---------------------------------------------------------------------------
+// The registry is initialised ONCE at startup. If OPENCRED_SCHEMA_UPDATE_URL
+// is configured, newer schemas are fetched from the manifest, verified, and
+// merged into the bundled set. On any failure the bundled schemas are used.
+
+const schemaRegistry = await createRegistryWithUpdates({
+  manifestUrl: config.OPENCRED_SCHEMA_UPDATE_URL,
+  cacheDir: config.OPENCRED_SCHEMA_CACHE_DIR ?? join(homedir(), ".opencred", "schemas"),
+  timeoutMs: 10_000,
+  logger,
+});
+setSchemaRegistry(schemaRegistry);
+logger.info({ count: schemaRegistry.listSchemas().length }, "Schema registry initialised");
 
 // ---------------------------------------------------------------------------
 // CSCA Trust Store

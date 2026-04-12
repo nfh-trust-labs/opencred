@@ -17,8 +17,9 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { VerifiableCredential } from "@opencred/vc-core";
-import { createRegistry, Validator } from "@opencred/schema-engine";
+import { Validator } from "@opencred/schema-engine";
 import type { SchemaRegistry } from "@opencred/schema-engine";
+import { getSchemaRegistry } from "../schema-registry-singleton.js";
 import {
   prepareVcJwtProof,
   completeVcJwtProof,
@@ -137,15 +138,10 @@ export function rejectKeyMaterial(value: unknown, path = ""): void {
   }
 }
 
-// Singleton schema registry and validator
-let registryInstance: SchemaRegistry | null = null;
 let validatorInstance: Validator | null = null;
 
 function getRegistry(): SchemaRegistry {
-  if (!registryInstance) {
-    registryInstance = createRegistry();
-  }
-  return registryInstance;
+  return getSchemaRegistry();
 }
 
 function getValidator(): Validator {
