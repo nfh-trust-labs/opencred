@@ -44,3 +44,15 @@ export interface SchemaManifestEntry {
 export interface SchemaManifest {
   schemas: SchemaManifestEntry[];
 }
+
+export interface InferredField {
+  name: string;
+  type: "string" | "number" | "integer" | "boolean" | "array" | "object";
+  format?: "date" | "date-time" | "email" | "uri";
+  required: boolean;
+}
+
+export interface GeneratedSchemaResult {
+  schema: Record<string, unknown>;
+  fields: InferredField[];
+}

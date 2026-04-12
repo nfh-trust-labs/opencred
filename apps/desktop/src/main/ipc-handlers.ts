@@ -76,6 +76,8 @@ import type {
   CustomSchemaListResponse,
   CustomSchemaDeleteRequest,
   CustomSchemaDeleteResponse,
+  SchemaGenerateRequest,
+  SchemaGenerateResponse,
   SystemInfoResponse,
   LogTailResponse,
 } from "../shared/ipc-types.js";
@@ -94,7 +96,7 @@ import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
 import { CryptoError, ValidationError, SchemaValidationError, isPrivateIP } from "@opencred/shared";
-import { SchemaRegistry } from "@opencred/schema-engine";
+import { SchemaRegistry, generateSchemaFromFields } from "@opencred/schema-engine";
 import { packageCredential as packageCredentialWithTemplates } from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
 import { deriveVerificationMethod } from "../signing/types.js";
@@ -327,6 +329,26 @@ async function handleSchemaGet(
     id: definition.id,
     schema: definition.schema,
     contextUrl: definition.contextUrl,
+  };
+}
+
+/** SCHEMA_GENERATE — generate a JSON Schema from sample data fields. */
+async function handleSchemaGenerate(
+  _event: IpcMainInvokeEvent,
+  request: SchemaGenerateRequest,
+): Promise<SchemaGenerateResponse> {
+  if (!request.fields || typeof request.fields !== "object") {
+    throw new ValidationError("Request must include a fields object");
+  }
+  const result = generateSchemaFromFields(request.fields);
+  return {
+    schema: result.schema,
+    fields: result.fields.map((f) => ({
+      name: f.name,
+      type: f.type,
+      ...(f.format ? { format: f.format } : {}),
+      required: f.required,
+    })),
   };
 }
 
@@ -670,21 +692,45 @@ async function handleVerifyCredential(
   request: VerifyCredentialRequest,
 ): Promise<VerifyCredentialResponse> {
   try {
-    const parsed = JSON.parse(request.credential);
+    const trimmed = request.credential.trim();
 
-    // VC-JWT envelope detection: when the signed output is a JSON object with
-    // { proof: { type: "JsonWebSignature2020", jwt: "eyJ..." } }, extract the
-    // raw JWT string — the verification package expects the compact JWT, not
-    // the JSON envelope.
-    let verificationInput: Record<string, unknown> | string = parsed as Record<string, unknown>;
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      parsed.proof &&
-      typeof parsed.proof === "object" &&
-      typeof parsed.proof.jwt === "string"
-    ) {
-      verificationInput = parsed.proof.jwt;
+    // Format detection: determine the input format and parse accordingly.
+    let verificationInput: Record<string, unknown> | string;
+
+    if (trimmed.startsWith("OPENCRED1:")) {
+      const { decodeQrData } = await import("../packaging/qr-generator.js");
+      const decodedJson = decodeQrData(trimmed);
+      const parsed = JSON.parse(decodedJson);
+      verificationInput = parsed as Record<string, unknown>;
+    } else if (trimmed.startsWith("{")) {
+      const parsed = JSON.parse(trimmed);
+
+      // VC-JWT envelope detection: when the signed output is a JSON object with
+      // { proof: { type: "JsonWebSignature2020", jwt: "eyJ..." } }, extract the
+      // raw JWT string. The verification package expects the compact JWT, not
+      // the JSON envelope.
+      verificationInput = parsed as Record<string, unknown>;
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        parsed.proof &&
+        typeof parsed.proof === "object" &&
+        typeof parsed.proof.jwt === "string"
+      ) {
+        verificationInput = parsed.proof.jwt;
+      }
+    } else if (trimmed.includes("~")) {
+      // SD-JWT format (contains disclosure separators)
+      verificationInput = trimmed;
+    } else if (trimmed.split(".").length === 3) {
+      // JWT compact serialization (header.payload.signature)
+      verificationInput = trimmed;
+    } else {
+      return {
+        success: false,
+        error:
+          "Unrecognized credential format. Expected JSON, OPENCRED1: QR data, JWT, or SD-JWT.",
+      };
     }
 
     // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
@@ -919,6 +965,14 @@ async function handleFileOpen(
   }
 
   const filePath = result.filePaths[0];
+  const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"];
+  const isImage = IMAGE_EXTENSIONS.some((ext) => filePath.toLowerCase().endsWith(ext));
+
+  if (isImage) {
+    const content = (await fs.readFile(filePath)).toString("base64");
+    return { content, filePath, encoding: "base64" };
+  }
+
   const content = await fs.readFile(filePath, "utf-8");
   return { content, filePath };
 }
@@ -2431,6 +2485,7 @@ export function registerIpcHandlers(): void {
   // Schema
   ipcMain.handle(IPC_CHANNELS.SCHEMA_LIST, handleSchemaList);
   ipcMain.handle(IPC_CHANNELS.SCHEMA_GET, handleSchemaGet);
+  ipcMain.handle(IPC_CHANNELS.SCHEMA_GENERATE, handleSchemaGenerate);
 
   // Signing
   ipcMain.handle(IPC_CHANNELS.SIGN_CREDENTIAL, handleSignCredential);

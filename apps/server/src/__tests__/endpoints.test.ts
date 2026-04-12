@@ -208,6 +208,99 @@ describe("POST /credentials/verify", () => {
     expect(result.valid).toBe(false);
   });
 
+  it("accepts an OPENCRED1: compressed credential string", async () => {
+    const issueRes = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...VALID_ISSUE_REQUEST,
+        issuerDid: testKey.signer.id.split("#")[0],
+        proofFormat: "data-integrity",
+      }),
+    });
+    expect(issueRes.status).toBe(200);
+    const issued = (await issueRes.json()) as { credential: Record<string, unknown> };
+
+    const { compressCredentialForQr } = await import("../packaging/qr-generator.js");
+    const compressed = compressCredentialForQr(
+      issued.credential as Parameters<typeof compressCredentialForQr>[0],
+    );
+
+    const verifyRes = await app.request("/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: compressed }),
+    });
+
+    expect(verifyRes.status).toBe(200);
+    const result = (await verifyRes.json()) as Record<string, unknown>;
+    expect(result.valid).toBe(true);
+  });
+
+  it("accepts a VC-JWT compact string", async () => {
+    const issueRes = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...VALID_ISSUE_REQUEST,
+        issuerDid: testKey.signer.id.split("#")[0],
+        proofFormat: "vc-jwt",
+      }),
+    });
+    expect(issueRes.status).toBe(200);
+    const issued = (await issueRes.json()) as {
+      credential: { proof: { jwt: string } };
+    };
+    const jwtCompact = issued.credential.proof.jwt;
+
+    const verifyRes = await app.request("/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: jwtCompact }),
+    });
+
+    expect(verifyRes.status).toBe(200);
+    const result = (await verifyRes.json()) as Record<string, unknown>;
+    expect(result).toHaveProperty("valid");
+    expect(result).toHaveProperty("checks");
+  });
+
+  it("rejects unrecognized credential format with 400", async () => {
+    const verifyRes = await app.request("/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: "not-a-valid-format" }),
+    });
+
+    expect(verifyRes.status).toBe(400);
+    const body = (await verifyRes.json()) as { error: { message: string } };
+    expect(body.error.message).toBe("Unrecognized credential format");
+  });
+
+  it("backward compatibility: raw JSON string still works", async () => {
+    const issueRes = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...VALID_ISSUE_REQUEST,
+        issuerDid: testKey.signer.id.split("#")[0],
+        proofFormat: "data-integrity",
+      }),
+    });
+    expect(issueRes.status).toBe(200);
+    const issued = (await issueRes.json()) as { credential: Record<string, unknown> };
+
+    const verifyRes = await app.request("/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: JSON.stringify(issued.credential) }),
+    });
+
+    expect(verifyRes.status).toBe(200);
+    const result = (await verifyRes.json()) as Record<string, unknown>;
+    expect(result.valid).toBe(true);
+  });
+
   // SECURITY: Per CLAUDE.md invariant #5, the /credentials/verify response must
   // not leak operator config or parser errors through `checks[].detail` strings.
   // The desktop IPC handler is allowed full detail (trusted user on both sides),
@@ -484,6 +577,28 @@ describe("POST /credentials/batch", () => {
     const res = await app.request("/credentials/batch/nonexistent-job-id");
     expect(res.status).toBe(404);
   });
+
+  it("echoes webhookUrl in 202 response when provided", async () => {
+    const csvContent = "name,role,validFrom\nAlice,Medical Practitioner,2025-06-01T00:00:00Z\n";
+
+    const res = await app.request("/credentials/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        csvContent,
+        schemaId: "functional-identity/v1",
+        issuerDid: testKey.signer.id.split("#")[0],
+        validFrom: "2025-06-01T00:00:00Z",
+        webhookUrl: "https://example.com/webhook",
+      }),
+    });
+
+    expect(res.status).toBe(202);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toHaveProperty("jobId");
+    expect(body.webhookUrl).toBe("https://example.com/webhook");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -615,6 +730,54 @@ describe("issuer branding customization", () => {
 
 // ---------------------------------------------------------------------------
 // 404 handler
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// POST /schemas/generate
+// ---------------------------------------------------------------------------
+
+describe("POST /schemas/generate", () => {
+  it("generates schema from sample fields", async () => {
+    const res = await app.request("/schemas/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fields: { name: "Alice", age: 30, email: "alice@example.com" },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      schema: { properties: Record<string, unknown> };
+      fields: unknown[];
+    };
+    expect(body.schema).toHaveProperty("properties");
+    expect(body.schema.properties.name).toEqual({ type: "string" });
+    expect(body.schema.properties.age).toEqual({ type: "integer" });
+    expect(body.schema.properties.email).toEqual({ type: "string", format: "email" });
+    expect(body.fields).toHaveLength(3);
+  });
+
+  it("returns 400 for missing fields", async () => {
+    const res = await app.request("/schemas/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for array fields", async () => {
+    const res = await app.request("/schemas/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fields: [1, 2, 3] }),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 404
 // ---------------------------------------------------------------------------
 
 describe("404 handler", () => {
