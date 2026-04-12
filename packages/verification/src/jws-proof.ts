@@ -1,6 +1,7 @@
 import { compactVerify, importJWK, type JWK } from "jose";
 import type { DIDResolver } from "@opencred/did";
 import { DIDJwkResolver } from "@opencred/did";
+import { assertJwtSize } from "@opencred/shared";
 import type { VerificationCheck } from "./types.js";
 
 /**
@@ -35,6 +36,9 @@ export async function verifyJwsProof(
   jwsString: string,
   didResolver?: DIDResolver,
 ): Promise<VerificationCheck> {
+  // Reject oversized tokens before any decoding
+  assertJwtSize(jwsString);
+
   // Parse JWS header to get kid
   const parts = jwsString.split(".");
   if (parts.length !== 3) {

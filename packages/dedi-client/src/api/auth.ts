@@ -1,4 +1,4 @@
-import { DeDiClientError } from "@opencred/shared";
+import { DeDiClientError, assertJwtSize } from "@opencred/shared";
 import type { DeDiLogger } from "../logger.js";
 import { noopLogger } from "../logger.js";
 import type { DeDiAuthTokens } from "./types.js";
@@ -173,6 +173,7 @@ export class DeDiTokenManager {
   }
 
   private decodeExp(jwt: string): number {
+    assertJwtSize(jwt);
     const parts = jwt.split(".");
     if (parts.length < 2) {
       throw new DeDiClientError("DeDi API returned a malformed JWT", 502);

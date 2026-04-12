@@ -95,7 +95,7 @@ import { generateKeyPairSync, createPublicKey, randomUUID, createHash } from "no
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
-import { CryptoError, ValidationError, SchemaValidationError, isPrivateIP } from "@opencred/shared";
+import { CryptoError, ValidationError, SchemaValidationError, isPrivateIP, assertJwtSize } from "@opencred/shared";
 import { SchemaRegistry, generateSchemaFromFields } from "@opencred/schema-engine";
 import { packageCredential as packageCredentialWithTemplates } from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
@@ -721,9 +721,11 @@ async function handleVerifyCredential(
       }
     } else if (trimmed.includes("~")) {
       // SD-JWT format (contains disclosure separators)
+      assertJwtSize(trimmed);
       verificationInput = trimmed;
     } else if (trimmed.split(".").length === 3) {
       // JWT compact serialization (header.payload.signature)
+      assertJwtSize(trimmed);
       verificationInput = trimmed;
     } else {
       return {

@@ -1,6 +1,7 @@
 import { createHash, createPublicKey, type KeyObject } from "node:crypto";
 import * as jose from "jose";
 import type { DIDResolver } from "@opencred/did";
+import { assertJwtSize } from "@opencred/shared";
 import { publicKeyFromMultibase } from "./key-utils.js";
 import type { VerificationCheck } from "./types.js";
 
@@ -51,6 +52,7 @@ export type Disclosure = [string, string, unknown];
  * Format: <issuer-jwt>~<disclosure1>~<disclosure2>~...~[<key-binding-jwt>]
  */
 export function parseSdJwtVc(sdJwtVc: string): SdJwtVcComponents {
+  assertJwtSize(sdJwtVc);
   const parts = sdJwtVc.split("~");
   if (parts.length < 2) {
     throw new Error("Invalid SD-JWT VC format: must contain at least issuer JWT and one separator");
