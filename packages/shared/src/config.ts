@@ -36,7 +36,7 @@ export const envSchema = z
     MAX_BATCH_SIZE: z.coerce.number().int().positive().default(1000),
 
     // CSCA Trust Store
-    CSCA_TRUST_STORE_PATH: z.string().optional(),
+    OPENCRED_CSCA_TRUST_STORE_PATH: z.string().optional(),
 
     // OpenCred-managed delegated-signing key persistence (NOT issuer keys).
     // These allow the server's own signing key to survive container restarts.

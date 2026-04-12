@@ -29,4 +29,6 @@ export { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.
 export type { BitstringStatusListOptions } from "./checks.js";
 export { checkX509Chain, loadCscaTrustStore } from "./x509-chain-check.js";
 export type { LoadCscaTrustStoreOptions, X509ChainCheckOptions } from "./x509-chain-check.js";
+export { CscaTrustStore } from "./csca-trust-store.js";
+export type { CscaTrustStoreOptions, TrustStoreWarningCallback } from "./csca-trust-store.js";
 export { publicKeyFromMultibase } from "./key-utils.js";

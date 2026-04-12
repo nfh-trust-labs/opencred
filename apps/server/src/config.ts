@@ -88,13 +88,16 @@ const configSchema = z.object({
   OPENCRED_GCP_KMS_KEY_NAME: z.string().optional(),
 
   /**
-   * Path to a directory containing PEM-encoded CSCA root certificates used as
-   * trust anchors when verifying credentials with embedded x5c chains
-   * (required by `checkX509Chain` per nfh-trust-labs/opencred#316). When
-   * unset, the verifier still functions for non-DSC credentials but will
-   * fail closed for any credential that carries an x5c chain.
+   * Path to a directory containing PEM/DER-encoded CSCA root certificates
+   * used as trust anchors when verifying credentials with embedded x5c
+   * chains (required by `checkX509Chain` per nfh-trust-labs/opencred#316).
+   * When unset, the verifier still functions for non-DSC credentials but
+   * will fail closed for any credential that carries an x5c chain.
+   *
+   * At startup, the trust store is loaded once (via `CscaTrustStore.fromDirectory`)
+   * and shared across all verification requests.
    */
-  CSCA_TRUST_STORE_PATH: z.string().optional(),
+  OPENCRED_CSCA_TRUST_STORE_PATH: z.string().optional(),
 });
 
 export type ServerConfig = z.infer<typeof configSchema>;
