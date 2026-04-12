@@ -7,7 +7,7 @@
  * available in CI/test environments without electron-rebuild.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { writeFileSync, readFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -18,6 +18,8 @@ import { generateTestKey } from "./helpers.js";
 import type { TestKeyPair } from "./helpers.js";
 import { parseCsv } from "../batch/csv-parser.js";
 import { createBatchEngine } from "../batch/batch-engine.js";
+import { createProgram, VERSION } from "../cli.js";
+import { resetConfig } from "../config.js";
 
 const TEST_DIR = join(tmpdir(), `opencred-cli-tests-${Date.now()}`);
 let testKey: TestKeyPair;
@@ -240,5 +242,205 @@ describe("CLI batch logic", () => {
     const progress = await engine.start();
     expect(progress.successCount).toBe(1);
     expect(progress.skippedCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CLI polish: --version, --help, config validate (#323)
+// ---------------------------------------------------------------------------
+
+describe("CLI --version flag", () => {
+  it("prints the version string from package.json", () => {
+    const program = createProgram();
+    let output = "";
+    program.exitOverride();
+    program.configureOutput({ writeOut: (str: string) => { output += str; } });
+
+    try {
+      program.parse(["node", "opencred", "--version"]);
+    } catch {
+      // commander throws on exitOverride after --version
+    }
+
+    expect(output).toContain(VERSION);
+    // Version should be a valid semver-ish string
+    expect(VERSION).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it("also works with -v shorthand", () => {
+    const program = createProgram();
+    let output = "";
+    program.exitOverride();
+    program.configureOutput({ writeOut: (str: string) => { output += str; } });
+
+    try {
+      program.parse(["node", "opencred", "-v"]);
+    } catch {
+      // commander throws on exitOverride after -v
+    }
+
+    expect(output).toContain(VERSION);
+  });
+});
+
+describe("CLI --help flag", () => {
+  it("prints help text with subcommand list and examples", () => {
+    const program = createProgram();
+    let output = "";
+    program.exitOverride();
+    program.configureOutput({ writeOut: (str: string) => { output += str; } });
+
+    try {
+      program.parse(["node", "opencred", "--help"]);
+    } catch {
+      // commander throws on exitOverride after --help
+    }
+
+    // Should contain the program description
+    expect(output).toContain("OpenCred CLI");
+    // Should list all subcommands
+    expect(output).toContain("issue");
+    expect(output).toContain("verify");
+    expect(output).toContain("hash");
+    expect(output).toContain("batch");
+    expect(output).toContain("config");
+    // Should contain example commands
+    expect(output).toContain("opencred issue --schema education");
+    expect(output).toContain("opencred config validate");
+  });
+});
+
+describe("CLI config validate subcommand", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    resetConfig();
+  });
+
+  afterEach(() => {
+    // Restore env vars
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("OPENCRED_")) {
+        delete process.env[key];
+      }
+    }
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (key.startsWith("OPENCRED_") && value !== undefined) {
+        process.env[key] = value;
+      }
+    }
+    resetConfig();
+    vi.restoreAllMocks();
+  });
+
+  it("reports success with valid configuration", async () => {
+    process.env.OPENCRED_API_KEY = "test-valid-key";
+    delete process.env.OPENCRED_DEV_MODE_NO_AUTH;
+
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const program = createProgram();
+    // Override process.exit so it doesn't kill the test runner
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+
+    await program.parseAsync(["node", "opencred", "config", "validate"]);
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Configuration valid"),
+    );
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("port: 3100"),
+    );
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("auth: enabled"),
+    );
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("kms: file-based"),
+    );
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it("reports success with dev-mode auth and custom port", async () => {
+    delete process.env.OPENCRED_API_KEY;
+    process.env.OPENCRED_DEV_MODE_NO_AUTH = "true";
+    process.env.OPENCRED_PORT = "8080";
+    // Make sure NODE_ENV is not production
+    delete process.env.NODE_ENV;
+
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+
+    const program = createProgram();
+    await program.parseAsync(["node", "opencred", "config", "validate"]);
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Configuration valid"),
+    );
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("port: 8080"),
+    );
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("auth: dev-mode (no auth)"),
+    );
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it("reports KMS provider when configured", async () => {
+    process.env.OPENCRED_API_KEY = "test-kms-key";
+    process.env.OPENCRED_KMS_PROVIDER = "aws";
+    delete process.env.OPENCRED_DEV_MODE_NO_AUTH;
+
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+
+    const program = createProgram();
+    await program.parseAsync(["node", "opencred", "config", "validate"]);
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("kms: aws"),
+    );
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it("reports error when OPENCRED_API_KEY is missing and dev mode is off", async () => {
+    delete process.env.OPENCRED_API_KEY;
+    delete process.env.OPENCRED_DEV_MODE_NO_AUTH;
+
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+
+    const program = createProgram();
+    await program.parseAsync(["node", "opencred", "config", "validate"]);
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Configuration error:"),
+    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("OPENCRED_API_KEY is required"),
+    );
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it("reports error when dev mode is used in production", async () => {
+    delete process.env.OPENCRED_API_KEY;
+    process.env.OPENCRED_DEV_MODE_NO_AUTH = "true";
+    process.env.NODE_ENV = "production";
+
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+
+    const program = createProgram();
+    await program.parseAsync(["node", "opencred", "config", "validate"]);
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Configuration error:"),
+    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("not permitted when NODE_ENV=production"),
+    );
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    // Restore NODE_ENV
+    delete process.env.NODE_ENV;
   });
 });
