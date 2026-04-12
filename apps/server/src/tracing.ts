@@ -6,7 +6,7 @@
  * spans via OTLP/HTTP to the configured collector.
  */
 
-import { NodeTracerProvider, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-node";
+import { NodeTracerProvider, BatchSpanProcessor } from "@opentelemetry/sdk-trace-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { Resource } from "@opentelemetry/resources";
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from "@opentelemetry/semantic-conventions";
@@ -22,7 +22,7 @@ export function initTracing(): { shutdown: () => Promise<void> } | null {
 
   const exporter = new OTLPTraceExporter({ url: `${endpoint}/v1/traces` });
   const provider = new NodeTracerProvider({ resource });
-  provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+  provider.addSpanProcessor(new BatchSpanProcessor(exporter));
   provider.register();
 
   return {

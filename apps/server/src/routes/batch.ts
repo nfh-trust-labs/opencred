@@ -103,6 +103,8 @@ batch.post("/credentials/batch", async (c) => {
   void engine.start().then((finalProgress) => {
     job.progress = finalProgress;
     batchJobsTotal.inc({ status: finalProgress.cancelled ? "cancelled" : "completed" });
+  }).catch(() => {
+    batchJobsTotal.inc({ status: "failed" });
   });
 
   const parseErrors = parseResult.rows
