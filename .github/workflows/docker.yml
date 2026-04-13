@@ -6,13 +6,13 @@ name: Docker
 # Builds, scans, and pushes the apps/server Docker image.
 #
 # - PRs: build + Trivy vulnerability scan (validates Dockerfile compiles)
-# - Push to new-opencred-dev: build + scan
+# - Push to new-opencred-dev or opencred-prod: build + scan
 # - v* tags: build + scan + push to GHCR + smoke test
 # ==============================================================================
 
 on:
   pull_request:
-    branches: [new-opencred-dev]
+    branches: [new-opencred-dev, opencred-prod]
     paths:
       - "apps/server/Dockerfile"
       - "apps/server/src/**"
@@ -23,7 +23,7 @@ on:
       - "pnpm-lock.yaml"
       - ".github/workflows/docker.yml"
   push:
-    branches: [new-opencred-dev]
+    branches: [new-opencred-dev, opencred-prod]
     tags: ['v*']
     # Note: no paths filter on push — tags don't carry a changed-files diff,
     # so paths would prevent tag pushes from triggering. PRs still use paths.
