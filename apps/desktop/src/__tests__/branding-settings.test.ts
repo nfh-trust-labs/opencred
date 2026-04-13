@@ -123,6 +123,34 @@ describe("branding store schema", () => {
     const branding: Record<string, unknown> = {};
     expect(Object.keys(branding).length).toBe(0);
   });
+
+  it("should accept extended branding fields", () => {
+    const branding = {
+      primaryColor: "#0057FF",
+      backgroundColor: "#f8f9fa",
+      secondaryColor: "#2d5986",
+      textColor: "#1a202c",
+      labelColor: "#718096",
+      logoDataUri: "data:image/png;base64,iVBORw0KGgo=",
+      logoWidth: 80,
+      logoHeight: 40,
+      issuerDisplayName: "Acme University",
+      footerText: "Custom footer",
+      sealDataUri: "data:image/png;base64,iVBORw0KGgo=",
+    };
+
+    expect(isValidHexColor(branding.primaryColor)).toBe(true);
+    expect(isValidHexColor(branding.backgroundColor)).toBe(true);
+    expect(isValidHexColor(branding.secondaryColor)).toBe(true);
+    expect(isValidHexColor(branding.textColor)).toBe(true);
+    expect(isValidHexColor(branding.labelColor)).toBe(true);
+    expect(branding.logoWidth).toBeGreaterThanOrEqual(10);
+    expect(branding.logoWidth).toBeLessThanOrEqual(200);
+    expect(branding.logoHeight).toBeGreaterThanOrEqual(10);
+    expect(branding.logoHeight).toBeLessThanOrEqual(200);
+    expect(branding.footerText.length).toBeLessThanOrEqual(500);
+    expect(isValidImageDataUri(branding.sealDataUri)).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -137,7 +165,6 @@ describe("branding passthrough", () => {
       issuerDisplayName: "Test Issuer",
     };
 
-    // Simulate the mapping done in CredentialBuilderPage
     const packageRequest = {
       credential: "{}",
       formats: ["pdf"],
@@ -149,6 +176,38 @@ describe("branding passthrough", () => {
     expect(packageRequest.customization.primaryColor).toBe("#FF5500");
     expect(packageRequest.customization.logoDataUri).toBe("data:image/png;base64,abc123");
     expect(packageRequest.customization.issuerDisplayName).toBe("Test Issuer");
+  });
+
+  it("should map extended branding fields to package request", () => {
+    const branding = {
+      primaryColor: "#FF5500",
+      backgroundColor: "#f0f0f0",
+      secondaryColor: "#333333",
+      textColor: "#111111",
+      labelColor: "#666666",
+      logoDataUri: "data:image/png;base64,abc123",
+      logoWidth: 100,
+      logoHeight: 50,
+      issuerDisplayName: "Test Issuer",
+      footerText: "Custom footer for certificates",
+      sealDataUri: "data:image/png;base64,seal123",
+    };
+
+    const packageRequest = {
+      credential: "{}",
+      formats: ["pdf"],
+      schemaId: "education",
+      customization: branding,
+    };
+
+    expect(packageRequest.customization.backgroundColor).toBe("#f0f0f0");
+    expect(packageRequest.customization.secondaryColor).toBe("#333333");
+    expect(packageRequest.customization.textColor).toBe("#111111");
+    expect(packageRequest.customization.labelColor).toBe("#666666");
+    expect(packageRequest.customization.logoWidth).toBe(100);
+    expect(packageRequest.customization.logoHeight).toBe(50);
+    expect(packageRequest.customization.footerText).toBe("Custom footer for certificates");
+    expect(packageRequest.customization.sealDataUri).toBe("data:image/png;base64,seal123");
   });
 
   it("should pass undefined customization when no branding is set", () => {

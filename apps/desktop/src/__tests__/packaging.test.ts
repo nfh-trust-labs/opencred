@@ -129,6 +129,31 @@ describe("PDF Generator", () => {
     // PDF magic bytes
     expect(buffer.toString("ascii", 0, 4)).toBe("%PDF");
   });
+
+  it("should generate a PDF with customization options", async () => {
+    const buffer = await generatePdf(testCredential, {
+      customization: {
+        primaryColor: "#FF0000",
+        backgroundColor: "#f0f0f0",
+        secondaryColor: "#333333",
+        textColor: "#111111",
+        labelColor: "#666666",
+        issuerDisplayName: "Custom Issuer",
+        footerText: "Custom footer text",
+      },
+    });
+
+    expect(Buffer.isBuffer(buffer)).toBe(true);
+    expect(buffer.length).toBeGreaterThan(0);
+    expect(buffer.toString("ascii", 0, 4)).toBe("%PDF");
+  });
+
+  it("should generate a PDF with default options when customization is empty", async () => {
+    const buffer = await generatePdf(testCredential, { customization: {} });
+
+    expect(Buffer.isBuffer(buffer)).toBe(true);
+    expect(buffer.toString("ascii", 0, 4)).toBe("%PDF");
+  });
 });
 
 describe("JSON Export", () => {
