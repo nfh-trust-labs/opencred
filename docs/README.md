@@ -74,6 +74,15 @@ Contributing to OpenCred itself.
 * [Building](development/building.md) — pnpm, Turborepo, native addons
 * [Testing](development/testing.md) — vitest, integration tests, coverage
 
+## Reference Docs
+
+Standalone reference documents for quick access:
+
+* [Server API Reference](api-reference.md) -- all HTTP endpoints with request/response schemas and curl examples
+* [Deployment Guide](deployment-guide.md) -- Docker, Compose, nginx reverse proxy, environment variables, production checklist
+* [Credential Customization](credential-customization.md) -- branding colors, logos, display names for packaged credentials
+* [Architecture Overview](architecture.md) -- monorepo structure, package responsibilities, key flows, security model
+
 ## Source of Truth
 
 Requirements live in [`OpenCred_PRD.md`](../OpenCred_PRD.md). The implementation plan is in [`implementation-plan.md`](../implementation-plan.md). Per-issue work is tracked on [GitHub Issues](https://github.com/nfh-trust-labs/opencred/issues). The contributor protocol is in [`CLAUDE.md`](../CLAUDE.md).

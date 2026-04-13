@@ -1,14 +1,125 @@
-# Verifiable Credentials Service
+# OpenCred
 
-A core, unopinionated microservice for issuing and verifying verifiable credentials. Part of Trust Labs by Networks for Humanity.
+Open-source toolkit for issuing and verifying W3C Verifiable Credentials.
 
-## Overview
+## Key Features
 
-Template-based credential issuance. Designed as horizontally reusable infrastructure across Beckn One, Finternet, and DeDi.
+- **Desktop app** (Electron) for interactive credential issuance with local signing
+- **Docker image** for headless cloud deployment with an HTTP API
+- **W3C VC 2.0 compliant** -- supports vc-jwt, data-integrity, and sd-jwt-vc proof formats
+- **34+ bundled credential schemas** across 8 categories (identity, education, health, energy, finance, traceability, open badges, DIF)
+- **DeDi integration** for revocation and directory services
+- **QR code generation** with PixelPass compression
+- **Credential customization** -- colors, logos, seals, and issuer branding
+- **PKCS#11 hardware token support** for HSM-backed signing
+- **OS certificate store integration** -- macOS Keychain and Windows CNG
+- **Cloud HSM support** -- AWS KMS, Azure Key Vault, GCP Cloud KMS
+
+## Quick Start
+
+### Desktop
+
+Download the latest release for your platform from the [Releases](https://github.com/nfh-trust-labs/opencred/releases) page.
+
+See the [Desktop User Guide](docs/desktop/README.md) for installation and first-launch instructions.
+
+### Docker
+
+```bash
+# Build the image
+docker build -f apps/server/Dockerfile -t opencred:latest .
+
+# Generate an API key
+export OPENCRED_API_KEY="$(openssl rand -base64 32)"
+
+# Run with a signing key mounted read-only
+docker run -d \
+  --name opencred \
+  -p 3100:3100 \
+  -e OPENCRED_API_KEY="$OPENCRED_API_KEY" \
+  -e OPENCRED_KEY_PATH=/secrets/issuer-key.pem \
+  -v /path/to/issuer-key.pem:/secrets/issuer-key.pem:ro \
+  --read-only \
+  --cap-drop ALL \
+  opencred:latest
+
+# Issue a credential
+curl -s http://localhost:3100/v1/credentials/issue \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "schemaId": "functional-identity/v1",
+    "issuerDid": "did:key:zDnaerDaTF5BXEavCrfRZEk316dpbLsfPDZ3WJ5hRTPFU2169",
+    "credentialSubject": {
+      "name": "Jane Doe",
+      "dateOfBirth": "1990-01-15",
+      "nationality": "US"
+    },
+    "validFrom": "2026-01-01T00:00:00Z",
+    "proofFormat": "vc-jwt"
+  }'
+```
+
+See the [Deployment Guide](docs/deployment-guide.md) for Docker Compose, reverse proxy, and production configuration.
 
 ## Documentation
 
-See [docs/README.md](docs/README.md) for the full documentation, including:
+Full documentation is in the [`docs/`](docs/README.md) directory:
 
-- **[Desktop App](docs/desktop/getting-started.md)** — Electron app for interactive credential issuance with local signing
-- **[Docker Image](docs/self-hosted/getting-started.md)** — Self-hosted headless version for your own infrastructure
+- [Documentation Index](docs/README.md) -- start here
+- [Server API Reference](docs/api-reference.md) -- all HTTP endpoints with request/response schemas
+- [Deployment Guide](docs/deployment-guide.md) -- Docker, Compose, nginx, environment variables
+- [Credential Customization](docs/credential-customization.md) -- branding, colors, logos
+- [Architecture Overview](docs/architecture.md) -- monorepo structure and package responsibilities
+
+### Existing Docs
+
+- [Concepts](docs/concepts/README.md) -- verifiable credentials, DIDs, trust chains, revocation
+- [Desktop User Guide](docs/desktop/README.md) -- installation, key management, issuance
+- [Docker Operator Guide](docs/docker/README.md) -- deployment, API reference, observability
+- [Security Model](docs/security/README.md) -- threat model, key handling, invariants
+- [Developer Guide](docs/development/README.md) -- building, testing, package layout
+
+## Architecture
+
+OpenCred is a monorepo built with pnpm workspaces and Turborepo.
+
+### Apps
+
+| App | Description |
+|-----|-------------|
+| `apps/desktop` | Electron desktop client for interactive credential issuance |
+| `apps/server` | Headless HTTP server for Docker deployment |
+
+### Packages
+
+| Package | Description |
+|---------|-------------|
+| `packages/crypto` | Cryptographic primitives -- key generation, signing, proof construction |
+| `packages/vc-core` | W3C VC 2.0 credential builder and JSON-LD context bundling |
+| `packages/did` | DID resolution for did:key, did:jwk, and did:web |
+| `packages/verification` | Composite credential verification engine |
+| `packages/schema-engine` | JSON Schema registry with 34+ bundled credential schemas |
+| `packages/templates` | SVG credential templates and rendering |
+| `packages/signing` | Signing key providers -- software, PKCS#11, OS cert store |
+| `packages/shared` | Shared types, error hierarchy, and utilities |
+| `packages/dedi-client` | Client library for DeDi revocation and directory services |
+| `packages/ca-adapter` | Certificate authority adapter for DSC facilitation |
+
+## Security
+
+OpenCred enforces seven mandatory security invariants:
+
+1. **Never touch issuer private keys.** All signing happens locally -- the server never receives, handles, or stores issuer private keys via the API.
+2. **Never log key material.** Logs contain only key IDs and fingerprints, never private keys or signing buffers.
+3. **Session data is ephemeral.** Credential payloads are purged within the configured TTL (default 4 hours).
+4. **CSPRNG only.** All key generation uses `crypto.randomBytes`.
+5. **No secrets in error responses.** Error responses never leak key material, internal paths, or signing buffers.
+6. **JSON-LD contexts are bundled.** No remote context fetching at runtime.
+7. **SSRF protection for did:web.** Resolved IPs are validated as public, HTTPS only, no redirects, 10-second timeout.
+
+See the [Security documentation](docs/security/README.md) for the full threat model and invariant enforcement details.
+
+## License
+
+Copyright NFH Trust Labs. See [LICENSE](LICENSE) for details.
