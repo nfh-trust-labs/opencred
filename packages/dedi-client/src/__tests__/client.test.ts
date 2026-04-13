@@ -48,7 +48,7 @@ function validDelegation(overrides?: Partial<DelegationRecord>): DelegationRecor
     validFrom: "2026-01-01T00:00:00Z",
     validUntil: "2027-01-01T00:00:00Z",
     certificate: {
-      type: "VerifiableCredential",
+      type: ["VerifiableCredential", "DelegationCertificate"],
       proof: { type: "Ed25519Signature2020", proofValue: "z3FXQjecWufY46yg7LQ8" },
     },
     ...overrides,
@@ -400,7 +400,7 @@ describe("DeDiClient (adapter)", () => {
         validFrom: "2026-01-01T00:00:00Z",
         validUntil: "2027-01-01T00:00:00Z",
         certificate: {
-          type: "VerifiableCredential",
+          type: ["VerifiableCredential", "DelegationCertificate"],
           proof: { type: "Ed25519Signature2020", proofValue: "z3FXQjecWufY46yg7LQ8" },
         },
       };
@@ -766,7 +766,7 @@ describe("DeDiClient (adapter)", () => {
         scope: { credentialTypes: ["TestCredential"], namespaces: [] },
         validFrom: "2026-01-01T00:00:00Z",
         validUntil: "2027-01-01T00:00:00Z",
-        certificate: { type: "SomeNonStandardCert" },
+        certificate: { type: ["VerifiableCredential", "DelegationCertificate"] },
       };
 
       vi.mocked(api.lookupRecord).mockResolvedValue({
@@ -782,6 +782,64 @@ describe("DeDiClient (adapter)", () => {
 
       const result = await client.resolveDelegation("del-1");
       expect(result).toEqual(delegation);
+    });
+
+    it("rejects certificate with type as string (must be array per W3C spec)", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const delegation = {
+        id: "del-1",
+        issuerDid: "did:key:issuer",
+        delegateDid: "did:key:delegate",
+        scope: { credentialTypes: ["TestCredential"], namespaces: [] },
+        validFrom: "2026-01-01T00:00:00Z",
+        validUntil: "2027-01-01T00:00:00Z",
+        certificate: { type: "VerifiableCredential" },
+      };
+
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: delegation,
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation certificate field 'type' must be an array",
+      );
+    });
+
+    it("rejects certificate type array missing VerifiableCredential", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const delegation = {
+        id: "del-1",
+        issuerDid: "did:key:issuer",
+        delegateDid: "did:key:delegate",
+        scope: { credentialTypes: ["TestCredential"], namespaces: [] },
+        validFrom: "2026-01-01T00:00:00Z",
+        validUntil: "2027-01-01T00:00:00Z",
+        certificate: { type: ["DelegationCertificate"] },
+      };
+
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: delegation,
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation certificate type array must include 'VerifiableCredential'",
+      );
     });
 
     it("accepts certificate with proof but without proofValue field", async () => {
