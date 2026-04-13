@@ -862,10 +862,11 @@ async function handlePackageCredential(
       }
     }
 
-    // Process legacy packager formats
+    // Process legacy packager formats (includes pdf)
     if (legacyRequested.length > 0) {
       const legacyFormats = legacyRequested as PackageFormat[];
-      const result = await packageCredential(credential, legacyFormats);
+      const pdfOptions = request.customization ? { customization: request.customization } : undefined;
+      const result = await packageCredential(credential, legacyFormats, pdfOptions);
 
       for (const output of result.outputs) {
         allOutputs.push({

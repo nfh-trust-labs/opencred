@@ -12,6 +12,7 @@ import { generateQrPng, generateQrSvg } from "./qr-generator.js";
 // Re-export for use by verification and other consumers
 export { decodeQrData } from "./qr-generator.js";
 import { generatePdf } from "./pdf-generator.js";
+import type { PdfOptions } from "./pdf-generator.js";
 import { exportAsJson, exportAsCompactJson } from "./json-export.js";
 
 /**
@@ -67,6 +68,7 @@ function suggestedBaseName(credential: VerifiableCredential): string {
 export async function packageCredential(
   credential: VerifiableCredential,
   formats: PackageFormat[] = ["qr-png", "qr-svg", "pdf", "json"],
+  pdfOptions?: PdfOptions,
 ): Promise<PackagingResult> {
   const baseName = suggestedBaseName(credential);
   const outputs: PackagedOutput[] = [];
@@ -96,7 +98,7 @@ export async function packageCredential(
           break;
         }
         case "pdf": {
-          const pdfBuffer = await generatePdf(credential);
+          const pdfBuffer = await generatePdf(credential, pdfOptions);
           outputs.push({
             format: "pdf",
             data: pdfBuffer,

@@ -203,11 +203,19 @@ export interface PackageCredentialRequest {
   formats: string[];
   /** Schema ID for template lookup (used by "svg" format). */
   schemaId?: string;
-  /** Template customization options (used by "svg" format). */
+  /** Template customization options (used by "svg" and "pdf" formats). */
   customization?: {
     primaryColor?: string;
     logoDataUri?: string;
     issuerDisplayName?: string;
+    backgroundColor?: string;
+    secondaryColor?: string;
+    textColor?: string;
+    labelColor?: string;
+    logoWidth?: number;
+    logoHeight?: number;
+    footerText?: string;
+    sealDataUri?: string;
   };
 }
 
