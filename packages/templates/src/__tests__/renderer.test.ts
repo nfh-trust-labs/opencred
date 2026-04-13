@@ -10,11 +10,21 @@ const SIMPLE_TEMPLATE = `<svg>
   <text>{{subject.name}}</text>
   <text>{{subject.id}}</text>
   <rect fill="{{primaryColor}}" />
+  <rect fill="{{backgroundColor}}" />
+  <text fill="{{textColor}}">value</text>
+  <text fill="{{labelColor}}">label</text>
+  <text fill="{{secondaryColor}}">secondary</text>
+  <text>{{footerText}}</text>
+</svg>`;
+
+const LOGO_SIZE_TEMPLATE = `<svg>
+  {{#logoDataUri}}<image width="{{logoWidth}}" height="{{logoHeight}}" href="{{logoDataUri}}" />{{/logoDataUri}}
 </svg>`;
 
 const CONDITIONAL_TEMPLATE = `<svg>
   {{#qrCode}}<image href="{{qrCode}}" />{{/qrCode}}
   {{#logoDataUri}}<image href="{{logoDataUri}}" />{{/logoDataUri}}
+  {{#sealDataUri}}<image href="{{sealDataUri}}" />{{/sealDataUri}}
 </svg>`;
 
 function defaultOptions(): RenderOptions {
@@ -138,5 +148,124 @@ describe("renderSvg", () => {
     const result = renderSvg(template, options);
 
     expect(result).toBe("<svg></svg>");
+  });
+
+  // --- New customization field tests ---
+
+  it("applies default backgroundColor when no customization", () => {
+    const result = renderSvg(SIMPLE_TEMPLATE, defaultOptions());
+
+    expect(result).toContain("#ffffff");
+  });
+
+  it("applies custom backgroundColor", () => {
+    const options = defaultOptions();
+    options.customization = { backgroundColor: "#f0f0f0" };
+
+    const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+    expect(result).toContain("#f0f0f0");
+  });
+
+  it("applies default textColor when no customization", () => {
+    const result = renderSvg(SIMPLE_TEMPLATE, defaultOptions());
+
+    expect(result).toContain('fill="#333333"');
+  });
+
+  it("applies custom textColor", () => {
+    const options = defaultOptions();
+    options.customization = { textColor: "#111111" };
+
+    const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+    expect(result).toContain('fill="#111111"');
+  });
+
+  it("applies default labelColor when no customization", () => {
+    const result = renderSvg(SIMPLE_TEMPLATE, defaultOptions());
+
+    expect(result).toContain('fill="#666666"');
+  });
+
+  it("applies custom labelColor", () => {
+    const options = defaultOptions();
+    options.customization = { labelColor: "#aaaaaa" };
+
+    const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+    expect(result).toContain('fill="#aaaaaa"');
+  });
+
+  it("applies default secondaryColor when no customization", () => {
+    const result = renderSvg(SIMPLE_TEMPLATE, defaultOptions());
+
+    expect(result).toContain('fill="#2d5986"');
+  });
+
+  it("applies custom secondaryColor", () => {
+    const options = defaultOptions();
+    options.customization = { secondaryColor: "#445566" };
+
+    const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+    expect(result).toContain('fill="#445566"');
+  });
+
+  it("applies default footerText when no customization", () => {
+    const result = renderSvg(SIMPLE_TEMPLATE, defaultOptions());
+
+    expect(result).toContain("Verifiable Credential — powered by OpenCred");
+  });
+
+  it("applies custom footerText", () => {
+    const options = defaultOptions();
+    options.customization = { footerText: "Custom footer message" };
+
+    const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+    expect(result).toContain("Custom footer message");
+    expect(result).not.toContain("Verifiable Credential — powered by OpenCred");
+  });
+
+  it("applies default logo dimensions", () => {
+    const options = defaultOptions();
+    options.customization = { logoDataUri: "data:image/png;base64,logo123" };
+
+    const result = renderSvg(LOGO_SIZE_TEMPLATE, options);
+
+    expect(result).toContain('width="50"');
+    expect(result).toContain('height="50"');
+  });
+
+  it("applies custom logo dimensions", () => {
+    const options = defaultOptions();
+    options.customization = {
+      logoDataUri: "data:image/png;base64,logo123",
+      logoWidth: 100,
+      logoHeight: 80,
+    };
+
+    const result = renderSvg(LOGO_SIZE_TEMPLATE, options);
+
+    expect(result).toContain('width="100"');
+    expect(result).toContain('height="80"');
+  });
+
+  it("renders seal conditional section when sealDataUri provided", () => {
+    const options = defaultOptions();
+    options.customization = { sealDataUri: "data:image/png;base64,seal456" };
+
+    const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+    expect(result).toContain('href="data:image/png;base64,seal456"');
+  });
+
+  it("removes seal conditional section when sealDataUri missing", () => {
+    const options = defaultOptions();
+
+    const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+    expect(result).not.toContain("seal");
   });
 });

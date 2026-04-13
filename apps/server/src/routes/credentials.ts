@@ -47,11 +47,34 @@ export const customizationSchema = z
   .object({
     primaryColor: z
       .string()
-      .regex(/^#[0-9a-fA-F]{6}$/, "primaryColor must be a 6-digit hex color (e.g. #1a56db)")
+      .regex(/^#[0-9a-fA-F]{6}$/, "6-digit hex color required")
+      .optional(),
+    backgroundColor: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/, "6-digit hex color required")
+      .optional(),
+    secondaryColor: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/, "6-digit hex color required")
+      .optional(),
+    textColor: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/, "6-digit hex color required")
+      .optional(),
+    labelColor: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/, "6-digit hex color required")
       .optional(),
     logoDataUri: z
       .string()
-      .startsWith("data:image/", "logoDataUri must be a data URI starting with data:image/")
+      .startsWith("data:image/", "Must be data URI")
+      .optional(),
+    logoWidth: z.number().int().min(10).max(200).optional(),
+    logoHeight: z.number().int().min(10).max(200).optional(),
+    footerText: z.string().max(500).optional(),
+    sealDataUri: z
+      .string()
+      .startsWith("data:image/", "Must be data URI")
       .optional(),
     issuerDisplayName: z.string().max(200).optional(),
   })
