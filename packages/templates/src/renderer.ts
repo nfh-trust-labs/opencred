@@ -37,12 +37,22 @@ export function renderSvg(svgTemplate: string, options: RenderOptions): string {
     lookup.set("qrCode", values.qrCode);
   }
 
-  // Customization
-  const primaryColor = customization?.primaryColor ?? DEFAULT_PRIMARY_COLOR;
-  lookup.set("primaryColor", escapeXml(primaryColor));
+  // Customization defaults
+  lookup.set("primaryColor", escapeXml(customization?.primaryColor ?? DEFAULT_PRIMARY_COLOR));
+  lookup.set("backgroundColor", escapeXml(customization?.backgroundColor ?? "#ffffff"));
+  lookup.set("secondaryColor", escapeXml(customization?.secondaryColor ?? "#2d5986"));
+  lookup.set("textColor", escapeXml(customization?.textColor ?? "#333333"));
+  lookup.set("labelColor", escapeXml(customization?.labelColor ?? "#666666"));
+  lookup.set("logoWidth", String(customization?.logoWidth ?? 50));
+  lookup.set("logoHeight", String(customization?.logoHeight ?? 50));
+  lookup.set("footerText", escapeXml(customization?.footerText ?? "Verifiable Credential — powered by OpenCred"));
 
   if (customization?.logoDataUri) {
     lookup.set("logoDataUri", customization.logoDataUri);
+  }
+
+  if (customization?.sealDataUri) {
+    lookup.set("sealDataUri", customization.sealDataUri);
   }
 
   if (customization?.issuerDisplayName) {

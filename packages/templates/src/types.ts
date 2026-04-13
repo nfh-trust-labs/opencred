@@ -20,6 +20,22 @@ export interface TemplateCustomization {
   logoDataUri?: string;
   /** Display name for the issuer (overrides DID in template). */
   issuerDisplayName?: string;
+  /** Background color for the credential card (CSS hex). */
+  backgroundColor?: string;
+  /** Secondary color for subheadings and section headers (CSS hex). */
+  secondaryColor?: string;
+  /** Main text color (CSS hex). */
+  textColor?: string;
+  /** Label text color (CSS hex). */
+  labelColor?: string;
+  /** Logo width in pixels (10-200). */
+  logoWidth?: number;
+  /** Logo height in pixels (10-200). */
+  logoHeight?: number;
+  /** Custom footer text. */
+  footerText?: string;
+  /** Seal/badge image as a data URI. */
+  sealDataUri?: string;
 }
 
 /** Values to substitute into the template. */

@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 560" width="800" height="560">
   <defs>
     <style>
-      .bg { fill: #ffffff; }
+      .bg { fill: {{backgroundColor}}; }
       .header { fill: {{primaryColor}}; }
       .title { font: bold 24px sans-serif; fill: #ffffff; }
-      .label { font: 12px sans-serif; fill: #666666; }
-      .value { font: 16px sans-serif; fill: #333333; }
-      .footer { font: 10px sans-serif; fill: #999999; }
+      .label { font: 12px sans-serif; fill: {{labelColor}}; }
+      .value { font: 16px sans-serif; fill: {{textColor}}; }
+      .footer { font: 10px sans-serif; fill: {{labelColor}}; }
       .border { fill: none; stroke: {{primaryColor}}; stroke-width: 2; }
     </style>
   </defs>
@@ -21,7 +21,7 @@
 
   <!-- Logo placeholder -->
   {{#logoDataUri}}
-  <image x="20" y="15" width="50" height="50" href="{{logoDataUri}}" />
+  <image x="20" y="15" width="{{logoWidth}}" height="{{logoHeight}}" href="{{logoDataUri}}" />
   {{/logoDataUri}}
 
   <!-- Credential title -->
@@ -51,6 +51,11 @@
   <image x="600" y="100" width="160" height="160" href="{{qrCode}}" />
   {{/qrCode}}
 
+  <!-- Seal -->
+  {{#sealDataUri}}
+  <image x="680" y="440" width="80" height="80" href="{{sealDataUri}}" />
+  {{/sealDataUri}}
+
   <!-- Footer -->
-  <text class="footer" x="40" y="540">Verifiable Credential — powered by OpenCred</text>
+  <text class="footer" x="40" y="540">{{footerText}}</text>
 </svg>
