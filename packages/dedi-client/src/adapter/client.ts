@@ -79,6 +79,36 @@ function assertDelegationShape(detail: unknown): asserts detail is DelegationRec
   if (!scope["namespaces"].every((v: unknown) => typeof v === "string")) {
     throw new DeDiClientError("Delegation scope field 'namespaces' must contain only strings", 502);
   }
+
+  // Validate certificate field — must be a non-null object
+  if (!("certificate" in rec)) {
+    throw new DeDiClientError("Delegation detail missing required field: certificate", 502);
+  }
+  if (rec["certificate"] == null || typeof rec["certificate"] !== "object" || Array.isArray(rec["certificate"])) {
+    throw new DeDiClientError(
+      "Delegation detail field 'certificate' must be a non-null object",
+      502,
+    );
+  }
+  const cert = rec["certificate"] as Record<string, unknown>;
+  // If the certificate has a proof field, validate its structure
+  if ("proof" in cert) {
+    if (cert["proof"] == null || typeof cert["proof"] !== "object" || Array.isArray(cert["proof"])) {
+      throw new DeDiClientError(
+        "Delegation certificate field 'proof' must be an object",
+        502,
+      );
+    }
+    const proof = cert["proof"] as Record<string, unknown>;
+    if ("proofValue" in proof) {
+      if (typeof proof["proofValue"] !== "string" || proof["proofValue"].length === 0) {
+        throw new DeDiClientError(
+          "Delegation certificate field 'proof.proofValue' must be a non-empty string",
+          502,
+        );
+      }
+    }
+  }
 }
 
 function assertRevocationHashShape(detail: unknown): asserts detail is RevocationHashRecord {

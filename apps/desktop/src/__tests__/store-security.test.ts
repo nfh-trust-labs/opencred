@@ -36,6 +36,18 @@ vi.mock("node:fs", async () => {
   };
 });
 
+// Mock logger to capture warn calls.
+const mockWarn = vi.fn();
+vi.mock("../main/logger.js", () => ({
+  createLogger: () => ({
+    info: vi.fn(),
+    warn: mockWarn,
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn(),
+  }),
+}));
+
 // Import after mocking.
 const { initStore, getStore, restrictStoreFilePermissions } = await import("../main/store");
 
@@ -66,7 +78,7 @@ describe("Store security hardening", () => {
       expect(fsModule.chmodSync).toHaveBeenCalledWith(mockStorePath, 0o600);
     });
 
-    it("should not throw if chmodSync fails", () => {
+    it("should not throw if chmodSync fails and should log a warning", () => {
       vi.mocked(fsModule.chmodSync).mockImplementationOnce(() => {
         throw new Error("Permission denied");
       });
@@ -74,6 +86,12 @@ describe("Store security hardening", () => {
       initStore();
       // Should not throw — best-effort behavior.
       expect(() => restrictStoreFilePermissions()).not.toThrow();
+
+      // Should log a warning with the store path and error message.
+      expect(mockWarn).toHaveBeenCalledWith(
+        "Failed to restrict store file permissions",
+        { path: mockStorePath, error: "Permission denied" },
+      );
     });
 
     it("should call chmodSync exactly once per invocation", () => {

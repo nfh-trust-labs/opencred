@@ -47,7 +47,10 @@ function validDelegation(overrides?: Partial<DelegationRecord>): DelegationRecor
     scope: { credentialTypes: ["UniversityDegreeCredential"], namespaces: ["education"] },
     validFrom: "2026-01-01T00:00:00Z",
     validUntil: "2027-01-01T00:00:00Z",
-    certificate: {},
+    certificate: {
+      type: "VerifiableCredential",
+      proof: { type: "Ed25519Signature2020", proofValue: "z3FXQjecWufY46yg7LQ8" },
+    },
     ...overrides,
   };
 }
@@ -396,7 +399,10 @@ describe("DeDiClient (adapter)", () => {
         scope: { credentialTypes: ["UniversityDegreeCredential"], namespaces: ["education"] },
         validFrom: "2026-01-01T00:00:00Z",
         validUntil: "2027-01-01T00:00:00Z",
-        certificate: {},
+        certificate: {
+          type: "VerifiableCredential",
+          proof: { type: "Ed25519Signature2020", proofValue: "z3FXQjecWufY46yg7LQ8" },
+        },
       };
 
       vi.mocked(api.lookupRecord).mockResolvedValue({
@@ -582,6 +588,230 @@ describe("DeDiClient (adapter)", () => {
       await expect(client.resolveDelegation("del-1")).rejects.toThrow(
         "Delegation scope field 'namespaces' must contain only strings",
       );
+    });
+
+    it("throws when certificate field is missing", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          id: "del-1",
+          issuerDid: "did:key:issuer",
+          delegateDid: "did:key:delegate",
+          scope: { credentialTypes: ["TestCredential"], namespaces: [] },
+          validFrom: "2026-01-01T00:00:00Z",
+          validUntil: "2027-01-01T00:00:00Z",
+          // certificate intentionally omitted
+        },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation detail missing required field: certificate",
+      );
+    });
+
+    it("throws when certificate is null", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          id: "del-1",
+          issuerDid: "did:key:issuer",
+          delegateDid: "did:key:delegate",
+          scope: { credentialTypes: ["TestCredential"], namespaces: [] },
+          validFrom: "2026-01-01T00:00:00Z",
+          validUntil: "2027-01-01T00:00:00Z",
+          certificate: null,
+        },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation detail field 'certificate' must be a non-null object",
+      );
+    });
+
+    it("throws when certificate is a string instead of object", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          id: "del-1",
+          issuerDid: "did:key:issuer",
+          delegateDid: "did:key:delegate",
+          scope: { credentialTypes: ["TestCredential"], namespaces: [] },
+          validFrom: "2026-01-01T00:00:00Z",
+          validUntil: "2027-01-01T00:00:00Z",
+          certificate: "not-an-object",
+        },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation detail field 'certificate' must be a non-null object",
+      );
+    });
+
+    it("throws when certificate.proof is not an object", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          id: "del-1",
+          issuerDid: "did:key:issuer",
+          delegateDid: "did:key:delegate",
+          scope: { credentialTypes: ["TestCredential"], namespaces: [] },
+          validFrom: "2026-01-01T00:00:00Z",
+          validUntil: "2027-01-01T00:00:00Z",
+          certificate: { proof: "not-an-object" },
+        },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation certificate field 'proof' must be an object",
+      );
+    });
+
+    it("throws when certificate.proof.proofValue is empty string", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          id: "del-1",
+          issuerDid: "did:key:issuer",
+          delegateDid: "did:key:delegate",
+          scope: { credentialTypes: ["TestCredential"], namespaces: [] },
+          validFrom: "2026-01-01T00:00:00Z",
+          validUntil: "2027-01-01T00:00:00Z",
+          certificate: {
+            proof: { type: "Ed25519Signature2020", proofValue: "" },
+          },
+        },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation certificate field 'proof.proofValue' must be a non-empty string",
+      );
+    });
+
+    it("throws when certificate.proof.proofValue is a number", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: {
+          id: "del-1",
+          issuerDid: "did:key:issuer",
+          delegateDid: "did:key:delegate",
+          scope: { credentialTypes: ["TestCredential"], namespaces: [] },
+          validFrom: "2026-01-01T00:00:00Z",
+          validUntil: "2027-01-01T00:00:00Z",
+          certificate: {
+            proof: { type: "Ed25519Signature2020", proofValue: 12345 },
+          },
+        },
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      await expect(client.resolveDelegation("del-1")).rejects.toThrow(
+        "Delegation certificate field 'proof.proofValue' must be a non-empty string",
+      );
+    });
+
+    it("accepts certificate without proof field (defensive, not overly strict)", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const delegation = {
+        id: "del-1",
+        issuerDid: "did:key:issuer",
+        delegateDid: "did:key:delegate",
+        scope: { credentialTypes: ["TestCredential"], namespaces: [] },
+        validFrom: "2026-01-01T00:00:00Z",
+        validUntil: "2027-01-01T00:00:00Z",
+        certificate: { type: "SomeNonStandardCert" },
+      };
+
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: delegation,
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      const result = await client.resolveDelegation("del-1");
+      expect(result).toEqual(delegation);
+    });
+
+    it("accepts certificate with proof but without proofValue field", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const delegation = {
+        id: "del-1",
+        issuerDid: "did:key:issuer",
+        delegateDid: "did:key:delegate",
+        scope: { credentialTypes: ["TestCredential"], namespaces: [] },
+        validFrom: "2026-01-01T00:00:00Z",
+        validUntil: "2027-01-01T00:00:00Z",
+        certificate: {
+          proof: { type: "Ed25519Signature2020", jws: "eyJhbGciOiJFZERTQSJ9..." },
+        },
+      };
+
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        name: "del-1",
+        registry: DELEGATION_REGISTRY,
+        namespace: "example.com",
+        detail: delegation,
+        state: "live",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      });
+
+      const result = await client.resolveDelegation("del-1");
+      expect(result).toEqual(delegation);
     });
   });
 
