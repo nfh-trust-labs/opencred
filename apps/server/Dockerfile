@@ -130,6 +130,7 @@ WORKDIR /app
 # package's compiled output. We deliberately copy package.json files too so
 # that workspace:* symlinks resolve at runtime.
 COPY --from=builder --chown=node:node /build/node_modules ./node_modules
+COPY --from=builder --chown=node:node /build/apps/server/node_modules ./apps/server/node_modules
 COPY --from=builder --chown=node:node /build/apps/server/dist ./apps/server/dist
 COPY --from=builder --chown=node:node /build/apps/server/package.json ./apps/server/package.json
 COPY --from=builder --chown=node:node /build/packages ./packages
