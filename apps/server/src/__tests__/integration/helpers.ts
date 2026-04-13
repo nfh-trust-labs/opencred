@@ -1,5 +1,9 @@
+import { vi } from "vitest";
 import type { Hono } from "hono";
+import type { VerifierConfig } from "@opencred/verification";
 import type { DIDResolver, DIDResolutionResult, DIDDocument, VerificationMethod, JWK } from "@opencred/did";
+
+type DeDiClientLike = NonNullable<VerifierConfig["dediClient"]>;
 
 export {
   generateTestKey,
@@ -45,20 +49,24 @@ export async function verifyViaApp(
 
 export function createMockDediClient(
   revocationStore: Map<string, boolean>,
-): { queryRevocationHash: (hash: string) => Promise<{ hash: string; revoked: boolean; revokedAt?: string }> } {
+): DeDiClientLike {
   return {
-    queryRevocationHash: async (hash: string) => {
+    queryRevocationHash: vi.fn(async (hash: string) => {
       const revoked = revocationStore.get(hash) ?? false;
       if (revoked) {
-        return { hash, revoked: true, revokedAt: new Date().toISOString() };
+        return { hash, revoked: true as const, revokedAt: new Date().toISOString() };
       }
-      return { hash, revoked: false };
-    },
-  };
+      return { hash, revoked: false as const };
+    }),
+  } as unknown as DeDiClientLike;
 }
 
-export function createMockResolver(did: string, publicKeyJwk: JWK): DIDResolver {
-  const verificationMethodId = `${did}#key-1`;
+export function createMockResolver(
+  did: string,
+  publicKeyJwk: JWK,
+  verificationMethodIdOverride?: string,
+): DIDResolver {
+  const verificationMethodId = verificationMethodIdOverride ?? `${did}#key-0`;
   const vm: VerificationMethod = {
     id: verificationMethodId,
     type: "JsonWebKey",
@@ -76,7 +84,10 @@ export function createMockResolver(did: string, publicKeyJwk: JWK): DIDResolver 
       }
       return {
         didDocument: {
-          "@context": "https://www.w3.org/ns/did/v1",
+          "@context": [
+            "https://www.w3.org/ns/did/v1",
+            "https://w3id.org/security/suites/jws-2020/v1",
+          ],
           id: did,
           verificationMethod: [vm],
           assertionMethod: [verificationMethodId],
