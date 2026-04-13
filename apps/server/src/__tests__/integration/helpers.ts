@@ -1,11 +1,9 @@
+import { vi } from "vitest";
 import type { Hono } from "hono";
-import type {
-  DIDResolver,
-  DIDResolutionResult,
-  DIDDocument,
-  VerificationMethod,
-  JWK,
-} from "@opencred/did";
+import type { VerifierConfig } from "@opencred/verification";
+import type { DIDResolver, DIDResolutionResult, DIDDocument, VerificationMethod, JWK } from "@opencred/did";
+
+type DeDiClientLike = NonNullable<VerifierConfig["dediClient"]>;
 
 export {
   generateTestKey,
@@ -20,40 +18,57 @@ export async function issueViaApp(
   app: Hono,
   body: Record<string, unknown>,
   apiKey?: string,
-): Promise<{ status: number; body: Record<string, unknown> }> {
+): Promise<Response> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) {
     headers["Authorization"] = `Bearer ${apiKey}`;
   }
-  const res = await app.request("/v1/credentials/issue", {
+  return app.request("/v1/credentials/issue", {
     method: "POST",
     headers,
     body: JSON.stringify(body),
   });
-  return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
 export async function verifyViaApp(
   app: Hono,
   credential: unknown,
   apiKey?: string,
-): Promise<{ status: number; body: Record<string, unknown> }> {
+): Promise<Response> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) {
     headers["Authorization"] = `Bearer ${apiKey}`;
   }
-  const res = await app.request("/v1/credentials/verify", {
+  const credentialStr = typeof credential === "string" ? credential : JSON.stringify(credential);
+  return app.request("/v1/credentials/verify", {
     method: "POST",
     headers,
-    body: JSON.stringify({ credential }),
+    body: JSON.stringify({ credential: credentialStr }),
   });
-  return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
-export function createMockResolver(did: string, publicKeyJwk: JWK): DIDResolver {
-  const vmId = `${did}#key-0`;
-  const verificationMethod: VerificationMethod = {
-    id: vmId,
+export function createMockDediClient(
+  revocationStore: Map<string, boolean>,
+): DeDiClientLike {
+  return {
+    queryRevocationHash: vi.fn(async (hash: string) => {
+      const revoked = revocationStore.get(hash) ?? false;
+      if (revoked) {
+        return { hash, revoked: true as const, revokedAt: new Date().toISOString() };
+      }
+      return { hash, revoked: false as const };
+    }),
+  } as unknown as DeDiClientLike;
+}
+
+export function createMockResolver(
+  did: string,
+  publicKeyJwk: JWK,
+  verificationMethodIdOverride?: string,
+): DIDResolver {
+  const verificationMethodId = verificationMethodIdOverride ?? `${did}#key-0`;
+  const vm: VerificationMethod = {
+    id: verificationMethodId,
     type: "JsonWebKey",
     controller: did,
     publicKeyJwk,
@@ -69,24 +84,17 @@ export function createMockResolver(did: string, publicKeyJwk: JWK): DIDResolver 
       }
       return {
         didDocument: {
-          "@context": "https://www.w3.org/ns/did/v1",
+          "@context": [
+            "https://www.w3.org/ns/did/v1",
+            "https://w3id.org/security/suites/jws-2020/v1",
+          ],
           id: did,
-          verificationMethod: [verificationMethod],
-          assertionMethod: [vmId],
+          verificationMethod: [vm],
+          assertionMethod: [verificationMethodId],
         } as DIDDocument,
         didResolutionMetadata: {},
         didDocumentMetadata: {},
       };
     },
-  };
-}
-
-export function createMockDediClient(
-  store: Map<string, boolean>,
-): { checkRevocation: (hash: string) => Promise<{ revoked: boolean }> } {
-  return {
-    checkRevocation: async (hash: string) => ({
-      revoked: store.get(hash) ?? false,
-    }),
   };
 }
