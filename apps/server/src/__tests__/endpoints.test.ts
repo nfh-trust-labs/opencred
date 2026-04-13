@@ -237,7 +237,7 @@ describe("POST /credentials/verify", () => {
 
     const { compressCredentialForQr } = await import("../packaging/qr-generator.js");
     const compressed = compressCredentialForQr(
-      issued.credential as Parameters<typeof compressCredentialForQr>[0],
+      issued.credential as unknown as Parameters<typeof compressCredentialForQr>[0],
     );
 
     const verifyRes = await app.request("/credentials/verify", {

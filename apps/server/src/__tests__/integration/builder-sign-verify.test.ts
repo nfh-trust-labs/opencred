@@ -41,7 +41,7 @@ describe("CredentialBuilder -> sign -> verify (package-level)", () => {
       created: "2026-01-01T00:00:00Z",
     });
 
-    const resolver = createMockResolver(ISSUER_DID, publicKeyJwk);
+    const resolver = createMockResolver(ISSUER_DID, publicKeyJwk, VM_ID);
     const result = await verifyCredential(
       signed as unknown as Record<string, unknown>,
       { didResolver: resolver },
@@ -64,7 +64,7 @@ describe("CredentialBuilder -> sign -> verify (package-level)", () => {
     expect(typeof jwt).toBe("string");
     expect(jwt.split(".")).toHaveLength(3);
 
-    const resolver = createMockResolver(ISSUER_DID, publicKeyJwk);
+    const resolver = createMockResolver(ISSUER_DID, publicKeyJwk, VM_ID);
     const result = await verifyCredential(jwt, { didResolver: resolver });
 
     expect(result.code).toBe("VALID");
@@ -83,7 +83,7 @@ describe("CredentialBuilder -> sign -> verify (package-level)", () => {
     expect(typeof sdJwt).toBe("string");
     expect(sdJwt).toContain("~");
 
-    const resolver = createMockResolver(ISSUER_DID, publicKeyJwk);
+    const resolver = createMockResolver(ISSUER_DID, publicKeyJwk, VM_ID);
     const result = await verifyCredential(sdJwt, { didResolver: resolver });
 
     expect(result.code).toBe("VALID");
@@ -103,7 +103,7 @@ describe("CredentialBuilder -> sign -> verify (package-level)", () => {
       credentialSubject: { ...signed.credentialSubject, name: "Mallory" },
     };
 
-    const resolver = createMockResolver(ISSUER_DID, publicKeyJwk);
+    const resolver = createMockResolver(ISSUER_DID, publicKeyJwk, VM_ID);
     const result = await verifyCredential(
       tampered as unknown as Record<string, unknown>,
       { didResolver: resolver },
