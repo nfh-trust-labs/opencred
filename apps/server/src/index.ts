@@ -28,6 +28,8 @@ import { createRegistryWithUpdates } from "@opencred/schema-engine";
 import { CscaTrustStore } from "@opencred/verification";
 import { setTrustStore } from "./trust-store.js";
 import { setSchemaRegistry } from "./schema-registry-singleton.js";
+import { createDeDiClientFromConfig } from "./dedi-factory.js";
+import { setDeDiClient } from "./dedi-singleton.js";
 import { health } from "./routes/health.js";
 import { schemas } from "./routes/schemas.js";
 import { credentials } from "./routes/credentials.js";
@@ -151,6 +153,30 @@ if (config.OPENCRED_CSCA_TRUST_STORE_PATH) {
   logger.warn(
     "OPENCRED_CSCA_TRUST_STORE_PATH is not set — DSC-backed credentials will fail X.509 chain validation",
   );
+}
+
+// ---------------------------------------------------------------------------
+// DeDi Client (optional)
+// ---------------------------------------------------------------------------
+// Initialise the DeDi client once at startup from OPENCRED_DEDI_* env vars.
+// When unconfigured, the server functions without DeDi — revocation checks
+// are skipped during verification.
+
+const dediClient = createDeDiClientFromConfig(config, logger);
+if (dediClient) {
+  setDeDiClient(dediClient);
+  await dediClient.ensureRegistries(config.OPENCRED_DEDI_NAMESPACE!).catch((err: unknown) => {
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "DeDi registry bootstrap failed — continuing without registry pre-creation",
+    );
+  });
+  logger.info(
+    { baseUrl: config.OPENCRED_DEDI_BASE_URL, namespace: config.OPENCRED_DEDI_NAMESPACE },
+    "DeDi client initialized",
+  );
+} else {
+  logger.info("DeDi not configured — revocation checks disabled");
 }
 
 // ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@
     "@hono/node-server": "^1.19.13",
     "@mosip/pixelpass": "^0.2.0",
     "@opencred/crypto": "workspace:*",
+    "@opencred/dedi-client": "workspace:*",
     "@opencred/did": "workspace:*",
     "@opencred/schema-engine": "workspace:*",
     "@opencred/shared": "workspace:*",

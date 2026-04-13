@@ -476,6 +476,7 @@ credentials.post("/credentials/verify", async (c) => {
     await import("@opencred/did");
   const { verifyCredential } = await import("@opencred/verification");
   const { getTrustStore } = await import("../trust-store.js");
+  const { getDeDiClient } = await import("../dedi-singleton.js");
 
   const compositeResolver = new CompositeDIDResolver(
     new Map([
@@ -492,9 +493,11 @@ credentials.post("/credentials/verify", async (c) => {
   const trustStore = getTrustStore();
   const trustAnchors = trustStore ? trustStore.toPemArray() : undefined;
 
+  const dediClient = getDeDiClient();
   const verificationResult = await verifyCredential(credential, {
     didResolver: compositeResolver,
     trustAnchors,
+    dediClient: dediClient ?? undefined,
   });
 
   // SECURITY: Do not leak `detail` strings or the name of the first failed

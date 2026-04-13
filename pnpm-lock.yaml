@@ -205,6 +205,9 @@ importers:
       '@opencred/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
+      '@opencred/dedi-client':
+        specifier: workspace:*
+        version: link:../../packages/dedi-client
       '@opencred/did':
         specifier: workspace:*
         version: link:../../packages/did

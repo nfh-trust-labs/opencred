@@ -11,6 +11,7 @@ import { ZodError } from "zod";
 
 import { loadConfig, resetConfig } from "../config.js";
 import { createLogger, resetLogger } from "../logger.js";
+import { resetDeDiClient } from "../dedi-singleton.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { health } from "../routes/health.js";
@@ -104,6 +105,7 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
   // Reset singletons
   resetConfig();
   resetLogger();
+  resetDeDiClient();
 
   // Wipe any prior auth-related env vars so previous tests don't bleed in.
   delete process.env.OPENCRED_API_KEY;
