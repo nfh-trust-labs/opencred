@@ -11,6 +11,9 @@
 
 import ElectronStore from "electron-store";
 import * as fs from "node:fs";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("store");
 
 /** A record of a previously issued credential (stored locally). */
 export interface CredentialHistoryEntry {
@@ -199,8 +202,13 @@ export function restrictStoreFilePermissions(): void {
     const storePath = store.path;
     // 0o600 = owner read + write only (no group, no other)
     fs.chmodSync(storePath, 0o600);
-  } catch {
+  } catch (err: unknown) {
     // Best-effort: on Windows or if the file does not yet exist, chmod may
-    // fail silently. This is acceptable — the mitigation is documented.
+    // fail. Log a warning so the issue is visible in logs.
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn("Failed to restrict store file permissions", {
+      path: store.path,
+      error: message,
+    });
   }
 }
