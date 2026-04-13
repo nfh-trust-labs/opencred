@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 import type { Hono } from "hono";
 import type { VerifierConfig } from "@opencred/verification";
-import type { DIDResolver, DIDResolutionResult, DIDDocument, JWK } from "@opencred/did";
+import type { DIDResolver, DIDResolutionResult, DIDDocument, VerificationMethod, JWK } from "@opencred/did";
 
 type DeDiClientLike = NonNullable<VerifierConfig["dediClient"]>;
 
@@ -32,17 +32,18 @@ export async function issueViaApp(
 
 export async function verifyViaApp(
   app: Hono,
-  credential: string,
+  credential: unknown,
   apiKey?: string,
 ): Promise<Response> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) {
     headers["Authorization"] = `Bearer ${apiKey}`;
   }
+  const credentialStr = typeof credential === "string" ? credential : JSON.stringify(credential);
   return app.request("/v1/credentials/verify", {
     method: "POST",
     headers,
-    body: JSON.stringify({ credential }),
+    body: JSON.stringify({ credential: credentialStr }),
   });
 }
 
@@ -66,6 +67,12 @@ export function createMockResolver(
   verificationMethodIdOverride?: string,
 ): DIDResolver {
   const verificationMethodId = verificationMethodIdOverride ?? `${did}#key-0`;
+  const vm: VerificationMethod = {
+    id: verificationMethodId,
+    type: "JsonWebKey",
+    controller: did,
+    publicKeyJwk,
+  };
   return {
     resolve: async (inputDid: string): Promise<DIDResolutionResult> => {
       if (inputDid !== did) {
@@ -82,14 +89,7 @@ export function createMockResolver(
             "https://w3id.org/security/suites/jws-2020/v1",
           ],
           id: did,
-          verificationMethod: [
-            {
-              id: verificationMethodId,
-              type: "JsonWebKey",
-              controller: did,
-              publicKeyJwk,
-            },
-          ],
+          verificationMethod: [vm],
           assertionMethod: [verificationMethodId],
         } as DIDDocument,
         didResolutionMetadata: {},
