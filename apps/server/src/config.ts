@@ -106,6 +106,29 @@ const configSchema = z.object({
 
   /** Local directory for caching updated schemas between restarts. */
   OPENCRED_SCHEMA_CACHE_DIR: z.string().optional(),
+
+  // --- DeDi integration (optional) ---
+
+  /** Base URL for the DeDi instance (e.g. https://dedi.example.com). When unset, DeDi is disabled. */
+  OPENCRED_DEDI_BASE_URL: z.string().url().optional(),
+
+  /** Authentication type for DeDi: api-key or bearer. Required when OPENCRED_DEDI_BASE_URL is set. */
+  OPENCRED_DEDI_AUTH_TYPE: z.enum(["api-key", "bearer"]).optional(),
+
+  /** API key for DeDi authentication (required when OPENCRED_DEDI_AUTH_TYPE=api-key). */
+  OPENCRED_DEDI_API_KEY: z.string().optional(),
+
+  /** Email for DeDi bearer authentication (required when OPENCRED_DEDI_AUTH_TYPE=bearer). */
+  OPENCRED_DEDI_EMAIL: z.string().email().optional(),
+
+  /** Password for DeDi bearer authentication (required when OPENCRED_DEDI_AUTH_TYPE=bearer). */
+  OPENCRED_DEDI_PASSWORD: z.string().optional(),
+
+  /** Default DeDi namespace. Required when OPENCRED_DEDI_BASE_URL is set. */
+  OPENCRED_DEDI_NAMESPACE: z.string().optional(),
+
+  /** DeDi request timeout in milliseconds (default: 10000). */
+  OPENCRED_DEDI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
 });
 
 export type ServerConfig = z.infer<typeof configSchema>;
@@ -179,6 +202,41 @@ export function loadConfig(): ServerConfig {
         "OPENCRED_DEV_MODE_NO_AUTH=true to disable authentication; this is REFUSED " +
         "when NODE_ENV=production.",
     );
+  }
+
+  // --- DeDi cross-field validation ---
+  // When DeDi is enabled (BASE_URL set), auth type and namespace are required.
+  // When auth type is api-key, the DeDi API key is required.
+  // When auth type is bearer, email and password are required.
+  if (parsed.OPENCRED_DEDI_BASE_URL) {
+    if (!parsed.OPENCRED_DEDI_AUTH_TYPE) {
+      throw new ConfigError(
+        "OPENCRED_DEDI_AUTH_TYPE is required when OPENCRED_DEDI_BASE_URL is set. " +
+          "Set OPENCRED_DEDI_AUTH_TYPE to 'api-key' or 'bearer'.",
+      );
+    }
+    if (!parsed.OPENCRED_DEDI_NAMESPACE) {
+      throw new ConfigError(
+        "OPENCRED_DEDI_NAMESPACE is required when OPENCRED_DEDI_BASE_URL is set.",
+      );
+    }
+    if (parsed.OPENCRED_DEDI_AUTH_TYPE === "api-key" && !parsed.OPENCRED_DEDI_API_KEY) {
+      throw new ConfigError(
+        "OPENCRED_DEDI_API_KEY is required when OPENCRED_DEDI_AUTH_TYPE=api-key.",
+      );
+    }
+    if (parsed.OPENCRED_DEDI_AUTH_TYPE === "bearer") {
+      if (!parsed.OPENCRED_DEDI_EMAIL) {
+        throw new ConfigError(
+          "OPENCRED_DEDI_EMAIL is required when OPENCRED_DEDI_AUTH_TYPE=bearer.",
+        );
+      }
+      if (!parsed.OPENCRED_DEDI_PASSWORD) {
+        throw new ConfigError(
+          "OPENCRED_DEDI_PASSWORD is required when OPENCRED_DEDI_AUTH_TYPE=bearer.",
+        );
+      }
+    }
   }
 
   cachedConfig = parsed;

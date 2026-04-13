@@ -50,6 +50,12 @@ export const batchJobsTotal = new Counter({
   registers: [registry],
 });
 
+export const revocationsPublishedTotal = new Counter({
+  name: "opencred_revocations_published_total",
+  help: "Total revocation hashes published to DeDi",
+  registers: [registry],
+});
+
 export function getMetricsRegistry(): Registry {
   return registry;
 }

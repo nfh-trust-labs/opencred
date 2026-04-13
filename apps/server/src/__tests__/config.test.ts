@@ -228,3 +228,83 @@ describe("Config — auth fail-closed invariant (issue #312)", () => {
     expect(() => loadConfig()).toThrow(/mutually exclusive/);
   });
 });
+
+describe("Config — DeDi cross-field validation", () => {
+  it("accepts config when OPENCRED_DEDI_BASE_URL is not set", () => {
+    expect(() => loadConfig()).not.toThrow();
+  });
+
+  it("requires OPENCRED_DEDI_AUTH_TYPE when OPENCRED_DEDI_BASE_URL is set", () => {
+    process.env.OPENCRED_DEDI_BASE_URL = "https://dedi.example.com";
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/OPENCRED_DEDI_AUTH_TYPE is required/);
+  });
+
+  it("requires OPENCRED_DEDI_NAMESPACE when OPENCRED_DEDI_BASE_URL is set", () => {
+    process.env.OPENCRED_DEDI_BASE_URL = "https://dedi.example.com";
+    process.env.OPENCRED_DEDI_AUTH_TYPE = "api-key";
+    process.env.OPENCRED_DEDI_API_KEY = "some-key";
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/OPENCRED_DEDI_NAMESPACE is required/);
+  });
+
+  it("requires OPENCRED_DEDI_API_KEY when auth type is api-key", () => {
+    process.env.OPENCRED_DEDI_BASE_URL = "https://dedi.example.com";
+    process.env.OPENCRED_DEDI_AUTH_TYPE = "api-key";
+    process.env.OPENCRED_DEDI_NAMESPACE = "test-ns";
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/OPENCRED_DEDI_API_KEY is required/);
+  });
+
+  it("requires OPENCRED_DEDI_EMAIL when auth type is bearer", () => {
+    process.env.OPENCRED_DEDI_BASE_URL = "https://dedi.example.com";
+    process.env.OPENCRED_DEDI_AUTH_TYPE = "bearer";
+    process.env.OPENCRED_DEDI_NAMESPACE = "test-ns";
+    process.env.OPENCRED_DEDI_PASSWORD = "pw";
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/OPENCRED_DEDI_EMAIL is required/);
+  });
+
+  it("requires OPENCRED_DEDI_PASSWORD when auth type is bearer", () => {
+    process.env.OPENCRED_DEDI_BASE_URL = "https://dedi.example.com";
+    process.env.OPENCRED_DEDI_AUTH_TYPE = "bearer";
+    process.env.OPENCRED_DEDI_NAMESPACE = "test-ns";
+    process.env.OPENCRED_DEDI_EMAIL = "user@example.com";
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/OPENCRED_DEDI_PASSWORD is required/);
+  });
+
+  it("accepts valid DeDi config with api-key auth", () => {
+    process.env.OPENCRED_DEDI_BASE_URL = "https://dedi.example.com";
+    process.env.OPENCRED_DEDI_AUTH_TYPE = "api-key";
+    process.env.OPENCRED_DEDI_API_KEY = "my-dedi-key";
+    process.env.OPENCRED_DEDI_NAMESPACE = "test-ns";
+    const config = loadConfig();
+    expect(config.OPENCRED_DEDI_BASE_URL).toBe("https://dedi.example.com");
+    expect(config.OPENCRED_DEDI_AUTH_TYPE).toBe("api-key");
+    expect(config.OPENCRED_DEDI_NAMESPACE).toBe("test-ns");
+    expect(config.OPENCRED_DEDI_TIMEOUT_MS).toBe(10000);
+  });
+
+  it("accepts valid DeDi config with bearer auth", () => {
+    process.env.OPENCRED_DEDI_BASE_URL = "https://dedi.example.com";
+    process.env.OPENCRED_DEDI_AUTH_TYPE = "bearer";
+    process.env.OPENCRED_DEDI_EMAIL = "user@example.com";
+    process.env.OPENCRED_DEDI_PASSWORD = "test-pw";
+    process.env.OPENCRED_DEDI_NAMESPACE = "test-ns";
+    const config = loadConfig();
+    expect(config.OPENCRED_DEDI_AUTH_TYPE).toBe("bearer");
+    expect(config.OPENCRED_DEDI_EMAIL).toBe("user@example.com");
+  });
+
+  it("uses default timeout of 10000ms", () => {
+    const config = loadConfig();
+    expect(config.OPENCRED_DEDI_TIMEOUT_MS).toBe(10000);
+  });
+
+  it("accepts custom OPENCRED_DEDI_TIMEOUT_MS", () => {
+    process.env.OPENCRED_DEDI_TIMEOUT_MS = "5000";
+    const config = loadConfig();
+    expect(config.OPENCRED_DEDI_TIMEOUT_MS).toBe(5000);
+  });
+});

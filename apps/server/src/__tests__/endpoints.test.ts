@@ -10,6 +10,7 @@ import {
   FUNCTIONAL_IDENTITY_SUBJECT,
 } from "./helpers.js";
 import { setActiveSigner } from "../signing/key-manager.js";
+import { setDeDiClient, resetDeDiClient } from "../dedi-singleton.js";
 import { sanitizeChecksForServerResponse, buildVerifyResponseBody } from "../routes/credentials.js";
 import type { Hono } from "hono";
 import type { TestKeyPair } from "./helpers.js";
@@ -55,6 +56,22 @@ describe("GET /health", () => {
     expect(body.ready).toBe(false);
     expect(body.signingKeyLoaded).toBe(false);
     expect(body).toHaveProperty("timestamp");
+  });
+
+  it("returns dediConfigured=false when DeDi client is not set", async () => {
+    resetDeDiClient();
+    const res = await app.request("/health");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.dediConfigured).toBe(false);
+  });
+
+  it("returns dediConfigured=true when DeDi client is set", async () => {
+    const mockClient = { fake: true } as never;
+    setDeDiClient(mockClient);
+    const res = await app.request("/health");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.dediConfigured).toBe(true);
+    resetDeDiClient();
   });
 });
 
@@ -523,6 +540,139 @@ describe("POST /credentials/revocation-hash", () => {
     expect(body).toHaveProperty("hash");
     expect(typeof body.hash).toBe("string");
     expect((body.hash as string).length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /credentials/revoke
+// ---------------------------------------------------------------------------
+
+describe("POST /credentials/revoke", () => {
+  it("returns 503 when DeDi is not configured", async () => {
+    resetDeDiClient();
+    const res = await app.request("/credentials/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hash: "a".repeat(64) }),
+    });
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("DEDI_NOT_CONFIGURED");
+  });
+
+  it("returns 400 when neither credential nor hash is provided", async () => {
+    const mockClient = {
+      publishRevocationHash: async () => ({ hash: "x", revoked: true as const, revokedAt: new Date().toISOString() }),
+    } as never;
+    setDeDiClient(mockClient);
+
+    const res = await app.request("/credentials/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+    resetDeDiClient();
+  });
+
+  it("returns 400 when hash is invalid (wrong length)", async () => {
+    const mockClient = {
+      publishRevocationHash: async () => ({ hash: "x", revoked: true as const, revokedAt: new Date().toISOString() }),
+    } as never;
+    setDeDiClient(mockClient);
+
+    const res = await app.request("/credentials/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hash: "tooshort" }),
+    });
+    expect(res.status).toBe(400);
+    resetDeDiClient();
+  });
+
+  it("revokes by hash when DeDi is configured", async () => {
+    const revokedAt = new Date().toISOString();
+    const mockClient = {
+      publishRevocationHash: async (hash: string) => ({ hash, revoked: true as const, revokedAt }),
+    } as never;
+    setDeDiClient(mockClient);
+
+    const hash = "a".repeat(64);
+    const res = await app.request("/credentials/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hash }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hash: string; revoked: boolean; revokedAt: string };
+    expect(body.hash).toBe(hash);
+    expect(body.revoked).toBe(true);
+    expect(body.revokedAt).toBe(revokedAt);
+    resetDeDiClient();
+  });
+
+  it("revokes by credential (computes hash) when DeDi is configured", async () => {
+    const revokedAt = new Date().toISOString();
+    const mockClient = {
+      publishRevocationHash: async (hash: string) => ({ hash, revoked: true as const, revokedAt }),
+    } as never;
+    setDeDiClient(mockClient);
+
+    const res = await app.request("/credentials/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        credential: {
+          "@context": ["https://www.w3.org/ns/credentials/v2"],
+          type: ["VerifiableCredential"],
+          issuer: "did:key:test",
+          credentialSubject: FUNCTIONAL_IDENTITY_SUBJECT,
+        },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hash: string; revoked: boolean };
+    expect(body.revoked).toBe(true);
+    expect(typeof body.hash).toBe("string");
+    expect(body.hash.length).toBe(64);
+    resetDeDiClient();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /credentials/revocation-status
+// ---------------------------------------------------------------------------
+
+describe("POST /credentials/revocation-status", () => {
+  it("returns 503 when DeDi is not configured", async () => {
+    resetDeDiClient();
+    const res = await app.request("/credentials/revocation-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hash: "b".repeat(64) }),
+    });
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("DEDI_NOT_CONFIGURED");
+  });
+
+  it("queries revocation status when DeDi is configured", async () => {
+    const mockClient = {
+      queryRevocationHash: async (hash: string) => ({ hash, revoked: false as const }),
+    } as never;
+    setDeDiClient(mockClient);
+
+    const hash = "c".repeat(64);
+    const res = await app.request("/credentials/revocation-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hash }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hash: string; revoked: boolean };
+    expect(body.hash).toBe(hash);
+    expect(body.revoked).toBe(false);
+    resetDeDiClient();
   });
 });
 

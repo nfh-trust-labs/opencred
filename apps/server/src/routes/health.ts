@@ -13,6 +13,7 @@
 
 import { Hono } from "hono";
 import { getActiveSigner } from "../signing/key-manager.js";
+import { getDeDiClient } from "../dedi-singleton.js";
 
 const health = new Hono();
 
@@ -24,6 +25,7 @@ health.get("/health", (c) => {
     status: "ok",
     ready: signingKeyLoaded,
     signingKeyLoaded,
+    dediConfigured: getDeDiClient() !== null,
     timestamp: new Date().toISOString(),
   };
 
