@@ -145,8 +145,10 @@ export function initializePkcs11(libraryPath: string): Pkcs11Types.PKCS11 {
 export function finalizePkcs11(pkcs11: Pkcs11Types.PKCS11): void {
   try {
     pkcs11.C_Finalize();
-  } catch {
-    // Ignore finalize errors during cleanup
+  } catch (error) {
+    console.warn(
+      `[PKCS#11] C_Finalize failed during cleanup: ${error instanceof Error ? error.message : "unknown error"}`,
+    );
   }
 }
 
@@ -177,8 +179,10 @@ export function listSlots(pkcs11: Pkcs11Types.PKCS11): Pkcs11SlotInfo[] {
           const tokenInfo = pkcs11.C_GetTokenInfo(slots[i]);
           info.tokenLabel = tokenInfo.label.trim();
           info.tokenManufacturer = tokenInfo.manufacturerID.trim();
-        } catch {
-          // Token info unavailable — still report the slot
+        } catch (error) {
+          console.warn(
+            `[PKCS#11] Failed to read token info for slot ${i}: ${error instanceof Error ? error.message : "unknown error"}`,
+          );
         }
       }
 
@@ -232,8 +236,10 @@ export function openSession(
     // Close the session if login fails
     try {
       pkcs11.C_CloseSession(handle);
-    } catch {
-      // Ignore close errors during error handling
+    } catch (closeError) {
+      console.warn(
+        `[PKCS#11] Failed to close session after login failure: ${closeError instanceof Error ? closeError.message : "unknown error"}`,
+      );
     }
     throw new CryptoError(
       `PKCS#11 login failed (wrong PIN or token error): ${error instanceof Error ? error.message : "unknown error"}`,
@@ -330,8 +336,10 @@ export function listKeys(session: Pkcs11Session): Pkcs11KeyInfo[] {
           });
         }
         // Unknown key types are silently skipped
-      } catch {
-        // Skip keys we can't read
+      } catch (error) {
+        console.warn(
+          `[PKCS#11] Skipping unreadable key during enumeration: ${error instanceof Error ? error.message : "unknown error"}`,
+        );
       }
 
       obj = pkcs11.C_FindObjects(handle);
@@ -341,8 +349,10 @@ export function listKeys(session: Pkcs11Session): Pkcs11KeyInfo[] {
   } catch (error) {
     try {
       pkcs11.C_FindObjectsFinal(handle);
-    } catch {
-      // Ignore
+    } catch (finalizeError) {
+      console.warn(
+        `[PKCS#11] C_FindObjectsFinal failed during key enumeration cleanup: ${finalizeError instanceof Error ? finalizeError.message : "unknown error"}`,
+      );
     }
     throw new CryptoError(
       `Failed to enumerate keys: ${error instanceof Error ? error.message : "unknown error"}`,
@@ -387,8 +397,10 @@ export function listCertificates(session: Pkcs11Session): Pkcs11CertInfo[] {
         if (derValue) {
           certs.push({ label, id, derValue });
         }
-      } catch {
-        // Skip certs we can't read
+      } catch (error) {
+        console.warn(
+          `[PKCS#11] Skipping unreadable certificate during enumeration: ${error instanceof Error ? error.message : "unknown error"}`,
+        );
       }
 
       obj = pkcs11.C_FindObjects(handle);
@@ -398,8 +410,10 @@ export function listCertificates(session: Pkcs11Session): Pkcs11CertInfo[] {
   } catch (error) {
     try {
       pkcs11.C_FindObjectsFinal(handle);
-    } catch {
-      // Ignore
+    } catch (finalizeError) {
+      console.warn(
+        `[PKCS#11] C_FindObjectsFinal failed during certificate enumeration cleanup: ${finalizeError instanceof Error ? finalizeError.message : "unknown error"}`,
+      );
     }
     throw new CryptoError(
       `Failed to enumerate certificates: ${error instanceof Error ? error.message : "unknown error"}`,
@@ -559,8 +573,10 @@ export function findPrivateKey(session: Pkcs11Session, keyIdHex: string): Buffer
     if (error instanceof CryptoError) throw error;
     try {
       pkcs11.C_FindObjectsFinal(handle);
-    } catch {
-      // Ignore
+    } catch (finalizeError) {
+      console.warn(
+        `[PKCS#11] C_FindObjectsFinal failed during private key lookup cleanup: ${finalizeError instanceof Error ? finalizeError.message : "unknown error"}`,
+      );
     }
     throw new CryptoError(
       `Failed to find private key: ${error instanceof Error ? error.message : "unknown error"}`,
@@ -578,14 +594,18 @@ export function closeSession(session: Pkcs11Session): void {
     if (session.loggedIn) {
       try {
         session.pkcs11.C_Logout(session.handle);
-      } catch {
-        // Ignore logout errors
+      } catch (error) {
+        console.warn(
+          `[PKCS#11] C_Logout failed during session close: ${error instanceof Error ? error.message : "unknown error"}`,
+        );
       }
       session.loggedIn = false;
     }
     session.pkcs11.C_CloseSession(session.handle);
-  } catch {
-    // Session may already be closed — ignore
+  } catch (error) {
+    console.warn(
+      `[PKCS#11] C_CloseSession failed (session may already be closed): ${error instanceof Error ? error.message : "unknown error"}`,
+    );
   }
 }
 
