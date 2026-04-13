@@ -91,6 +91,23 @@ function assertDelegationShape(detail: unknown): asserts detail is DelegationRec
     );
   }
   const cert = rec["certificate"] as Record<string, unknown>;
+  // Validate the certificate type field — per W3C VC spec, type must be an
+  // array that includes "VerifiableCredential".
+  if ("type" in cert) {
+    const certType = cert["type"];
+    if (!Array.isArray(certType)) {
+      throw new DeDiClientError(
+        "Delegation certificate field 'type' must be an array (per W3C VC spec)",
+        502,
+      );
+    }
+    if (!certType.includes("VerifiableCredential")) {
+      throw new DeDiClientError(
+        "Delegation certificate type array must include 'VerifiableCredential'",
+        502,
+      );
+    }
+  }
   // If the certificate has a proof field, validate its structure
   if ("proof" in cert) {
     if (cert["proof"] == null || typeof cert["proof"] !== "object" || Array.isArray(cert["proof"])) {

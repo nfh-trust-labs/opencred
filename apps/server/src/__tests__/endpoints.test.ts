@@ -33,13 +33,27 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("GET /health", () => {
-  it("returns 200 with status ok", async () => {
+  it("returns 200 with ready=true when signing key is loaded", async () => {
     const res = await app.request("/health");
     expect(res.status).toBe(200);
 
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.status).toBe("ok");
+    expect(body.ready).toBe(true);
     expect(body.signingKeyLoaded).toBe(true);
+    expect(body).toHaveProperty("timestamp");
+  });
+
+  it("returns 503 with ready=false when signing key is not loaded", async () => {
+    setActiveSigner(null);
+
+    const res = await app.request("/health");
+    expect(res.status).toBe(503);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.status).toBe("ok");
+    expect(body.ready).toBe(false);
+    expect(body.signingKeyLoaded).toBe(false);
     expect(body).toHaveProperty("timestamp");
   });
 });
