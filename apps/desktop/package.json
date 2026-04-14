@@ -1,6 +1,6 @@
 {
   "name": "@opencred/desktop",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "OpenCred Desktop \u2014 offline credential issuance and signing",
