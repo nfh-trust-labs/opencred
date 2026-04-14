@@ -40,21 +40,17 @@ Interactive credential issuance and verification on macOS, Windows, and Linux.
 * [Verifying credentials](desktop/verifying-credentials.md)
 * [Settings and logging](desktop/settings-and-logging.md)
 
-### Docker Image (Operator Guide)
+### Docker Image
 
 Headless deployment for cloud, on-prem, and CI/CD pipelines. The Docker image runs in **your** infrastructure — no data is sent to OpenCred or NFH Trust Labs.
 
 * [Docker overview](docker/README.md)
 * [Deployment](docker/deployment.md) — `docker run`, Compose, environment variables, volumes
-* [API reference](docker/api-reference.md) — HTTP endpoints (final endpoint contract under #301)
+* [API reference](docker/api-reference.md) — HTTP endpoints
+* [CLI reference](docker/cli-reference.md) — `opencred` command-line tool
+* [Cloud HSM](docker/cloud-hsm.md) — AWS KMS, Azure Key Vault, GCP Cloud KMS
 * [Observability](docker/observability.md) — logging, health checks, metrics
-
-The `self-hosted/` directory provides a quick reference for the same content:
-
-* [Configuration reference](self-hosted/configuration.md)
-* [API reference](self-hosted/api-reference.md)
-* [CLI reference](self-hosted/cli-reference.md)
-* [Cloud HSM](self-hosted/cloud-hsm.md)
+* [OID4VCI](docker/oid4vci.md) — OpenID for Verifiable Credential Issuance (planned)
 
 ### Security Model
 

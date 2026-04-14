@@ -9,10 +9,6 @@ The `opencred` CLI provides command-line access to credential operations. It use
 cd apps/server
 pnpm build
 node dist/cli.js --help
-
-# Or install globally
-npm install -g @opencred/server
-opencred --help
 ```
 
 ## Commands
@@ -34,9 +30,12 @@ opencred issue \
 |--------|----------|---------|-------------|
 | `--schema <id>` | Yes | -- | Schema ID to validate against |
 | `--input <file>` | Yes | -- | JSON file with credential subject data |
-| `--key <path>` | Yes | -- | Path to signing key file (PEM, JWK, PFX) |
-| `--proof-format <fmt>` | No | `vc-jwt` | `vc-jwt`, `data-integrity`, `sd-jwt-vc` |
+| `--key <pem-path>` | Yes | -- | Path to signing key file (PEM, JWK, PFX) |
+| `--proof-format <format>` | No | `vc-jwt` | `vc-jwt`, `data-integrity`, `sd-jwt-vc` |
 | `--output <file>` | Yes | -- | Output file path |
+| `--primary-color <hex>` | No | -- | Primary branding color (e.g. `#1a56db`) |
+| `--logo <file>` | No | -- | Path to issuer logo image file (PNG/JPG/SVG) |
+| `--issuer-name <name>` | No | -- | Issuer display name (overrides DID in output) |
 
 The input JSON can contain top-level fields or a `credentialSubject` wrapper:
 
@@ -64,8 +63,8 @@ opencred verify --input credential.json
 | `--input <file>` | Yes | Path to the signed credential JSON |
 
 Output:
-- `VALID -- Credential signature verified successfully.` (exit code 0)
-- `INVALID -- <reason>` (exit code 1)
+- `VALID — Credential signature verified successfully.` (exit code 0)
+- `INVALID — <reason>` (exit code 1)
 
 Only `did:key` issuers are supported.
 
@@ -95,12 +94,25 @@ opencred batch \
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
 | `--schema <id>` | Yes | -- | Schema ID |
-| `--input <csv>` | Yes | -- | CSV file path |
-| `--key <path>` | Yes | -- | Signing key path |
+| `--input <csv-file>` | Yes | -- | CSV file path |
+| `--key <pem-path>` | Yes | -- | Signing key path |
 | `--output-dir <dir>` | Yes | -- | Output directory (created if missing) |
-| `--proof-format <fmt>` | No | `vc-jwt` | Proof format |
+| `--proof-format <format>` | No | `vc-jwt` | Proof format |
+| `--primary-color <hex>` | No | -- | Primary branding color (e.g. `#1a56db`) |
+| `--logo <file>` | No | -- | Path to issuer logo image file (PNG/JPG/SVG) |
+| `--issuer-name <name>` | No | -- | Issuer display name (overrides DID in output) |
 
 Output files are named `credential-<rowIndex>.json`. The command prints a summary and exits with code 1 if any rows failed.
+
+### opencred config validate
+
+Validate server configuration from environment variables without starting the server. Useful for CI/CD pre-flight checks.
+
+```bash
+opencred config validate
+```
+
+Loads and validates all `OPENCRED_*` environment variables via the Zod schema in `apps/server/src/config.ts`. On success, prints the resolved port, auth mode, and KMS provider. On failure, prints the validation error and exits with code 1.
 
 ## Exit Codes
 
