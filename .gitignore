@@ -14,3 +14,10 @@ coverage/
 test-results/
 playwright-report/
 blob-report/
+
+# Claude Code ephemeral state
+.claude/worktrees/
+.claude/settings.local.json
+
+# pnpm local store
+.pnpm-store/
