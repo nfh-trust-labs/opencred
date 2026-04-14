@@ -48,7 +48,7 @@
     "html5-qrcode": "^2.3.8"
   },
   "devDependencies": {
-    "@electron/rebuild": "^3.6.1",
+    "@electron/rebuild": "^3.7.2",
     "@electron/notarize": "^2.5.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",

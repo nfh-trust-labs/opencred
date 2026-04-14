@@ -28,13 +28,16 @@
       "protobufjs"
     ],
     "overrides": {
+      "@electron/rebuild@<3.7.2": "^3.7.2",
+      "cacache@<20": "^20.0.4",
       "cross-spawn@<7.0.5": "^7.0.6",
+      "make-fetch-happen@<15": "^15.0.0",
       "flatted@<3.4.2": "^3.4.2",
       "glob@<10.5.0": "^10.5.0",
       "minimatch@<3.1.5": "^3.1.5",
       "minimatch@<9.0.9 >=9.0.0": "^9.0.9",
       "node-forge@<1.4.0": "^1.4.0",
-      "node-gyp@<10": "^10.3.1",
+      "node-gyp@<12": "^12.2.0",
       "picomatch@<4.0.4": "^4.0.4",
       "undici@<6.24.1": "^6.24.1"
     }
