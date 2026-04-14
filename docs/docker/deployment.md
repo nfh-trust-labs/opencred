@@ -1,6 +1,6 @@
 # Deploying the OpenCred Docker Image
 
-This guide covers how to run the OpenCred Docker image in production. The image is built from `apps/server/Dockerfile` and ships as a single Hono HTTP service plus the `opencred` CLI.
+This guide covers how to run the OpenCred Docker image in production. The image is built from `apps/server/Dockerfile` and ships as a single Hono HTTP service.
 
 ## Prerequisites
 
@@ -18,9 +18,9 @@ docker build -f apps/server/Dockerfile -t opencred:latest .
 
 The build:
 
-1. Installs `pnpm` and resolves the workspace from `pnpm-lock.yaml` (`--frozen-lockfile`).
+1. Installs `pnpm` and resolves only the server's workspace dependencies (`--frozen-lockfile --filter @opencred/server...`).
 2. Builds all required `@opencred/*` workspace packages plus `@opencred/server`.
-3. Prunes dev dependencies (`pnpm prune --prod`).
+3. Re-installs with `--prod` to strip dev dependencies.
 4. Copies only the production output into a `node:20-alpine` runtime stage.
 5. Configures the container to run as the non-root `node` user.
 
@@ -42,7 +42,6 @@ docker run -d \
   --read-only \
   --tmpfs /tmp:noexec,nosuid,size=64m \
   --cap-drop ALL \
-  --cap-add NET_BIND_SERVICE \
   --security-opt no-new-privileges:true \
   opencred:latest
 ```
@@ -62,7 +61,7 @@ The compose file enables:
 * `read_only: true` filesystem with a tmpfs for `/tmp`
 * All capabilities dropped except `NET_BIND_SERVICE`
 * `no-new-privileges: true`
-* A health check that polls `/health` every 30s
+* A health check that polls `/v1/health` every 30s
 
 Mount your signing key by editing the `volumes:` block in `docker-compose.yml`:
 
@@ -81,7 +80,7 @@ Configuration is parsed by Zod at startup (`apps/server/src/config.ts`). Invalid
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `OPENCRED_PORT` | integer (1–65535) | `3100` | HTTP listen port |
+| `OPENCRED_PORT` | integer (1-65535) | `3100` | HTTP listen port |
 | `OPENCRED_API_KEY` | string | — | **REQUIRED** unless `OPENCRED_DEV_MODE_NO_AUTH=true`. Bearer token for API auth. The server refuses to start without it (fail-closed). |
 | `OPENCRED_DEV_MODE_NO_AUTH` | boolean | `false` | Opt-out of API-key auth for local development only. Mutually exclusive with `OPENCRED_API_KEY`. The server refuses to start with this set when `NODE_ENV=production`. |
 | `OPENCRED_LOG_LEVEL` | enum | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace` |
@@ -90,11 +89,11 @@ Configuration is parsed by Zod at startup (`apps/server/src/config.ts`). Invalid
 
 Used when `OPENCRED_KMS_PROVIDER` is `none` (the default).
 
-| Variable | Type | Description |
-|---|---|---|
-| `OPENCRED_KEY_PATH` | path | Absolute path to a PEM, JWK, PKCS#8 DER, or PFX file |
-| `OPENCRED_KEY_PASSWORD` | string | Password for PFX-encrypted files |
-| `OPENCRED_KEY_LABEL` | string | Human-readable label, defaults to `server-key` |
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `OPENCRED_KEY_PATH` | path | — | Absolute path to a PEM, JWK, PKCS#8 DER, or PFX file |
+| `OPENCRED_KEY_PASSWORD` | string | — | Password for PFX-encrypted files |
+| `OPENCRED_KEY_LABEL` | string | `server-key` | Human-readable label |
 
 ### Cloud HSM
 
@@ -108,7 +107,7 @@ Mutually exclusive with file-based signing. Set `OPENCRED_KMS_PROVIDER` and the 
 | `OPENCRED_AZURE_KEY_NAME` | string | provider = `azure` | Key name in the vault |
 | `OPENCRED_GCP_KMS_KEY_NAME` | string | provider = `gcp` | Resource name including version (`projects/.../cryptoKeyVersions/N`) |
 
-See the legacy [Cloud HSM guide](../self-hosted/cloud-hsm.md) for IAM/auth requirements per provider.
+See the [Cloud HSM guide](cloud-hsm.md) for IAM/auth requirements per provider.
 
 ### Batch and session
 
@@ -119,12 +118,36 @@ See the legacy [Cloud HSM guide](../self-hosted/cloud-hsm.md) for IAM/auth requi
 
 The session TTL governs how long batch results and packaged outputs survive in memory before being purged. The default is 4 hours, which matches [security invariant 3](../security/invariants.md#3-session-data-is-ephemeral).
 
+### Trust store
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `OPENCRED_CSCA_TRUST_STORE_PATH` | path | — | Directory of PEM-encoded CSCA root certificates for X.509 chain validation. Required for verifying DSC-backed credentials. Mount read-only. |
+
+### Schema updates
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `OPENCRED_SCHEMA_UPDATE_URL` | URL | — | HTTPS URL of the schema update manifest. If unset, schema updates are disabled. |
+| `OPENCRED_SCHEMA_CACHE_DIR` | path | — | Local directory for caching updated schemas between restarts. |
+
+### DeDi integration (optional)
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `OPENCRED_DEDI_BASE_URL` | URL | — | Base URL for the DeDi instance. When unset, DeDi is disabled. |
+| `OPENCRED_DEDI_AUTH_TYPE` | enum | — | `api-key` or `bearer`. Required when `OPENCRED_DEDI_BASE_URL` is set. |
+| `OPENCRED_DEDI_API_KEY` | string | — | DeDi API key (required when auth type is `api-key`). |
+| `OPENCRED_DEDI_EMAIL` | email | — | DeDi bearer email (required when auth type is `bearer`). |
+| `OPENCRED_DEDI_PASSWORD` | string | — | DeDi bearer password (required when auth type is `bearer`). |
+| `OPENCRED_DEDI_NAMESPACE` | string | — | Default DeDi namespace. Required when `OPENCRED_DEDI_BASE_URL` is set. |
+| `OPENCRED_DEDI_TIMEOUT_MS` | integer (ms) | `10000` | DeDi request timeout. Range: 1000-30000. |
+
 ## Key sources
 
 | Key source | Configure with | Notes |
 |---|---|---|
 | Software key file | `OPENCRED_KEY_PATH`, optional `OPENCRED_KEY_PASSWORD` | Mount the file read-only at runtime; never bake it into the image |
-| Hardware token (PKCS#11) | Mount the PKCS#11 library and configure via env (paths planned for #301) | Same `pkcs11js` bindings as the Desktop Client |
 | AWS KMS | `OPENCRED_KMS_PROVIDER=aws` + `OPENCRED_KMS_KEY_ARN` | Uses AWS SDK default credential chain |
 | Azure Key Vault | `OPENCRED_KMS_PROVIDER=azure` + URL/name | Uses `DefaultAzureCredential` |
 | GCP Cloud KMS | `OPENCRED_KMS_PROVIDER=gcp` + key name | Uses Application Default Credentials |
@@ -152,19 +175,21 @@ The compose file includes a built-in health check:
 
 ```yaml
 healthcheck:
-  test: ["CMD", "wget", "-qO-", "http://localhost:3100/health"]
+  test: ["CMD", "wget", "-qO-", "http://localhost:3100/v1/health"]
   interval: 30s
   timeout: 5s
   retries: 3
   start_period: 10s
 ```
 
-For Kubernetes, use the canonical probe block defined in [Observability → Probe configuration](observability.md#probe-configuration):
+The health endpoint returns `200` when the signing key is loaded and `503` when it is not. See [Observability → Health Checks](observability.md#health-checks).
+
+For Kubernetes:
 
 ```yaml
 livenessProbe:
   httpGet:
-    path: /health
+    path: /v1/health
     port: 3100
   initialDelaySeconds: 10
   periodSeconds: 30
@@ -173,7 +198,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /health
+    path: /v1/health
     port: 3100
   initialDelaySeconds: 5
   periodSeconds: 10
@@ -181,7 +206,7 @@ readinessProbe:
 
 ## Graceful shutdown
 
-`apps/server/src/index.ts` registers `SIGTERM` and `SIGINT` handlers that close the HTTP server cleanly. Send `SIGTERM` (the default for `docker stop`) and the process drains in-flight requests before exiting.
+`apps/server/src/index.ts` registers `SIGTERM` and `SIGINT` handlers that stop accepting new connections and wait for existing ones to close. Send `SIGTERM` (the default for `docker stop`) to initiate shutdown.
 
 ## Reverse proxy
 
@@ -206,6 +231,6 @@ The `docker-compose.yml` includes a commented-out nginx service block as a start
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Container exits immediately with config errors | Missing required env var, invalid value | Check the error output — Zod prints the offending field |
-| `/health` returns `signingKeyLoaded: false` | `OPENCRED_KEY_PATH` not set or file unreadable | Verify the file is mounted and readable by the `node` user |
+| `/v1/health` returns `503` with `signingKeyLoaded: false` | Key file not set, unreadable, or Cloud HSM misconfigured | Verify the file is mounted and readable by the `node` user, or check Cloud HSM credentials |
 | 401 on every request | `OPENCRED_API_KEY` is set but the request lacks `Authorization: Bearer <token>` | Add the header or unset the env var (only in dev) |
 | `Failed to fetch DID document` during verification | did:web target unreachable or resolves to a private IP | See [SSRF protection](../security/invariants.md#7-didweb-resolution-requires-ssrf-protection) |

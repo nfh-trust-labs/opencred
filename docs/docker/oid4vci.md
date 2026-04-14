@@ -22,4 +22,4 @@ The following endpoints are planned but **not yet available** in the current cod
 
 ## Current Alternative
 
-For credential issuance, use the existing `POST /v1/credentials/issue` endpoint. See the [API reference](../docker/api-reference.md) for details.
+For credential issuance, use the existing `POST /v1/credentials/issue` endpoint. See the [API reference](api-reference.md) for details.

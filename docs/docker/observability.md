@@ -1,28 +1,10 @@
 # Observability
 
-The OpenCred Docker image is designed to be observed by the same tools you already use for the rest of your stack: a log aggregator that ingests JSON from stdout, an HTTP health check, and (optionally) a metrics endpoint at the orchestrator level. There is no built-in dashboard, no telemetry sent home, and no third-party APM integration baked into the image.
+The OpenCred Docker image is designed to be observed by the same tools you already use for the rest of your stack: a log aggregator that ingests JSON from stdout, an HTTP health check, a Prometheus metrics endpoint, and opt-in OpenTelemetry tracing. There is no built-in dashboard, no telemetry sent home, and no third-party APM integration baked into the image.
 
 ## Logging
 
-The server uses [pino](https://getpino.io/) for structured logging. Logs are written to **stdout** as JSON, one event per line. The configuration lives in `apps/server/src/logger.ts`:
-
-```ts
-import pino from "pino";
-import { getConfig } from "./config.js";
-
-export function createLogger(): pino.Logger {
-  const config = getConfig();
-  return pino({
-    level: config.OPENCRED_LOG_LEVEL,
-    formatters: {
-      level(label) {
-        return { level: label };
-      },
-    },
-    timestamp: pino.stdTimeFunctions.isoTime,
-  });
-}
-```
+The server uses [pino](https://getpino.io/) for structured logging. Logs are written to **stdout** as JSON, one event per line. The configuration lives in `apps/server/src/logger.ts`.
 
 ### Log levels
 
@@ -33,7 +15,7 @@ Set with `OPENCRED_LOG_LEVEL`. Default `info`.
 | `fatal` | Process about to exit due to unrecoverable error |
 | `error` | Failed requests, signing failures, network errors |
 | `warn` | Recoverable but suspicious events |
-| `info` | Startup, shutdown, key loaded, successful requests (production default) |
+| `info` | Startup, shutdown, key loaded (production default) |
 | `debug` | Verbose request lifecycle for development |
 | `trace` | Per-step internal state — never use in production |
 
@@ -51,10 +33,8 @@ Set with `OPENCRED_LOG_LEVEL`. Default `info`.
 | Logged | Not logged |
 |---|---|
 | Key ID, fingerprint, algorithm | Private key bytes, signing buffers, JWK `d` field |
-| Request method, path, status, duration | Request body for `/credentials/issue` (contains the credential subject) |
-| Issuer DID | Holder PII unless explicitly required |
 | Cloud HSM provider, key ID | KMS auth credentials |
-| Error class name and sanitized message | Internal stack traces in production responses |
+| Error class name and sanitized message | Request bodies (may contain credential subject PII) |
 
 This is enforced by [security invariant 2 — never log key material](../security/invariants.md#2-never-log-key-material) and [invariant 5 — no secrets in error responses](../security/invariants.md#5-no-secrets-in-error-responses).
 
@@ -79,13 +59,15 @@ For Kubernetes, every node-local agent (Fluent Bit, Vector, Promtail, Datadog, e
 
 ## Health Checks
 
-The `/health` endpoint is the only built-in observability surface. It is unauthenticated (so probes can hit it without a token) and intentionally cheap.
+The `/v1/health` endpoint is unauthenticated so that container orchestrators can probe liveness without holding the API key.
 
 ```bash
-$ curl http://localhost:3100/health
+$ curl http://localhost:3100/v1/health
 {
   "status": "ok",
+  "ready": true,
   "signingKeyLoaded": true,
+  "dediConfigured": false,
   "timestamp": "2026-04-07T10:00:00.000Z"
 }
 ```
@@ -93,10 +75,12 @@ $ curl http://localhost:3100/health
 The handler is in `apps/server/src/routes/health.ts` and returns:
 
 * `status`: always `"ok"` if the process is running
+* `ready`: `true` when the signing key is loaded (the minimum requirement for issuing credentials)
 * `signingKeyLoaded`: `true` if a signer was successfully loaded at startup
+* `dediConfigured`: `true` if a DeDi client is configured for revocation
 * `timestamp`: current ISO-8601 timestamp
 
-If `signingKeyLoaded` is `false`, the server is up but cannot issue credentials. Treat this as a critical alert in production — issue endpoints will fail with 500 errors until a signer is loaded.
+**HTTP status codes:** Returns `200` when `signingKeyLoaded` is true and `503` when false. If `signingKeyLoaded` is `false`, the server is up but cannot issue credentials. Treat this as a critical alert in production — issue endpoints will fail with 500 errors until a signer is loaded.
 
 ### Probe configuration
 
@@ -104,7 +88,7 @@ If `signingKeyLoaded` is `false`, the server is up but cannot issue credentials.
 
 ```yaml
 healthcheck:
-  test: ["CMD", "wget", "-qO-", "http://localhost:3100/health"]
+  test: ["CMD", "wget", "-qO-", "http://localhost:3100/v1/health"]
   interval: 30s
   timeout: 5s
   retries: 3
@@ -116,7 +100,7 @@ healthcheck:
 ```yaml
 livenessProbe:
   httpGet:
-    path: /health
+    path: /v1/health
     port: 3100
   initialDelaySeconds: 10
   periodSeconds: 30
@@ -125,7 +109,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /health
+    path: /v1/health
     port: 3100
   initialDelaySeconds: 5
   periodSeconds: 10
@@ -135,29 +119,54 @@ For a stricter readiness check that gates traffic on the signing key, parse the 
 
 ## Metrics
 
-The Docker image does **not** ship a Prometheus or OpenTelemetry endpoint today. Tracking is left to the orchestrator (request counts, latencies, error rates from your ingress) and to your log aggregator (events extracted from pino logs).
+The server exposes a Prometheus-compatible metrics endpoint at `GET /metrics` (also mounted at `/v1/metrics`). This endpoint is unauthenticated so Prometheus can scrape it without holding the API key.
 
-If you need application-level metrics, the recommended pattern is:
+The implementation uses `prom-client` with a custom registry (`apps/server/src/metrics.ts`). Default Node.js process metrics are collected automatically.
 
-1. Run a sidecar that scrapes pino's stdout and emits metrics to your TSDB.
-2. Or, terminate the request at a reverse proxy (nginx, Envoy, Caddy) and rely on the proxy's built-in request metrics.
+### Custom metrics
 
-A native Prometheus endpoint is on the long-term roadmap and will be tracked under a separate issue.
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `http_requests_total` | Counter | `method`, `path`, `status` | Total HTTP requests |
+| `http_request_duration_seconds` | Histogram | `method`, `path`, `status` | HTTP request duration in seconds |
+| `opencred_credentials_issued_total` | Counter | `proof_format`, `schema_id` | Total credentials issued |
+| `opencred_credentials_verified_total` | Counter | `result` | Total credentials verified |
+| `opencred_batch_jobs_total` | Counter | `status` | Total batch jobs |
+| `opencred_revocations_published_total` | Counter | — | Total revocation hashes published to DeDi |
+
+Request method, path, status code, and duration are recorded by the metrics middleware (`apps/server/src/middleware/metrics.ts`) for every HTTP request.
+
+### Scrape configuration
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: opencred
+    static_configs:
+      - targets: ["opencred:3100"]
+    metrics_path: /v1/metrics
+```
+
+## Tracing
+
+OpenTelemetry tracing is supported and opt-in via the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable. When set, the server initialises a `NodeTracerProvider` that exports spans via OTLP/HTTP to the configured collector. When unset, tracing adds zero overhead.
+
+```bash
+# Enable tracing to a local collector
+docker run -e OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 ...
+```
+
+The implementation is in `apps/server/src/tracing.ts`. The service name is `opencred-server`. Spans are batched via `BatchSpanProcessor` and flushed on graceful shutdown.
 
 ## Auditing
 
 Because OpenCred is stateless, "audit" usually means "what happened to a particular request" — and the answer lives in your log stream. Useful searches:
 
-* All requests by status code: `level=info status>=400`
 * All issuance events: `msg=*issue* OR path=/credentials/issue`
 * All shutdown events: `msg="Shutting down"`
 * All `signingKeyLoaded` failures: search the startup log for `signingKeyLoaded:false`
 
 If you need a tamper-evident audit log, ship the pino events into an append-only store (e.g., AWS CloudWatch Logs with retention locks, or a WORM S3 bucket).
-
-## Tracing
-
-OpenCred does not currently emit OpenTelemetry traces. The Hono framework supports tracing middleware, and adding it is on the roadmap. For now, instrument the upstream load balancer or service mesh (Linkerd, Istio, AWS App Mesh) to capture request traces at the network layer.
 
 ## Operational alerts
 
@@ -165,10 +174,8 @@ A minimal alerting setup:
 
 | Alert | Severity | Trigger |
 |---|---|---|
-| Health endpoint fails for > 1 min | Critical | The server is down or wedged |
-| `signingKeyLoaded` is `false` | Critical | The image started but cannot issue credentials |
+| Health endpoint returns 503 for > 1 min | Critical | The signing key failed to load |
+| Health endpoint unreachable for > 1 min | Critical | The server is down or wedged |
 | HTTP 5xx rate > 1% over 5 min | Warning | Likely a key, schema, or Cloud HSM issue |
 | Container restart count > 3 / hour | Warning | Crash loop |
 | Disk pressure on the log volume | Warning | Logs are filling up faster than rotation |
-
-For most teams these are already standard metrics in their orchestrator — no OpenCred-specific configuration is needed.

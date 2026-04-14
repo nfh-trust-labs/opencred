@@ -20,21 +20,15 @@
 * [Verifying credentials](desktop/verifying-credentials.md)
 * [Settings and logging](desktop/settings-and-logging.md)
 
-## Docker (Operator Guide)
+## Docker Image
 
 * [Docker overview](docker/README.md)
 * [Deployment](docker/deployment.md)
 * [API reference](docker/api-reference.md)
+* [CLI reference](docker/cli-reference.md)
+* [Cloud HSM](docker/cloud-hsm.md)
 * [Observability](docker/observability.md)
-
-## Self-Hosted (Quick Reference)
-
-* [Self-hosted overview](self-hosted/README.md)
-* [Getting started](self-hosted/getting-started.md)
-* [Configuration reference](self-hosted/configuration.md)
-* [API reference](self-hosted/api-reference.md)
-* [CLI reference](self-hosted/cli-reference.md)
-* [Cloud HSM](self-hosted/cloud-hsm.md)
+* [OID4VCI](docker/oid4vci.md)
 
 ## Security
 
