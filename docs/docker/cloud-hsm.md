@@ -84,7 +84,7 @@ Ed25519 keys are **not** supported by any Cloud HSM provider at this time. If yo
 After starting the server, check the health endpoint:
 
 ```bash
-curl http://localhost:3100/health
+curl http://localhost:3100/v1/health
 ```
 
 If `signingKeyLoaded` is `true`, the HSM key was loaded successfully. The startup logs show the provider, key ID, fingerprint, and algorithm. You can also inspect the key metadata:
