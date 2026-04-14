@@ -6,6 +6,37 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-04-14
+
+### Fixed
+
+- **Desktop release pipeline** — `desktop-release.yml` had invalid
+  `secrets: inherit` under `on.workflow_call`, making every run fail at
+  parse time with no artifacts published. Fixed and added
+  `workflow_dispatch` with a `tag` input so historical tags can be
+  rebuilt on demand (#402).
+- **Native addon rebuild on Node 20** — `@electron/rebuild@3.6.1`
+  transitively pulls `node-gyp@9.4.1`, whose deprecated
+  `util.promisify` patterns throw `TypeError [ERR_INVALID_ARG_TYPE]` on
+  Node 20, blocking `pkcs11js` rebuild during `electron-builder
+  --publish`. Added a pnpm override forcing `node-gyp@>=10` (#404).
+- **release-please target branch** — defaulted to `main` (which has no
+  config), now explicitly targets `new-opencred-dev` (#406).
+
+### Chores
+
+- Consolidated `docs/self-hosted/` into `docs/docker/`; audited every
+  Docker doc against source code and fixed numerous inaccuracies
+  (#399).
+- Added `.claude/worktrees/`, `.claude/settings.local.json`, and
+  `.pnpm-store/` to `.gitignore`; removed a stray worktree submodule
+  left over from a past agent session (#401).
+
+## [1.0.0] - unreleased
+
+Tagged in git but never published as a GitHub Release. Superseded by
+1.0.1, which includes the CI fixes needed to build release artifacts.
+
 ### Added — v1 schema library overhaul
 
 - **Curated catalogue of ~33 credentials** sourced from existing standards
