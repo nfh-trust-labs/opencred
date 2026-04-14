@@ -54,6 +54,7 @@ jobs:
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
         continue-on-error: true
+        timeout-minutes: 10
 
       - name: Run tests
         run: pnpm --filter @opencred/desktop test
@@ -97,6 +98,7 @@ jobs:
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
         continue-on-error: true
+        timeout-minutes: 10
 
       - name: Build renderer
         run: pnpm --filter @opencred/desktop build:renderer
