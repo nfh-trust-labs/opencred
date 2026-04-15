@@ -14,7 +14,7 @@
     "dev": "concurrently -n vite,electron \"vite\" \"wait-on http://localhost:5174 && electron .\"",
     "rebuild:native": "electron-rebuild -f -m ../../packages/signing/native -o pkcs11js",
     "build": "vite build && node scripts/bundle-main.mjs",
-    "build:dist": "npm run rebuild:native && vite build && node scripts/bundle-main.mjs && node scripts/prepare-native-deps.cjs && electron-builder",
+    "build:dist": "node scripts/build-dist.mjs",
     "build:renderer": "vite build",
     "build:main": "node scripts/bundle-main.mjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
