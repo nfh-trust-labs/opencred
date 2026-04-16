@@ -57,6 +57,7 @@ import type {
   Pkcs11ListKeysResponse,
   Pkcs11ConnectRequest,
   Pkcs11ConnectResponse,
+  Pkcs11PickLibraryResponse,
   UpdateStatusResponse,
   OsCertListResponse,
   OsCertSignRequest,
@@ -168,6 +169,9 @@ const api: OpenCredDesktopAPI = {
 
   pkcs11Connect: (request: Pkcs11ConnectRequest): Promise<Pkcs11ConnectResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.PKCS11_CONNECT, request),
+
+  pkcs11PickLibrary: (): Promise<Pkcs11PickLibraryResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PKCS11_PICK_LIBRARY),
 
   // Auto-update
   updateCheck: (): Promise<UpdateStatusResponse> => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),

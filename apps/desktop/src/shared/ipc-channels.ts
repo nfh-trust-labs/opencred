@@ -75,6 +75,8 @@ export const IPC_CHANNELS = {
   PKCS11_LIST_KEYS: "pkcs11:list-keys",
   /** Open session and select a key for signing. Payload: { libraryPath, slotIndex, pin, keyId?, label? }. Response: key metadata. */
   PKCS11_CONNECT: "pkcs11:connect",
+  /** Open a native file dialog scoped to the PKCS#11 allowlist. Response: resolved library path or null. */
+  PKCS11_PICK_LIBRARY: "pkcs11:pick-library",
 
   // --- Auto-update ---
   /** Manually check for updates. Response: UpdateStatusResponse. */
