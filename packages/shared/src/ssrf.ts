@@ -67,16 +67,27 @@ function isPrivateIPv4(ip: string): boolean {
  * - fc00::/7 (unique local, covers fc00:: through fdff::)
  * - fe80::/10 (link-local)
  * - ff00::/8 (multicast)
- * - 0100::/64 (discard prefix, RFC 6666)
+ * - 0100::/64 (discard prefix, RFC 6666) — including the URL-normalized
+ *   short form `100::…` with the leading zero stripped.
  */
 function isPrivateIPv6(ip: string): boolean {
   const normalized = ip.toLowerCase();
   if (normalized === "::1") return true;
   if (normalized === "::") return true;
   if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
-  if (normalized.startsWith("fe80:")) return true;
+  // fe80::/10 link-local — spans fe80:: through febf::. URL parsing strips
+  // leading zeros within each 16-bit group but the first group is always
+  // exactly 4 hex chars when the high bit is set, so a character-class
+  // prefix check covers the full /10 without false positives.
+  if (/^fe[89ab][0-9a-f]:/.test(normalized)) return true;
   if (normalized.startsWith("ff")) return true;
+  // 0100::/64 discard prefix (RFC 6666). WHATWG URL parsing strips the
+  // leading zero, so `[0100::1]` round-trips as `[100::1]`. Match both the
+  // explicit form (`0100:...`) and the URL-normalized form (`100::...` or
+  // `100:0:...`) while still excluding unrelated `100:*:*` addresses outside
+  // the /64.
   if (normalized.startsWith("0100:")) return true;
+  if (/^100:(?::|0:)/.test(normalized)) return true;
 
   // IPv4-mapped IPv6 — two forms:
   // 1. Dotted: ::ffff:192.168.1.1

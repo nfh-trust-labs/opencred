@@ -5,6 +5,7 @@ import { gunzip as gunzipCb } from "node:zlib";
 import type { DeDiClient } from "@opencred/dedi-client";
 import { computeRevocationHash } from "@opencred/crypto";
 import type { DIDResolver } from "@opencred/did";
+import { isPrivateIP } from "@opencred/shared";
 import { verifyDataIntegrity } from "./data-integrity.js";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import type { VerificationCheck } from "./types.js";
@@ -83,49 +84,11 @@ export async function checkRevocation(
 }
 
 // --- SSRF prevention for status list URL validation ---
-
-/**
- * Check whether an IPv4 or IPv6 address is private / reserved.
- * Rejects: 10.x, 172.16-31.x, 192.168.x, 127.x, 0.x, 169.254.x (link-local),
- * ::1, fe80::/10, fc00::/7, and other reserved ranges.
- */
-function isPrivateIP(ip: string): boolean {
-  // IPv4
-  if (ip.includes(".")) {
-    const parts = ip.split(".").map(Number);
-    if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255)) {
-      return true; // malformed → treat as private
-    }
-    const [a, b] = parts;
-    if (a === 10) return true; // 10.0.0.0/8
-    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-    if (a === 192 && b === 168) return true; // 192.168.0.0/16
-    if (a === 127) return true; // 127.0.0.0/8
-    if (a === 0) return true; // 0.0.0.0/8
-    if (a === 169 && b === 254) return true; // 169.254.0.0/16 (link-local)
-    if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 (CGNAT)
-    if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15
-    if (a >= 224 && a <= 239) return true; // 224.0.0.0/4 (multicast)
-    if (a >= 240) return true; // 240.0.0.0/4 (reserved)
-    return false;
-  }
-
-  // IPv6
-  const normalized = ip.toLowerCase().replace(/^\[|]$/g, "");
-  if (normalized === "::1") return true;
-  if (normalized === "::") return true;
-  if (normalized.startsWith("fe80:") || normalized.startsWith("fe8") || normalized === "fe80::") {
-    return true;
-  }
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
-  if (normalized.startsWith("::ffff:")) {
-    const ipv4Part = normalized.slice(7);
-    if (ipv4Part.includes(".")) {
-      return isPrivateIP(ipv4Part);
-    }
-  }
-  return false;
-}
+//
+// `isPrivateIP` is imported from @opencred/shared (the canonical SSRF helper).
+// The canonical helper validates its input via `node:net`'s `isIP()`, so it
+// expects bare IP literals (no surrounding brackets). Callers below strip
+// brackets from IPv6 hostnames before delegating to it.
 
 /** Known private/loopback hostnames. */
 const PRIVATE_HOSTNAMES = new Set([
@@ -164,11 +127,16 @@ function validateStatusListUrl(
     return { valid: false, detail: "Status list URL points to a private/loopback host" };
   }
 
-  // Check if hostname is a raw IP literal (IPv4 or bracketed IPv6)
+  // Check if hostname is a raw IP literal (IPv4 or bracketed IPv6).
+  // URL.hostname returns bracketed IPv6 (e.g. "[::1]"); canonical isPrivateIP
+  // expects the bare literal, so we strip brackets before delegation.
   const isIPv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
   const isIPv6 = hostname.startsWith("[") || hostname.includes(":");
-  if ((isIPv4 || isIPv6) && isPrivateIP(hostname)) {
-    return { valid: false, detail: "Status list URL points to a private/reserved IP" };
+  if (isIPv4 || isIPv6) {
+    const bare = hostname.replace(/^\[|\]$/g, "");
+    if (isPrivateIP(bare)) {
+      return { valid: false, detail: "Status list URL points to a private/reserved IP" };
+    }
   }
 
   if (allowedDomains && allowedDomains.length > 0) {
@@ -396,7 +364,6 @@ export async function checkBitstringStatusList(
 
 // Export for testing
 export {
-  isPrivateIP as _isPrivateIP,
   validateStatusListUrl as _validateStatusListUrl,
   MAX_COMPRESSED_SIZE,
 };
