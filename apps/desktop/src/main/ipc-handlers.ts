@@ -95,7 +95,7 @@ import { generateKeyPairSync, createPublicKey, randomUUID, createHash } from "no
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
-import { CryptoError, ValidationError, SchemaValidationError, isPrivateIP, assertJwtSize } from "@opencred/shared";
+import { CryptoError, ValidationError, SchemaValidationError, resolveDnsForSsrf, assertJwtSize } from "@opencred/shared";
 import { SchemaRegistry, generateSchemaFromFields } from "@opencred/schema-engine";
 import { packageCredential as packageCredentialWithTemplates } from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
@@ -1581,12 +1581,19 @@ async function handleSchemaFetchUrl(
       return { success: false, error: "URL must use HTTPS" };
     }
 
-    // SSRF protection: resolve hostname and reject private IPs
+    // SSRF protection: resolve hostname and validate ALL resolved addresses
+    // (both A and AAAA) are public. `dns.lookup` only returns a single
+    // address which can leave other records unchecked — `resolveDnsForSsrf`
+    // validates every resolved IP and fails closed on DNS errors.
     const { hostname } = new URL(url);
-    const { promises: dnsPromises } = await import("node:dns");
-    const { address } = await dnsPromises.lookup(hostname);
-    if (isPrivateIP(address)) {
-      return { success: false, error: "URL resolves to a private IP address" };
+    try {
+      await resolveDnsForSsrf(hostname);
+    } catch (err) {
+      logger.warn("Schema fetch SSRF check failed", {
+        hostname,
+        error: err instanceof Error ? err.message : "unknown",
+      });
+      return { success: false, error: "URL resolves to a private or unreachable IP" };
     }
 
     const controller = new AbortController();

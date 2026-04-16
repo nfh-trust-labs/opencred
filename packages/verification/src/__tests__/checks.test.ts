@@ -4,7 +4,6 @@ import {
   checkRevocation,
   checkBitstringStatusList,
   resolveAndValidateIp,
-  _isPrivateIP,
   _validateStatusListUrl,
   MAX_COMPRESSED_SIZE,
 } from "../checks.js";
@@ -113,62 +112,69 @@ describe("checkRevocation", () => {
 });
 
 // --- SSRF prevention tests ---
+//
+// The base `isPrivateIP` unit tests live in `@opencred/shared` (the canonical
+// implementation). Here we regression-test that every IPv4/IPv6 range the
+// previous local implementation rejected is still rejected when surfaced
+// through `validateStatusListUrl`, which is how the verification package
+// consumes the helper.
 
-describe("isPrivateIP", () => {
-  it("should detect IPv4 private ranges", () => {
-    expect(_isPrivateIP("10.0.0.1")).toBe(true);
-    expect(_isPrivateIP("10.255.255.255")).toBe(true);
-    expect(_isPrivateIP("172.16.0.1")).toBe(true);
-    expect(_isPrivateIP("172.31.255.255")).toBe(true);
-    expect(_isPrivateIP("192.168.0.1")).toBe(true);
-    expect(_isPrivateIP("192.168.255.255")).toBe(true);
+describe("validateStatusListUrl — private/reserved IP ranges", () => {
+  const privateIPv4s: Array<[string, string]> = [
+    ["10.0.0.0/8", "10.0.0.1"],
+    ["10.0.0.0/8 upper", "10.255.255.255"],
+    ["172.16.0.0/12", "172.16.0.1"],
+    ["172.16.0.0/12 upper", "172.31.255.255"],
+    ["192.168.0.0/16", "192.168.0.1"],
+    ["192.168.0.0/16 upper", "192.168.255.255"],
+    ["127.0.0.0/8 loopback", "127.0.0.1"],
+    ["127.0.0.0/8 loopback upper", "127.255.255.255"],
+    ["0.0.0.0/8", "0.0.0.0"],
+    ["169.254.0.0/16 link-local", "169.254.0.1"],
+    ["100.64.0.0/10 CGNAT", "100.64.0.1"],
+    ["100.64.0.0/10 CGNAT upper", "100.127.255.255"],
+    ["198.18.0.0/15 benchmarking", "198.18.0.1"],
+    ["198.18.0.0/15 upper", "198.19.255.255"],
+    ["224.0.0.0/4 multicast", "224.0.0.1"],
+    ["224.0.0.0/4 multicast upper", "239.255.255.255"],
+    ["240.0.0.0/4 reserved", "240.0.0.1"],
+    ["255.255.255.255 broadcast", "255.255.255.255"],
+  ];
+
+  it.each(privateIPv4s)("rejects IPv4 %s (%s)", (_label, ip) => {
+    const result = _validateStatusListUrl(`https://${ip}/status/1`);
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.detail).toContain("private/reserved IP");
+    }
   });
 
-  it("should detect loopback addresses", () => {
-    expect(_isPrivateIP("127.0.0.1")).toBe(true);
-    expect(_isPrivateIP("127.255.255.255")).toBe(true);
+  const privateIPv6s: Array<[string, string]> = [
+    ["::1 loopback", "[::1]"],
+    [":: unspecified", "[::]"],
+    ["fc00::/7 ULA", "[fc00::1]"],
+    ["fd00::/8 ULA", "[fd00::1]"],
+    ["fe80::/10 link-local", "[fe80::1]"],
+    ["ff00::/8 multicast", "[ff02::1]"],
+    ["0100::/64 discard", "[0100::1]"],
+    ["::ffff:IPv4-mapped dotted", "[::ffff:127.0.0.1]"],
+    ["::ffff:IPv4-mapped dotted private", "[::ffff:10.0.0.1]"],
+  ];
+
+  it.each(privateIPv6s)("rejects IPv6 %s (%s)", (_label, bracketed) => {
+    const result = _validateStatusListUrl(`https://${bracketed}/status/1`);
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      // `[::1]` is caught by the static PRIVATE_HOSTNAMES set before the IP
+      // check runs; every other IPv6 literal takes the isPrivateIP branch.
+      expect(result.detail).toMatch(/private\/(?:reserved IP|loopback host)/);
+    }
   });
 
-  it("should detect link-local addresses", () => {
-    expect(_isPrivateIP("169.254.0.1")).toBe(true);
-  });
-
-  it("should detect CGNAT range", () => {
-    expect(_isPrivateIP("100.64.0.1")).toBe(true);
-    expect(_isPrivateIP("100.127.255.255")).toBe(true);
-  });
-
-  it("should detect multicast and reserved ranges", () => {
-    expect(_isPrivateIP("224.0.0.1")).toBe(true);
-    expect(_isPrivateIP("240.0.0.1")).toBe(true);
-    expect(_isPrivateIP("255.255.255.255")).toBe(true);
-  });
-
-  it("should allow public IPv4 addresses", () => {
-    expect(_isPrivateIP("8.8.8.8")).toBe(false);
-    expect(_isPrivateIP("1.1.1.1")).toBe(false);
-    expect(_isPrivateIP("203.0.113.1")).toBe(false);
-  });
-
-  it("should detect IPv6 loopback and unspecified", () => {
-    expect(_isPrivateIP("::1")).toBe(true);
-    expect(_isPrivateIP("::")).toBe(true);
-  });
-
-  it("should detect IPv6 link-local and ULA", () => {
-    expect(_isPrivateIP("fe80::1")).toBe(true);
-    expect(_isPrivateIP("fc00::1")).toBe(true);
-    expect(_isPrivateIP("fd00::1")).toBe(true);
-  });
-
-  it("should detect IPv4-mapped IPv6 private addresses", () => {
-    expect(_isPrivateIP("::ffff:127.0.0.1")).toBe(true);
-    expect(_isPrivateIP("::ffff:10.0.0.1")).toBe(true);
-  });
-
-  it("should treat malformed IPv4 addresses as private", () => {
-    expect(_isPrivateIP("999.999.999.999")).toBe(true);
-    expect(_isPrivateIP("1.2.3.999")).toBe(true);
+  it("accepts public IPv4 addresses", () => {
+    expect(_validateStatusListUrl("https://8.8.8.8/status/1").valid).toBe(true);
+    expect(_validateStatusListUrl("https://1.1.1.1/status/1").valid).toBe(true);
+    expect(_validateStatusListUrl("https://203.0.113.1/status/1").valid).toBe(true);
   });
 });
 
@@ -453,6 +459,79 @@ describe("checkBitstringStatusList", () => {
 
     expect(result.passed).toBe(false);
     expect(result.detail).toContain("private");
+  });
+
+  // Regression: consolidating on the canonical isPrivateIP must not lose
+  // coverage of any range the previous local implementation rejected.
+  // Each entry below is a hostname that DNS-resolves to a private/reserved
+  // address; checkBitstringStatusList must still reject it via the DNS
+  // rebinding protection path.
+  describe("rejects DNS-resolved private ranges (MED-01 regression)", () => {
+    const privateRanges: Array<[label: string, ip: string]> = [
+      ["10.0.0.0/8", "10.0.0.1"],
+      ["172.16.0.0/12", "172.16.0.1"],
+      ["172.16.0.0/12 upper", "172.31.255.255"],
+      ["192.168.0.0/16", "192.168.1.1"],
+      ["127.0.0.0/8 loopback", "127.0.0.1"],
+      ["0.0.0.0/8", "0.0.0.0"],
+      ["169.254.0.0/16 link-local", "169.254.1.1"],
+      ["100.64.0.0/10 CGNAT", "100.64.0.1"],
+      ["100.64.0.0/10 CGNAT upper", "100.127.255.255"],
+      ["198.18.0.0/15 benchmarking", "198.18.0.1"],
+      ["198.18.0.0/15 upper", "198.19.255.255"],
+      ["224.0.0.0/4 multicast", "224.0.0.1"],
+      ["240.0.0.0/4 reserved", "240.0.0.1"],
+      ["255.255.255.255 broadcast", "255.255.255.255"],
+    ];
+
+    it.each(privateRanges)(
+      "rejects hostname resolving to IPv4 %s (%s)",
+      async (_label, ip) => {
+        mockResolve4.mockResolvedValue([ip]);
+        mockResolve6.mockRejectedValue(
+          Object.assign(new Error("ENODATA"), { code: "ENODATA" }),
+        );
+
+        const result = await checkBitstringStatusList({
+          type: "BitstringStatusListEntry",
+          statusPurpose: "revocation",
+          statusListIndex: "0",
+          statusListCredential: "https://status.example.org/status/1",
+        });
+
+        expect(result.passed).toBe(false);
+        expect(result.detail).toContain("private/reserved IP");
+      },
+    );
+
+    const privateIPv6s: Array<[label: string, ip: string]> = [
+      ["::1 loopback", "::1"],
+      [":: unspecified", "::"],
+      ["fc00::/7 ULA", "fc00::1"],
+      ["fd00::/8 ULA", "fd00::1"],
+      ["fe80::/10 link-local", "fe80::1"],
+      ["ff00::/8 multicast", "ff02::1"],
+    ];
+
+    it.each(privateIPv6s)(
+      "rejects hostname resolving to IPv6 %s (%s)",
+      async (_label, ip) => {
+        mockResolve4.mockRejectedValue(
+          Object.assign(new Error("ENODATA"), { code: "ENODATA" }),
+        );
+        mockResolve6.mockResolvedValue([ip]);
+
+        const result = await checkBitstringStatusList({
+          type: "BitstringStatusListEntry",
+          statusPurpose: "revocation",
+          statusListIndex: "0",
+          statusListCredential: "https://status.example.org/status/1",
+        });
+
+        expect(result.passed).toBe(false);
+        expect(result.detail).toContain("private/reserved IP");
+      },
+    );
   });
 
   it("should reject invalid URL strings", async () => {

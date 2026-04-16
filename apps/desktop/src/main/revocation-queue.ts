@@ -204,6 +204,19 @@ export function purgePublished(): number {
 const MAX_PUBLISH_ATTEMPTS = 5;
 
 /**
+ * Extract the hostname from a DeDi base URL for use as a DNS connectivity
+ * probe. Returns `undefined` when the URL is malformed; callers should skip
+ * the probe in that case and let the real request surface the error.
+ */
+function extractDediHostname(dediBaseUrl: string): string | undefined {
+  try {
+    return new URL(dediBaseUrl).hostname;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Create a temporary DeDi client from issuer-provided credentials.
  *
  * The client is ephemeral — it is created for one publish cycle and then
@@ -273,10 +286,20 @@ export async function publishPendingRevocations(
     return results;
   }
 
-  // Check connectivity before creating the client
+  // Check connectivity before creating the client. Probe the DeDi host
+  // itself rather than an external anchor (e.g. dns.google): enterprise
+  // environments often block third-party anchors but permit DeDi, and a
+  // failing probe against an unreachable anchor would otherwise mislead us
+  // into reporting "No network connectivity" when DeDi is actually reachable.
   try {
     const dns = await import("node:dns/promises");
-    await dns.lookup("dns.google");
+    const probeHost = extractDediHostname(dediBaseUrl);
+    if (probeHost) {
+      await dns.lookup(probeHost);
+    }
+    // If we cannot derive a probe host (e.g. malformed baseUrl), skip the
+    // connectivity pre-check and let the subsequent publish attempt surface
+    // the real error.
   } catch {
     // Offline — mark every item as failed but do not waste an attempt
     for (const item of toPublish) {

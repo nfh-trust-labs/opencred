@@ -425,8 +425,11 @@ describe("Revocation Queue", () => {
         revocationHash: "hash-offline",
       });
 
-      // Simulate offline
-      mockDnsLookup.mockRejectedValueOnce(new Error("getaddrinfo ENOTFOUND dns.google"));
+      // Simulate offline — the DNS probe now targets the DeDi host itself
+      // (see below) rather than an external anchor.
+      mockDnsLookup.mockRejectedValueOnce(
+        new Error("getaddrinfo ENOTFOUND dedi.example"),
+      );
 
       const results = await publishPendingRevocations(
         { type: "api-key", apiKey: "test-key" },
@@ -444,6 +447,41 @@ describe("Revocation Queue", () => {
       const item = getQueueItem(results[0].queueId);
       expect(item?.status).toBe("pending");
       expect(item?.attemptCount).toBe(0);
+    });
+
+    it("probes the DeDi host (not dns.google) for connectivity", async () => {
+      // INFO-03 regression: enterprise environments often block third-party
+      // anchors like dns.google but permit the DeDi API. The probe must
+      // target the DeDi hostname, not an unrelated anchor.
+      queueRevocation("urn:uuid:test-probe", "https://dedi.example/revocations/test", {
+        revocationHash: "hash-probe",
+      });
+
+      await publishPendingRevocations(
+        { type: "api-key", apiKey: "test-key" },
+        "https://dedi.corp.internal.example",
+      );
+
+      expect(mockDnsLookup).toHaveBeenCalledTimes(1);
+      expect(mockDnsLookup).toHaveBeenCalledWith("dedi.corp.internal.example");
+      // Explicitly verify we did NOT probe dns.google.
+      expect(mockDnsLookup).not.toHaveBeenCalledWith("dns.google");
+    });
+
+    it("skips the connectivity probe when dediBaseUrl is malformed", async () => {
+      // Fall-back path: if we cannot parse a hostname, skip the probe
+      // rather than throwing — let the subsequent DeDi call surface the
+      // real error.
+      queueRevocation("urn:uuid:test-malformed", "https://dedi.example/revocations/test", {
+        revocationHash: "hash-malformed",
+      });
+
+      await publishPendingRevocations(
+        { type: "api-key", apiKey: "test-key" },
+        "not-a-valid-url",
+      );
+
+      expect(mockDnsLookup).not.toHaveBeenCalled();
     });
 
     it("should fail item when revocation hash is missing", async () => {
