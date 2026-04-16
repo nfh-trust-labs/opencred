@@ -55,10 +55,17 @@ function seedRegistry(entries: Array<{ id: string; version: string; schema: Reco
 // Mocks
 // ---------------------------------------------------------------------------
 
-const mockLookup = vi.fn();
-vi.mock("node:dns/promises", () => ({
-  default: { lookup: (...args: unknown[]) => mockLookup(...args) },
-  lookup: (...args: unknown[]) => mockLookup(...args),
+// `resolveDnsForSsrf` (the canonical SSRF helper) uses resolve4/resolve6
+// from node:dns, so mock the underlying DNS promises API directly. Default
+// each mock to a single public IP so tests that don't care about DNS
+// resolution still pass.
+const mockResolve4 = vi.fn();
+const mockResolve6 = vi.fn();
+vi.mock("node:dns", () => ({
+  promises: {
+    resolve4: (...args: unknown[]) => mockResolve4(...args),
+    resolve6: (...args: unknown[]) => mockResolve6(...args),
+  },
 }));
 
 vi.mock("node:fs/promises", () => ({
@@ -87,7 +94,11 @@ function makeConfig(overrides?: Partial<SchemaUpdateConfig>): SchemaUpdateConfig
 describe("checkForUpdates", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockLookup.mockResolvedValue({ address: "93.184.216.34", family: 4 });
+    // Default: all DNS resolutions return a single public IP (A record only).
+    // `resolveDnsForSsrf` tolerates ENODATA on AAAA when A succeeds.
+    mockResolve4.mockResolvedValue(["93.184.216.34"]);
+    const enodata = Object.assign(new Error("ENODATA"), { code: "ENODATA" });
+    mockResolve6.mockRejectedValue(enodata);
   });
 
   it("returns bundled registry unchanged when manifestUrl is not set", async () => {
@@ -204,9 +215,12 @@ describe("checkForUpdates", () => {
     const schema = { type: "object" };
     const manifest = makeManifest([{ id: "ssrf-test", version: "1.0.0", schema }]);
 
-    mockLookup
-      .mockResolvedValueOnce({ address: "93.184.216.34", family: 4 })
-      .mockResolvedValueOnce({ address: "10.0.0.1", family: 4 });
+    // Manifest hostname → public IP (first lookup). Download URL hostname →
+    // private IP (second lookup), which `resolveDnsForSsrf` rejects with a
+    // message containing "SSRF protection".
+    mockResolve4
+      .mockResolvedValueOnce(["93.184.216.34"])
+      .mockResolvedValueOnce(["10.0.0.1"]);
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -217,7 +231,7 @@ describe("checkForUpdates", () => {
 
     expect(result.listSchemas()).not.toContain("ssrf-test");
     expect(config.logger?.warn).toHaveBeenCalledWith(
-      expect.stringContaining("Private IP rejected"),
+      expect.stringContaining("SSRF protection"),
     );
   });
 

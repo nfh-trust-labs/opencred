@@ -13,8 +13,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { lookup } from "node:dns/promises";
-import { isPrivateIP } from "@opencred/shared";
+import { resolveDnsForSsrf } from "@opencred/shared";
 import type { SchemaDefinition } from "./types.js";
 import type { SchemaRegistry } from "./schema-registry.js";
 
@@ -78,6 +77,10 @@ function compareSemver(a: string, b: string): number {
 /**
  * Validate that a URL is HTTPS, then resolve its hostname and reject
  * private/loopback IPs (SSRF protection).
+ *
+ * Uses `resolveDnsForSsrf`, which validates every resolved A and AAAA
+ * address, rather than `dns.lookup`, which returns only a single address
+ * and could leave other records unchecked.
  */
 async function ssrfSafeFetch(
   url: string,
@@ -88,10 +91,7 @@ async function ssrfSafeFetch(
     throw new Error(`Non-HTTPS URL rejected: ${url}`);
   }
 
-  const { address } = await lookup(parsed.hostname);
-  if (isPrivateIP(address)) {
-    throw new Error(`Private IP rejected for ${parsed.hostname} (${address})`);
-  }
+  await resolveDnsForSsrf(parsed.hostname);
 
   return fetch(url, {
     signal: AbortSignal.timeout(timeoutMs),
