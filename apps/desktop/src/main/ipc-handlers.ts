@@ -82,8 +82,12 @@ import type {
   LogTailResponse,
 } from "../shared/ipc-types.js";
 import { createLogger, getLogFilePath, readRecentLogs } from "./logger.js";
-import { getStore, restrictStoreFilePermissions, CREDENTIAL_HISTORY_CAP } from "./store.js";
-import type { CredentialHistoryEntry, CustomSchemaEntry } from "./store.js";
+import { getStore, restrictStoreFilePermissions } from "./store.js";
+import type {
+  CredentialHistoryEntry,
+  CustomSchemaEntry,
+  RecentTemplateEntry,
+} from "./store.js";
 import { createSoftwareSigner, buildSigner } from "../signing/software-signer.js";
 import type { PersistedSignerEntry } from "./persisted-signer-loader.js";
 import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local-signing-flow.js";
@@ -95,7 +99,15 @@ import { generateKeyPairSync, createPublicKey, randomUUID, createHash } from "no
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
-import { CryptoError, ValidationError, SchemaValidationError, resolveDnsForSsrf, assertJwtSize } from "@opencred/shared";
+import {
+  CryptoError,
+  ValidationError,
+  SchemaValidationError,
+  OpenCredError,
+  sanitizeErrorMessage,
+  resolveDnsForSsrf,
+  assertJwtSize,
+} from "@opencred/shared";
 import { SchemaRegistry, generateSchemaFromFields } from "@opencred/schema-engine";
 import { packageCredential as packageCredentialWithTemplates } from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
@@ -128,6 +140,37 @@ import type { ContextRecord } from "@opencred/dedi-client";
 import { generateInlineContext } from "@opencred/vc-core";
 
 // ---------------------------------------------------------------------------
+// IPC error sanitisation
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a sanitised error message for an IPC response.
+ *
+ * Main-process logs remain untouched — they're trusted and useful for
+ * debugging. But the message that crosses the IPC boundary into the
+ * renderer (and ultimately into the DOM) must never leak filesystem
+ * paths, PEM blocks, key fingerprints, or stack traces.
+ *
+ * - If `err` is an {@link OpenCredError}, its `toJSON()` already produces
+ *   a sanitised body — use that message.
+ * - Otherwise, pass the raw `Error.message` through
+ *   {@link sanitizeErrorMessage} which strips POSIX/Windows paths,
+ *   PEM blocks, long hex/base64 blobs, and V8 stack frames.
+ *
+ * Never returns `undefined` — falls back to `fallback`.
+ */
+function ipcErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof OpenCredError) {
+    const sanitized = err.toJSON();
+    const message = sanitized?.error?.message;
+    return typeof message === "string" && message.length > 0 ? message : fallback;
+  }
+  const raw = err instanceof Error ? err.message : fallback;
+  const sanitized = sanitizeErrorMessage(raw);
+  return sanitized.length > 0 ? sanitized : fallback;
+}
+
+// ---------------------------------------------------------------------------
 // Config key allowlist
 // ---------------------------------------------------------------------------
 
@@ -150,6 +193,40 @@ export const ALLOWED_CONFIG_KEYS = new Set([
   "selfPublishedKeyDomain",
   "organizationName",
 ]);
+
+/**
+ * Per-key validators for {@link handleSetConfig}.
+ *
+ * A validator throws a {@link ValidationError} when the value is not safe
+ * to persist. Only keys with sensitivity (user-controllable URLs, etc.)
+ * need an entry — most preference keys are plain primitives and fall
+ * through to the store unchanged.
+ */
+const CONFIG_KEY_VALIDATORS: Record<string, (value: unknown) => void> = {
+  bugReportFormUrl: (value: unknown) => {
+    if (typeof value !== "string") {
+      throw new ValidationError("bugReportFormUrl must be a string");
+    }
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new ValidationError("bugReportFormUrl must be a valid URL");
+    }
+    if (url.protocol !== "https:") {
+      throw new ValidationError("bugReportFormUrl must use https://");
+    }
+    const ALLOWED_HOSTS = ["forms.gle", "docs.google.com", "github.com"];
+    const ok = ALLOWED_HOSTS.some(
+      (host) => url.hostname === host || url.hostname.endsWith(`.${host}`),
+    );
+    if (!ok) {
+      throw new ValidationError(
+        `bugReportFormUrl host not permitted: ${url.hostname}`,
+      );
+    }
+  },
+};
 
 // ---------------------------------------------------------------------------
 // In-memory registries
@@ -262,7 +339,7 @@ async function handleKeyImport(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to import key.";
     logger.error("Key import failed", { error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to import key.") };
   }
 }
 
@@ -306,7 +383,7 @@ async function handleKeyGenerate(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Key generation failed.";
     logger.error("Key generation failed", { error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Key generation failed.") };
   }
 }
 
@@ -396,7 +473,7 @@ async function handleSignCredential(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Signing failed.";
     logger.error("Credential signing failed", { keyId: request.keyId, error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Signing failed.") };
   }
 }
 
@@ -672,7 +749,12 @@ async function handleBuildAndSign(
     }
 
     logger.error("Build and sign failed", { keyId: request.keyId, errorCode, error: message });
-    return { success: false, error: message, errorCode, errorField };
+    return {
+      success: false,
+      error: ipcErrorMessage(err, "Build and sign failed."),
+      errorCode,
+      errorField,
+    };
   }
 }
 
@@ -799,7 +881,7 @@ async function handleVerifyCredential(
       message.includes("resolve hostname") || message.includes("Timeout fetching");
     const userMessage = isNetworkError
       ? "Verification requires network access to resolve the issuer's DID document (did:web). Please check your connection."
-      : message;
+      : ipcErrorMessage(err, "Verification failed.");
     logger.error("Credential verification failed", { error: message });
     return { success: false, error: userMessage };
   }
@@ -855,7 +937,7 @@ async function handlePackageCredential(
           });
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Template packaging failed.";
+        const message = ipcErrorMessage(err, "Template packaging failed.");
         for (const fmt of templateRequested) {
           allErrors.push({ format: fmt, error: message });
         }
@@ -886,8 +968,10 @@ async function handlePackageCredential(
       errors: allErrors.length > 0 ? allErrors : undefined,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Packaging failed.";
-    return { success: false, errors: [{ format: "unknown", error: message }] };
+    return {
+      success: false,
+      errors: [{ format: "unknown", error: ipcErrorMessage(err, "Packaging failed.") }],
+    };
   }
 }
 
@@ -916,8 +1000,7 @@ async function handleRevocationQueue(
       },
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to queue revocation.";
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to queue revocation.") };
   }
 }
 
@@ -1033,6 +1116,7 @@ async function handleSetConfig(
   if (!ALLOWED_CONFIG_KEYS.has(request.key)) {
     throw new Error(`Config key '${request.key}' is not accessible via setConfig`);
   }
+  CONFIG_KEY_VALIDATORS[request.key]?.(request.value);
   const store = getStore();
   store.set(request.key as keyof typeof store.store, request.value);
 }
@@ -1124,7 +1208,7 @@ async function handleBatchStart(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to start batch.";
     logger.error("Batch start failed", { error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to start batch.") };
   }
 }
 
@@ -1199,8 +1283,7 @@ async function handleBatchExport(
       fileCount: result.fileCount,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Export failed.";
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Export failed.") };
   }
 }
 
@@ -1270,8 +1353,7 @@ async function handlePkcs11ListSlots(
       const { finalizePkcs11 } = await import("../signing/pkcs11-session.js");
       finalizePkcs11(p11);
     }
-    const message = err instanceof Error ? err.message : "Failed to list PKCS#11 slots.";
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to list PKCS#11 slots.") };
   }
 }
 
@@ -1315,8 +1397,7 @@ async function handlePkcs11ListKeys(
     if (p11 && pkcs11Session) {
       pkcs11Session.finalizePkcs11(p11);
     }
-    const message = err instanceof Error ? err.message : "Failed to list keys.";
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to list keys.") };
   }
 }
 
@@ -1368,7 +1449,10 @@ async function handlePkcs11Connect(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to connect to hardware token.";
     logger.error("PKCS#11 connect failed", { error: message });
-    return { success: false, error: message };
+    return {
+      success: false,
+      error: ipcErrorMessage(err, "Failed to connect to hardware token."),
+    };
   }
 }
 
@@ -1418,8 +1502,7 @@ async function handleOsCertList(): Promise<OsCertListResponse> {
       storeName: result.storeName,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to list OS certificates.";
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to list OS certificates.") };
   }
 }
 
@@ -1455,8 +1538,7 @@ async function handleOsCertSign(
       signature: Buffer.from(signature).toString("base64"),
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "OS certificate signing failed.";
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "OS certificate signing failed.") };
   }
 }
 
@@ -1505,7 +1587,7 @@ async function handleOsCertConnect(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to connect OS certificate.";
     logger.error("OS certificate connect failed", { error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to connect OS certificate.") };
   }
 }
 
@@ -1513,51 +1595,102 @@ async function handleOsCertConnect(
 // Credential history handlers
 // ---------------------------------------------------------------------------
 
-/** CREDENTIAL_HISTORY_LIST — return all credential history entries. */
+/**
+ * CREDENTIAL_HISTORY_LIST — return all credential history entries.
+ *
+ * @deprecated Reads are now routed to `recentTemplates`. The full VC JSON
+ * is intentionally not persisted, so entries only surface template metadata.
+ * UI that needs the signed credential must capture it from
+ * `BuildAndSignResponse.signedCredential` at signing time.
+ */
 async function handleCredentialHistoryList(): Promise<CredentialHistoryListResponse> {
   const store = getStore();
-  const history =
-    (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
-  return { entries: history };
+  const templates =
+    (store.get("recentTemplates" as keyof typeof store.store) as RecentTemplateEntry[]) ?? [];
+  return {
+    entries: templates.map((t) => ({
+      // Deterministic ID so repeated reads are stable across calls.
+      id: `template:${t.schemaId}`,
+      schemaId: t.schemaId,
+      schemaName: t.schemaName,
+      subjectSummary: `${t.useCount} issuance${t.useCount === 1 ? "" : "s"}`,
+      issuedAt: t.lastUsedAt,
+      keyFingerprint: "",
+    })),
+  };
 }
 
-/** CREDENTIAL_HISTORY_ADD — add a credential to history (FIFO cap). */
+/**
+ * CREDENTIAL_HISTORY_ADD — record an issuance event.
+ *
+ * @deprecated Writes are now routed to `recentTemplates`. The signed
+ * credential payload is NOT persisted — the request's `credentialJson`
+ * is no longer part of the contract and any copy stored on disk is a
+ * data-at-rest risk.
+ */
 async function handleCredentialHistoryAdd(
   _event: IpcMainInvokeEvent,
   request: CredentialHistoryAddRequest,
 ): Promise<CredentialHistoryEntry> {
   const store = getStore();
-  const history =
-    (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
+  const templates =
+    (store.get("recentTemplates" as keyof typeof store.store) as RecentTemplateEntry[]) ?? [];
 
-  const entry: CredentialHistoryEntry = {
-    id: randomUUID(),
+  const existing = templates.find((t) => t.schemaId === request.schemaId);
+  const issuedAt = new Date().toISOString();
+  if (existing) {
+    existing.lastUsedAt = issuedAt;
+    existing.useCount += 1;
+    existing.schemaName = request.schemaName;
+  } else {
+    templates.unshift({
+      schemaId: request.schemaId,
+      schemaName: request.schemaName,
+      lastUsedAt: issuedAt,
+      useCount: 1,
+    });
+  }
+  templates.sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
+  store.set(
+    "recentTemplates" as keyof typeof store.store,
+    templates.slice(0, RECENT_TEMPLATES_CAP),
+  );
+
+  return {
+    id: `template:${request.schemaId}`,
     schemaId: request.schemaId,
     schemaName: request.schemaName,
     subjectSummary: request.subjectSummary,
-    issuedAt: new Date().toISOString(),
-    credentialJson: request.credentialJson,
+    issuedAt,
     keyFingerprint: request.keyFingerprint,
     proofFormat: request.proofFormat,
   };
-
-  // Prepend new entry, cap at limit
-  const updated = [entry, ...history].slice(0, CREDENTIAL_HISTORY_CAP);
-  store.set("credentialHistory" as keyof typeof store.store, updated);
-  return entry;
 }
 
-/** CREDENTIAL_HISTORY_DELETE — remove a credential from history. */
+/**
+ * CREDENTIAL_HISTORY_DELETE — remove an entry.
+ *
+ * @deprecated Deletes are routed to `recentTemplates`. The deterministic
+ * id used above (`template:<schemaId>`) identifies the template.
+ */
 async function handleCredentialHistoryDelete(
   _event: IpcMainInvokeEvent,
   request: CredentialHistoryDeleteRequest,
 ): Promise<CredentialHistoryDeleteResponse> {
   const store = getStore();
-  const history =
-    (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
-  const filtered = history.filter((e) => e.id !== request.id);
-  const deleted = filtered.length < history.length;
-  store.set("credentialHistory" as keyof typeof store.store, filtered);
+  const templates =
+    (store.get("recentTemplates" as keyof typeof store.store) as RecentTemplateEntry[]) ?? [];
+  // Accept either the new deterministic id or an older UUID id (no-op for
+  // the latter since data is already migrated).
+  const targetSchemaId = request.id.startsWith("template:")
+    ? request.id.slice("template:".length)
+    : null;
+  if (!targetSchemaId) {
+    return { deleted: false };
+  }
+  const filtered = templates.filter((t) => t.schemaId !== targetSchemaId);
+  const deleted = filtered.length < templates.length;
+  store.set("recentTemplates" as keyof typeof store.store, filtered);
   return { deleted };
 }
 
@@ -1641,7 +1774,7 @@ async function handleSchemaFetchUrl(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     logger.warn("Schema fetch failed", { url: request.url, error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Schema fetch failed.") };
   }
 }
 
@@ -2216,7 +2349,7 @@ async function handleDidWebExport(
   } catch (err) {
     return {
       success: false,
-      error: err instanceof Error ? err.message : "DID document export failed.",
+      error: ipcErrorMessage(err, "DID document export failed."),
     };
   }
 }
@@ -2238,7 +2371,7 @@ async function handleDidWebVerify(
     return {
       success: true,
       accessible: false,
-      error: err instanceof Error ? err.message : "DID verification failed.",
+      error: ipcErrorMessage(err, "DID verification failed."),
     };
   }
 }
@@ -2335,7 +2468,7 @@ async function handleDeDiSetConfig(
   } catch (err) {
     return {
       success: false,
-      error: err instanceof Error ? err.message : "Failed to configure DeDi",
+      error: ipcErrorMessage(err, "Failed to configure DeDi"),
     };
   }
 }
@@ -2393,7 +2526,7 @@ async function handleDeDiPublishSchema(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Schema publication failed";
     logger.error("DeDi schema publication failed", { schemaId: request.schemaId, error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Schema publication failed.") };
   }
 }
 
@@ -2443,7 +2576,6 @@ import type {
   RecentTemplateRecordRequest,
 } from "../shared/ipc-types.js";
 import { RECENT_TEMPLATES_CAP } from "./store.js";
-import type { RecentTemplateEntry } from "./store.js";
 
 async function handleRecentTemplatesList(
   _event: IpcMainInvokeEvent,

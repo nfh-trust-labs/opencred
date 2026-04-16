@@ -836,4 +836,26 @@ describe("IPC Handler Integration Tests", () => {
       expect(storeData["keyRotationDismissedUntil"]).toBe("2026-05-01T00:00:00.000Z");
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Error-response sanitisation (LOW-01)
+  // -----------------------------------------------------------------------
+  describe("IPC error sanitisation", () => {
+    it("KEY_IMPORT scrubs filesystem paths from the error response", async () => {
+      // Pointing at a non-existent POSIX path causes the underlying fs
+      // layer to throw with the absolute path embedded in the message.
+      // The sanitised response must NOT contain /Users/alice/....
+      const handler = registeredHandlers[IPC_CHANNELS.KEY_IMPORT];
+      const result = (await handler(fakeEvent, {
+        filePath: "/Users/alice/private.pem",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(typeof result.error).toBe("string");
+      // The raw error would typically embed the full path; after
+      // sanitisation, only the basename should appear.
+      expect(result.error).not.toContain("/Users/alice");
+      expect(result.error).not.toContain("/Users/alice/private.pem");
+    });
+  });
 });

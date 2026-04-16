@@ -1100,13 +1100,15 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
           }
         }
 
-        // Auto-save to credential history (using saved schema ID for reissue)
+        // Auto-save to credential history (using saved schema ID for reissue).
+        // NOTE: only template metadata is persisted — the full signed VC is
+        // held in-memory via `response.signedCredential` and must be exported
+        // by the user before navigating away.
         try {
           await window.opencred.credentialHistoryAdd({
             schemaId: savedSchemaId,
             schemaName: schemaName || effectiveSchemaId,
             subjectSummary: buildSubjectSummary(subjectValues),
-            credentialJson: response.signedCredential,
             keyFingerprint: selectedKey?.fingerprint ?? "",
             proofFormat: response.proofFormat,
           });
