@@ -13,6 +13,7 @@
  */
 
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { serve } from "@hono/node-server";
 import { ZodError } from "zod";
 
@@ -33,7 +34,7 @@ import { setDeDiClient } from "./dedi-singleton.js";
 import { health } from "./routes/health.js";
 import { schemas } from "./routes/schemas.js";
 import { credentials } from "./routes/credentials.js";
-import { batch } from "./routes/batch.js";
+import { batch, startBatchJobCleanup } from "./routes/batch.js";
 import { revocation } from "./routes/revocation.js";
 import { packaging } from "./routes/packaging.js";
 import { keys } from "./routes/keys.js";
@@ -185,6 +186,50 @@ if (dediClient) {
 
 const app = new Hono();
 
+// ---------------------------------------------------------------------------
+// Body size limits (MED-02)
+// ---------------------------------------------------------------------------
+//
+// Applied before auth and metrics so oversize requests are rejected
+// immediately with a 413 before any auth check, DB lookup, or signer lookup
+// runs. Two distinct caps:
+//
+//   - `OPENCRED_MAX_BATCH_BODY_BYTES` for `POST /credentials/batch` and its
+//     `/v1/...` twin — batch CSV uploads are legitimately large.
+//   - `OPENCRED_MAX_BODY_BYTES` for every other route (default 50 MiB).
+//
+// `hono/body-limit` takes a single `maxSize`, so we register two middleware
+// instances in sequence: the batch path gets the larger cap; the wildcard
+// follows with the tighter cap but skips the batch path via its own scope
+// (batch path already passed the batch-scoped check first, and we skip the
+// second middleware explicitly to avoid false rejects).
+const BATCH_PATHS = new Set(["/credentials/batch", "/v1/credentials/batch"]);
+
+app.use("/credentials/batch", bodyLimit({
+  maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
+  onError: (c) =>
+    c.json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } }, 413),
+}));
+app.use("/v1/credentials/batch", bodyLimit({
+  maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
+  onError: (c) =>
+    c.json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } }, 413),
+}));
+
+// General cap applied to all non-batch routes. Skipped on batch paths so
+// the tighter non-batch limit isn't wrongly enforced against CSV uploads.
+app.use("*", async (c, next) => {
+  if (BATCH_PATHS.has(c.req.path)) return next();
+  return bodyLimit({
+    maxSize: config.OPENCRED_MAX_BODY_BYTES,
+    onError: (ctx) =>
+      ctx.json(
+        { error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } },
+        413,
+      ),
+  })(c, next);
+});
+
 // Global middleware
 app.use("*", metricsMiddleware);
 app.use("*", authMiddleware);
@@ -251,6 +296,15 @@ const server = serve({
 
 logger.info({ port: config.OPENCRED_PORT }, "OpenCred Server listening");
 
+// Start the batch-job purge loop. Jobs in the in-memory Map are evicted
+// once their (completedAt ?? createdAt) + OPENCRED_SESSION_TTL is in the
+// past, honouring CLAUDE.md rule 3 on ephemeral session data. We hold the
+// handle so shutdown (or a test tear-down) can cancel it cleanly.
+const batchCleanupInterval = startBatchJobCleanup(
+  5 * 60 * 1000, // sweep every 5 minutes
+  config.OPENCRED_SESSION_TTL * 1000,
+);
+
 // TODO(#109): When a DeDi client is available in the server, add optional
 // startup behaviour: if OPENCRED_DEDI_PUBLISH_BUNDLED=true, iterate through
 // the schema registry and publish each schema to DeDi via
@@ -259,6 +313,7 @@ logger.info({ port: config.OPENCRED_PORT }, "OpenCred Server listening");
 // Graceful shutdown
 function shutdown(signal: string) {
   logger.info({ signal }, "Shutting down");
+  clearInterval(batchCleanupInterval);
   server.close(async () => {
     if (tracer) await tracer.shutdown();
     logger.info("Server closed");

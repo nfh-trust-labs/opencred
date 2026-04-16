@@ -66,13 +66,18 @@ describe("deliverWebhook", () => {
     expect(headers["User-Agent"]).toBe("OpenCred-Server");
   });
 
-  it("uses unsigned marker when secret is empty", async () => {
+  it("refuses delivery when secret is empty (LOW-04)", async () => {
     const calls = mockFetch(new Response("ok", { status: 200 }));
 
-    await deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, "");
+    // Empty secret is a programming error at this layer — the route-level
+    // guard is responsible for rejecting webhookUrl+missing-secret requests
+    // before calling `deliverWebhook`. See `POST /credentials/batch`.
+    await expect(deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, "")).rejects.toThrow(
+      /requires a non-empty secret/i,
+    );
 
-    const headers = (calls[0][1] as RequestInit).headers as Record<string, string>;
-    expect(headers["X-OpenCred-Signature"]).toBe("sha256=unsigned");
+    // Crucially: no outbound request was made.
+    expect(calls).toHaveLength(0);
   });
 
   it("retries on failure and succeeds on third attempt", async () => {
@@ -214,5 +219,26 @@ describe("deliverWebhook", () => {
       expect(fetchedUrl).toContain("93.184.216.34");
       expect(fetchedUrl).not.toContain("example.com");
     }
+  });
+
+  // LOW-04: the signing secret is the dedicated webhook secret, not the API
+  // key. A receiver holding only the API key must not be able to verify the
+  // signature — this enforces the rotation-separation property.
+  it("signature verifies against OPENCRED_WEBHOOK_SECRET but NOT against OPENCRED_API_KEY", async () => {
+    const webhookSecret = "webhook-secret-with-enough-entropy-32chars";
+    const apiKey = "api-key-that-should-NOT-sign-webhooks-32chars";
+    const calls = mockFetch(new Response("ok", { status: 200 }));
+
+    await deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, webhookSecret);
+
+    const headers = (calls[0][1] as RequestInit).headers as Record<string, string>;
+    const bodyString = JSON.stringify(SAMPLE_PAYLOAD);
+    const expectedWithWebhookSecret = `sha256=${createHmac("sha256", webhookSecret)
+      .update(bodyString)
+      .digest("hex")}`;
+    const withApiKey = `sha256=${createHmac("sha256", apiKey).update(bodyString).digest("hex")}`;
+
+    expect(headers["X-OpenCred-Signature"]).toBe(expectedWithWebhookSecret);
+    expect(headers["X-OpenCred-Signature"]).not.toBe(withApiKey);
   });
 });

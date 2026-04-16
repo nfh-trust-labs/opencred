@@ -70,6 +70,40 @@ const configSchema = z.object({
   /** Session TTL in seconds (for ephemeral credential data). Default: 4 hours. */
   OPENCRED_SESSION_TTL: z.coerce.number().int().min(60).default(14400),
 
+  /**
+   * Maximum request body size in bytes for all routes except batch CSV
+   * ingestion (see `OPENCRED_MAX_BATCH_BODY_BYTES`). Enforced globally via
+   * `hono/body-limit` middleware; oversize requests receive a 413 with a
+   * stable `PAYLOAD_TOO_LARGE` error code. Default: 50 MiB.
+   */
+  OPENCRED_MAX_BODY_BYTES: z
+    .coerce.number()
+    .int()
+    .min(1024)
+    .default(50 * 1024 * 1024),
+
+  /**
+   * Maximum request body size in bytes for `POST /credentials/batch`.
+   * Batch jobs carry CSVs that can legitimately dwarf a single credential
+   * payload; the default is 4x the general limit. Must be at least 1 KiB.
+   * Default: 200 MiB.
+   */
+  OPENCRED_MAX_BATCH_BODY_BYTES: z
+    .coerce.number()
+    .int()
+    .min(1024)
+    .default(200 * 1024 * 1024),
+
+  /**
+   * Dedicated HMAC secret used to sign batch-completion webhooks.
+   * Required (per LOW-04) whenever a batch is submitted with a `webhookUrl`
+   * — requests that supply a webhookUrl while this is unset are rejected at
+   * the route boundary with a 400. Kept distinct from `OPENCRED_API_KEY`
+   * so the two can be rotated independently. Minimum 32 chars to match
+   * typical HMAC-SHA256 secret strength guidance.
+   */
+  OPENCRED_WEBHOOK_SECRET: z.string().min(32).optional(),
+
   // --- Cloud HSM (KMS) configuration ---
 
   /** KMS provider: aws | azure | gcp | none. Default: none (file-based). */
