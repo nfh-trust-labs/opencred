@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 import { ValidationError } from "@opencred/shared";
-import { CredentialBuilder } from "../credential-builder.js";
+import { CredentialBuilder, isValidSubjectUri } from "../credential-builder.js";
 import {
   W3C_CREDENTIALS_V2_CONTEXT,
   DATA_INTEGRITY_V1_CONTEXT,
@@ -793,6 +793,251 @@ describe("CredentialBuilder", () => {
       });
       // Unsigned — no proof
       expect(vc).not.toHaveProperty("proof");
+    });
+  });
+
+  describe("isValidSubjectUri helper (HIGH-02)", () => {
+    it("accepts did:* identifiers", () => {
+      expect(isValidSubjectUri("did:web:example.com")).toBe(true);
+      expect(isValidSubjectUri("did:key:z6MkTest")).toBe(true);
+      expect(isValidSubjectUri("did:jwk:eyJhbGciOiJFUzI1NiJ9")).toBe(true);
+    });
+
+    it("accepts urn:uuid:* identifiers", () => {
+      expect(
+        isValidSubjectUri("urn:uuid:12345678-1234-1234-1234-123456789abc"),
+      ).toBe(true);
+    });
+
+    it("accepts https:// URLs", () => {
+      expect(isValidSubjectUri("https://example.com/subject/1")).toBe(true);
+    });
+
+    it("rejects disallowed schemes and non-URI strings", () => {
+      expect(isValidSubjectUri("http://example.com")).toBe(false);
+      expect(isValidSubjectUri("javascript:alert(1)")).toBe(false);
+      expect(isValidSubjectUri("data:text/html,<script>")).toBe(false);
+      expect(isValidSubjectUri("file:///etc/passwd")).toBe(false);
+      expect(isValidSubjectUri("../etc/passwd")).toBe(false);
+      expect(isValidSubjectUri("not-a-uri")).toBe(false);
+      expect(isValidSubjectUri("")).toBe(false);
+    });
+  });
+
+  describe("setCredentialSubject() URI validation (HIGH-02)", () => {
+    it("accepts did:web: subject id", () => {
+      expect(() =>
+        new CredentialBuilder().setCredentialSubject({ id: "did:web:example.com" }),
+      ).not.toThrow();
+    });
+
+    it("accepts did:key: subject id", () => {
+      expect(() =>
+        new CredentialBuilder().setCredentialSubject({
+          id: "did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH",
+        }),
+      ).not.toThrow();
+    });
+
+    it("accepts urn:uuid: subject id", () => {
+      expect(() =>
+        new CredentialBuilder().setCredentialSubject({
+          id: "urn:uuid:12345678-1234-1234-1234-123456789abc",
+        }),
+      ).not.toThrow();
+    });
+
+    it("accepts https:// subject id", () => {
+      expect(() =>
+        new CredentialBuilder().setCredentialSubject({
+          id: "https://example.com/subject/1",
+        }),
+      ).not.toThrow();
+    });
+
+    it("accepts subject without id at all", () => {
+      expect(() =>
+        new CredentialBuilder().setCredentialSubject({
+          name: "Jane Doe",
+          degree: "BSc",
+        }),
+      ).not.toThrow();
+    });
+
+    it("rejects empty string id", () => {
+      expect(() => new CredentialBuilder().setCredentialSubject({ id: "" })).toThrow(
+        ValidationError,
+      );
+    });
+
+    it("rejects whitespace-only id", () => {
+      expect(() => new CredentialBuilder().setCredentialSubject({ id: "   " })).toThrow(
+        ValidationError,
+      );
+    });
+
+    it("rejects non-string id (number)", () => {
+      expect(() =>
+        new CredentialBuilder().setCredentialSubject({ id: 123 as unknown as string }),
+      ).toThrow(ValidationError);
+    });
+
+    it("rejects javascript: scheme", () => {
+      expect(() =>
+        new CredentialBuilder().setCredentialSubject({ id: "javascript:alert(1)" }),
+      ).toThrow(ValidationError);
+    });
+
+    it("rejects data: scheme", () => {
+      expect(() =>
+        new CredentialBuilder().setCredentialSubject({
+          id: "data:text/html,<script>alert(1)</script>",
+        }),
+      ).toThrow(ValidationError);
+    });
+
+    it("rejects file system path", () => {
+      expect(() =>
+        new CredentialBuilder().setCredentialSubject({ id: "../etc/passwd" }),
+      ).toThrow(ValidationError);
+    });
+
+    it("rejects non-URI free-form string", () => {
+      expect(() =>
+        new CredentialBuilder().setCredentialSubject({ id: "not-a-uri" }),
+      ).toThrow(ValidationError);
+    });
+
+    it("rejects http:// (only https:// is allowed)", () => {
+      expect(() =>
+        new CredentialBuilder().setCredentialSubject({ id: "http://example.com/subject/1" }),
+      ).toThrow(ValidationError);
+    });
+
+    it("truncates the rejected id in the error message to avoid huge logs", () => {
+      const huge = "bogus-prefix-" + "x".repeat(200);
+      try {
+        new CredentialBuilder().setCredentialSubject({ id: huge });
+        throw new Error("should have thrown");
+      } catch (err) {
+        const message = (err as Error).message;
+        // Message includes an ellipsis and not the full 200+ character input
+        expect(message).toContain("...");
+        expect(message.length).toBeLessThan(huge.length);
+      }
+    });
+  });
+
+  describe("validUntil upper bound (MED-05)", () => {
+    const ORIGINAL_MAX = process.env.OPENCRED_MAX_VALIDITY_YEARS;
+
+    afterEach(() => {
+      if (ORIGINAL_MAX === undefined) {
+        delete process.env.OPENCRED_MAX_VALIDITY_YEARS;
+      } else {
+        process.env.OPENCRED_MAX_VALIDITY_YEARS = ORIGINAL_MAX;
+      }
+    });
+
+    it("accepts validUntil exactly equal to the max window boundary", () => {
+      // 10 years default, 365.25 days/year — use 9 years so we're safely inside.
+      const vc = new CredentialBuilder()
+        .setIssuer(validIssuer)
+        .setCredentialSubject(validSubject)
+        .setValidFrom("2026-01-01T00:00:00Z")
+        .setValidUntil("2035-01-01T00:00:00Z")
+        .build();
+      expect(vc.validUntil).toBe("2035-01-01T00:00:00Z");
+    });
+
+    it("rejects validUntil beyond the 10-year default window", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer(validIssuer)
+          .setCredentialSubject(validSubject)
+          .setValidFrom("2026-01-01T00:00:00Z")
+          // 20 years ahead — well past the 10-year ceiling.
+          .setValidUntil("2046-01-01T00:00:00Z")
+          .build(),
+      ).toThrow(ValidationError);
+    });
+
+    it("rejects validUntil equal to validFrom", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer(validIssuer)
+          .setCredentialSubject(validSubject)
+          .setValidFrom("2026-01-01T00:00:00Z")
+          .setValidUntil("2026-01-01T00:00:00Z")
+          .build(),
+      ).toThrow(/validUntil must be after validFrom/);
+    });
+
+    it("rejects validUntil earlier than validFrom", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer(validIssuer)
+          .setCredentialSubject(validSubject)
+          .setValidFrom("2026-01-01T00:00:00Z")
+          .setValidUntil("2025-12-31T23:59:59Z")
+          .build(),
+      ).toThrow(/validUntil must be after validFrom/);
+    });
+
+    it("error message includes the configured max-years and the attempted window", () => {
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer(validIssuer)
+          .setCredentialSubject(validSubject)
+          .setValidFrom("2026-01-01T00:00:00Z")
+          .setValidUntil("2046-01-01T00:00:00Z")
+          .build(),
+      ).toThrow(/maximum allowed validity window of 10 year/);
+    });
+
+    it("honours OPENCRED_MAX_VALIDITY_YEARS env override", () => {
+      process.env.OPENCRED_MAX_VALIDITY_YEARS = "5";
+      expect(() =>
+        new CredentialBuilder()
+          .setIssuer(validIssuer)
+          .setCredentialSubject(validSubject)
+          .setValidFrom("2026-01-01T00:00:00Z")
+          // 8 years window — allowed under default 10y, rejected under 5y.
+          .setValidUntil("2034-01-01T00:00:00Z")
+          .build(),
+      ).toThrow(/maximum allowed validity window of 5 year/);
+    });
+
+    it("accepts a validUntil within the narrower 5-year env-configured window", () => {
+      process.env.OPENCRED_MAX_VALIDITY_YEARS = "5";
+      const vc = new CredentialBuilder()
+        .setIssuer(validIssuer)
+        .setCredentialSubject(validSubject)
+        .setValidFrom("2026-01-01T00:00:00Z")
+        .setValidUntil("2030-06-01T00:00:00Z")
+        .build();
+      expect(vc.validUntil).toBe("2030-06-01T00:00:00Z");
+    });
+
+    it("falls back to the default when OPENCRED_MAX_VALIDITY_YEARS is invalid", () => {
+      process.env.OPENCRED_MAX_VALIDITY_YEARS = "not-a-number";
+      // 9 years — still inside the 10-year default; must not throw.
+      const vc = new CredentialBuilder()
+        .setIssuer(validIssuer)
+        .setCredentialSubject(validSubject)
+        .setValidFrom("2026-01-01T00:00:00Z")
+        .setValidUntil("2035-01-01T00:00:00Z")
+        .build();
+      expect(vc.validUntil).toBe("2035-01-01T00:00:00Z");
+    });
+
+    it("accepts validUntil when not set (optional field)", () => {
+      const vc = new CredentialBuilder()
+        .setIssuer(validIssuer)
+        .setCredentialSubject(validSubject)
+        .setValidFrom("2026-01-01T00:00:00Z")
+        .build();
+      expect(vc).not.toHaveProperty("validUntil");
     });
   });
 });

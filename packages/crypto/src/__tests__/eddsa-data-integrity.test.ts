@@ -36,7 +36,6 @@ function createTestCredential(): UnsignedCredential {
 const defaultProofOptions: ProofOptions = {
   verificationMethod: "did:web:university.example#key-ed25519",
   proofPurpose: "assertionMethod",
-  created: "2026-01-01T00:00:00Z",
 };
 
 describe("signCredentialEdDsa / verifyEdDsaProof — full round-trip", () => {
@@ -52,7 +51,10 @@ describe("signCredentialEdDsa / verifyEdDsaProof — full round-trip", () => {
     expect(signedVC.proof.proofPurpose).toBe("assertionMethod");
     expect(signedVC.proof.verificationMethod).toBe("did:web:university.example#key-ed25519");
     expect(signedVC.proof.proofValue).toMatch(/^z/);
-    expect(signedVC.proof.created).toBe("2026-01-01T00:00:00Z");
+    // `created` is always server-generated; assert it's a valid ISO 8601 timestamp.
+    expect(signedVC.proof.created).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/,
+    );
 
     const result = await verifyEdDsaProof(signedVC, { publicKey: signingKey.publicKey });
     expect(result.verified).toBe(true);

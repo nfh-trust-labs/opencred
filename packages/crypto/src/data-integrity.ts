@@ -83,6 +83,10 @@ export async function canonicalize(
 
 /**
  * Build a proof configuration object from proof options and the document's @context.
+ *
+ * The `created` timestamp is always generated here using the signing host's
+ * clock (`new Date().toISOString()`); callers cannot supply a custom value.
+ * This prevents backdated or forward-dated proofs.
  */
 function buildProofConfig(
   unsignedVC: UnsignedCredential,
@@ -93,7 +97,7 @@ function buildProofConfig(
     "@context": unsignedVC["@context"] as (string | Record<string, unknown>)[],
     type: PROOF_TYPE,
     cryptosuite,
-    created: options.created ?? new Date().toISOString(),
+    created: new Date().toISOString(),
     verificationMethod: options.verificationMethod,
     proofPurpose: options.proofPurpose,
   };

@@ -32,6 +32,53 @@ function isValidCredentialUri(id: string): boolean {
 }
 
 /**
+ * Validate that a `credentialSubject.id` is one of the allowed URI schemes.
+ *
+ * Accepts:
+ * - `did:*` — any DID (e.g., `did:web:`, `did:key:`, `did:jwk:`).
+ * - `urn:uuid:*` — UUID URN.
+ * - `https://*` — HTTPS URL.
+ *
+ * Rejects every other scheme (`javascript:`, `data:`, `file:`, `http:`, etc.)
+ * and any non-URI string. Used for defense-in-depth against subject-id
+ * injection at the library boundary.
+ */
+export function isValidSubjectUri(id: string): boolean {
+  return id.startsWith("did:") || id.startsWith("urn:uuid:") || id.startsWith("https://");
+}
+
+/**
+ * Maximum allowed validity window (years) between `validFrom` and `validUntil`.
+ *
+ * Default is 10 years; overridable at build time via the
+ * `OPENCRED_MAX_VALIDITY_YEARS` environment variable. Unset or invalid
+ * values fall back to the default so that misconfiguration cannot weaken
+ * the ceiling.
+ */
+const DEFAULT_MAX_VALIDITY_YEARS = 10;
+
+function resolveMaxValidityYears(): number {
+  const raw = process.env.OPENCRED_MAX_VALIDITY_YEARS;
+  if (raw === undefined || raw === "") {
+    return DEFAULT_MAX_VALIDITY_YEARS;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_MAX_VALIDITY_YEARS;
+  }
+  return parsed;
+}
+
+/**
+ * Truncate a potentially-huge user-supplied string for inclusion in error
+ * messages. Keeps error output bounded so a large input doesn't balloon
+ * log entries or leak excessive context.
+ */
+function truncateForError(value: string, max = 80): string {
+  return value.length > max ? `${value.slice(0, max)}...` : value;
+}
+
+/**
  * Fluent builder for constructing W3C VC Data Model 2.0 unsigned credentials.
  *
  * Usage:
@@ -117,8 +164,33 @@ export class CredentialBuilder {
     return this;
   }
 
-  /** Set the credential subject containing claims. */
+  /**
+   * Set the credential subject containing claims.
+   *
+   * If `subject.id` is provided it MUST be one of the allowed URI schemes:
+   * `did:*`, `urn:uuid:*`, or `https://*`. Empty strings, non-string values,
+   * and any other scheme (e.g. `javascript:`, `data:`, `http:`, file paths,
+   * or plain identifiers) are rejected. This guards callers (server routes,
+   * IPC handlers, CSV importers) that forward user input without
+   * schema-level validation.
+   */
   setCredentialSubject(subject: CredentialSubject): this {
+    if (subject && "id" in subject && subject.id !== undefined) {
+      const rawId: unknown = subject.id;
+      if (typeof rawId !== "string") {
+        throw new ValidationError(
+          `credentialSubject.id must be a string, got ${typeof rawId}`,
+        );
+      }
+      if (rawId.trim() === "") {
+        throw new ValidationError("credentialSubject.id must be a non-empty string");
+      }
+      if (!isValidSubjectUri(rawId)) {
+        throw new ValidationError(
+          `credentialSubject.id must be a valid URI (did:, urn:uuid:, or https://): ${truncateForError(rawId)}`,
+        );
+      }
+    }
     this._credentialSubject = subject;
     return this;
   }
@@ -193,8 +265,22 @@ export class CredentialBuilder {
           `Invalid validUntil date: ${this._validUntil}. Must be ISO 8601 format (YYYY-MM-DDTHH:mm:ssZ or with timezone offset)`,
         );
       }
-      if (Date.parse(this._validUntil) <= Date.parse(this._validFrom)) {
+      const validUntilMs = Date.parse(this._validUntil);
+      const validFromMs = Date.parse(this._validFrom);
+      // Must be strictly after validFrom (rejects equal or earlier).
+      if (validUntilMs <= validFromMs) {
         throw new ValidationError("validUntil must be after validFrom");
+      }
+      // Enforce an upper bound on the validity window to prevent long-lived
+      // credentials from being issued by mistake or abuse. The window is
+      // measured from `validFrom` (always set at this point; required above).
+      const maxYears = resolveMaxValidityYears();
+      const maxWindowMs = maxYears * 365.25 * 24 * 3600 * 1000;
+      if (validUntilMs - validFromMs > maxWindowMs) {
+        throw new ValidationError(
+          `validUntil exceeds maximum allowed validity window of ${maxYears} year(s). ` +
+            `Attempted validFrom=${this._validFrom}, validUntil=${this._validUntil}.`,
+        );
       }
     }
 
