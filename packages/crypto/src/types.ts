@@ -9,14 +9,17 @@ export type SigningAlgorithm = "P-256" | "P-384" | "RSA-2048" | "RSA-3072" | "RS
 
 /**
  * Options for creating a Data Integrity proof.
+ *
+ * The proof `created` timestamp is always generated server-side at signing
+ * time using `new Date().toISOString()`; callers cannot supply a custom
+ * value. This prevents backdated or forward-dated proofs and keeps the
+ * timestamp authoritative on the signing host.
  */
 export interface ProofOptions {
   /** The verification method identifier (e.g., DID URL). */
   verificationMethod: string;
   /** The purpose of the proof (e.g., "assertionMethod"). */
   proofPurpose: string;
-  /** ISO 8601 timestamp for the proof creation. Auto-generated if omitted. */
-  created?: string;
   /** The domain the proof is bound to (optional). */
   domain?: string;
   /** A challenge nonce (optional). */

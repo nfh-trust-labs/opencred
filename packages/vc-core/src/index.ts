@@ -28,7 +28,7 @@ export {
 
 export { generateInlineContext } from "./context-generator.js";
 
-export { CredentialBuilder } from "./credential-builder.js";
+export { CredentialBuilder, isValidSubjectUri } from "./credential-builder.js";
 
 export { ContextNotFoundError } from "./context-errors.js";
 

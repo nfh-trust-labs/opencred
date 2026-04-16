@@ -38,7 +38,6 @@ describe("CredentialBuilder -> sign -> verify (package-level)", () => {
     const signed = await signCredential(unsigned, signingKey, {
       verificationMethod: VM_ID,
       proofPurpose: "assertionMethod",
-      created: "2026-01-01T00:00:00Z",
     });
 
     const resolver = createMockResolver(ISSUER_DID, publicKeyJwk, VM_ID);
@@ -95,7 +94,6 @@ describe("CredentialBuilder -> sign -> verify (package-level)", () => {
     const signed = await signCredential(unsigned, signingKey, {
       verificationMethod: VM_ID,
       proofPurpose: "assertionMethod",
-      created: "2026-01-01T00:00:00Z",
     });
 
     const tampered = {

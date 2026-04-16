@@ -65,7 +65,6 @@ describe("verifyDataIntegrity", () => {
       {
         verificationMethod: verificationMethodId,
         proofPurpose: "assertionMethod",
-        created: "2026-01-01T00:00:00Z",
       },
     );
 
@@ -106,7 +105,6 @@ describe("verifyDataIntegrity", () => {
       {
         verificationMethod: verificationMethodId,
         proofPurpose: "assertionMethod",
-        created: "2026-01-01T00:00:00Z",
       },
     );
 
@@ -136,7 +134,6 @@ describe("verifyDataIntegrity", () => {
       {
         verificationMethod: "did:web:university.example#key-1",
         proofPurpose: "assertionMethod",
-        created: "2026-01-01T00:00:00Z",
       },
     );
 
@@ -157,7 +154,6 @@ describe("verifyDataIntegrity", () => {
       {
         verificationMethod: verificationMethodId,
         proofPurpose: "assertionMethod",
-        created: "2026-01-01T00:00:00Z",
       },
     );
 
@@ -191,7 +187,6 @@ describe("verifyDataIntegrity", () => {
       {
         verificationMethod: "did:web:university.example#key-1",
         proofPurpose: "assertionMethod",
-        created: "2026-01-01T00:00:00Z",
       },
     );
 
@@ -227,7 +222,6 @@ describe("verifyDataIntegrity", () => {
       {
         verificationMethod: verificationMethodId,
         proofPurpose: "assertionMethod",
-        created: "2026-01-01T00:00:00Z",
       },
     );
 
@@ -265,7 +259,6 @@ describe("verifyDataIntegrity", () => {
       {
         verificationMethod: verificationMethodId,
         proofPurpose: "assertionMethod",
-        created: "2026-01-01T00:00:00Z",
       },
     );
 
@@ -325,7 +318,6 @@ describe("verifyDataIntegrity", () => {
         {
           verificationMethod: forgedVmId,
           proofPurpose: "assertionMethod",
-          created: "2026-01-01T00:00:00Z",
         },
       );
 
@@ -372,7 +364,6 @@ describe("verifyDataIntegrity", () => {
         {
           verificationMethod: forgedVmId,
           proofPurpose: "assertionMethod",
-          created: "2026-01-01T00:00:00Z",
         },
       );
 
@@ -417,7 +408,6 @@ describe("verifyDataIntegrity", () => {
         {
           verificationMethod: forgedVmId,
           proofPurpose: "assertionMethod",
-          created: "2026-01-01T00:00:00Z",
         },
       );
 
@@ -450,7 +440,6 @@ describe("verifyDataIntegrity", () => {
         {
           verificationMethod: verificationMethodId,
           proofPurpose: "assertionMethod",
-          created: "2026-01-01T00:00:00Z",
         },
       );
 
@@ -479,7 +468,6 @@ describe("verifyDataIntegrity", () => {
       {
         verificationMethod: verificationMethodId,
         proofPurpose: "assertionMethod",
-        created: "2026-01-01T00:00:00Z",
       },
     );
 
