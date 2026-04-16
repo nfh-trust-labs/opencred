@@ -59,6 +59,7 @@ import type {
   Pkcs11ListKeysResponse,
   Pkcs11ConnectRequest,
   Pkcs11ConnectResponse,
+  Pkcs11PickLibraryResponse,
   UpdateStatusResponse,
   OsCertListResponse,
   OsCertSignRequest,
@@ -120,6 +121,11 @@ import type { BatchEngine, BatchRowResult } from "../batch/batch-engine.js";
 import { exportBatchAsZip } from "../batch/batch-export.js";
 // PKCS#11 imports are lazy to avoid requiring the native pkcs11.node addon at startup.
 // The actual imports happen inside the handler functions via dynamic import().
+import {
+  validatePkcs11Path,
+  ALLOWED_PKCS11_DIRS_BY_PLATFORM,
+} from "./pkcs11-path-validator.js";
+import { buildAndSignRequestSchema, parseIpcRequest } from "../shared/ipc-schemas.js";
 
 import {
   checkForUpdates,
@@ -486,8 +492,24 @@ async function handleSignCredential(
  */
 async function handleBuildAndSign(
   _event: IpcMainInvokeEvent,
-  request: BuildAndSignRequest,
+  rawRequest: BuildAndSignRequest,
 ): Promise<BuildAndSignResponse> {
+  // SECURITY (HIGH-02): validate the IPC payload via Zod BEFORE any signing
+  // logic runs. The schema refuses `subjectDid` values that aren't safe URIs
+  // (e.g. `javascript:alert(1)`, `data:...`, `file:...`) so we never embed an
+  // active-content URI into a signed credential's `credentialSubject.id`.
+  const parsed = parseIpcRequest(buildAndSignRequestSchema, rawRequest);
+  if (!parsed.ok) {
+    logger.warn("Build and sign rejected by schema", { reason: parsed.error });
+    return {
+      success: false,
+      error: `Invalid build-and-sign request: ${parsed.error}`,
+      errorCode: "VALIDATION_ERROR",
+    };
+  }
+  // `request` is the validated, typed payload — use it from here on.
+  const request = parsed.value as BuildAndSignRequest;
+
   const signer = loadedSigners.get(request.keyId);
   if (!signer) {
     return { success: false, error: `Key not found: ${request.keyId}`, errorCode: "KEY_NOT_FOUND" };
@@ -1292,31 +1314,23 @@ async function handleBatchExport(
 // ---------------------------------------------------------------------------
 
 /**
- * PKCS11_DETECT — check if a PKCS#11 library exists at the given path.
+ * PKCS11_DETECT — check if a PKCS#11 library exists at the given path AND that
+ * the path resolves inside the trusted system library allowlist. See
+ * `pkcs11-path-validator.ts` for rationale.
  */
 async function handlePkcs11Detect(
   _event: IpcMainInvokeEvent,
   request: Pkcs11DetectRequest,
 ): Promise<Pkcs11DetectResponse> {
   try {
-    const stat = await fs.stat(request.libraryPath);
-    if (!stat.isFile()) {
-      return { exists: false, error: "Path is not a file" };
-    }
-
-    const ext = request.libraryPath.toLowerCase();
-    const validExtensions = [".so", ".dll", ".dylib"];
-    const hasValidExt = validExtensions.some((e) => ext.endsWith(e));
-    if (!hasValidExt) {
-      return {
-        exists: true,
-        error: "File does not have a shared library extension (.so, .dll, .dylib)",
-      };
-    }
-
+    await validatePkcs11Path(request.libraryPath);
     return { exists: true };
-  } catch {
-    return { exists: false, error: "File not found" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Path rejected.";
+    // The validator uses "path rejected: <reason>" wording, so the file can
+    // be either missing or simply outside the allowlist. Surface the reason
+    // to the UI but never echo the attacker-controlled user path.
+    return { exists: false, error: message };
   }
 }
 
@@ -1329,12 +1343,13 @@ async function handlePkcs11ListSlots(
 ): Promise<Pkcs11ListSlotsResponse> {
   let p11;
   try {
+    const validatedPath = await validatePkcs11Path(request.libraryPath);
     const {
       initializePkcs11,
       finalizePkcs11,
       listSlots: listPkcs11Slots,
     } = await import("../signing/pkcs11-session.js");
-    p11 = initializePkcs11(request.libraryPath);
+    p11 = initializePkcs11(validatedPath);
     const slots = listPkcs11Slots(p11);
     finalizePkcs11(p11);
 
@@ -1367,6 +1382,7 @@ async function handlePkcs11ListKeys(
   let p11;
   let session;
   try {
+    const validatedPath = await validatePkcs11Path(request.libraryPath);
     const {
       initializePkcs11,
       finalizePkcs11,
@@ -1374,7 +1390,7 @@ async function handlePkcs11ListKeys(
       closeSession: closePkcs11Session,
       listKeys: listPkcs11Keys,
     } = await import("../signing/pkcs11-session.js");
-    p11 = initializePkcs11(request.libraryPath);
+    p11 = initializePkcs11(validatedPath);
     session = openPkcs11Session(p11, request.slotIndex, request.pin);
     const keys = listPkcs11Keys(session);
     closePkcs11Session(session);
@@ -1409,9 +1425,10 @@ async function handlePkcs11Connect(
   request: Pkcs11ConnectRequest,
 ): Promise<Pkcs11ConnectResponse> {
   try {
+    const validatedPath = await validatePkcs11Path(request.libraryPath);
     const { createPkcs11Signer } = await import("../signing/pkcs11-signer.js");
     const { signer, availableKeys } = createPkcs11Signer({
-      libraryPath: request.libraryPath,
+      libraryPath: validatedPath,
       slotIndex: request.slotIndex,
       pin: request.pin,
       keyId: request.keyId,
@@ -1453,6 +1470,49 @@ async function handlePkcs11Connect(
       success: false,
       error: ipcErrorMessage(err, "Failed to connect to hardware token."),
     };
+  }
+}
+
+/**
+ * PKCS11_PICK_LIBRARY — native file picker scoped to the platform's PKCS#11
+ * allowlist. The chosen path is round-tripped through `validatePkcs11Path` so
+ * symlink escapes or user-typed paths in the dialog's file-name field are
+ * rejected before any subsequent `initializePkcs11` call.
+ */
+async function handlePkcs11PickLibrary(): Promise<Pkcs11PickLibraryResponse> {
+  const platform = process.platform;
+  const allowed = ALLOWED_PKCS11_DIRS_BY_PLATFORM[platform];
+  if (!allowed || allowed.length === 0) {
+    return {
+      success: false,
+      error: "Platform not supported for PKCS#11 loading.",
+    };
+  }
+
+  const filters: Array<{ name: string; extensions: string[] }> =
+    platform === "darwin"
+      ? [{ name: "PKCS#11 libraries", extensions: ["dylib"] }]
+      : platform === "win32"
+        ? [{ name: "PKCS#11 libraries", extensions: ["dll"] }]
+        : [{ name: "PKCS#11 libraries", extensions: ["so"] }];
+
+  const result = await dialog.showOpenDialog({
+    title: "Select PKCS#11 library",
+    defaultPath: allowed[0],
+    filters,
+    properties: ["openFile"],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { success: false };
+  }
+
+  try {
+    const validatedPath = await validatePkcs11Path(result.filePaths[0]);
+    return { success: true, libraryPath: validatedPath };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Path rejected.";
+    return { success: false, error: message };
   }
 }
 
@@ -2662,6 +2722,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.PKCS11_LIST_SLOTS, handlePkcs11ListSlots);
   ipcMain.handle(IPC_CHANNELS.PKCS11_LIST_KEYS, handlePkcs11ListKeys);
   ipcMain.handle(IPC_CHANNELS.PKCS11_CONNECT, handlePkcs11Connect);
+  ipcMain.handle(IPC_CHANNELS.PKCS11_PICK_LIBRARY, handlePkcs11PickLibrary);
 
   // Auto-update
   ipcMain.handle(IPC_CHANNELS.UPDATE_CHECK, handleUpdateCheck);
