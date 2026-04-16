@@ -742,13 +742,18 @@ export interface RecentTemplateRecordRequest {
 
 // ---------------------------------------------------------------------------
 // Credential history (deprecated — replaced by recent templates)
+//
+// NOTE: the full signed credential JSON is NOT persisted. These handlers are
+// thin shims over `recentTemplates`, so `credentialJson` has been removed
+// from request/response shapes. Consumers that need the freshly signed VC
+// must capture it from {@link BuildAndSignResponse.signedCredential} at
+// signing time.
 // ---------------------------------------------------------------------------
 
 export interface CredentialHistoryAddRequest {
   schemaId: string;
   schemaName: string;
   subjectSummary: string;
-  credentialJson: string;
   keyFingerprint: string;
   proofFormat?: string;
 }
@@ -760,7 +765,6 @@ export interface CredentialHistoryListResponse {
     schemaName: string;
     subjectSummary: string;
     issuedAt: string;
-    credentialJson: string;
     keyFingerprint: string;
     proofFormat?: string;
   }>;

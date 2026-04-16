@@ -15,11 +15,8 @@
  *    from this preload context.
  */
 
-console.log("[preload] script starting");
 import { contextBridge, ipcRenderer } from "electron";
-console.log("[preload] electron imports OK");
 import { IPC_CHANNELS } from "../shared/ipc-channels.js";
-console.log("[preload] IPC_CHANNELS imported OK");
 import type {
   KeyImportRequest,
   KeyImportResponse,
@@ -279,6 +276,4 @@ const api: OpenCredDesktopAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.LOG_TAIL, { lines }),
 };
 
-console.log("[preload] about to expose API on window.opencred");
 contextBridge.exposeInMainWorld("opencred", api);
-console.log("[preload] API exposed successfully");
