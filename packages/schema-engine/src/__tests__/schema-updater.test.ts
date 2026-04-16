@@ -287,4 +287,187 @@ describe("checkForUpdates", () => {
       expect.stringContaining("Unsupported manifest version"),
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // Origin-enforcement tests (downloadUrl must share manifest origin)
+  // ---------------------------------------------------------------------------
+
+  it("fetches when downloadUrl shares the manifest origin", async () => {
+    const registry = seedRegistry([]);
+    const schema = { type: "object", properties: { a: { type: "string" } } };
+    const schemaJson = JSON.stringify(schema);
+    const manifest: SchemaUpdateManifest = {
+      version: 1,
+      timestamp: "2026-04-12T00:00:00Z",
+      schemas: [
+        {
+          id: "same-origin",
+          version: "1.0.0",
+          checksum: sha256(schemaJson),
+          downloadUrl: "https://a.example.com/schemas/1.json",
+        },
+      ],
+    };
+    const config = makeConfig({
+      manifestUrl: "https://a.example.com/manifest.json",
+    });
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(manifest),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(schemaJson),
+      });
+
+    const result = await checkForUpdates(config, registry);
+
+    expect(result.listSchemas()).toContain("same-origin");
+    // Manifest fetch + download fetch = 2 calls
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips schema when downloadUrl origin differs from manifest origin", async () => {
+    const registry = seedRegistry([]);
+    const schema = { type: "object" };
+    const schemaJson = JSON.stringify(schema);
+    const manifest: SchemaUpdateManifest = {
+      version: 1,
+      timestamp: "2026-04-12T00:00:00Z",
+      schemas: [
+        {
+          id: "cross-origin",
+          version: "1.0.0",
+          checksum: sha256(schemaJson),
+          downloadUrl: "https://b.example.com/schemas/1.json",
+        },
+      ],
+    };
+    const config = makeConfig({
+      manifestUrl: "https://a.example.com/manifest.json",
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(manifest),
+    });
+
+    const result = await checkForUpdates(config, registry);
+
+    expect(result.listSchemas()).not.toContain("cross-origin");
+    // Only the manifest was fetched — cross-origin download was rejected
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(config.logger?.warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "differs from manifest origin",
+      ),
+    );
+  });
+
+  it("skips schema when downloadUrl is not a valid URL", async () => {
+    const registry = seedRegistry([]);
+    const manifest: SchemaUpdateManifest = {
+      version: 1,
+      timestamp: "2026-04-12T00:00:00Z",
+      schemas: [
+        {
+          id: "bad-url",
+          version: "1.0.0",
+          checksum: sha256(JSON.stringify({ type: "object" })),
+          downloadUrl: "not a url",
+        },
+      ],
+    };
+    const config = makeConfig();
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(manifest),
+    });
+
+    const result = await checkForUpdates(config, registry);
+
+    expect(result.listSchemas()).not.toContain("bad-url");
+    // Only the manifest was fetched — invalid downloadUrl was rejected before fetch
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(config.logger?.warn).toHaveBeenCalledWith(
+      expect.stringContaining("downloadUrl is not a valid URL"),
+    );
+  });
+
+  it("rejects when scheme differs (http manifest vs https download)", async () => {
+    // Note: an http:// manifestUrl is rejected by ssrfSafeFetch before we
+    // reach the loop, so the origin check also needs to be demonstrated
+    // with a matched-scheme-but-different-port variant. We model the
+    // "scheme/port differ → different origin" invariant here.
+    const registry = seedRegistry([]);
+    const schema = { type: "object" };
+    const schemaJson = JSON.stringify(schema);
+    const manifest: SchemaUpdateManifest = {
+      version: 1,
+      timestamp: "2026-04-12T00:00:00Z",
+      schemas: [
+        {
+          id: "different-port",
+          version: "1.0.0",
+          checksum: sha256(schemaJson),
+          // Same host and scheme, different port → different origin.
+          downloadUrl: "https://a.example.com:8443/schemas/1.json",
+        },
+      ],
+    };
+    const config = makeConfig({
+      manifestUrl: "https://a.example.com/manifest.json",
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(manifest),
+    });
+
+    const result = await checkForUpdates(config, registry);
+
+    expect(result.listSchemas()).not.toContain("different-port");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(config.logger?.warn).toHaveBeenCalledWith(
+      expect.stringContaining("differs from manifest origin"),
+    );
+  });
+
+  it("rejects when scheme differs (https manifest vs http download)", async () => {
+    const registry = seedRegistry([]);
+    const schema = { type: "object" };
+    const schemaJson = JSON.stringify(schema);
+    const manifest: SchemaUpdateManifest = {
+      version: 1,
+      timestamp: "2026-04-12T00:00:00Z",
+      schemas: [
+        {
+          id: "different-scheme",
+          version: "1.0.0",
+          checksum: sha256(schemaJson),
+          // http scheme vs https manifest → different origin.
+          downloadUrl: "http://a.example.com/schemas/1.json",
+        },
+      ],
+    };
+    const config = makeConfig({
+      manifestUrl: "https://a.example.com/manifest.json",
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(manifest),
+    });
+
+    const result = await checkForUpdates(config, registry);
+
+    expect(result.listSchemas()).not.toContain("different-scheme");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(config.logger?.warn).toHaveBeenCalledWith(
+      expect.stringContaining("differs from manifest origin"),
+    );
+  });
 });
