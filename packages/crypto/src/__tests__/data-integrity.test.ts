@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { generateKeyPairSync, createSign, KeyObject } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
@@ -39,7 +39,6 @@ function createTestCredential(): UnsignedCredential {
 const defaultProofOptions: ProofOptions = {
   verificationMethod: "did:web:university.example#key-1",
   proofPurpose: "assertionMethod",
-  created: "2026-01-01T00:00:00Z",
 };
 
 describe("signCredential / verifyProof — full round-trip", () => {
@@ -55,7 +54,10 @@ describe("signCredential / verifyProof — full round-trip", () => {
     expect(signedVC.proof.proofPurpose).toBe("assertionMethod");
     expect(signedVC.proof.verificationMethod).toBe("did:web:university.example#key-1");
     expect(signedVC.proof.proofValue).toMatch(/^z/); // multibase base58btc prefix
-    expect(signedVC.proof.created).toBe("2026-01-01T00:00:00Z");
+    // `created` is always server-generated; assert it's a valid ISO 8601 timestamp.
+    expect(signedVC.proof.created).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/,
+    );
 
     // Verify with the public key
     const result = await verifyProof(signedVC, { publicKey: signingKey.publicKey });
@@ -524,5 +526,50 @@ describe("canonicalize — strict mode (safe canonicalization)", () => {
     const canonical = await canonicalize(unsignedVC as unknown as Record<string, unknown>);
     expect(typeof canonical).toBe("string");
     expect(canonical.length).toBeGreaterThan(0);
+  });
+});
+
+describe("ProofOptions.created removal (LOW-03)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Pin to a known moment so assertions are deterministic.
+    vi.setSystemTime(new Date("2026-06-15T12:34:56.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("always generates `created` from the signing-host clock (ignores any caller value)", async () => {
+    const unsignedVC = createTestCredential();
+    const signingKey = createTestSigningKey("did:web:university.example#key-1");
+
+    // Even though the TypeScript type no longer allows `created`, callers that
+    // bypass the compiler (e.g., JavaScript) should still have their value
+    // ignored. Passing it via a cast must not surface in the output.
+    const options = {
+      verificationMethod: "did:web:university.example#key-1",
+      proofPurpose: "assertionMethod",
+      created: "1999-01-01T00:00:00Z",
+    } as unknown as ProofOptions;
+
+    const signedVC = await signCredential(unsignedVC, signingKey, options);
+
+    // The mocked clock is the only authoritative source of the timestamp.
+    expect(signedVC.proof.created).toBe("2026-06-15T12:34:56.000Z");
+  });
+
+  it("TypeScript rejects `created` in ProofOptions", () => {
+    // If this line ever compiles, the type-level guarantee has regressed.
+    // `@ts-expect-error` turns "no error here" into a compile failure,
+    // which vitest treats as a failed test at build time.
+    const _badOptions: ProofOptions = {
+      verificationMethod: "did:web:university.example#key-1",
+      proofPurpose: "assertionMethod",
+      // @ts-expect-error — `created` has been removed from ProofOptions (LOW-03).
+      created: "2026-01-01T00:00:00Z",
+    };
+    // Reference to avoid "unused variable" — the type check above is the real test.
+    expect(_badOptions.verificationMethod).toBe("did:web:university.example#key-1");
   });
 });
