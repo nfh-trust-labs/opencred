@@ -13,7 +13,12 @@ interface HistoryEntry {
   schemaName: string;
   subjectSummary: string;
   issuedAt: string;
-  credentialJson: string;
+  /**
+   * Full signed-credential JSON — optional because the desktop no longer
+   * persists the VC payload on disk (security hardening). When absent the
+   * detail view and export button fall back gracefully.
+   */
+  credentialJson?: string;
   keyFingerprint: string;
 }
 
@@ -84,7 +89,9 @@ function CredentialDetailModal({
   const v = getVisual(entry.schemaId);
   let vc: Record<string, unknown>;
   try {
-    vc = JSON.parse(entry.credentialJson) as Record<string, unknown>;
+    vc = entry.credentialJson
+      ? (JSON.parse(entry.credentialJson) as Record<string, unknown>)
+      : {};
   } catch {
     vc = {};
   }
@@ -97,10 +104,13 @@ function CredentialDetailModal({
       ? vc.issuer
       : ((vc.issuer as Record<string, unknown>)?.id ?? "Unknown");
   const proofType = (vc.proof as Record<string, unknown>)?.type ?? null;
-  const issuanceDate = (vc.issuanceDate ?? vc.validFrom ?? "") as string;
+  const issuanceDate = (vc.issuanceDate ?? vc.validFrom ?? entry.issuedAt ?? "") as string;
   const expirationDate = (vc.expirationDate ?? vc.validUntil ?? null) as string | null;
 
   async function handleExportJson() {
+    if (!entry.credentialJson) {
+      return;
+    }
     try {
       await window.opencred.saveFile({
         defaultName: `credential-${entry.schemaId}.json`,
@@ -384,9 +394,11 @@ function CredentialDetailModal({
             gap: 8,
           }}
         >
-          <Button variant="secondary" size="sm" onClick={() => void handleExportJson()}>
-            Download JSON
-          </Button>
+          {entry.credentialJson ? (
+            <Button variant="secondary" size="sm" onClick={() => void handleExportJson()}>
+              Download JSON
+            </Button>
+          ) : null}
         </div>
 
         {/* Bottom actions */}

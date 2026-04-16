@@ -253,15 +253,16 @@ window.opencred = {
     return { results };
   },
 
-  // Credential history
+  // Credential history (deprecated — now a thin shim over recentTemplates;
+  // the full VC JSON is never persisted)
   _credentialHistory: [],
   async credentialHistoryList() {
     return { entries: this._credentialHistory };
   },
-  async credentialHistoryAdd({ schemaId, schemaName, subjectSummary, credentialJson, keyFingerprint, proofFormat }) {
+  async credentialHistoryAdd({ schemaId, schemaName, subjectSummary, keyFingerprint, proofFormat }) {
     const entry = {
-      id: crypto.randomUUID(),
-      schemaId, schemaName, subjectSummary, credentialJson, keyFingerprint,
+      id: `template:${schemaId}`,
+      schemaId, schemaName, subjectSummary, keyFingerprint,
       proofFormat: proofFormat || 'vc-jwt',
       issuedAt: new Date().toISOString(),
     };
