@@ -142,7 +142,44 @@ function createWindow(): void {
   });
 }
 
-function buildAppMenu(): void {
+/**
+ * Build the application menu template.
+ *
+ * Exported so tests can assert its shape without touching the Menu module.
+ *
+ * @param isDev - Whether the app is running in a development build. Gates the
+ *   `toggleDevTools` entry: MED-03 found that production builds exposed DevTools
+ *   via a visible menu item, which would let an attacker with momentary UI
+ *   access drop into the renderer's JavaScript context. In production the View
+ *   submenu now omits the DevTools toggle entirely.
+ * @param platform - Normally `process.platform`; made parameterizable so tests
+ *   can assert the macOS-specific leading submenu.
+ * @param options - Optional callbacks for the File menu actions. Defaults are
+ *   wired to the BrowserWindow via `webContents.send` in production.
+ */
+export function createAppMenuTemplate(
+  isDev: boolean,
+  platform: NodeJS.Platform = process.platform,
+  options: {
+    onOpenFile?: () => void;
+    onSaveFile?: () => void;
+    appName?: string;
+  } = {},
+): MenuItemConstructorOptions[] {
+  const { onOpenFile, onSaveFile, appName } = options;
+
+  const viewSubmenu: MenuItemConstructorOptions[] = [
+    { role: "reload" },
+    { role: "forceReload" },
+    ...(isDev ? [{ role: "toggleDevTools" as const }] : []),
+    { type: "separator" },
+    { role: "resetZoom" },
+    { role: "zoomIn" },
+    { role: "zoomOut" },
+    { type: "separator" },
+    { role: "togglefullscreen" },
+  ];
+
   const template: MenuItemConstructorOptions[] = [
     {
       label: "File",
@@ -151,14 +188,14 @@ function buildAppMenu(): void {
           label: "Open Credential...",
           accelerator: "CmdOrCtrl+O",
           click: () => {
-            mainWindow?.webContents.send("menu:open-file");
+            onOpenFile?.();
           },
         },
         {
           label: "Save Credential...",
           accelerator: "CmdOrCtrl+S",
           click: () => {
-            mainWindow?.webContents.send("menu:save-file");
+            onSaveFile?.();
           },
         },
         { type: "separator" },
@@ -179,17 +216,7 @@ function buildAppMenu(): void {
     },
     {
       label: "View",
-      submenu: [
-        { role: "reload" },
-        { role: "forceReload" },
-        { role: "toggleDevTools" },
-        { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
-        { type: "separator" },
-        { role: "togglefullscreen" },
-      ],
+      submenu: viewSubmenu,
     },
     {
       label: "Window",
@@ -198,9 +225,9 @@ function buildAppMenu(): void {
   ];
 
   // macOS gets a special first menu with the app name.
-  if (process.platform === "darwin") {
+  if (platform === "darwin") {
     template.unshift({
-      label: app.name,
+      label: appName ?? "OpenCred",
       submenu: [
         { role: "about" },
         { type: "separator" },
@@ -214,6 +241,20 @@ function buildAppMenu(): void {
       ],
     });
   }
+
+  return template;
+}
+
+function buildAppMenu(): void {
+  const template = createAppMenuTemplate(IS_DEV, process.platform, {
+    onOpenFile: () => {
+      mainWindow?.webContents.send("menu:open-file");
+    },
+    onSaveFile: () => {
+      mainWindow?.webContents.send("menu:save-file");
+    },
+    appName: app.name,
+  });
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
