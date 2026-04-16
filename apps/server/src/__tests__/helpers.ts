@@ -7,9 +7,10 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { ZodError } from "zod";
 
-import { loadConfig, resetConfig } from "../config.js";
+import { getConfig, loadConfig, resetConfig } from "../config.js";
 import { createLogger, resetLogger } from "../logger.js";
 import { resetDeDiClient } from "../dedi-singleton.js";
 import { authMiddleware } from "../middleware/auth.js";
@@ -136,6 +137,32 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
   createLogger();
 
   const app = new Hono();
+  const config = getConfig();
+
+  // Body size limits (MED-02) — mirrors index.ts so tests exercise the real
+  // middleware stack, including the batch/non-batch split.
+  const BATCH_PATHS = new Set(["/credentials/batch", "/v1/credentials/batch"]);
+  app.use("/credentials/batch", bodyLimit({
+    maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
+    onError: (c) =>
+      c.json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } }, 413),
+  }));
+  app.use("/v1/credentials/batch", bodyLimit({
+    maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
+    onError: (c) =>
+      c.json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } }, 413),
+  }));
+  app.use("*", async (c, next) => {
+    if (BATCH_PATHS.has(c.req.path)) return next();
+    return bodyLimit({
+      maxSize: config.OPENCRED_MAX_BODY_BYTES,
+      onError: (ctx) =>
+        ctx.json(
+          { error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } },
+          413,
+        ),
+    })(c, next);
+  });
 
   // Global middleware
   app.use("*", metricsMiddleware);

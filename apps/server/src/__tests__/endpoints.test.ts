@@ -167,6 +167,69 @@ describe("POST /credentials/issue", () => {
 
     expect(res.status).toBe(400);
   });
+
+  // -------------------------------------------------------------------------
+  // HIGH-02: subjectDid URI validation
+  // -------------------------------------------------------------------------
+  //
+  // The Zod schema refines `subjectDid` via `isValidSubjectUri` from
+  // `@opencred/vc-core`. These tests target the route boundary so we see a
+  // clean 400 with a Zod-shaped error rather than a CryptoError 500 from the
+  // builder's defense-in-depth check.
+  describe("subjectDid URI validation (HIGH-02)", () => {
+    async function issue(subjectDid: unknown): Promise<Response> {
+      return app.request("/credentials/issue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...VALID_ISSUE_REQUEST, subjectDid }),
+      });
+    }
+
+    it("rejects javascript: scheme with 400 and a Zod error path on subjectDid", async () => {
+      const res = await issue("javascript:alert(1)");
+      expect(res.status).toBe(400);
+
+      const body = (await res.json()) as { error: { code: string; details?: unknown } };
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+      const details = body.error.details as Array<{ path: string; message: string }>;
+      expect(details.some((d) => d.path === "subjectDid")).toBe(true);
+    });
+
+    it("rejects data: scheme with 400", async () => {
+      const res = await issue("data:text/html,<script>alert(1)</script>");
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects empty string (not a URI at all)", async () => {
+      const res = await issue("");
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects free-form non-URI strings", async () => {
+      const res = await issue("not-a-uri");
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects path-shaped inputs that look like file paths", async () => {
+      const res = await issue("../etc/passwd");
+      expect(res.status).toBe(400);
+    });
+
+    it("accepts a valid did:web URI", async () => {
+      const res = await issue("did:web:example.com");
+      expect(res.status).toBe(200);
+    });
+
+    it("accepts a valid urn:uuid URI", async () => {
+      const res = await issue("urn:uuid:550e8400-e29b-41d4-a716-446655440000");
+      expect(res.status).toBe(200);
+    });
+
+    it("accepts a valid https:// URI", async () => {
+      const res = await issue("https://example.com/users/42");
+      expect(res.status).toBe(200);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -742,26 +805,41 @@ describe("POST /credentials/batch", () => {
     expect(res.status).toBe(404);
   });
 
-  it("echoes webhookUrl in 202 response when provided", async () => {
-    const csvContent = "name,role,validFrom\nAlice,Medical Practitioner,2025-06-01T00:00:00Z\n";
+  it("echoes webhookUrl in 202 response when provided (with configured secret)", async () => {
+    // LOW-04: a webhookUrl now requires OPENCRED_WEBHOOK_SECRET. Set it via
+    // env before building the app so the config cache picks it up, then
+    // scrub it at the end so other tests aren't affected.
+    const prevSecret = process.env.OPENCRED_WEBHOOK_SECRET;
+    process.env.OPENCRED_WEBHOOK_SECRET = "test-webhook-secret-with-32-characters-minimum";
+    try {
+      const secretApp = createTestApp({ devModeNoAuth: true });
+      setActiveSigner(testKey.signer);
+      const csvContent = "name,role,validFrom\nAlice,Medical Practitioner,2025-06-01T00:00:00Z\n";
 
-    const res = await app.request("/credentials/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        csvContent,
-        schemaId: "functional-identity/v1",
-        issuerDid: testKey.signer.id.split("#")[0],
-        validFrom: "2025-06-01T00:00:00Z",
-        webhookUrl: "https://example.com/webhook",
-      }),
-    });
+      const res = await secretApp.request("/credentials/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          csvContent,
+          schemaId: "functional-identity/v1",
+          issuerDid: testKey.signer.id.split("#")[0],
+          validFrom: "2025-06-01T00:00:00Z",
+          webhookUrl: "https://example.com/webhook",
+        }),
+      });
 
-    expect(res.status).toBe(202);
+      expect(res.status).toBe(202);
 
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body).toHaveProperty("jobId");
-    expect(body.webhookUrl).toBe("https://example.com/webhook");
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toHaveProperty("jobId");
+      expect(body.webhookUrl).toBe("https://example.com/webhook");
+    } finally {
+      if (prevSecret === undefined) {
+        delete process.env.OPENCRED_WEBHOOK_SECRET;
+      } else {
+        process.env.OPENCRED_WEBHOOK_SECRET = prevSecret;
+      }
+    }
   });
 });
 
@@ -937,6 +1015,151 @@ describe("POST /schemas/generate", () => {
       body: JSON.stringify({ fields: [1, 2, 3] }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MED-02: Body size limits
+// ---------------------------------------------------------------------------
+//
+// We drive `app.request` with an oversize body AND set `Content-Length`
+// so the body-limit middleware's header-based fast path trips. This
+// sidesteps Hono's ReadableStream rewrap while still exercising the
+// middleware contract.
+
+describe("body size limits (MED-02)", () => {
+  it("POST /credentials/issue returns 413 PAYLOAD_TOO_LARGE when body exceeds limit", async () => {
+    const prev = process.env.OPENCRED_MAX_BODY_BYTES;
+    // Tight cap so a tiny body trips the limit deterministically.
+    process.env.OPENCRED_MAX_BODY_BYTES = "2048";
+    try {
+      const tightApp = createTestApp({ devModeNoAuth: true });
+      setActiveSigner(testKey.signer);
+
+      // 10 KiB of JSON padding — comfortably above the 2 KiB cap.
+      const oversize = "x".repeat(10 * 1024);
+      const body = JSON.stringify({ ...VALID_ISSUE_REQUEST, _padding: oversize });
+
+      const res = await tightApp.request("/credentials/issue", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": String(Buffer.byteLength(body)),
+        },
+        body,
+      });
+
+      expect(res.status).toBe(413);
+      const json = (await res.json()) as { error: { code: string } };
+      expect(json.error.code).toBe("PAYLOAD_TOO_LARGE");
+    } finally {
+      if (prev === undefined) delete process.env.OPENCRED_MAX_BODY_BYTES;
+      else process.env.OPENCRED_MAX_BODY_BYTES = prev;
+    }
+  });
+
+  it("batch endpoint allows bodies larger than the general cap (uses batch cap)", async () => {
+    // General cap tight, batch cap generous. A body that would have been
+    // rejected by the general cap is accepted on the batch route.
+    const prevGeneral = process.env.OPENCRED_MAX_BODY_BYTES;
+    const prevBatch = process.env.OPENCRED_MAX_BATCH_BODY_BYTES;
+    const prevSecret = process.env.OPENCRED_WEBHOOK_SECRET;
+    process.env.OPENCRED_MAX_BODY_BYTES = "2048";
+    process.env.OPENCRED_MAX_BATCH_BODY_BYTES = String(10 * 1024 * 1024); // 10 MiB
+    delete process.env.OPENCRED_WEBHOOK_SECRET; // no webhookUrl in the body, so secret is irrelevant
+    try {
+      const splitApp = createTestApp({ devModeNoAuth: true });
+      setActiveSigner(testKey.signer);
+
+      // 10 KiB CSV — bigger than general cap but well within batch cap.
+      const header = "name,role,validFrom\n";
+      const rows = Array.from(
+        { length: 300 },
+        (_, i) => `Alice${i},Medical Practitioner,2025-06-01T00:00:00Z\n`,
+      );
+      const csvContent = header + rows.join("");
+      const body = JSON.stringify({
+        csvContent,
+        schemaId: "functional-identity/v1",
+        issuerDid: testKey.signer.id.split("#")[0],
+        validFrom: "2025-06-01T00:00:00Z",
+      });
+
+      const res = await splitApp.request("/credentials/batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": String(Buffer.byteLength(body)),
+        },
+        body,
+      });
+
+      expect(res.status).toBe(202);
+    } finally {
+      if (prevGeneral === undefined) delete process.env.OPENCRED_MAX_BODY_BYTES;
+      else process.env.OPENCRED_MAX_BODY_BYTES = prevGeneral;
+      if (prevBatch === undefined) delete process.env.OPENCRED_MAX_BATCH_BODY_BYTES;
+      else process.env.OPENCRED_MAX_BATCH_BODY_BYTES = prevBatch;
+      if (prevSecret !== undefined) process.env.OPENCRED_WEBHOOK_SECRET = prevSecret;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LOW-04: Dedicated webhook secret
+// ---------------------------------------------------------------------------
+
+describe("webhook secret requirement (LOW-04)", () => {
+  it("rejects webhookUrl when OPENCRED_WEBHOOK_SECRET is unset (400 WEBHOOK_SECRET_REQUIRED)", async () => {
+    const prev = process.env.OPENCRED_WEBHOOK_SECRET;
+    delete process.env.OPENCRED_WEBHOOK_SECRET;
+    try {
+      const noSecretApp = createTestApp({ devModeNoAuth: true });
+      setActiveSigner(testKey.signer);
+
+      const res = await noSecretApp.request("/credentials/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          csvContent: "name,role,validFrom\nAlice,Medical Practitioner,2025-06-01T00:00:00Z\n",
+          schemaId: "functional-identity/v1",
+          issuerDid: testKey.signer.id.split("#")[0],
+          validFrom: "2025-06-01T00:00:00Z",
+          webhookUrl: "https://example.com/webhook",
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string } };
+      expect(body.error.code).toBe("WEBHOOK_SECRET_REQUIRED");
+    } finally {
+      if (prev !== undefined) process.env.OPENCRED_WEBHOOK_SECRET = prev;
+    }
+  });
+
+  it("allows batch without webhookUrl regardless of secret config", async () => {
+    const prev = process.env.OPENCRED_WEBHOOK_SECRET;
+    delete process.env.OPENCRED_WEBHOOK_SECRET;
+    try {
+      const noSecretApp = createTestApp({ devModeNoAuth: true });
+      setActiveSigner(testKey.signer);
+
+      const res = await noSecretApp.request("/credentials/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          csvContent: "name,role,validFrom\nAlice,Medical Practitioner,2025-06-01T00:00:00Z\n",
+          schemaId: "functional-identity/v1",
+          issuerDid: testKey.signer.id.split("#")[0],
+          validFrom: "2025-06-01T00:00:00Z",
+          // no webhookUrl — batch runs regardless of webhook secret
+        }),
+      });
+
+      expect(res.status).toBe(202);
+    } finally {
+      if (prev !== undefined) process.env.OPENCRED_WEBHOOK_SECRET = prev;
+    }
   });
 });
 

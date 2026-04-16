@@ -160,7 +160,6 @@ describe("verifyCredential — Data Integrity", () => {
       {
         verificationMethod: verificationMethodId,
         proofPurpose: "assertionMethod",
-        created: "2026-01-01T00:00:00Z",
       },
     );
 
@@ -197,7 +196,6 @@ describe("verifyCredential — Data Integrity", () => {
       {
         verificationMethod: verificationMethodId,
         proofPurpose: "assertionMethod",
-        created: "2020-01-01T00:00:00Z",
       },
     );
 
@@ -228,7 +226,6 @@ describe("verifyCredential — Data Integrity", () => {
       {
         verificationMethod: verificationMethodId,
         proofPurpose: "assertionMethod",
-        created: "2026-01-01T00:00:00Z",
       },
     );
 
@@ -263,7 +260,6 @@ describe("verifyCredential — Data Integrity", () => {
       {
         verificationMethod: verificationMethodId,
         proofPurpose: "assertionMethod",
-        created: "2026-01-01T00:00:00Z",
       },
     );
 
@@ -295,7 +291,6 @@ describe("verifyCredential — Data Integrity", () => {
       {
         verificationMethod: verificationMethodId,
         proofPurpose: "assertionMethod",
-        created: "2026-01-01T00:00:00Z",
       },
     );
 
@@ -482,7 +477,6 @@ describe("verifyCredential — X.509 chain check wiring (#316)", () => {
       {
         verificationMethod: verificationMethodId,
         proofPurpose: "assertionMethod",
-        created: "2026-01-01T00:00:00Z",
       },
     );
 
