@@ -163,3 +163,25 @@ describe("setConfig — bugReportFormUrl validator", () => {
     );
   });
 });
+
+describe("setConfig — branding allowlist", () => {
+  const setConfig = async (key: string, value: unknown): Promise<void> => {
+    const handler = registeredHandlers[IPC_CHANNELS.SET_CONFIG];
+    await handler(fakeEvent, { key, value });
+  };
+  const getConfig = async (key: string): Promise<unknown> => {
+    const handler = registeredHandlers[IPC_CHANNELS.GET_CONFIG];
+    return handler(fakeEvent, { key });
+  };
+
+  it("accepts a branding object via setConfig and returns it via getConfig", async () => {
+    const branding = {
+      primaryColor: "#FF5500",
+      issuerDisplayName: "Acme University",
+      logoDataUri: "data:image/png;base64,iVBORw0KGgo=",
+    };
+    await setConfig("branding", branding);
+    const stored = (await getConfig("branding")) as typeof branding;
+    expect(stored).toEqual(branding);
+  });
+});

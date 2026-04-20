@@ -191,6 +191,7 @@ export const ALLOWED_CONFIG_KEYS = new Set([
   "lastKeyId",
   "selfPublishedKeyDomain",
   "organizationName",
+  "branding",
 ]);
 
 /**
