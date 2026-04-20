@@ -184,7 +184,10 @@ export const ALLOWED_CONFIG_KEYS = new Set([
   "theme",
   "offlineMode",
   "persistKeyPaths",
-  "preferences",
+  // "preferences" intentionally excluded — it is an internal bag that
+  // contains the safeStorage-encrypted DeDi credential blob and imported-key
+  // paths; neither should be readable by the renderer via the generic
+  // getConfig/setConfig surface. Access goes through dedicated handlers.
   "bugReportFormUrl",
   "keyRotationDismissedUntil",
   "recentTemplates",
