@@ -30,7 +30,10 @@ revocation.post("/credentials/revocation-hash", async (c) => {
   rejectKeyMaterial(body);
   const parsed = singleHashSchema.parse(body);
   const hash = computeRevocationHash(parsed.credential);
-  return c.json({ hash });
+  // PRD §7.3 specifies `revocationHash` as the canonical field name.
+  // `hash` is retained as an alias for one release for backwards
+  // compatibility with clients that shipped against the pre-rename shape.
+  return c.json({ revocationHash: hash, hash });
 });
 
 revocation.post("/credentials/revocation-hash/batch", async (c) => {
@@ -39,12 +42,28 @@ revocation.post("/credentials/revocation-hash/batch", async (c) => {
   rejectKeyMaterial(body);
   const parsed = batchHashSchema.parse(body);
 
-  const hashes = parsed.credentials.map((credential, index) => ({
-    index,
-    hash: computeRevocationHash(credential),
-  }));
+  const entries = parsed.credentials.map((credential, index) => {
+    const hash = computeRevocationHash(credential);
+    // Pull credentialId from VC.id when present; fall back to a stable
+    // positional token so clients can correlate responses with input rows.
+    const vcId = typeof credential["id"] === "string" ? (credential["id"] as string) : null;
+    return {
+      credentialId: vcId ?? `index:${index}`,
+      revocationHash: hash,
+      index,
+      hash,
+    };
+  });
 
-  return c.json({ hashes });
+  return c.json({
+    // PRD §7.3 canonical shape.
+    revocationHashes: entries.map(({ credentialId, revocationHash }) => ({
+      credentialId,
+      revocationHash,
+    })),
+    // Legacy alias — retained for one release.
+    hashes: entries.map(({ index, hash }) => ({ index, hash })),
+  });
 });
 
 // --- Revoke endpoint (publishes to DeDi) ---
