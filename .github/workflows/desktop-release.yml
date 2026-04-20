@@ -251,8 +251,10 @@ jobs:
         working-directory: apps/desktop
         run: |
           $fail = $false
-          $exes = Get-ChildItem -Path out -Recurse -Include *.exe -ErrorAction SilentlyContinue |
-                  Where-Object { $_.FullName -notmatch '\\win-(arm64-)?unpacked\\' }
+          # Get-ChildItem's -Include is a no-op unless -Path ends in \* or
+          # -Filter is used. -Filter is the reliable form for this.
+          $exes = Get-ChildItem -Path out -Recurse -Filter *.exe -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -notmatch 'win(-arm64)?-unpacked' }
           if ($exes.Count -eq 0) {
             Write-Error "No .exe artefacts found to verify."
             exit 1
@@ -315,11 +317,23 @@ jobs:
           echo "Uploading ${#actual[@]} artefacts to release $RELEASE_TAG"
           # Create the release if it doesn't exist yet (manual tag-push
           # flow). release-please already creates it in the normal flow.
+          # Three matrix runners can race here: two pass `view` before
+          # either creates, then the loser gets HTTP 422 "already_exists".
+          # Tolerate that — it means another runner won the race, which
+          # is exactly the outcome we want.
           if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --generate-notes \
-              --title "$RELEASE_TAG"
+            create_log=$(mktemp)
+            if ! gh release create "$RELEASE_TAG" \
+                --repo "$GITHUB_REPOSITORY" \
+                --generate-notes \
+                --title "$RELEASE_TAG" 2>"$create_log"; then
+              if grep -qiE "already.exists|already_exists" "$create_log"; then
+                echo "Release $RELEASE_TAG was created by a concurrent runner; continuing."
+              else
+                cat "$create_log" >&2
+                exit 1
+              fi
+            fi
           fi
           # --clobber so re-running the workflow replaces existing files
           # rather than failing the upload.
