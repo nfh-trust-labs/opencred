@@ -154,8 +154,21 @@ describe("decodeDisclosure", () => {
     expect(decoded[2]).toEqual({ street: "123 Main" });
   });
 
-  it("should throw for invalid disclosure", () => {
-    const invalid = Buffer.from(JSON.stringify(["only", "two"])).toString("base64url");
+  it("decodes a 2-tuple as an array-element disclosure (§4.2.5)", () => {
+    const disclosure = Buffer.from(JSON.stringify(["salt", "a-value"])).toString("base64url");
+    const decoded = decodeDisclosure(disclosure);
+    expect(decoded.length).toBe(2);
+    expect(decoded[0]).toBe("salt");
+    expect(decoded[1]).toBe("a-value");
+  });
+
+  it("should throw for a 1-tuple (neither object nor array disclosure)", () => {
+    const invalid = Buffer.from(JSON.stringify(["one-element"])).toString("base64url");
+    expect(() => decodeDisclosure(invalid)).toThrow("Invalid disclosure format");
+  });
+
+  it("should throw for a 4-tuple", () => {
+    const invalid = Buffer.from(JSON.stringify(["a", "b", "c", "d"])).toString("base64url");
     expect(() => decodeDisclosure(invalid)).toThrow("Invalid disclosure format");
   });
 });
@@ -185,6 +198,72 @@ describe("processDisclosures", () => {
     const result = await processDisclosures(payload, []);
     expect(result["iss"]).toBe("did:web:example");
     expect(result["vct"]).toBe("VerifiableCredential");
+  });
+
+  it("recursively resolves nested _sd digests (§4.2.4)", async () => {
+    // Nested object: address.{street, locality}. Both disclosed via _sd.
+    const streetDisc = createDisclosure("s1", "street", "221B Baker St");
+    const localityDisc = createDisclosure("s2", "locality", "London");
+    const addressDisc = createDisclosure("s3", "address", {
+      _sd: [computeDigest(streetDisc), computeDigest(localityDisc)],
+    });
+
+    const payload = {
+      iss: "did:web:example",
+      _sd: [computeDigest(addressDisc)],
+      _sd_alg: "sha-256",
+    };
+
+    const result = await processDisclosures(payload, [addressDisc, streetDisc, localityDisc]);
+    expect(result["address"]).toBeDefined();
+    const addr = result["address"] as Record<string, unknown>;
+    expect(addr["street"]).toBe("221B Baker St");
+    expect(addr["locality"]).toBe("London");
+    // _sd must be stripped at EVERY level.
+    expect(addr["_sd"]).toBeUndefined();
+    expect(result["_sd"]).toBeUndefined();
+  });
+
+  it("resolves array-element disclosures (§4.2.5)", async () => {
+    // Array disclosure is a 2-tuple [salt, value] — not [salt, name, value].
+    const nickDisc = Buffer.from(JSON.stringify(["salt-a", "Sherlock"])).toString("base64url");
+    const nickDigest = computeDigest(nickDisc);
+
+    const payload = {
+      iss: "did:web:example",
+      nicknames: [{ "...": nickDigest }, "Holmes"],
+      _sd_alg: "sha-256",
+    };
+
+    const result = await processDisclosures(payload, [nickDisc]);
+    expect(result["nicknames"]).toEqual(["Sherlock", "Holmes"]);
+  });
+
+  it("rejects supplied disclosures that no digest references (§7.1)", async () => {
+    const usedDisc = createDisclosure("s1", "given_name", "John");
+    const smuggledDisc = createDisclosure("s2", "ssn", "123-45-6789");
+
+    const payload = {
+      iss: "did:web:example",
+      _sd: [computeDigest(usedDisc)],
+      _sd_alg: "sha-256",
+    };
+
+    await expect(
+      processDisclosures(payload, [usedDisc, smuggledDisc]),
+    ).rejects.toThrow(/not referenced by any _sd digest/);
+  });
+
+  it("leaves unmatched digests as decoys (does not fail verification)", async () => {
+    const realDisc = createDisclosure("s1", "given_name", "John");
+    const payload = {
+      iss: "did:web:example",
+      _sd: [computeDigest(realDisc), "fakehashnotreferencedbyanydisclosure"],
+      _sd_alg: "sha-256",
+    };
+
+    const result = await processDisclosures(payload, [realDisc]);
+    expect(result["given_name"]).toBe("John");
   });
 });
 

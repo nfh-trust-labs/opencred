@@ -137,9 +137,14 @@ export async function verifyCredential(
     credentialStatus = fields.credentialStatus;
     credentialForRevocationHash = payload.vc ?? payload;
   } else {
+    // Forward the caller's KB-JWT expectations (audience, nonce, vct) to
+    // the SD-JWT VC verifier. For KB-bearing presentations these MUST be
+    // supplied by the relying party per SD-JWT VC §4.3.1, or the KB
+    // claims cannot be validated and presentation replay is possible.
     const { check, payload, resolvedClaims } = await verifySdJwtVc(
       input as string,
       config.didResolver,
+      config.sdJwtVc,
     );
     checks.push(check);
 
