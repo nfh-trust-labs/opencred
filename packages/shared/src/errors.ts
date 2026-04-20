@@ -170,8 +170,17 @@ export class OpenCredError extends Error {
   public readonly code: string;
   public readonly statusCode: number;
 
-  constructor(message: string, code: string, statusCode: number = 500) {
-    super(message);
+  constructor(
+    message: string,
+    code: string,
+    statusCode: number = 500,
+    options?: { cause?: unknown },
+  ) {
+    // Forward the cause to Error (supported since Node 16.9). The cause is
+    // preserved on the .cause property for operator-facing logging and the
+    // `toJSON` / `toHttpBody` path still sanitizes the wire payload so the
+    // cause does not leak over HTTP.
+    super(message, options);
     this.name = "OpenCredError";
     this.code = code;
     this.statusCode = statusCode;
@@ -259,8 +268,8 @@ export class RateLimitError extends OpenCredError {
 }
 
 export class CryptoError extends OpenCredError {
-  constructor(message: string) {
-    super(message, "CRYPTO_ERROR", 500);
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, "CRYPTO_ERROR", 500, options);
     this.name = "CryptoError";
   }
 }
