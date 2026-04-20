@@ -166,15 +166,79 @@ export function sanitizeErrorMessage(raw: unknown): string {
  * therefore safe — the path will be scrubbed before it ever reaches an
  * HTTP response body.
  */
+/**
+ * Canonical error-code strings emitted in `OpenCredErrorBody.error.code`.
+ *
+ * API consumers should import this object (or `OpenCredErrorCodeValue`)
+ * and switch on the resulting union instead of hard-coding string
+ * literals. Every subclass constructor passes one of these values as
+ * the second argument to the OpenCredError super() call; ad-hoc codes
+ * from individual route handlers (e.g. `WEBHOOK_SECRET_REQUIRED`) are
+ * NOT part of this enum and SHOULD be consolidated here in a follow-up.
+ */
+export const OpenCredErrorCode = {
+  VALIDATION: "VALIDATION_ERROR",
+  AUTHENTICATION: "AUTHENTICATION_ERROR",
+  AUTHORIZATION: "AUTHORIZATION_ERROR",
+  NOT_FOUND: "NOT_FOUND",
+  CONFLICT: "CONFLICT",
+  PAYLOAD_TOO_LARGE: "PAYLOAD_TOO_LARGE",
+  RATE_LIMIT_EXCEEDED: "RATE_LIMIT_EXCEEDED",
+  CRYPTO: "CRYPTO_ERROR",
+  DID_RESOLUTION: "DID_RESOLUTION_ERROR",
+  SCHEMA_VALIDATION: "SCHEMA_VALIDATION_ERROR",
+  DELEGATION: "DELEGATION_ERROR",
+  DEDI_CLIENT: "DEDI_CLIENT_ERROR",
+  SESSION_EXPIRED: "SESSION_EXPIRED",
+  VERIFICATION: "VERIFICATION_ERROR",
+  NOT_IMPLEMENTED: "NOT_IMPLEMENTED",
+} as const;
+
+export type OpenCredErrorCodeValue =
+  (typeof OpenCredErrorCode)[keyof typeof OpenCredErrorCode];
+
+/**
+ * String-literal discriminator carried on every OpenCredError subclass.
+ *
+ * Prefer `err.kind === "CryptoError"` over `err instanceof CryptoError`
+ * when the error may cross a realm boundary (Electron IPC, Vitest
+ * vi.mock, worker threads). `instanceof` is fragile across realms —
+ * `kind` is stable as long as the instance serializes its own-properties.
+ */
+export type OpenCredErrorKind =
+  | "OpenCredError"
+  | "ValidationError"
+  | "AuthenticationError"
+  | "AuthorizationError"
+  | "NotFoundError"
+  | "ConflictError"
+  | "PayloadTooLargeError"
+  | "RateLimitError"
+  | "CryptoError"
+  | "DIDResolutionError"
+  | "SchemaValidationError"
+  | "DelegationError"
+  | "DeDiClientError"
+  | "SessionExpiredError"
+  | "VerificationError"
+  | "NotImplementedError";
+
 export class OpenCredError extends Error {
   public readonly code: string;
   public readonly statusCode: number;
+  public readonly kind: OpenCredErrorKind;
 
-  constructor(message: string, code: string, statusCode: number = 500) {
+  constructor(
+    message: string,
+    code: string,
+    statusCode: number = 500,
+    options?: { kind?: OpenCredErrorKind },
+  ) {
     super(message);
     this.name = "OpenCredError";
     this.code = code;
     this.statusCode = statusCode;
+    this.kind = options?.kind ?? "OpenCredError";
     Object.setPrototypeOf(this, new.target.prototype);
   }
 
@@ -211,63 +275,63 @@ export class OpenCredError extends Error {
 
 export class ValidationError extends OpenCredError {
   constructor(message: string) {
-    super(message, "VALIDATION_ERROR", 400);
+    super(message, "VALIDATION_ERROR", 400, { kind: "ValidationError" });
     this.name = "ValidationError";
   }
 }
 
 export class AuthenticationError extends OpenCredError {
   constructor(message: string = "Authentication required") {
-    super(message, "AUTHENTICATION_ERROR", 401);
+    super(message, "AUTHENTICATION_ERROR", 401, { kind: "AuthenticationError" });
     this.name = "AuthenticationError";
   }
 }
 
 export class AuthorizationError extends OpenCredError {
   constructor(message: string = "Insufficient permissions") {
-    super(message, "AUTHORIZATION_ERROR", 403);
+    super(message, "AUTHORIZATION_ERROR", 403, { kind: "AuthorizationError" });
     this.name = "AuthorizationError";
   }
 }
 
 export class NotFoundError extends OpenCredError {
   constructor(message: string = "Resource not found") {
-    super(message, "NOT_FOUND", 404);
+    super(message, "NOT_FOUND", 404, { kind: "NotFoundError" });
     this.name = "NotFoundError";
   }
 }
 
 export class ConflictError extends OpenCredError {
   constructor(message: string) {
-    super(message, "CONFLICT", 409);
+    super(message, "CONFLICT", 409, { kind: "ConflictError" });
     this.name = "ConflictError";
   }
 }
 
 export class PayloadTooLargeError extends OpenCredError {
   constructor(message: string = "Payload too large") {
-    super(message, "PAYLOAD_TOO_LARGE", 413);
+    super(message, "PAYLOAD_TOO_LARGE", 413, { kind: "PayloadTooLargeError" });
     this.name = "PayloadTooLargeError";
   }
 }
 
 export class RateLimitError extends OpenCredError {
   constructor(message: string = "Rate limit exceeded") {
-    super(message, "RATE_LIMIT_EXCEEDED", 429);
+    super(message, "RATE_LIMIT_EXCEEDED", 429, { kind: "RateLimitError" });
     this.name = "RateLimitError";
   }
 }
 
 export class CryptoError extends OpenCredError {
-  constructor(message: string) {
-    super(message, "CRYPTO_ERROR", 500);
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, "CRYPTO_ERROR", 500, { ...(options ?? {}), kind: "CryptoError" });
     this.name = "CryptoError";
   }
 }
 
 export class DIDResolutionError extends OpenCredError {
   constructor(message: string) {
-    super(message, "DID_RESOLUTION_ERROR", 500);
+    super(message, "DID_RESOLUTION_ERROR", 500, { kind: "DIDResolutionError" });
     this.name = "DIDResolutionError";
   }
 }
@@ -276,7 +340,7 @@ export class SchemaValidationError extends OpenCredError {
   public readonly validationErrors: unknown[];
 
   constructor(message: string, validationErrors: unknown[] = []) {
-    super(message, "SCHEMA_VALIDATION_ERROR", 400);
+    super(message, "SCHEMA_VALIDATION_ERROR", 400, { kind: "SchemaValidationError" });
     this.name = "SchemaValidationError";
     this.validationErrors = validationErrors;
   }
@@ -294,35 +358,59 @@ export class SchemaValidationError extends OpenCredError {
 
 export class DelegationError extends OpenCredError {
   constructor(message: string) {
-    super(message, "DELEGATION_ERROR", 400);
+    super(message, "DELEGATION_ERROR", 400, { kind: "DelegationError" });
     this.name = "DelegationError";
   }
 }
 
 export class DeDiClientError extends OpenCredError {
   constructor(message: string, statusCode: number = 502) {
-    super(message, "DEDI_CLIENT_ERROR", statusCode);
+    super(message, "DEDI_CLIENT_ERROR", statusCode, { kind: "DeDiClientError" });
     this.name = "DeDiClientError";
   }
 }
 
 export class SessionExpiredError extends OpenCredError {
   constructor(message: string = "Session expired") {
-    super(message, "SESSION_EXPIRED", 410);
+    super(message, "SESSION_EXPIRED", 410, { kind: "SessionExpiredError" });
     this.name = "SessionExpiredError";
   }
 }
 
 export class VerificationError extends OpenCredError {
   constructor(message: string) {
-    super(message, "VERIFICATION_ERROR", 400);
+    super(message, "VERIFICATION_ERROR", 400, { kind: "VerificationError" });
     this.name = "VerificationError";
   }
 }
 
 export class NotImplementedError extends OpenCredError {
   constructor(message: string = "Not implemented") {
-    super(message, "NOT_IMPLEMENTED", 501);
+    super(message, "NOT_IMPLEMENTED", 501, { kind: "NotImplementedError" });
     this.name = "NotImplementedError";
   }
 }
+
+/**
+ * Discriminated union of every concrete OpenCredError subclass. Reviewers
+ * can `const _: never = err.kind;` in a default clause to enforce
+ * exhaustive matching.
+ */
+export type AnyOpenCredError =
+  | OpenCredError
+  | ValidationError
+  | AuthenticationError
+  | AuthorizationError
+  | NotFoundError
+  | ConflictError
+  | PayloadTooLargeError
+  | RateLimitError
+  | CryptoError
+  | DIDResolutionError
+  | SchemaValidationError
+  | DelegationError
+  | DeDiClientError
+  | SessionExpiredError
+  | VerificationError
+  | NotImplementedError;
+
