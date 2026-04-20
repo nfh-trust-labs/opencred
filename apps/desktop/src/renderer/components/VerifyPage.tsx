@@ -335,11 +335,25 @@ export function VerifyPage() {
   async function handleImageQrDecode(file: File) {
     try {
       const { Html5Qrcode } = await import("html5-qrcode");
-      const decoded = await Html5Qrcode.scanFile(file, false);
-      setCredential(decoded);
-      setValid(null);
-      setMessage(null);
-      setChecks([]);
+      // `scanFile` is an instance method; the older `Html5Qrcode.scanFile`
+      // static-form compiled against some earlier typings but does not
+      // actually exist on the class in html5-qrcode ≥2.3. Use an instance
+      // pointed at a throwaway off-DOM element — no scanner UI is needed
+      // for a file decode.
+      const host = document.createElement("div");
+      host.style.display = "none";
+      host.id = `qr-file-scan-${Date.now()}`;
+      document.body.appendChild(host);
+      const scanner = new Html5Qrcode(host.id);
+      try {
+        const decoded = await scanner.scanFile(file, false);
+        setCredential(decoded);
+        setValid(null);
+        setMessage(null);
+        setChecks([]);
+      } finally {
+        host.remove();
+      }
     } catch {
       setMessage(
         "Could not decode a QR code from this image. Make sure the image contains a clear QR code.",

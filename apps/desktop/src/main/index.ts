@@ -93,7 +93,9 @@ function createWindow(): void {
   // Permission handler: allow camera access for QR code scanning.
   // -------------------------------------------------------------------------
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
-    if (permission === "media" && details?.mediaTypes?.includes("video")) {
+    // `details` is a discriminated union; `mediaTypes` only exists on
+    // the media-access variant. Narrow explicitly before accessing.
+    if (permission === "media" && "mediaTypes" in details && details.mediaTypes?.includes("video")) {
       callback(true);
       return;
     }

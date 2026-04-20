@@ -41,8 +41,7 @@ const LONG_BASE64_STD_RE =
 // Base64url uses -_ instead of +/; we require at least one "-" or "_".
 // Checked separately with an entropy filter to avoid false-positives on
 // kebab-case identifiers, CSS classes, and SCREAMING_SNAKE constants.
-const LONG_BASE64URL_RE =
-  /(?=[A-Za-z0-9\-_]*[\-_])[A-Za-z0-9\-_]{40,}={0,3}/g;
+const LONG_BASE64URL_RE = /(?=[A-Za-z0-9_-]*[_-])[A-Za-z0-9_-]{40,}={0,3}/g;
 
 /**
  * Returns true when a candidate base64url string has high character-class
