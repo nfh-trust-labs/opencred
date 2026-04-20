@@ -63,17 +63,26 @@ function algorithmToKmsSigningAlg(alg: SigningAlgorithm): SigningAlgorithmSpec {
 
 /**
  * Create a Signer backed by AWS KMS.
+ *
+ * @param keyArn   KMS key ARN (or alias) to use for signing.
+ * @param timeoutMs Per-call timeout for the KMS Sign API. Defaults to
+ *                  30 s. Without a timeout, a stuck KMS endpoint hangs
+ *                  the synchronous batch-engine loop indefinitely.
  */
-export async function createAwsKmsSigner(keyArn: string): Promise<Signer> {
+export async function createAwsKmsSigner(keyArn: string, timeoutMs = 30_000): Promise<Signer> {
   const client = new KMSClient({});
 
   // Describe the key to determine algorithm
-  const describeRes = await client.send(new DescribeKeyCommand({ KeyId: keyArn }));
+  const describeRes = await client.send(new DescribeKeyCommand({ KeyId: keyArn }), {
+    abortSignal: AbortSignal.timeout(timeoutMs),
+  });
   const keyMeta: KeyMetadata = describeRes.KeyMetadata!;
   const algorithm = kmsKeySpecToAlgorithm(keyMeta.KeySpec!);
 
   // Get public key for DID derivation and fingerprint
-  const pubKeyRes = await client.send(new GetPublicKeyCommand({ KeyId: keyArn }));
+  const pubKeyRes = await client.send(new GetPublicKeyCommand({ KeyId: keyArn }), {
+    abortSignal: AbortSignal.timeout(timeoutMs),
+  });
   const publicKeyDer = pubKeyRes.PublicKey!;
   const publicKeyObj = createPublicKey({
     key: Buffer.from(publicKeyDer),
@@ -110,6 +119,7 @@ export async function createAwsKmsSigner(keyArn: string): Promise<Signer> {
           MessageType: "DIGEST",
           SigningAlgorithm: kmsSigningAlg,
         }),
+        { abortSignal: AbortSignal.timeout(timeoutMs) },
       );
 
       return new Uint8Array(signRes.Signature!);
