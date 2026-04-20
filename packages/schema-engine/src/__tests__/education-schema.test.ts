@@ -24,9 +24,7 @@ describe("Education schema (v1)", () => {
   });
 
   it("has a $schema field", () => {
-    expect(educationV1Schema["$schema"]).toBe(
-      "https://json-schema.org/draft/2020-12/schema",
-    );
+    expect(educationV1Schema["$schema"]).toBe("https://json-schema.org/draft/2020-12/schema");
   });
 
   it("defines the expected credentialSubject fields in $defs", () => {
@@ -35,12 +33,7 @@ describe("Education schema (v1)", () => {
     expect(subject).toBeDefined();
 
     const subjectRequired = subject["required"] as string[];
-    expect(subjectRequired).toEqual([
-      "recipientName",
-      "degree",
-      "institution",
-      "dateConferred",
-    ]);
+    expect(subjectRequired).toEqual(["recipientName", "degree", "institution", "dateConferred"]);
 
     const subjectProps = subject["properties"] as Record<string, unknown>;
     expect(subjectProps["recipientName"]).toBeDefined();

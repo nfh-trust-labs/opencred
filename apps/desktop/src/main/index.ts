@@ -92,15 +92,21 @@ function createWindow(): void {
   // -------------------------------------------------------------------------
   // Permission handler: allow camera access for QR code scanning.
   // -------------------------------------------------------------------------
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
-    // `details` is a discriminated union; `mediaTypes` only exists on
-    // the media-access variant. Narrow explicitly before accessing.
-    if (permission === "media" && "mediaTypes" in details && details.mediaTypes?.includes("video")) {
-      callback(true);
-      return;
-    }
-    callback(false);
-  });
+  session.defaultSession.setPermissionRequestHandler(
+    (_webContents, permission, callback, details) => {
+      // `details` is a discriminated union; `mediaTypes` only exists on
+      // the media-access variant. Narrow explicitly before accessing.
+      if (
+        permission === "media" &&
+        "mediaTypes" in details &&
+        details.mediaTypes?.includes("video")
+      ) {
+        callback(true);
+        return;
+      }
+      callback(false);
+    },
+  );
 
   // -------------------------------------------------------------------------
   // Navigation guard — prevent the renderer from navigating away from the app.
@@ -109,14 +115,22 @@ function createWindow(): void {
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (IS_DEV && url.startsWith(DEV_SERVER_URL)) return;
     event.preventDefault();
-    try { logger.warn("Blocked navigation attempt", { url: new URL(url).origin }); } catch { logger.warn("Blocked navigation attempt"); }
+    try {
+      logger.warn("Blocked navigation attempt", { url: new URL(url).origin });
+    } catch {
+      logger.warn("Blocked navigation attempt");
+    }
   });
 
   // -------------------------------------------------------------------------
   // Block window.open — the app should never open new windows.
   // -------------------------------------------------------------------------
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    try { logger.warn("Blocked window.open attempt", { url: new URL(url).origin }); } catch { logger.warn("Blocked window.open attempt"); }
+    try {
+      logger.warn("Blocked window.open attempt", { url: new URL(url).origin });
+    } catch {
+      logger.warn("Blocked window.open attempt");
+    }
     return { action: "deny" };
   });
 

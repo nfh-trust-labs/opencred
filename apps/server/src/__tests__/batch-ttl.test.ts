@@ -116,9 +116,15 @@ describe("purgeExpiredBatchJobs", () => {
     const now = Date.parse("2026-04-16T12:00:00Z");
     const ttlMs = 10 * 60 * 1000; // 10 minutes
     const seed = new Map<string, BatchJobEntry>([
-      ["expired-1", makeEntry({ createdAt: "2026-04-16T10:00:00Z", completedAt: "2026-04-16T11:00:00Z" })],
+      [
+        "expired-1",
+        makeEntry({ createdAt: "2026-04-16T10:00:00Z", completedAt: "2026-04-16T11:00:00Z" }),
+      ],
       ["expired-2", makeEntry({ createdAt: "2026-04-16T11:00:00Z" })], // orphan, 1h old
-      ["fresh-1", makeEntry({ createdAt: "2026-04-16T11:55:00Z", completedAt: "2026-04-16T11:57:00Z" })],
+      [
+        "fresh-1",
+        makeEntry({ createdAt: "2026-04-16T11:55:00Z", completedAt: "2026-04-16T11:57:00Z" }),
+      ],
       ["fresh-2", makeEntry({ createdAt: "2026-04-16T11:58:00Z" })],
     ]);
     restore = __setJobsForTesting(seed);

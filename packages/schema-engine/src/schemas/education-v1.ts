@@ -15,14 +15,7 @@ export const educationV1Schema: Record<string, unknown> = {
   description:
     "W3C VC 2.0 envelope for an educational achievement credential, attesting that a recipient has been conferred a degree or qualification by an institution.",
   type: "object",
-  required: [
-    "@context",
-    "id",
-    "type",
-    "issuer",
-    "validFrom",
-    "credentialSubject",
-  ],
+  required: ["@context", "id", "type", "issuer", "validFrom", "credentialSubject"],
   properties: {
     "@context": {
       type: "array",
@@ -88,8 +81,7 @@ export const educationV1Schema: Record<string, unknown> = {
         degree: {
           type: "string",
           minLength: 1,
-          description:
-            "Name of the degree or qualification conferred (e.g. Bachelor of Science).",
+          description: "Name of the degree or qualification conferred (e.g. Bachelor of Science).",
         },
         institution: {
           type: "string",
@@ -107,8 +99,7 @@ export const educationV1Schema: Record<string, unknown> = {
         },
         honours: {
           type: "string",
-          description:
-            "Honours classification (e.g. summa cum laude, First Class).",
+          description: "Honours classification (e.g. summa cum laude, First Class).",
         },
         gpa: {
           type: "number",
@@ -117,18 +108,15 @@ export const educationV1Schema: Record<string, unknown> = {
         },
         accreditationBody: {
           type: "string",
-          description:
-            "Name of the accreditation body that recognises the programme.",
+          description: "Name of the accreditation body that recognises the programme.",
         },
         programDuration: {
           type: "string",
-          description:
-            "Duration of the programme (e.g. 4 years, 36 months).",
+          description: "Duration of the programme (e.g. 4 years, 36 months).",
         },
         credentialNumber: {
           type: "string",
-          description:
-            "Unique credential or certificate number assigned by the institution.",
+          description: "Unique credential or certificate number assigned by the institution.",
         },
       },
     },
@@ -136,9 +124,7 @@ export const educationV1Schema: Record<string, unknown> = {
 };
 
 const canonical = JSON.stringify(educationV1Schema);
-const educationV1Checksum = createHash("sha256")
-  .update(canonical)
-  .digest("hex");
+const educationV1Checksum = createHash("sha256").update(canonical).digest("hex");
 
 export const educationV1Definition: SchemaDefinition = {
   id: "education/v1",

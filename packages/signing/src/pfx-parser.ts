@@ -115,4 +115,3 @@ export function parsePfx(buffer: Buffer, password: string): PfxContents {
     keyAlgorithm,
   };
 }
-

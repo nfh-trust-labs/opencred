@@ -13,7 +13,12 @@ function sha256(json: string): string {
 }
 
 function makeManifest(
-  schemas: Array<{ id: string; version: string; schema: Record<string, unknown>; contextUrl?: string }>,
+  schemas: Array<{
+    id: string;
+    version: string;
+    schema: Record<string, unknown>;
+    contextUrl?: string;
+  }>,
 ): SchemaUpdateManifest {
   return {
     version: 1,
@@ -31,7 +36,9 @@ function makeManifest(
   };
 }
 
-function seedRegistry(entries: Array<{ id: string; version: string; schema: Record<string, unknown> }>): SchemaRegistry {
+function seedRegistry(
+  entries: Array<{ id: string; version: string; schema: Record<string, unknown> }>,
+): SchemaRegistry {
   const registry = new SchemaRegistry();
   for (const e of entries) {
     registry.register({
@@ -102,9 +109,7 @@ describe("checkForUpdates", () => {
   });
 
   it("returns bundled registry unchanged when manifestUrl is not set", async () => {
-    const registry = seedRegistry([
-      { id: "alpha", version: "1.0.0", schema: { type: "object" } },
-    ]);
+    const registry = seedRegistry([{ id: "alpha", version: "1.0.0", schema: { type: "object" } }]);
     const config: SchemaUpdateConfig = { cacheDir: "/tmp/test" };
 
     const result = await checkForUpdates(config, registry);
@@ -166,15 +171,11 @@ describe("checkForUpdates", () => {
     const result = await checkForUpdates(config, registry);
 
     expect(result.listSchemas()).not.toContain("bad");
-    expect(config.logger?.warn).toHaveBeenCalledWith(
-      expect.stringContaining("Checksum mismatch"),
-    );
+    expect(config.logger?.warn).toHaveBeenCalledWith(expect.stringContaining("Checksum mismatch"));
   });
 
   it("falls back to bundled schemas on network failure", async () => {
-    const registry = seedRegistry([
-      { id: "alpha", version: "1.0.0", schema: { type: "object" } },
-    ]);
+    const registry = seedRegistry([{ id: "alpha", version: "1.0.0", schema: { type: "object" } }]);
     const config = makeConfig();
 
     mockFetch.mockRejectedValueOnce(new Error("Network error"));
@@ -218,9 +219,7 @@ describe("checkForUpdates", () => {
     // Manifest hostname → public IP (first lookup). Download URL hostname →
     // private IP (second lookup), which `resolveDnsForSsrf` rejects with a
     // message containing "SSRF protection".
-    mockResolve4
-      .mockResolvedValueOnce(["93.184.216.34"])
-      .mockResolvedValueOnce(["10.0.0.1"]);
+    mockResolve4.mockResolvedValueOnce(["93.184.216.34"]).mockResolvedValueOnce(["10.0.0.1"]);
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -230,9 +229,7 @@ describe("checkForUpdates", () => {
     const result = await checkForUpdates(config, registry);
 
     expect(result.listSchemas()).not.toContain("ssrf-test");
-    expect(config.logger?.warn).toHaveBeenCalledWith(
-      expect.stringContaining("SSRF protection"),
-    );
+    expect(config.logger?.warn).toHaveBeenCalledWith(expect.stringContaining("SSRF protection"));
   });
 
   it("rejects non-HTTPS URL", async () => {
@@ -251,14 +248,10 @@ describe("checkForUpdates", () => {
 
   it("skips schema when bundled version is same or newer", async () => {
     const schema = { type: "object", properties: { x: { type: "number" } } };
-    const registry = seedRegistry([
-      { id: "stable", version: "2.0.0", schema },
-    ]);
+    const registry = seedRegistry([{ id: "stable", version: "2.0.0", schema }]);
     const config = makeConfig();
 
-    const manifest = makeManifest([
-      { id: "stable", version: "1.5.0", schema },
-    ]);
+    const manifest = makeManifest([{ id: "stable", version: "1.5.0", schema }]);
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -360,9 +353,7 @@ describe("checkForUpdates", () => {
     // Only the manifest was fetched — cross-origin download was rejected
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(config.logger?.warn).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "differs from manifest origin",
-      ),
+      expect.stringContaining("differs from manifest origin"),
     );
   });
 

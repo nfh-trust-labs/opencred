@@ -630,9 +630,7 @@ export function VerifyPage() {
               }}
               placeholder="Paste credential JSON here, or drag a .json file onto this area"
               className={`block w-full rounded-md border px-3 py-2 font-mono text-xs shadow-sm transition-colors duration-150 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
-                isDragOver
-                  ? "border-2 border-dashed border-blue-400 bg-blue-50"
-                  : "border-gray-300"
+                isDragOver ? "border-2 border-dashed border-blue-400 bg-blue-50" : "border-gray-300"
               }`}
             />
             {isDragOver && (

@@ -5,24 +5,22 @@ import type { SchemaCategory } from "./types.js";
  * Exact matches are checked first, then prefix matches.
  */
 const EXACT_CATEGORIES: Record<string, SchemaCategory> = {
-  "education": "education",
+  education: "education",
   "employment-offer-letter": "employment",
   "functional-identity": "identity",
-  "immunization": "health",
-  "prescription": "health",
+  immunization: "health",
+  prescription: "health",
   "test-result": "health",
   "business-entity": "business",
   "insurance-policy": "business",
-  "electricity": "utility",
+  electricity: "utility",
   "salary-slip": "employment",
   "open-badges": "education",
   "dif/verified-person": "identity",
   "dif/proof-of-age": "identity",
 };
 
-const PREFIX_CATEGORIES: Array<[string, SchemaCategory]> = [
-  ["traceability/", "supply-chain"],
-];
+const PREFIX_CATEGORIES: Array<[string, SchemaCategory]> = [["traceability/", "supply-chain"]];
 
 /**
  * Determine the category for a schema ID.

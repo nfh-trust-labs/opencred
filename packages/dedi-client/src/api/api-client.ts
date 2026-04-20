@@ -484,7 +484,12 @@ export class DeDiApiClient {
     } catch (error) {
       const durationMs = Date.now() - start;
       if (error instanceof DeDiClientError) {
-        this.logger.error(`DeDi request failed`, { method, path, durationMs, error: error.message });
+        this.logger.error(`DeDi request failed`, {
+          method,
+          path,
+          durationMs,
+          error: error.message,
+        });
         throw error;
       }
       if (error instanceof DOMException && error.name === "AbortError") {
@@ -585,10 +590,7 @@ function assertBulkUploadResultShape(value: unknown): asserts value is { job_id:
   }
   const rec = value as Record<string, unknown>;
   if (typeof rec["job_id"] !== "string") {
-    throw new DeDiClientError(
-      "DeDi API bulk upload response missing required field: job_id",
-      502,
-    );
+    throw new DeDiClientError("DeDi API bulk upload response missing required field: job_id", 502);
   }
 }
 

@@ -84,7 +84,11 @@ function assertDelegationShape(detail: unknown): asserts detail is DelegationRec
   if (!("certificate" in rec)) {
     throw new DeDiClientError("Delegation detail missing required field: certificate", 502);
   }
-  if (rec["certificate"] == null || typeof rec["certificate"] !== "object" || Array.isArray(rec["certificate"])) {
+  if (
+    rec["certificate"] == null ||
+    typeof rec["certificate"] !== "object" ||
+    Array.isArray(rec["certificate"])
+  ) {
     throw new DeDiClientError(
       "Delegation detail field 'certificate' must be a non-null object",
       502,
@@ -110,11 +114,12 @@ function assertDelegationShape(detail: unknown): asserts detail is DelegationRec
   }
   // If the certificate has a proof field, validate its structure
   if ("proof" in cert) {
-    if (cert["proof"] == null || typeof cert["proof"] !== "object" || Array.isArray(cert["proof"])) {
-      throw new DeDiClientError(
-        "Delegation certificate field 'proof' must be an object",
-        502,
-      );
+    if (
+      cert["proof"] == null ||
+      typeof cert["proof"] !== "object" ||
+      Array.isArray(cert["proof"])
+    ) {
+      throw new DeDiClientError("Delegation certificate field 'proof' must be an object", 502);
     }
     const proof = cert["proof"] as Record<string, unknown>;
     if ("proofValue" in proof) {

@@ -625,7 +625,11 @@ describe("POST /credentials/revoke", () => {
 
   it("returns 400 when neither credential nor hash is provided", async () => {
     const mockClient = {
-      publishRevocationHash: async () => ({ hash: "x", revoked: true as const, revokedAt: new Date().toISOString() }),
+      publishRevocationHash: async () => ({
+        hash: "x",
+        revoked: true as const,
+        revokedAt: new Date().toISOString(),
+      }),
     } as never;
     setDeDiClient(mockClient);
 
@@ -640,7 +644,11 @@ describe("POST /credentials/revoke", () => {
 
   it("returns 400 when hash is invalid (wrong length)", async () => {
     const mockClient = {
-      publishRevocationHash: async () => ({ hash: "x", revoked: true as const, revokedAt: new Date().toISOString() }),
+      publishRevocationHash: async () => ({
+        hash: "x",
+        revoked: true as const,
+        revokedAt: new Date().toISOString(),
+      }),
     } as never;
     setDeDiClient(mockClient);
 

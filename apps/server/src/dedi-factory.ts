@@ -51,7 +51,9 @@ export function createDeDiClientFromConfig(
 
   const authType = config.OPENCRED_DEDI_AUTH_TYPE;
 
-  let auth: { type: "api-key"; apiKey: string } | { type: "bearer"; email: string; password: string };
+  let auth:
+    | { type: "api-key"; apiKey: string }
+    | { type: "bearer"; email: string; password: string };
 
   if (authType === "api-key") {
     // Config validation guarantees the relevant field is set when auth type is api-key.

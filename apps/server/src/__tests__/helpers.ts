@@ -142,16 +142,28 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
   // Body size limits (MED-02) — mirrors index.ts so tests exercise the real
   // middleware stack, including the batch/non-batch split.
   const BATCH_PATHS = new Set(["/credentials/batch", "/v1/credentials/batch"]);
-  app.use("/credentials/batch", bodyLimit({
-    maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
-    onError: (c) =>
-      c.json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } }, 413),
-  }));
-  app.use("/v1/credentials/batch", bodyLimit({
-    maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
-    onError: (c) =>
-      c.json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } }, 413),
-  }));
+  app.use(
+    "/credentials/batch",
+    bodyLimit({
+      maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
+      onError: (c) =>
+        c.json(
+          { error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } },
+          413,
+        ),
+    }),
+  );
+  app.use(
+    "/v1/credentials/batch",
+    bodyLimit({
+      maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
+      onError: (c) =>
+        c.json(
+          { error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } },
+          413,
+        ),
+    }),
+  );
   app.use("*", async (c, next) => {
     if (BATCH_PATHS.has(c.req.path)) return next();
     return bodyLimit({

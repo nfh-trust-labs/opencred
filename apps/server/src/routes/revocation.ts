@@ -71,10 +71,7 @@ revocation.post("/credentials/revoke", async (c) => {
 
   const dediClient = getDeDiClient();
   if (!dediClient) {
-    return c.json(
-      { error: { code: "DEDI_NOT_CONFIGURED", message: "DeDi not configured" } },
-      503,
-    );
+    return c.json({ error: { code: "DEDI_NOT_CONFIGURED", message: "DeDi not configured" } }, 503);
   }
 
   const hash = parsed.hash ?? computeRevocationHash(parsed.credential!);
@@ -104,10 +101,7 @@ revocation.post("/credentials/revocation-status", async (c) => {
 
   const dediClient = getDeDiClient();
   if (!dediClient) {
-    return c.json(
-      { error: { code: "DEDI_NOT_CONFIGURED", message: "DeDi not configured" } },
-      503,
-    );
+    return c.json({ error: { code: "DEDI_NOT_CONFIGURED", message: "DeDi not configured" } }, 503);
   }
 
   const record = await dediClient.queryRevocationHash(parsed.hash, parsed.namespace);
