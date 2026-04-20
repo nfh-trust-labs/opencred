@@ -1202,14 +1202,24 @@ async function handleBatchStart(
       totalRows: parseResult.totalCount,
       validRows: parseResult.validCount,
     });
-    void engine.start().then((finalProgress) => {
-      batchState.results = finalProgress.rows;
-      logger.info("Batch completed", {
-        total: finalProgress.total,
-        success: finalProgress.successCount,
-        errors: finalProgress.errorCount,
+    void engine
+      .start()
+      .then((finalProgress) => {
+        batchState.results = finalProgress.rows;
+        logger.info("Batch completed", {
+          total: finalProgress.total,
+          success: finalProgress.successCount,
+          errors: finalProgress.errorCount,
+        });
+      })
+      .catch((err: unknown) => {
+        // Wholesale engine crash (unexpected exception outside per-row
+        // error handling). Without this catch the rejection only surfaces
+        // as an UnhandledPromiseRejection; the renderer keeps polling
+        // progress forever with no breadcrumb in the log.
+        logger.error("Desktop batch engine crashed", { err });
+        batchState.results = [];
       });
-    });
 
     return {
       success: true,
