@@ -2145,6 +2145,44 @@ function findContextHashConflict(
  * shared URL → document cache consistent with the spec without needing
  * per-schema execution-context scoping around canonicalization.
  */
+
+/**
+ * Update the `dediPublishState` (and optional error message) for a
+ * single custom-schema entry after its DeDi publish promises settle.
+ *
+ * Looks the entry up by id because by the time the publishes resolve the
+ * store may have been modified by other writes. If the entry has been
+ * deleted, this is a no-op.
+ */
+function updateCustomSchemaPublishState(
+  schemaId: string,
+  state: "published" | "failed",
+  error?: string,
+): void {
+  try {
+    const store = getStore();
+    const schemas =
+      (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+    const idx = schemas.findIndex((s) => s.id === schemaId);
+    if (idx === -1) return;
+    const updated = { ...schemas[idx], dediPublishState: state, dediPublishError: error };
+    if (!error) delete updated.dediPublishError;
+    const next = [...schemas];
+    next[idx] = updated;
+    store.set("customSchemas" as keyof typeof store.store, next);
+    if (state === "failed") {
+      logger.warn("DeDi publish failed for custom schema", { schemaId, error });
+    } else {
+      logger.info("DeDi publish succeeded for custom schema", { schemaId });
+    }
+  } catch (err) {
+    logger.error("Failed to update custom schema publish state", {
+      schemaId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 async function handleCustomSchemaSave(
   _event: IpcMainInvokeEvent,
   request: CustomSchemaSaveRequest,
@@ -2247,21 +2285,29 @@ async function handleCustomSchemaSave(
       const version = "1.0.0";
       const schemaRecordName = `${entry.id}-v${version}`;
       const contextRecordName = `${entry.id}-ctx-v${version}`;
+      // Plan the URLs eagerly; surface them immediately so the UI can show
+      // them, but tag the entry as `pending` until the publish promises
+      // settle. If publish fails, dediPublishState flips to "failed" and
+      // the UI can prompt the user to retry — this prevents verifiers
+      // from silently hitting dangling lookup URLs.
+      const schemaUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${SCHEMA_REGISTRY}/${schemaRecordName}`;
+      const ctxUrl = entry.dediContextUrl
+        ? entry.dediContextUrl
+        : `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${CONTEXT_REGISTRY}/${contextRecordName}`;
 
-      // Publish schema (fire-and-forget)
-      mgr
-        .ensureSchemaPublished({
+      entry.dediSchemaUrl = schemaUrl;
+      if (!entry.dediContextUrl) entry.dediContextUrl = ctxUrl;
+      entry.dediPublishState = "pending";
+
+      const publishPromises: Promise<unknown>[] = [
+        mgr.ensureSchemaPublished({
           schemaId: entry.id,
           version,
           schema: request.schema,
           checksum: SchemaRegistry.computeChecksum(request.schema),
           publishedAt: new Date().toISOString(),
-        })
-        .catch(() => {
-          /* logged internally */
-        });
-
-      // Publish context (fire-and-forget)
+        }),
+      ];
       if (entry.generatedContext) {
         const contextRecord: ContextRecord = {
           schemaId: entry.id,
@@ -2269,16 +2315,28 @@ async function handleCustomSchemaSave(
           context: entry.generatedContext,
           publishedAt: new Date().toISOString(),
         };
-        mgr.publishContext(contextRecord).catch(() => {
-          /* logged internally */
-        });
+        publishPromises.push(mgr.publishContext(contextRecord));
       }
 
-      entry.dediSchemaUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${SCHEMA_REGISTRY}/${schemaRecordName}`;
-      // Only overwrite the user-provided context URL if none was supplied.
-      if (!entry.dediContextUrl) {
-        entry.dediContextUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${CONTEXT_REGISTRY}/${contextRecordName}`;
-      }
+      // Resolve asynchronously — the IPC response has already returned
+      // by the time this updates the store. The renderer re-reads the
+      // customSchemas list to pick up the new state on the next poll
+      // (or the user's next visit to the schema-management screen).
+      Promise.allSettled(publishPromises).then((results) => {
+        const failures = results.filter((r) => r.status === "rejected");
+        updateCustomSchemaPublishState(
+          entry.id,
+          failures.length === 0 ? "published" : "failed",
+          failures.length === 0
+            ? undefined
+            : failures
+                .map((r) => {
+                  const reason = (r as PromiseRejectedResult).reason;
+                  return reason instanceof Error ? reason.message : String(reason);
+                })
+                .join("; "),
+        );
+      });
     }
   }
 
