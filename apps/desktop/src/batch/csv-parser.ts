@@ -11,9 +11,8 @@
  * subject data is handled here.
  */
 
-import { Validator } from "@opencred/schema-engine";
-import type { SchemaRegistry, ValidationResult } from "@opencred/schema-engine";
-import { getSchemaRegistry } from "../main/schema-registry-singleton.js";
+import type { ValidationResult } from "@opencred/schema-engine";
+import { getValidator } from "../main/validator-singleton.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -213,18 +212,9 @@ export function parseRawCsv(
 // Schema validation
 // ---------------------------------------------------------------------------
 
-let validatorInstance: Validator | null = null;
-
-function getRegistry(): SchemaRegistry {
-  return getSchemaRegistry();
-}
-
-function getValidator(): Validator {
-  if (!validatorInstance) {
-    validatorInstance = new Validator(getRegistry());
-  }
-  return validatorInstance;
-}
+// The Validator is a single process-wide instance held by
+// `main/validator-singleton.ts` and constructed during bootstrap. Do not
+// cache a Validator at module scope here — see Anand's P1-01.
 
 /**
  * Apply column mapping to a row's raw values.

@@ -30,8 +30,9 @@ import {
   uninstallCustomContextResolver,
 } from "./document-loader-with-cache.js";
 import { createLogger } from "./logger.js";
-import { createRegistryWithUpdates } from "@opencred/schema-engine";
+import { createRegistryWithUpdates, Validator } from "@opencred/schema-engine";
 import { setSchemaRegistry } from "./schema-registry-singleton.js";
+import { setValidator } from "./validator-singleton.js";
 
 // ---------------------------------------------------------------------------
 // Global crash handlers — catch unhandled errors before app.whenReady()
@@ -291,6 +292,7 @@ app.whenReady().then(async () => {
     logger: { info: logger.info.bind(logger), warn: logger.warn.bind(logger) },
   });
   setSchemaRegistry(schemaRegistry);
+  setValidator(new Validator(schemaRegistry));
   logger.info("Schema registry initialised", { count: schemaRegistry.listSchemas().length });
 
   // Register the process-wide JSON-LD document loader extension so that

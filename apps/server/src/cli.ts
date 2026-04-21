@@ -45,6 +45,8 @@ import type { ServerConfig } from "./config.js";
 import { parseCsv } from "./batch/csv-parser.js";
 import { createBatchEngine } from "./batch/batch-engine.js";
 import type { ProofFormat } from "./batch/batch-engine.js";
+import { setSchemaRegistry } from "./schema-registry-singleton.js";
+import { setValidator } from "./validator-singleton.js";
 
 // ---------------------------------------------------------------------------
 // Version — read from package.json at the package root
@@ -375,6 +377,14 @@ export function createProgram(): Command {
       if (!existsSync(outputDir)) {
         mkdirSync(outputDir, { recursive: true });
       }
+
+      // Bootstrap the process-wide registry + validator that parseCsv and
+      // createBatchEngine expect. The CLI previously relied on
+      // getSchemaRegistry()'s silent lazy-create fallback; that fallback was
+      // removed for P1-01 so the bootstrap is now explicit here.
+      const batchRegistry = createRegistry();
+      setSchemaRegistry(batchRegistry);
+      setValidator(new Validator(batchRegistry));
 
       const parseResult = parseCsv(csvContent, { schemaId: opts.schema });
 
