@@ -94,8 +94,7 @@ batch.post("/credentials/batch", async (c) => {
       {
         error: {
           code: "WEBHOOK_SECRET_REQUIRED",
-          message:
-            "OPENCRED_WEBHOOK_SECRET must be configured when a webhookUrl is supplied",
+          message: "OPENCRED_WEBHOOK_SECRET must be configured when a webhookUrl is supplied",
         },
       },
       400,
@@ -140,37 +139,40 @@ batch.post("/credentials/batch", async (c) => {
   batchJobsTotal.inc({ status: "started" });
 
   // Start processing in background
-  void engine.start().then((finalProgress) => {
-    job.progress = finalProgress;
-    // TTL countdown starts once the engine is done. See `purgeExpiredBatchJobs`.
-    job.completedAt = new Date().toISOString();
-    batchJobsTotal.inc({ status: finalProgress.cancelled ? "cancelled" : "completed" });
+  void engine
+    .start()
+    .then((finalProgress) => {
+      job.progress = finalProgress;
+      // TTL countdown starts once the engine is done. See `purgeExpiredBatchJobs`.
+      job.completedAt = new Date().toISOString();
+      batchJobsTotal.inc({ status: finalProgress.cancelled ? "cancelled" : "completed" });
 
-    // Deliver webhook notification on completion (best-effort).
-    // LOW-04: `webhookSecret` is guaranteed non-empty at this point because
-    // the route returned 400 WEBHOOK_SECRET_REQUIRED earlier if
-    // `webhookUrl` was set without a configured secret.
-    if (job.webhookUrl) {
-      const webhookPayload: WebhookPayload = {
-        jobId,
-        status: finalProgress.cancelled ? "cancelled" : "completed",
-        total: finalProgress.total,
-        successCount: finalProgress.successCount,
-        errorCount: finalProgress.errorCount,
-        skippedCount: finalProgress.skippedCount,
-      };
-      const webhookSecret = config.OPENCRED_WEBHOOK_SECRET;
-      if (webhookSecret) {
-        deliverWebhook(job.webhookUrl, webhookPayload, webhookSecret).catch((err) => {
-          getLogger().warn({ jobId, webhookUrl: job.webhookUrl, err }, "Webhook delivery failed");
-        });
+      // Deliver webhook notification on completion (best-effort).
+      // LOW-04: `webhookSecret` is guaranteed non-empty at this point because
+      // the route returned 400 WEBHOOK_SECRET_REQUIRED earlier if
+      // `webhookUrl` was set without a configured secret.
+      if (job.webhookUrl) {
+        const webhookPayload: WebhookPayload = {
+          jobId,
+          status: finalProgress.cancelled ? "cancelled" : "completed",
+          total: finalProgress.total,
+          successCount: finalProgress.successCount,
+          errorCount: finalProgress.errorCount,
+          skippedCount: finalProgress.skippedCount,
+        };
+        const webhookSecret = config.OPENCRED_WEBHOOK_SECRET;
+        if (webhookSecret) {
+          deliverWebhook(job.webhookUrl, webhookPayload, webhookSecret).catch((err) => {
+            getLogger().warn({ jobId, webhookUrl: job.webhookUrl, err }, "Webhook delivery failed");
+          });
+        }
       }
-    }
-  }).catch(() => {
-    // Even on engine failure, start the TTL clock so the entry gets purged.
-    job.completedAt = new Date().toISOString();
-    batchJobsTotal.inc({ status: "failed" });
-  });
+    })
+    .catch(() => {
+      // Even on engine failure, start the TTL clock so the entry gets purged.
+      job.completedAt = new Date().toISOString();
+      batchJobsTotal.inc({ status: "failed" });
+    });
 
   const parseErrors = parseResult.rows
     .filter((r) => !r.valid)

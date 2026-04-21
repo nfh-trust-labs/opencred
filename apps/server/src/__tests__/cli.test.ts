@@ -254,7 +254,11 @@ describe("CLI --version flag", () => {
     const program = createProgram();
     let output = "";
     program.exitOverride();
-    program.configureOutput({ writeOut: (str: string) => { output += str; } });
+    program.configureOutput({
+      writeOut: (str: string) => {
+        output += str;
+      },
+    });
 
     try {
       program.parse(["node", "opencred", "--version"]);
@@ -271,7 +275,11 @@ describe("CLI --version flag", () => {
     const program = createProgram();
     let output = "";
     program.exitOverride();
-    program.configureOutput({ writeOut: (str: string) => { output += str; } });
+    program.configureOutput({
+      writeOut: (str: string) => {
+        output += str;
+      },
+    });
 
     try {
       program.parse(["node", "opencred", "-v"]);
@@ -288,7 +296,11 @@ describe("CLI --help flag", () => {
     const program = createProgram();
     let output = "";
     program.exitOverride();
-    program.configureOutput({ writeOut: (str: string) => { output += str; } });
+    program.configureOutput({
+      writeOut: (str: string) => {
+        output += str;
+      },
+    });
 
     try {
       program.parse(["node", "opencred", "--help"]);
@@ -345,18 +357,10 @@ describe("CLI config validate subcommand", () => {
 
     await program.parseAsync(["node", "opencred", "config", "validate"]);
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Configuration valid"),
-    );
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("port: 3100"),
-    );
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("auth: enabled"),
-    );
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("kms: file-based"),
-    );
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Configuration valid"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("port: 3100"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("auth: enabled"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("kms: file-based"));
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
@@ -373,15 +377,9 @@ describe("CLI config validate subcommand", () => {
     const program = createProgram();
     await program.parseAsync(["node", "opencred", "config", "validate"]);
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Configuration valid"),
-    );
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("port: 8080"),
-    );
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("auth: dev-mode (no auth)"),
-    );
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Configuration valid"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("port: 8080"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("auth: dev-mode (no auth)"));
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
@@ -396,9 +394,7 @@ describe("CLI config validate subcommand", () => {
     const program = createProgram();
     await program.parseAsync(["node", "opencred", "config", "validate"]);
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("kms: aws"),
-    );
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("kms: aws"));
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
@@ -412,9 +408,7 @@ describe("CLI config validate subcommand", () => {
     const program = createProgram();
     await program.parseAsync(["node", "opencred", "config", "validate"]);
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Configuration error:"),
-    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("Configuration error:"));
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining("OPENCRED_API_KEY is required"),
     );
@@ -432,9 +426,7 @@ describe("CLI config validate subcommand", () => {
     const program = createProgram();
     await program.parseAsync(["node", "opencred", "config", "validate"]);
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Configuration error:"),
-    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("Configuration error:"));
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining("not permitted when NODE_ENV=production"),
     );

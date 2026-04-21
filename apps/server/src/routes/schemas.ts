@@ -67,15 +67,18 @@ const generateSchema = z.object({
 schemas.post("/schemas/generate", async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!body) {
-    return c.json(
-      { error: { code: "VALIDATION_ERROR", message: "Invalid JSON body" } },
-      400,
-    );
+    return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid JSON body" } }, 400);
   }
   const parsed = generateSchema.safeParse(body);
   if (!parsed.success) {
     return c.json(
-      { error: { code: "VALIDATION_ERROR", message: "Body must include a fields object", details: parsed.error.flatten() } },
+      {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Body must include a fields object",
+          details: parsed.error.flatten(),
+        },
+      },
       400,
     );
   }

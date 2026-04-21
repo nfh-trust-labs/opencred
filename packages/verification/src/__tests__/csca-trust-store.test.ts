@@ -144,7 +144,8 @@ describe("CscaTrustStore", () => {
         expect(store.size).toBe(1);
         // One warning for the bad file, plus the good file loads fine
         const badFileWarning = onWarning.mock.calls.find(
-          (call: string[]) => typeof call[0] === "string" && call[0].includes("No PEM certificate blocks"),
+          (call: string[]) =>
+            typeof call[0] === "string" && call[0].includes("No PEM certificate blocks"),
         );
         expect(badFileWarning).toBeDefined();
       } finally {

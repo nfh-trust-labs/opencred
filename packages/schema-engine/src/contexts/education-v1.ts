@@ -9,8 +9,7 @@
 export const educationV1Context: Record<string, unknown> = {
   "@context": {
     "@protected": true,
-    EducationCredential:
-      "https://opencred.org/ns/credentials/education#EducationCredential",
+    EducationCredential: "https://opencred.org/ns/credentials/education#EducationCredential",
     recipientName: "https://opencred.org/ns/credentials/education#recipientName",
     degree: "https://opencred.org/ns/credentials/education#degree",
     institution: "https://opencred.org/ns/credentials/education#institution",
@@ -24,11 +23,8 @@ export const educationV1Context: Record<string, unknown> = {
       "@id": "https://opencred.org/ns/credentials/education#gpa",
       "@type": "http://www.w3.org/2001/XMLSchema#double",
     },
-    accreditationBody:
-      "https://opencred.org/ns/credentials/education#accreditationBody",
-    programDuration:
-      "https://opencred.org/ns/credentials/education#programDuration",
-    credentialNumber:
-      "https://opencred.org/ns/credentials/education#credentialNumber",
+    accreditationBody: "https://opencred.org/ns/credentials/education#accreditationBody",
+    programDuration: "https://opencred.org/ns/credentials/education#programDuration",
+    credentialNumber: "https://opencred.org/ns/credentials/education#credentialNumber",
   },
 };

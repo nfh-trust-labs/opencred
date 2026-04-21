@@ -84,11 +84,7 @@ import type {
 } from "../shared/ipc-types.js";
 import { createLogger, getLogFilePath, readRecentLogs } from "./logger.js";
 import { getStore, restrictStoreFilePermissions } from "./store.js";
-import type {
-  CredentialHistoryEntry,
-  CustomSchemaEntry,
-  RecentTemplateEntry,
-} from "./store.js";
+import type { CredentialHistoryEntry, CustomSchemaEntry, RecentTemplateEntry } from "./store.js";
 import { createSoftwareSigner, buildSigner } from "../signing/software-signer.js";
 import type { PersistedSignerEntry } from "./persisted-signer-loader.js";
 import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local-signing-flow.js";
@@ -121,10 +117,7 @@ import type { BatchEngine, BatchRowResult } from "../batch/batch-engine.js";
 import { exportBatchAsZip } from "../batch/batch-export.js";
 // PKCS#11 imports are lazy to avoid requiring the native pkcs11.node addon at startup.
 // The actual imports happen inside the handler functions via dynamic import().
-import {
-  validatePkcs11Path,
-  ALLOWED_PKCS11_DIRS_BY_PLATFORM,
-} from "./pkcs11-path-validator.js";
+import { validatePkcs11Path, ALLOWED_PKCS11_DIRS_BY_PLATFORM } from "./pkcs11-path-validator.js";
 import { buildAndSignRequestSchema, parseIpcRequest } from "../shared/ipc-schemas.js";
 
 import {
@@ -227,9 +220,7 @@ const CONFIG_KEY_VALIDATORS: Record<string, (value: unknown) => void> = {
       (host) => url.hostname === host || url.hostname.endsWith(`.${host}`),
     );
     if (!ok) {
-      throw new ValidationError(
-        `bugReportFormUrl host not permitted: ${url.hostname}`,
-      );
+      throw new ValidationError(`bugReportFormUrl host not permitted: ${url.hostname}`);
     }
   },
 };
@@ -834,8 +825,7 @@ async function handleVerifyCredential(
     } else {
       return {
         success: false,
-        error:
-          "Unrecognized credential format. Expected JSON, OPENCRED1: QR data, JWT, or SD-JWT.",
+        error: "Unrecognized credential format. Expected JSON, OPENCRED1: QR data, JWT, or SD-JWT.",
       };
     }
 
@@ -969,7 +959,9 @@ async function handlePackageCredential(
     // Process legacy packager formats (includes pdf)
     if (legacyRequested.length > 0) {
       const legacyFormats = legacyRequested as PackageFormat[];
-      const pdfOptions = request.customization ? { customization: request.customization } : undefined;
+      const pdfOptions = request.customization
+        ? { customization: request.customization }
+        : undefined;
       const result = await packageCredential(credential, legacyFormats, pdfOptions);
 
       for (const output of result.outputs) {

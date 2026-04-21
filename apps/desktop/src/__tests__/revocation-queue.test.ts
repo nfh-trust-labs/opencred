@@ -427,9 +427,7 @@ describe("Revocation Queue", () => {
 
       // Simulate offline — the DNS probe now targets the DeDi host itself
       // (see below) rather than an external anchor.
-      mockDnsLookup.mockRejectedValueOnce(
-        new Error("getaddrinfo ENOTFOUND dedi.example"),
-      );
+      mockDnsLookup.mockRejectedValueOnce(new Error("getaddrinfo ENOTFOUND dedi.example"));
 
       const results = await publishPendingRevocations(
         { type: "api-key", apiKey: "test-key" },
@@ -476,10 +474,7 @@ describe("Revocation Queue", () => {
         revocationHash: "hash-malformed",
       });
 
-      await publishPendingRevocations(
-        { type: "api-key", apiKey: "test-key" },
-        "not-a-valid-url",
-      );
+      await publishPendingRevocations({ type: "api-key", apiKey: "test-key" }, "not-a-valid-url");
 
       expect(mockDnsLookup).not.toHaveBeenCalled();
     });

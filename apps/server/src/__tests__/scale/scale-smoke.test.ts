@@ -12,11 +12,7 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import {
-  createTestApp,
-  generateTestKey,
-  VALID_ISSUE_REQUEST,
-} from "../helpers.js";
+import { createTestApp, generateTestKey, VALID_ISSUE_REQUEST } from "../helpers.js";
 import { setActiveSigner } from "../../signing/key-manager.js";
 import type { Hono } from "hono";
 import type { TestKeyPair } from "../helpers.js";

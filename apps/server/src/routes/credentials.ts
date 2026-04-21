@@ -65,17 +65,11 @@ export const customizationSchema = z
       .string()
       .regex(/^#[0-9a-fA-F]{6}$/, "6-digit hex color required")
       .optional(),
-    logoDataUri: z
-      .string()
-      .startsWith("data:image/", "Must be data URI")
-      .optional(),
+    logoDataUri: z.string().startsWith("data:image/", "Must be data URI").optional(),
     logoWidth: z.number().int().min(10).max(200).optional(),
     logoHeight: z.number().int().min(10).max(200).optional(),
     footerText: z.string().max(500).optional(),
-    sealDataUri: z
-      .string()
-      .startsWith("data:image/", "Must be data URI")
-      .optional(),
+    sealDataUri: z.string().startsWith("data:image/", "Must be data URI").optional(),
     issuerDisplayName: z.string().max(200).optional(),
   })
   .optional();
@@ -198,9 +192,7 @@ const issueRequestSchema = z.object({
   selectiveDisclosureClaims: z.array(z.string()).optional(),
   revocationRegistryUrl: z.string().url().optional(),
   credentialSchemaUrl: z.string().url().optional(),
-  packageFormats: z
-    .array(z.enum(["qr-png", "qr-svg", "pdf", "json", "json-compact"]))
-    .optional(),
+  packageFormats: z.array(z.enum(["qr-png", "qr-svg", "pdf", "json", "json-compact"])).optional(),
   customization: customizationSchema,
 });
 

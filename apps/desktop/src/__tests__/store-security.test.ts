@@ -88,10 +88,10 @@ describe("Store security hardening", () => {
       expect(() => restrictStoreFilePermissions()).not.toThrow();
 
       // Should log a warning with the store path and error message.
-      expect(mockWarn).toHaveBeenCalledWith(
-        "Failed to restrict store file permissions",
-        { path: mockStorePath, error: "Permission denied" },
-      );
+      expect(mockWarn).toHaveBeenCalledWith("Failed to restrict store file permissions", {
+        path: mockStorePath,
+        error: "Permission denied",
+      });
     });
 
     it("should call chmodSync exactly once per invocation", () => {

@@ -156,14 +156,10 @@ export async function resolveDnsForSsrf(hostname: string): Promise<string[]> {
 
   // Check for non-benign DNS errors (transient failures → fail-closed)
   if (v4Result.status === "rejected" && !isBenignDnsError(v4Result.reason)) {
-    throw new Error(
-      `DNS A lookup failed for ${hostname}: ${getDnsErrorCode(v4Result.reason)}`,
-    );
+    throw new Error(`DNS A lookup failed for ${hostname}: ${getDnsErrorCode(v4Result.reason)}`);
   }
   if (v6Result.status === "rejected" && !isBenignDnsError(v6Result.reason)) {
-    throw new Error(
-      `DNS AAAA lookup failed for ${hostname}: ${getDnsErrorCode(v6Result.reason)}`,
-    );
+    throw new Error(`DNS AAAA lookup failed for ${hostname}: ${getDnsErrorCode(v6Result.reason)}`);
   }
 
   const addresses = [
@@ -177,9 +173,7 @@ export async function resolveDnsForSsrf(hostname: string): Promise<string[]> {
 
   for (const ip of addresses) {
     if (isPrivateIP(ip)) {
-      throw new Error(
-        `SSRF protection: ${hostname} resolves to private/reserved IP`,
-      );
+      throw new Error(`SSRF protection: ${hostname} resolves to private/reserved IP`);
     }
   }
 

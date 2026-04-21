@@ -178,9 +178,7 @@ export class CredentialBuilder {
     if (subject && "id" in subject && subject.id !== undefined) {
       const rawId: unknown = subject.id;
       if (typeof rawId !== "string") {
-        throw new ValidationError(
-          `credentialSubject.id must be a string, got ${typeof rawId}`,
-        );
+        throw new ValidationError(`credentialSubject.id must be a string, got ${typeof rawId}`);
       }
       if (rawId.trim() === "") {
         throw new ValidationError("credentialSubject.id must be a non-empty string");

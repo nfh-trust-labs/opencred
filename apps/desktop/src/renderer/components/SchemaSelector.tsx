@@ -144,9 +144,11 @@ export function SchemaSelector({ onSchemaSelect, selectedSchema }: Props) {
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(opt);
     }
-    return CATEGORY_ORDER
-      .filter((cat) => groups[cat] && groups[cat].length > 0)
-      .map((cat) => ({ category: cat, label: CATEGORY_LABELS[cat] ?? cat, options: groups[cat] }));
+    return CATEGORY_ORDER.filter((cat) => groups[cat] && groups[cat].length > 0).map((cat) => ({
+      category: cat,
+      label: CATEGORY_LABELS[cat] ?? cat,
+      options: groups[cat],
+    }));
   }, [builtInOptions]);
 
   return (

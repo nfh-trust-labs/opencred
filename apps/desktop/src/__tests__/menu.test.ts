@@ -82,9 +82,7 @@ vi.mock("../main/schema-registry-singleton.js", () => ({
 const { createAppMenuTemplate } = await import("../main/index.js");
 
 describe("createAppMenuTemplate (MED-03)", () => {
-  function findViewSubmenu(
-    template: ReturnType<typeof createAppMenuTemplate>,
-  ): unknown[] {
+  function findViewSubmenu(template: ReturnType<typeof createAppMenuTemplate>): unknown[] {
     const view = template.find((entry) => entry.label === "View");
     if (!view || !Array.isArray(view.submenu)) {
       throw new Error("View submenu not found");
@@ -93,8 +91,8 @@ describe("createAppMenuTemplate (MED-03)", () => {
   }
 
   function hasToggleDevToolsRole(submenu: unknown[]): boolean {
-    return submenu.some(
-      (item) => typeof item === "object" && item !== null && "role" in item
+    return submenu.some((item) =>
+      typeof item === "object" && item !== null && "role" in item
         ? (item as { role?: string }).role === "toggleDevTools"
         : false,
     );

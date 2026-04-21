@@ -6,11 +6,7 @@ import type { JWK } from "@opencred/did";
 import { signCredential } from "@opencred/crypto";
 import type { UnsignedCredential } from "@opencred/vc-core";
 import { setActiveSigner } from "../../signing/key-manager.js";
-import {
-  generateTestKey,
-  createTestApp,
-  verifyViaApp,
-} from "./helpers.js";
+import { generateTestKey, createTestApp, verifyViaApp } from "./helpers.js";
 import type { TestKeyPair } from "./helpers.js";
 
 let app: Hono;
@@ -148,9 +144,7 @@ describe("did:web verification — SSRF protection", () => {
 
 describe("did:web verification — HTTP 404", () => {
   it("returns UNRESOLVABLE when DID document fetch returns 404", async () => {
-    getFetchMock().mockResolvedValue(
-      new Response("Not Found", { status: 404 }),
-    );
+    getFetchMock().mockResolvedValue(new Response("Not Found", { status: 404 }));
 
     const signedVC = await createSignedCredential(testKey, TEST_DID);
 

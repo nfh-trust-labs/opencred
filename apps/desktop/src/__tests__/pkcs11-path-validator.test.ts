@@ -136,9 +136,7 @@ describe("validatePkcs11Path", () => {
   // ---------------------------------------------------------------------------
 
   it("rejects a non-existent file", async () => {
-    await expect(validatePkcs11Path("/tmp/does-not-exist-xyz.so")).rejects.toThrow(
-      ValidationError,
-    );
+    await expect(validatePkcs11Path("/tmp/does-not-exist-xyz.so")).rejects.toThrow(ValidationError);
     await expect(validatePkcs11Path("/tmp/does-not-exist-xyz.so")).rejects.toThrow(
       /does not exist/,
     );

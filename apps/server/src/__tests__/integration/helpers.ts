@@ -1,7 +1,13 @@
 import { vi } from "vitest";
 import type { Hono } from "hono";
 import type { VerifierConfig } from "@opencred/verification";
-import type { DIDResolver, DIDResolutionResult, DIDDocument, VerificationMethod, JWK } from "@opencred/did";
+import type {
+  DIDResolver,
+  DIDResolutionResult,
+  DIDDocument,
+  VerificationMethod,
+  JWK,
+} from "@opencred/did";
 
 type DeDiClientLike = NonNullable<VerifierConfig["dediClient"]>;
 
@@ -47,9 +53,7 @@ export async function verifyViaApp(
   });
 }
 
-export function createMockDediClient(
-  revocationStore: Map<string, boolean>,
-): DeDiClientLike {
+export function createMockDediClient(revocationStore: Map<string, boolean>): DeDiClientLike {
   return {
     queryRevocationHash: vi.fn(async (hash: string) => {
       const revoked = revocationStore.get(hash) ?? false;

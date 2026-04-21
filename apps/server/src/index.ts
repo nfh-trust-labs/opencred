@@ -84,7 +84,6 @@ if (config.OPENCRED_DEV_MODE_NO_AUTH) {
   logger.warn(banner);
 }
 
-
 // Tracing (opt-in via OTEL_EXPORTER_OTLP_ENDPOINT)
 const tracer = initTracing();
 if (tracer) {
@@ -134,12 +133,9 @@ logger.info({ count: schemaRegistry.listSchemas().length }, "Schema registry ini
 // all verification requests via the `getTrustStore()` singleton.
 
 if (config.OPENCRED_CSCA_TRUST_STORE_PATH) {
-  const trustStore = await CscaTrustStore.fromDirectory(
-    config.OPENCRED_CSCA_TRUST_STORE_PATH,
-    {
-      onWarning: (msg) => logger.warn(msg),
-    },
-  );
+  const trustStore = await CscaTrustStore.fromDirectory(config.OPENCRED_CSCA_TRUST_STORE_PATH, {
+    onWarning: (msg) => logger.warn(msg),
+  });
   setTrustStore(trustStore);
   logger.info(
     { path: config.OPENCRED_CSCA_TRUST_STORE_PATH, size: trustStore.size },
@@ -205,16 +201,22 @@ const app = new Hono();
 // second middleware explicitly to avoid false rejects).
 const BATCH_PATHS = new Set(["/credentials/batch", "/v1/credentials/batch"]);
 
-app.use("/credentials/batch", bodyLimit({
-  maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
-  onError: (c) =>
-    c.json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } }, 413),
-}));
-app.use("/v1/credentials/batch", bodyLimit({
-  maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
-  onError: (c) =>
-    c.json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } }, 413),
-}));
+app.use(
+  "/credentials/batch",
+  bodyLimit({
+    maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
+    onError: (c) =>
+      c.json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } }, 413),
+  }),
+);
+app.use(
+  "/v1/credentials/batch",
+  bodyLimit({
+    maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
+    onError: (c) =>
+      c.json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } }, 413),
+  }),
+);
 
 // General cap applied to all non-batch routes. Skipped on batch paths so
 // the tighter non-batch limit isn't wrongly enforced against CSV uploads.

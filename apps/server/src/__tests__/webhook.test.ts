@@ -147,7 +147,14 @@ describe("deliverWebhook", () => {
     const keys = Object.keys(payload);
 
     // Only allowed keys
-    expect(keys).toEqual(["jobId", "status", "total", "successCount", "errorCount", "skippedCount"]);
+    expect(keys).toEqual([
+      "jobId",
+      "status",
+      "total",
+      "successCount",
+      "errorCount",
+      "skippedCount",
+    ]);
 
     // Must not contain anything that looks like credential content
     expect(serialized).not.toContain("credentialSubject");

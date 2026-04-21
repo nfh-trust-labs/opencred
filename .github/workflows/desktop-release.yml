@@ -15,8 +15,57 @@ permissions:
   contents: write
 
 jobs:
+  # Fails fast if signing secrets are missing so we never ship an unsigned
+  # release. electron-builder's forceCodeSigning usually catches this, but
+  # edge cases (empty strings, partial configs) can slip through — check
+  # explicitly before wasting a 30-minute Mac build.
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require mac signing secrets
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+        run: |
+          missing=()
+          [ -z "$MAC_CSC_LINK" ] && missing+=("MAC_CSC_LINK")
+          [ -z "$MAC_CSC_KEY_PASSWORD" ] && missing+=("MAC_CSC_KEY_PASSWORD")
+          [ -z "$APPLE_ID" ] && missing+=("APPLE_ID")
+          [ -z "$APPLE_TEAM_ID" ] && missing+=("APPLE_TEAM_ID")
+          if [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -z "$APPLE_ID_PASSWORD" ]; then
+            missing+=("APPLE_APP_SPECIFIC_PASSWORD (or APPLE_ID_PASSWORD)")
+          fi
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing required macOS signing/notarisation secrets:"
+            for s in "${missing[@]}"; do echo "::error::  - $s"; done
+            echo "::error::Refusing to publish an unsigned release. Configure these in repo Settings - Secrets - Actions."
+            exit 1
+          fi
+          echo "macOS signing secrets: OK"
+      - name: Require windows signing secrets
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          missing=()
+          [ -z "$WIN_CSC_LINK" ] && missing+=("WIN_CSC_LINK")
+          [ -z "$WIN_CSC_KEY_PASSWORD" ] && missing+=("WIN_CSC_KEY_PASSWORD")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing required Windows signing secrets:"
+            for s in "${missing[@]}"; do echo "::error::  - $s"; done
+            echo "::error::Refusing to publish an unsigned release."
+            exit 1
+          fi
+          echo "Windows signing secrets: OK"
+
   test:
     name: Test
+    needs: preflight
     strategy:
       fail-fast: false
       matrix:
@@ -53,12 +102,19 @@ jobs:
 
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
-        continue-on-error: true
         timeout-minutes: 10
+
+      - name: Verify native addons
+        run: node scripts/verify-native-addons.cjs
+        working-directory: packages/signing
 
       - name: Run tests
         run: pnpm --filter @opencred/desktop test
 
+  # The Mac job builds BOTH archs on a single runner so electron-builder
+  # produces a unified `latest-mac.yml` referencing both zip/dmg. Two
+  # parallel Mac runners would race on that file and leave the auto-updater
+  # manifest pointing at non-existent artefacts.
   release:
     needs: test
     strategy:
@@ -67,10 +123,16 @@ jobs:
         include:
           - os: macos-latest
             platform: mac
-          - os: windows-latest
-            platform: win
+            electron_builder_args: "--mac --x64 --arm64"
+            artifact_suffix: mac
           - os: ubuntu-latest
             platform: linux
+            electron_builder_args: "--linux --x64"
+            artifact_suffix: linux-x64
+          - os: windows-latest
+            platform: win
+            electron_builder_args: "--win --x64"
+            artifact_suffix: win-x64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -89,6 +151,12 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm libarchive-tools
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -97,8 +165,14 @@ jobs:
 
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
-        continue-on-error: true
         timeout-minutes: 10
+
+      # Fail the build if macos-keychain / windows-cng silently failed to
+      # compile. Without this, the release ships without OS cert-store
+      # signing support and end users hit runtime errors.
+      - name: Verify native addons
+        run: node scripts/verify-native-addons.cjs
+        working-directory: packages/signing
 
       - name: Build renderer
         run: pnpm --filter @opencred/desktop build:renderer
@@ -106,26 +180,169 @@ jobs:
       - name: Build main process
         run: pnpm --filter @opencred/desktop build:main
 
-      - name: Build and publish
-        run: pnpm --filter @opencred/desktop exec electron-builder --publish always
+      # Resolves pnpm symlinks to real dirs and strips workspace deps from
+      # package.json so electron-builder produces a clean asar. Without
+      # this, the packaged app may be missing modules or contain the entire
+      # workspace tree.
+      - name: Prepare native dependencies
+        working-directory: apps/desktop
+        run: node scripts/prepare-native-deps.cjs
+
+      - name: Prepare output directories
+        shell: bash
+        working-directory: apps/desktop
+        run: mkdir -p out/@opencred
+
+      # Build WITHOUT publishing so we can verify signatures first.
+      - name: Build and sign
+        shell: bash
+        working-directory: apps/desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS code signing
+          EB_ARGS: ${{ matrix.electron_builder_args }}
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          # macOS notarisation
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Windows code signing
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: npx electron-builder $EB_ARGS --publish never
 
-      - name: Upload release artifacts
+      # Verify Mac artefacts are properly code-signed, Gatekeeper-approved
+      # and notarisation-stapled BEFORE publishing. Without this, a broken
+      # signature chain would ship to end users and surface as "app is
+      # damaged, move to trash".
+      - name: Verify macOS signatures
+        if: runner.os == 'macOS'
+        working-directory: apps/desktop
+        run: |
+          set -e
+          fail=0
+          shopt -s nullglob
+          checked=0
+          for app_parent in out/mac out/mac-arm64; do
+            [ -d "$app_parent" ] || continue
+            for app in "$app_parent"/*.app; do
+              checked=$((checked + 1))
+              echo "::group::codesign verify: $app"
+              codesign --verify --deep --strict --verbose=2 "$app" || fail=1
+              echo "::endgroup::"
+              echo "::group::spctl assess (Gatekeeper): $app"
+              spctl --assess --type execute --verbose=2 "$app" || fail=1
+              echo "::endgroup::"
+              echo "::group::stapler validate: $app"
+              xcrun stapler validate "$app" || fail=1
+              echo "::endgroup::"
+            done
+          done
+          if [ "$checked" -eq 0 ]; then
+            echo "::error::No .app bundles found to verify."
+            exit 1
+          fi
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::Signature / notarisation verification failed. Refusing to publish."
+            exit 1
+          fi
+
+      - name: Verify Windows signatures
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          $fail = $false
+          # Get-ChildItem's -Include is a no-op unless -Path ends in \* or
+          # -Filter is used. -Filter is the reliable form for this.
+          $exes = Get-ChildItem -Path out -Recurse -Filter *.exe -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -notmatch 'win(-arm64)?-unpacked' }
+          if ($exes.Count -eq 0) {
+            Write-Error "No .exe artefacts found to verify."
+            exit 1
+          }
+          foreach ($exe in $exes) {
+            Write-Host "::group::Signature: $($exe.FullName)"
+            $sig = Get-AuthenticodeSignature $exe.FullName
+            Write-Host "Status: $($sig.Status)  Signer: $($sig.SignerCertificate.Subject)"
+            if ($sig.Status -ne 'Valid') { $fail = $true }
+            Write-Host "::endgroup::"
+          }
+          if ($fail) {
+            Write-Error "Authenticode verification failed. Refusing to publish."
+            exit 1
+          }
+
+      # Publish the already-built, already-verified artefacts to the
+      # GitHub release matching this tag. Using `gh release upload` rather
+      # than `electron-builder --publish always` so the signed binaries we
+      # just verified are the exact bytes that end users receive — no
+      # second build that could re-sign differently.
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to GitHub release
+        shell: bash
+        working-directory: apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -e
+          shopt -s nullglob
+          files=(
+            out/*.dmg
+            out/*.zip
+            out/*.exe
+            out/*.msi
+            out/*.AppImage
+            out/*.deb
+            out/*.blockmap
+            out/latest*.yml
+          )
+          actual=()
+          for f in "${files[@]}"; do [ -f "$f" ] && actual+=("$f"); done
+          if [ ${#actual[@]} -eq 0 ]; then
+            echo "::error::No release artefacts found under apps/desktop/out/"
+            exit 1
+          fi
+          echo "Uploading ${#actual[@]} artefacts to release $RELEASE_TAG"
+          # Create the release if it doesn't exist yet (manual tag-push
+          # flow). release-please already creates it in the normal flow.
+          # Three matrix runners can race here: two pass `view` before
+          # either creates, then the loser gets HTTP 422 "already_exists".
+          # Tolerate that — it means another runner won the race, which
+          # is exactly the outcome we want.
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            create_log=$(mktemp)
+            if ! gh release create "$RELEASE_TAG" \
+                --repo "$GITHUB_REPOSITORY" \
+                --generate-notes \
+                --title "$RELEASE_TAG" 2>"$create_log"; then
+              if grep -qiE "already.exists|already_exists" "$create_log"; then
+                echo "Release $RELEASE_TAG was created by a concurrent runner; continuing."
+              else
+                cat "$create_log" >&2
+                exit 1
+              fi
+            fi
+          fi
+          # --clobber so re-running the workflow replaces existing files
+          # rather than failing the upload.
+          gh release upload "$RELEASE_TAG" "${actual[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Upload release artefacts (backup)
         uses: actions/upload-artifact@v4
         with:
-          name: opencred-${{ matrix.platform }}
+          name: opencred-${{ matrix.artifact_suffix }}
           path: |
             apps/desktop/out/*.dmg
             apps/desktop/out/*.zip
@@ -133,5 +350,6 @@ jobs:
             apps/desktop/out/*.msi
             apps/desktop/out/*.AppImage
             apps/desktop/out/*.deb
+            apps/desktop/out/latest*.yml
           if-no-files-found: warn
           retention-days: 30

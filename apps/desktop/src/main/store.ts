@@ -187,11 +187,13 @@ let store: ElectronStore<StoreSchema> | null = null;
 export function migrateCredentialHistory(s: ElectronStore<StoreSchema>): void {
   // electron-store's generic get() returns the value defaulted via the schema
   // (here, []). Read safely to tolerate older on-disk shapes.
-  const history = (s.get("credentialHistory") as unknown as CredentialHistoryEntry[] | undefined) ?? [];
+  const history =
+    (s.get("credentialHistory") as unknown as CredentialHistoryEntry[] | undefined) ?? [];
   if (history.length === 0) {
     return;
   }
-  const templates = (s.get("recentTemplates") as unknown as RecentTemplateEntry[] | undefined) ?? [];
+  const templates =
+    (s.get("recentTemplates") as unknown as RecentTemplateEntry[] | undefined) ?? [];
   const bySchema = new Map<string, RecentTemplateEntry>();
   for (const t of templates) {
     bySchema.set(t.schemaId, t);
