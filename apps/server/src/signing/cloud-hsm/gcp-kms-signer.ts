@@ -39,17 +39,11 @@ function algorithmToGcpDigestField(alg: SigningAlgorithm): "sha256" | "sha384" {
 /**
  * Create a Signer backed by GCP Cloud KMS.
  */
-export async function createGcpKmsSigner(
-  keyName: string,
-  timeoutMs = 30_000,
-): Promise<Signer> {
+export async function createGcpKmsSigner(keyName: string, timeoutMs = 30_000): Promise<Signer> {
   const client = new KeyManagementServiceClient();
 
   // Get the public key to determine algorithm and derive DID
-  const [publicKeyResponse] = await client.getPublicKey(
-    { name: keyName },
-    { timeout: timeoutMs },
-  );
+  const [publicKeyResponse] = await client.getPublicKey({ name: keyName }, { timeout: timeoutMs });
   const gcpAlgorithm = publicKeyResponse.algorithm!;
   const algorithm = gcpAlgorithmToSigningAlgorithm(gcpAlgorithm as string);
 
