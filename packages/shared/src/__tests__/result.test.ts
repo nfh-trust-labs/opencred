@@ -18,12 +18,16 @@ describe("Result<T, E>", () => {
 
   it("narrows after if (res.ok)", () => {
     type R = Result<{ credential: string }, { errorCode: string; message: string }>;
-    const r: R = ok({ credential: "eyJ..." });
+    // Widen via a function boundary so TS doesn't narrow `r` to the Ok
+    // branch at the assignment site — we want to exercise the narrowing
+    // logic inside the `if`, not on the right-hand side.
+    const makeR = (): R => ok({ credential: "eyJ..." });
+    const r: R = makeR();
     if (r.ok) {
       // Narrowed to success: credential is required, no bang.
       expect(r.credential.startsWith("ey")).toBe(true);
     } else {
-      // Unreachable in this case — but if we were here, errorCode would exist.
+      // Unreachable in this case — but errorCode would exist if we got here.
       expect(r.errorCode).toBeDefined();
     }
   });
