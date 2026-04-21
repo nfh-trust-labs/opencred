@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@mosip/pixelpass": "^0.6.0",
+    "@opencred/batch-core": "workspace:*",
     "@opencred/crypto": "workspace:*",
     "@opencred/dedi-client": "workspace:*",
     "@opencred/did": "workspace:*",
