@@ -19,12 +19,15 @@ describe("loadConfig", () => {
       DEDI_API_URL: "https://dedi.example.com",
       DEDI_AUTH_TYPE: "api-key",
       DEDI_API_KEY: "test-placeholder-value",
+      // Required in production — see P3-02.
+      CORS_ORIGIN: "https://app.example.com",
     });
     expect(config.NODE_ENV).toBe("production");
     expect(config.PORT).toBe(8080);
     expect(config.LOG_LEVEL).toBe("debug");
     expect(config.DEDI_API_URL).toBe("https://dedi.example.com");
     expect(config.DEDI_AUTH_TYPE).toBe("api-key");
+    expect(config.CORS_ORIGIN).toBe("https://app.example.com");
   });
 
   it("throws on invalid NODE_ENV", () => {
@@ -62,5 +65,34 @@ describe("loadConfig", () => {
         DEDI_PASSWORD: "",
       }),
     ).toThrow("Invalid environment configuration");
+  });
+
+  // Anand's P3-02: the Vite dev-server port as a production default
+  // silently broke cross-origin requests. Fail loud in production.
+  describe("CORS_ORIGIN (P3-02)", () => {
+    it("dev: defaults to http://localhost:5173 when unset", () => {
+      const config = loadConfig({});
+      expect(config.NODE_ENV).toBe("development");
+      expect(config.CORS_ORIGIN).toBe("http://localhost:5173");
+    });
+
+    it("production + unset: refuses to load with a clear error", () => {
+      expect(() => loadConfig({ NODE_ENV: "production" })).toThrow(
+        /CORS_ORIGIN must be set to the production frontend origin/,
+      );
+    });
+
+    it("production + explicit origin: loads successfully", () => {
+      const config = loadConfig({
+        NODE_ENV: "production",
+        CORS_ORIGIN: "https://issuer.example.com",
+      });
+      expect(config.CORS_ORIGIN).toBe("https://issuer.example.com");
+    });
+
+    it("test: inherits the dev default (test envs rarely exercise CORS)", () => {
+      const config = loadConfig({ NODE_ENV: "test" });
+      expect(config.CORS_ORIGIN).toBe("http://localhost:5173");
+    });
   });
 });
