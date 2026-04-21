@@ -365,7 +365,9 @@ describe("CredentialBuilder", () => {
     });
 
     it("should reject http:// at setter time", () => {
-      expect(() => new CredentialBuilder().setIssuer("http://example.com")).toThrow(ValidationError);
+      expect(() => new CredentialBuilder().setIssuer("http://example.com")).toThrow(
+        ValidationError,
+      );
     });
 
     it("should reject issuer object with invalid id at setter time", () => {
@@ -804,9 +806,7 @@ describe("CredentialBuilder", () => {
     });
 
     it("accepts urn:uuid:* identifiers", () => {
-      expect(
-        isValidSubjectUri("urn:uuid:12345678-1234-1234-1234-123456789abc"),
-      ).toBe(true);
+      expect(isValidSubjectUri("urn:uuid:12345678-1234-1234-1234-123456789abc")).toBe(true);
     });
 
     it("accepts https:// URLs", () => {
@@ -897,15 +897,15 @@ describe("CredentialBuilder", () => {
     });
 
     it("rejects file system path", () => {
-      expect(() =>
-        new CredentialBuilder().setCredentialSubject({ id: "../etc/passwd" }),
-      ).toThrow(ValidationError);
+      expect(() => new CredentialBuilder().setCredentialSubject({ id: "../etc/passwd" })).toThrow(
+        ValidationError,
+      );
     });
 
     it("rejects non-URI free-form string", () => {
-      expect(() =>
-        new CredentialBuilder().setCredentialSubject({ id: "not-a-uri" }),
-      ).toThrow(ValidationError);
+      expect(() => new CredentialBuilder().setCredentialSubject({ id: "not-a-uri" })).toThrow(
+        ValidationError,
+      );
     });
 
     it("rejects http:// (only https:// is allowed)", () => {

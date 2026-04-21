@@ -24,7 +24,10 @@ import {
 import { createRequire } from "node:module";
 import { CryptoError } from "@opencred/shared";
 import { deriveDidJwkIdFromPublicKey } from "@opencred/signing/pkcs11-utils";
-import { deriveDidKeyId as deriveDidKeyIdFromPublicKey, computeKeyFingerprint as computeFingerprint } from "@opencred/did";
+import {
+  deriveDidKeyId as deriveDidKeyIdFromPublicKey,
+  computeKeyFingerprint as computeFingerprint,
+} from "@opencred/did";
 import type { KeyMetadata } from "../shared/ipc-types.js";
 
 // node-forge is a CJS module — use createRequire for resolution.

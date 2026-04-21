@@ -333,15 +333,16 @@ describe("request/response logging", () => {
     const client = new DeDiApiClient(createConfig({ logger }));
     await client.getStats();
 
-    expect(logger.info).toHaveBeenCalledWith("DeDi request", { method: "GET", path: "/dedi/stats" });
+    expect(logger.info).toHaveBeenCalledWith("DeDi request", {
+      method: "GET",
+      path: "/dedi/stats",
+    });
     expect(logger.info).toHaveBeenCalledWith(
       "DeDi response",
       expect.objectContaining({ method: "GET", path: "/dedi/stats", status: 200 }),
     );
     // durationMs should be a number
-    const responseCall = logger.info.mock.calls.find(
-      (c: unknown[]) => c[0] === "DeDi response",
-    );
+    const responseCall = logger.info.mock.calls.find((c: unknown[]) => c[0] === "DeDi response");
     expect(responseCall).toBeDefined();
     expect(typeof (responseCall![1] as Record<string, unknown>).durationMs).toBe("number");
   });

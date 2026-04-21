@@ -428,9 +428,7 @@ export function createProgram(): Command {
   // config command group
   // -------------------------------------------------------------------------
 
-  const configCmd = program
-    .command("config")
-    .description("Configuration management commands");
+  const configCmd = program.command("config").description("Configuration management commands");
 
   configCmd
     .command("validate")
@@ -449,9 +447,7 @@ export function createProgram(): Command {
 
         const authMode = config.OPENCRED_API_KEY ? "enabled" : "dev-mode (no auth)";
         const kms =
-          config.OPENCRED_KMS_PROVIDER === "none"
-            ? "file-based"
-            : config.OPENCRED_KMS_PROVIDER;
+          config.OPENCRED_KMS_PROVIDER === "none" ? "file-based" : config.OPENCRED_KMS_PROVIDER;
 
         console.log(
           `Configuration valid (port: ${config.OPENCRED_PORT}, auth: ${authMode}, kms: ${kms})`,

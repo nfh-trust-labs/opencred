@@ -14,10 +14,7 @@
 import { createPublicKey, type KeyObject } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
 import { derToRaw, publicKeyFromEcBytes } from "@opencred/crypto";
-import {
-  encodeDidJwk,
-  didJwkVerificationMethodId,
-} from "@opencred/did";
+import { encodeDidJwk, didJwkVerificationMethodId } from "@opencred/did";
 import type { SigningAlgorithm } from "@opencred/crypto";
 
 /**

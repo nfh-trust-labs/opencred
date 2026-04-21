@@ -3,7 +3,7 @@
   "version": "1.0.1",
   "private": true,
   "type": "module",
-  "description": "OpenCred Desktop \u2014 offline credential issuance and signing",
+  "description": "OpenCred Desktop — offline credential issuance and signing",
   "author": {
     "name": "NFH Trust Labs",
     "email": "dev@nfh-trust-labs.org"

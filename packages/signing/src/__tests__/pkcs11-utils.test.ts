@@ -17,7 +17,10 @@ import {
   normalizeSignature,
   derCertToPem,
 } from "../pkcs11-utils.js";
-import { deriveDidKeyId as deriveDidKeyIdFromPublicKey, computeKeyFingerprint as computeFingerprint } from "@opencred/did";
+import {
+  deriveDidKeyId as deriveDidKeyIdFromPublicKey,
+  computeKeyFingerprint as computeFingerprint,
+} from "@opencred/did";
 
 // ---------------------------------------------------------------------------
 // Test key generation

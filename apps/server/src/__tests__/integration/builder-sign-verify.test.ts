@@ -41,10 +41,9 @@ describe("CredentialBuilder -> sign -> verify (package-level)", () => {
     });
 
     const resolver = createMockResolver(ISSUER_DID, publicKeyJwk, VM_ID);
-    const result = await verifyCredential(
-      signed as unknown as Record<string, unknown>,
-      { didResolver: resolver },
-    );
+    const result = await verifyCredential(signed as unknown as Record<string, unknown>, {
+      didResolver: resolver,
+    });
 
     expect(result.code).toBe("VALID");
     expect(result.verified).toBe(true);
@@ -102,10 +101,9 @@ describe("CredentialBuilder -> sign -> verify (package-level)", () => {
     };
 
     const resolver = createMockResolver(ISSUER_DID, publicKeyJwk, VM_ID);
-    const result = await verifyCredential(
-      tampered as unknown as Record<string, unknown>,
-      { didResolver: resolver },
-    );
+    const result = await verifyCredential(tampered as unknown as Record<string, unknown>, {
+      didResolver: resolver,
+    });
 
     expect(result.code).toBe("INVALID");
     expect(result.verified).toBe(false);

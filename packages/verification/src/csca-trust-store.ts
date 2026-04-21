@@ -105,11 +105,7 @@ export class CscaTrustStore {
         continue;
       }
 
-      if (
-        !lower.endsWith(".pem") &&
-        !lower.endsWith(".crt") &&
-        !lower.endsWith(".cer")
-      ) {
+      if (!lower.endsWith(".pem") && !lower.endsWith(".crt") && !lower.endsWith(".cer")) {
         // Skip non-certificate files silently (e.g. README.md)
         continue;
       }

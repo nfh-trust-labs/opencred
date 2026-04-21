@@ -35,14 +35,12 @@ const PEM_BLOCK_RE = /-----BEGIN[A-Z ]+-----[\s\S]*?-----END[A-Z ]+-----/g;
 const JWK_D_FIELD_RE = /"d"\s*:\s*"[^"]+"/g;
 // Match long standard base64 strings (40+ chars).
 // Standard base64 uses +/ so we require "+" (slash alone matches URLs).
-const LONG_BASE64_STD_RE =
-  /(?=[A-Za-z0-9+/]*\+)[A-Za-z0-9+/]{40,}={0,3}/g;
+const LONG_BASE64_STD_RE = /(?=[A-Za-z0-9+/]*\+)[A-Za-z0-9+/]{40,}={0,3}/g;
 // Match long base64url strings (40+ chars).
 // Base64url uses -_ instead of +/; we require at least one "-" or "_".
 // Checked separately with an entropy filter to avoid false-positives on
 // kebab-case identifiers, CSS classes, and SCREAMING_SNAKE constants.
-const LONG_BASE64URL_RE =
-  /(?=[A-Za-z0-9\-_]*[\-_])[A-Za-z0-9\-_]{40,}={0,3}/g;
+const LONG_BASE64URL_RE = /(?=[A-Za-z0-9_-]*[_-])[A-Za-z0-9_-]{40,}={0,3}/g;
 
 /**
  * Returns true when a candidate base64url string has high character-class
@@ -57,12 +55,7 @@ const LONG_BASE64URL_RE =
  * this effectively requires uppercase + lowercase + digits in addition.
  */
 export function isHighEntropy(s: string): boolean {
-  return (
-    /[A-Z]/.test(s) &&
-    /[a-z]/.test(s) &&
-    /[0-9]/.test(s) &&
-    /[-_]/.test(s)
-  );
+  return /[A-Z]/.test(s) && /[a-z]/.test(s) && /[0-9]/.test(s) && /[-_]/.test(s);
 }
 
 export function redact(input: string): string {
@@ -70,9 +63,7 @@ export function redact(input: string): string {
     .replace(PEM_BLOCK_RE, "[REDACTED-PEM]")
     .replace(JWK_D_FIELD_RE, '"d":"[REDACTED]"')
     .replace(LONG_BASE64_STD_RE, "[REDACTED]")
-    .replace(LONG_BASE64URL_RE, (match) =>
-      isHighEntropy(match) ? "[REDACTED]" : match,
-    );
+    .replace(LONG_BASE64URL_RE, (match) => (isHighEntropy(match) ? "[REDACTED]" : match));
 }
 
 export function redactValue(value: unknown): unknown {

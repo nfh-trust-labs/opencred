@@ -122,9 +122,7 @@ describe.skipIf(!IS_WINDOWS)("Windows CNG Native Addon — Integration", () => {
 
     // Valid hex format but not matching any certificate in the store
     expect(() => {
-      addon.getPublicKey(
-        "0000000000000000000000000000000000000000000000000000000000000000",
-      );
+      addon.getPublicKey("0000000000000000000000000000000000000000000000000000000000000000");
     }).toThrow();
   });
 
@@ -161,9 +159,7 @@ describe.skipIf(!IS_WINDOWS)("Windows CNG Native Addon — Integration", () => {
 
     // 64 characters but contains non-hex 'g', 'x', 'z' characters
     expect(() => {
-      addon.getPublicKey(
-        "ggggggggggggggggxxxxxxxxxxxxxxxxzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
-      );
+      addon.getPublicKey("ggggggggggggggggxxxxxxxxxxxxxxxxzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
     }).toThrow();
   });
 

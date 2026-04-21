@@ -50,7 +50,10 @@ export {
 
 // Re-export key utilities from their canonical packages.
 // These were previously wrapper functions in pkcs11-utils.ts.
-export { deriveDidKeyId as deriveDidKeyIdFromPublicKey, computeKeyFingerprint as computeFingerprint } from "@opencred/did";
+export {
+  deriveDidKeyId as deriveDidKeyIdFromPublicKey,
+  computeKeyFingerprint as computeFingerprint,
+} from "@opencred/did";
 export { publicKeyFromEcBytes } from "@opencred/crypto";
 
 // OS Cert Store

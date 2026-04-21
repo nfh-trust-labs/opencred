@@ -484,25 +484,20 @@ describe("checkBitstringStatusList", () => {
       ["255.255.255.255 broadcast", "255.255.255.255"],
     ];
 
-    it.each(privateRanges)(
-      "rejects hostname resolving to IPv4 %s (%s)",
-      async (_label, ip) => {
-        mockResolve4.mockResolvedValue([ip]);
-        mockResolve6.mockRejectedValue(
-          Object.assign(new Error("ENODATA"), { code: "ENODATA" }),
-        );
+    it.each(privateRanges)("rejects hostname resolving to IPv4 %s (%s)", async (_label, ip) => {
+      mockResolve4.mockResolvedValue([ip]);
+      mockResolve6.mockRejectedValue(Object.assign(new Error("ENODATA"), { code: "ENODATA" }));
 
-        const result = await checkBitstringStatusList({
-          type: "BitstringStatusListEntry",
-          statusPurpose: "revocation",
-          statusListIndex: "0",
-          statusListCredential: "https://status.example.org/status/1",
-        });
+      const result = await checkBitstringStatusList({
+        type: "BitstringStatusListEntry",
+        statusPurpose: "revocation",
+        statusListIndex: "0",
+        statusListCredential: "https://status.example.org/status/1",
+      });
 
-        expect(result.passed).toBe(false);
-        expect(result.detail).toContain("private/reserved IP");
-      },
-    );
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("private/reserved IP");
+    });
 
     const privateIPv6s: Array<[label: string, ip: string]> = [
       ["::1 loopback", "::1"],
@@ -513,25 +508,20 @@ describe("checkBitstringStatusList", () => {
       ["ff00::/8 multicast", "ff02::1"],
     ];
 
-    it.each(privateIPv6s)(
-      "rejects hostname resolving to IPv6 %s (%s)",
-      async (_label, ip) => {
-        mockResolve4.mockRejectedValue(
-          Object.assign(new Error("ENODATA"), { code: "ENODATA" }),
-        );
-        mockResolve6.mockResolvedValue([ip]);
+    it.each(privateIPv6s)("rejects hostname resolving to IPv6 %s (%s)", async (_label, ip) => {
+      mockResolve4.mockRejectedValue(Object.assign(new Error("ENODATA"), { code: "ENODATA" }));
+      mockResolve6.mockResolvedValue([ip]);
 
-        const result = await checkBitstringStatusList({
-          type: "BitstringStatusListEntry",
-          statusPurpose: "revocation",
-          statusListIndex: "0",
-          statusListCredential: "https://status.example.org/status/1",
-        });
+      const result = await checkBitstringStatusList({
+        type: "BitstringStatusListEntry",
+        statusPurpose: "revocation",
+        statusListIndex: "0",
+        statusListCredential: "https://status.example.org/status/1",
+      });
 
-        expect(result.passed).toBe(false);
-        expect(result.detail).toContain("private/reserved IP");
-      },
-    );
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("private/reserved IP");
+    });
   });
 
   it("should reject invalid URL strings", async () => {

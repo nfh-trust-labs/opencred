@@ -92,15 +92,24 @@ describe("multi-format interop — same subject, 3 proof formats, all verify", (
       results.set(proofFormat, body);
     }
 
-    const di = results.get("data-integrity") as { credential: Record<string, unknown>; isCompactToken: boolean };
+    const di = results.get("data-integrity") as {
+      credential: Record<string, unknown>;
+      isCompactToken: boolean;
+    };
     expect(di.isCompactToken).toBe(false);
     expect(typeof di.credential).toBe("object");
     expect((di.credential as Record<string, unknown>).proof).toBeDefined();
 
-    const vcJwt = results.get("vc-jwt") as { credential: Record<string, unknown>; isCompactToken: boolean };
+    const vcJwt = results.get("vc-jwt") as {
+      credential: Record<string, unknown>;
+      isCompactToken: boolean;
+    };
     expect(vcJwt.isCompactToken).toBe(false);
     expect(typeof vcJwt.credential).toBe("object");
-    const vcJwtProof = (vcJwt.credential as Record<string, unknown>).proof as Record<string, unknown>;
+    const vcJwtProof = (vcJwt.credential as Record<string, unknown>).proof as Record<
+      string,
+      unknown
+    >;
     expect(vcJwtProof.jwt).toBeDefined();
 
     const sdJwt = results.get("sd-jwt-vc") as { credential: string; isCompactToken: boolean };
