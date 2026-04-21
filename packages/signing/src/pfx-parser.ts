@@ -44,7 +44,9 @@ export function parsePfx(buffer: Buffer, password: string): PfxContents {
   try {
     p12 = forge.pkcs12.pkcs12FromAsn1(asn1, password);
   } catch (err) {
-    throw new CryptoError("Failed to decrypt PFX: wrong password or corrupted file", { cause: err });
+    throw new CryptoError("Failed to decrypt PFX: wrong password or corrupted file", {
+      cause: err,
+    });
   }
 
   // Extract private key

@@ -73,7 +73,9 @@ export function publicKeyFromRsaComponents(
       format: "jwk",
     });
   } catch (err) {
-    throw new CryptoError("Failed to construct RSA public key from modulus and exponent", { cause: err });
+    throw new CryptoError("Failed to construct RSA public key from modulus and exponent", {
+      cause: err,
+    });
   }
 }
 
