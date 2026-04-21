@@ -395,4 +395,53 @@ describe("rejectKeyMaterial — defense-in-depth on every POST route", () => {
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
+
+  // Anand's P3-03: PEM scan used to regex-match the entire body, including
+  // `csvContent` up to 200 MiB, blocking the event loop for tens of ms per
+  // batch request. Scan is now truncated to the first 4 KiB of long
+  // strings. Both assertions below verify the truncation preserves the
+  // realistic-attack coverage (PEM header near the top) without the
+  // unnecessary full-body scan.
+
+  it("POST /v1/credentials/batch still catches a PEM header in the first 4 KiB of csvContent (P3-03)", async () => {
+    // Header + a PEM-containing row at the top, then a large tail of
+    // benign content that pre-P3-03 would have been scanned redundantly.
+    const bigTail = "x,".repeat(100_000); // ~200 KB of benign content
+    const csv = `name,email,notes\nMallory,m@example.com,"${sec1Pem.replace(/\n/g, " ")}"\n${bigTail}\n`;
+    const res = await app.request("/v1/credentials/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        csvContent: csv,
+        schemaId: "functional-identity/v1",
+        issuerDid: testKey.signer.id.split("#")[0],
+        validFrom: "2025-06-15T00:00:00Z",
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.message).toMatch(/PEM-encoded private key/);
+  });
+
+  it("rejectKeyMaterial does not detect a PEM header past the 4 KiB scan window (P3-03)", async () => {
+    // Pre-P3-03 the scan covered the full string. After the fix a PEM
+    // header buried past the 4 KiB mark is intentionally NOT flagged: the
+    // PEM `-----BEGIN ... PRIVATE KEY-----` marker always lives at the
+    // start of a real key blob, so "pasted somewhere in the middle of a
+    // 200 MiB CSV" is not a realistic attack. This test locks the window
+    // in so a future regression toward full-body scanning (or 200 KB
+    // scans) is caught.
+    const pad = "x".repeat(5_000); // 5 KB of benign content before the PEM block
+    const res = await app.request("/v1/credentials/revocation-hash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        credential: {
+          id: "urn:test:1",
+          notes: `${pad}${sec1Pem}`,
+        },
+      }),
+    });
+    expect(res.status).not.toBe(400);
+  });
 });

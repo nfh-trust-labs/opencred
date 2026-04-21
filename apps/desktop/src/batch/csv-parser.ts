@@ -238,12 +238,15 @@ function applyMapping(
     }
   }
 
+  // Anand's P2-01: mappedKeys is invariant for the whole mapping — hoist
+  // the Set above the row loop. Previously this rebuilt it on every row.
+  const mappedKeys = new Set(Object.values(mapping));
+
   // Also include any raw values whose headers are not in the mapping
   // (they pass through as-is in case the user only mapped some columns)
   for (const [key, value] of Object.entries(rawValues)) {
     if (!mapping[key] && value !== "") {
       // Only include if not already mapped under a different name
-      const mappedKeys = new Set(Object.values(mapping));
       if (!mappedKeys.has(key)) {
         mapped[key] = value;
       }

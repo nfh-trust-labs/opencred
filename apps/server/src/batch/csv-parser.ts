@@ -170,10 +170,13 @@ function applyMapping(
   for (const [csvCol, schemaField] of Object.entries(mapping)) {
     if (csvCol in rawValues) mapped[schemaField] = rawValues[csvCol];
   }
+  // Anand's P2-01: the set of mapped schema-field names is invariant for
+  // the whole mapping, so hoist the Set construction above the row loop.
+  // Previously this rebuilt the Set O(rows × columns) times per parse.
+  const mappedKeys = new Set(Object.values(mapping));
   for (const [key, value] of Object.entries(rawValues)) {
-    if (!mapping[key] && value !== "") {
-      const mappedKeys = new Set(Object.values(mapping));
-      if (!mappedKeys.has(key)) mapped[key] = value;
+    if (!mapping[key] && value !== "" && !mappedKeys.has(key)) {
+      mapped[key] = value;
     }
   }
   return mapped;
