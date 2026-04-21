@@ -2,11 +2,7 @@ import { VerificationError, assertJwtSize } from "@opencred/shared";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import { verifyDataIntegrity } from "./data-integrity.js";
 import { verifyJwsProof } from "./jws-proof.js";
-import {
-  verifyVcJwt,
-  extractVcJwtCredentialFields,
-  crossValidateVcJwtClaims,
-} from "./vc-jwt.js";
+import { verifyVcJwt, extractVcJwtCredentialFields, crossValidateVcJwtClaims } from "./vc-jwt.js";
 import { verifySdJwtVc, extractSdJwtVcCredentialFields } from "./sd-jwt-vc.js";
 import { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
 import { checkX509Chain } from "./x509-chain-check.js";
