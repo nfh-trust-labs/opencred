@@ -18,6 +18,49 @@ import type * as Pkcs11Types from "pkcs11js";
 import { loadPkcs11js } from "./pkcs11-loader.js";
 
 /**
+ * Minimal logger interface for PKCS#11 diagnostics. Compatible with a
+ * Pino logger instance (both accept `(msg, meta?)`) and intentionally
+ * narrower — this module doesn't need info/debug/trace levels. See
+ * Anand's P2-09.
+ */
+export interface Pkcs11Logger {
+  warn(message: string, meta?: Record<string, unknown>): void;
+  error(message: string, meta?: Record<string, unknown>): void;
+}
+
+const noopLogger: Pkcs11Logger = {
+  warn: () => undefined,
+  error: () => undefined,
+};
+
+/**
+ * Process-wide logger for PKCS#11 warnings. The desktop main process
+ * installs its structured Pino logger at startup via `setPkcs11Logger`.
+ * Other consumers (tests, CLI, non-Electron runtimes) get a noop by
+ * default, which is strictly better than the previous `console.warn`:
+ * warnings stop leaking into stderr-shaped output that nobody can
+ * filter, and production deployments can opt in through the operator
+ * logger without changing call sites.
+ */
+let logger: Pkcs11Logger = noopLogger;
+
+/** Install the process-wide PKCS#11 logger. Intended for bootstrap only. */
+export function setPkcs11Logger(pinoCompatible: Pkcs11Logger): void {
+  logger = pinoCompatible;
+}
+
+/** Clear the logger — intended for tests. */
+export function resetPkcs11Logger(): void {
+  logger = noopLogger;
+}
+
+function errMeta(error: unknown): Record<string, unknown> {
+  return {
+    error: error instanceof Error ? error.message : String(error),
+  };
+}
+
+/**
  * Lazy accessor for the pkcs11js module.
  *
  * Uses a Proxy so that any property access (constants, classes, etc.)
@@ -146,9 +189,7 @@ export function finalizePkcs11(pkcs11: Pkcs11Types.PKCS11): void {
   try {
     pkcs11.C_Finalize();
   } catch (error) {
-    console.warn(
-      `[PKCS#11] C_Finalize failed during cleanup: ${error instanceof Error ? error.message : "unknown error"}`,
-    );
+    logger.warn("[PKCS#11] C_Finalize failed during cleanup", errMeta(error));
   }
 }
 
@@ -180,9 +221,10 @@ export function listSlots(pkcs11: Pkcs11Types.PKCS11): Pkcs11SlotInfo[] {
           info.tokenLabel = tokenInfo.label.trim();
           info.tokenManufacturer = tokenInfo.manufacturerID.trim();
         } catch (error) {
-          console.warn(
-            `[PKCS#11] Failed to read token info for slot ${i}: ${error instanceof Error ? error.message : "unknown error"}`,
-          );
+          logger.warn("[PKCS#11] Failed to read token info for slot", {
+            slot: i,
+            ...errMeta(error),
+          });
         }
       }
 
@@ -237,9 +279,7 @@ export function openSession(
     try {
       pkcs11.C_CloseSession(handle);
     } catch (closeError) {
-      console.warn(
-        `[PKCS#11] Failed to close session after login failure: ${closeError instanceof Error ? closeError.message : "unknown error"}`,
-      );
+      logger.warn("[PKCS#11] Failed to close session after login failure", errMeta(closeError));
     }
     throw new CryptoError(
       `PKCS#11 login failed (wrong PIN or token error): ${error instanceof Error ? error.message : "unknown error"}`,
@@ -337,9 +377,7 @@ export function listKeys(session: Pkcs11Session): Pkcs11KeyInfo[] {
         }
         // Unknown key types are silently skipped
       } catch (error) {
-        console.warn(
-          `[PKCS#11] Skipping unreadable key during enumeration: ${error instanceof Error ? error.message : "unknown error"}`,
-        );
+        logger.warn("[PKCS#11] Skipping unreadable key during enumeration", errMeta(error));
       }
 
       obj = pkcs11.C_FindObjects(handle);
@@ -350,8 +388,9 @@ export function listKeys(session: Pkcs11Session): Pkcs11KeyInfo[] {
     try {
       pkcs11.C_FindObjectsFinal(handle);
     } catch (finalizeError) {
-      console.warn(
-        `[PKCS#11] C_FindObjectsFinal failed during key enumeration cleanup: ${finalizeError instanceof Error ? finalizeError.message : "unknown error"}`,
+      logger.warn(
+        "[PKCS#11] C_FindObjectsFinal failed during key enumeration cleanup",
+        errMeta(finalizeError),
       );
     }
     throw new CryptoError(
@@ -398,9 +437,7 @@ export function listCertificates(session: Pkcs11Session): Pkcs11CertInfo[] {
           certs.push({ label, id, derValue });
         }
       } catch (error) {
-        console.warn(
-          `[PKCS#11] Skipping unreadable certificate during enumeration: ${error instanceof Error ? error.message : "unknown error"}`,
-        );
+        logger.warn("[PKCS#11] Skipping unreadable certificate during enumeration", errMeta(error));
       }
 
       obj = pkcs11.C_FindObjects(handle);
@@ -411,8 +448,9 @@ export function listCertificates(session: Pkcs11Session): Pkcs11CertInfo[] {
     try {
       pkcs11.C_FindObjectsFinal(handle);
     } catch (finalizeError) {
-      console.warn(
-        `[PKCS#11] C_FindObjectsFinal failed during certificate enumeration cleanup: ${finalizeError instanceof Error ? finalizeError.message : "unknown error"}`,
+      logger.warn(
+        "[PKCS#11] C_FindObjectsFinal failed during certificate enumeration cleanup",
+        errMeta(finalizeError),
       );
     }
     throw new CryptoError(
@@ -574,8 +612,9 @@ export function findPrivateKey(session: Pkcs11Session, keyIdHex: string): Buffer
     try {
       pkcs11.C_FindObjectsFinal(handle);
     } catch (finalizeError) {
-      console.warn(
-        `[PKCS#11] C_FindObjectsFinal failed during private key lookup cleanup: ${finalizeError instanceof Error ? finalizeError.message : "unknown error"}`,
+      logger.warn(
+        "[PKCS#11] C_FindObjectsFinal failed during private key lookup cleanup",
+        errMeta(finalizeError),
       );
     }
     throw new CryptoError(
@@ -595,17 +634,13 @@ export function closeSession(session: Pkcs11Session): void {
       try {
         session.pkcs11.C_Logout(session.handle);
       } catch (error) {
-        console.warn(
-          `[PKCS#11] C_Logout failed during session close: ${error instanceof Error ? error.message : "unknown error"}`,
-        );
+        logger.warn("[PKCS#11] C_Logout failed during session close", errMeta(error));
       }
       session.loggedIn = false;
     }
     session.pkcs11.C_CloseSession(session.handle);
   } catch (error) {
-    console.warn(
-      `[PKCS#11] C_CloseSession failed (session may already be closed): ${error instanceof Error ? error.message : "unknown error"}`,
-    );
+    logger.warn("[PKCS#11] C_CloseSession failed (session may already be closed)", errMeta(error));
   }
 }
 

@@ -27,6 +27,7 @@ export type {
   Pkcs11CertInfo,
   Pkcs11SlotInfo,
   Pkcs11Session,
+  Pkcs11Logger,
 } from "./pkcs11-session.js";
 export {
   initializePkcs11,
@@ -37,6 +38,8 @@ export {
   listKeys,
   listCertificates,
   findPrivateKey,
+  setPkcs11Logger,
+  resetPkcs11Logger,
 } from "./pkcs11-session.js";
 
 export {
