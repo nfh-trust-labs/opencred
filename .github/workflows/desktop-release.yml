@@ -95,10 +95,14 @@ jobs:
         include:
           - os: macos-latest
             platform: mac
-          - os: windows-latest
-            platform: win
           - os: ubuntu-latest
             platform: linux
+          # Windows disabled — @electron/rebuild hangs for 20+ min on the
+          # pnpm symlinked dependency tree during "Searching dependency
+          # tree" on NTFS. Tracked in the Windows-rebuild-hang issue.
+          # Native compile via node-gyp itself works fine (windows-cng.node
+          # is produced in 48s during "Build workspace dependencies"); it's
+          # only the Electron-ABI rebuild step that hangs.
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -152,10 +156,7 @@ jobs:
             platform: linux
             electron_builder_args: "--linux --x64"
             artifact_suffix: linux-x64
-          - os: windows-latest
-            platform: win
-            electron_builder_args: "--win --x64"
-            artifact_suffix: win-x64
+          # Windows disabled — see note in `test` matrix above.
     runs-on: ${{ matrix.os }}
 
     steps:
