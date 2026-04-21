@@ -238,11 +238,19 @@ jobs:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
+          # When signing is disabled, unset the CSC_* / APPLE_* env vars
+          # entirely. Leaving them as empty strings causes electron-builder
+          # to interpret CSC_LINK="" as a file path → resolves to cwd →
+          # fails with "apps/desktop not a file". Setting
+          # CSC_IDENTITY_AUTO_DISCOVERY=false alone is not enough.
           if [ "${{ runner.os }}" = "macOS" ] && [ "$SIGN_MAC" != "true" ]; then
+            unset CSC_LINK CSC_KEY_PASSWORD
+            unset APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_ID_PASSWORD
             export CSC_IDENTITY_AUTO_DISCOVERY=false
             echo "Building UNSIGNED macOS artefacts (no MAC_CSC_LINK)"
           fi
           if [ "${{ runner.os }}" = "Windows" ] && [ "$SIGN_WIN" != "true" ]; then
+            unset WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
             export CSC_IDENTITY_AUTO_DISCOVERY=false
             echo "Building UNSIGNED Windows artefacts (no WIN_CSC_LINK)"
           fi
