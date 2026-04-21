@@ -194,8 +194,7 @@ export const OpenCredErrorCode = {
   NOT_IMPLEMENTED: "NOT_IMPLEMENTED",
 } as const;
 
-export type OpenCredErrorCodeValue =
-  (typeof OpenCredErrorCode)[keyof typeof OpenCredErrorCode];
+export type OpenCredErrorCodeValue = (typeof OpenCredErrorCode)[keyof typeof OpenCredErrorCode];
 
 /**
  * String-literal discriminator carried on every OpenCredError subclass.
@@ -413,4 +412,3 @@ export type AnyOpenCredError =
   | SessionExpiredError
   | VerificationError
   | NotImplementedError;
-

@@ -299,7 +299,6 @@ describe("sanitization (security invariant)", () => {
   });
 });
 
-
 describe("OpenCredError — kind discriminator + typed code enum (HIGH-19)", () => {
   it("each subclass carries the correct `kind`", () => {
     expect(new ValidationError("x").kind).toBe("ValidationError");
@@ -375,4 +374,3 @@ describe("OpenCredError — kind discriminator + typed code enum (HIGH-19)", () 
     expect(classify(new ValidationError("x"))).toBe("4xx-validation");
   });
 });
-
