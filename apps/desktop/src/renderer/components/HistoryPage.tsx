@@ -89,9 +89,7 @@ function CredentialDetailModal({
   const v = getVisual(entry.schemaId);
   let vc: Record<string, unknown>;
   try {
-    vc = entry.credentialJson
-      ? (JSON.parse(entry.credentialJson) as Record<string, unknown>)
-      : {};
+    vc = entry.credentialJson ? (JSON.parse(entry.credentialJson) as Record<string, unknown>) : {};
   } catch {
     vc = {};
   }

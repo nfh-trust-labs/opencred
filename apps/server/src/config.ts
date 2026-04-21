@@ -76,8 +76,8 @@ const configSchema = z.object({
    * `hono/body-limit` middleware; oversize requests receive a 413 with a
    * stable `PAYLOAD_TOO_LARGE` error code. Default: 50 MiB.
    */
-  OPENCRED_MAX_BODY_BYTES: z
-    .coerce.number()
+  OPENCRED_MAX_BODY_BYTES: z.coerce
+    .number()
     .int()
     .min(1024)
     .default(50 * 1024 * 1024),
@@ -88,8 +88,8 @@ const configSchema = z.object({
    * payload; the default is 4x the general limit. Must be at least 1 KiB.
    * Default: 200 MiB.
    */
-  OPENCRED_MAX_BATCH_BODY_BYTES: z
-    .coerce.number()
+  OPENCRED_MAX_BATCH_BODY_BYTES: z.coerce
+    .number()
     .int()
     .min(1024)
     .default(200 * 1024 * 1024),

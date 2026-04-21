@@ -363,7 +363,4 @@ export async function checkBitstringStatusList(
 }
 
 // Export for testing
-export {
-  validateStatusListUrl as _validateStatusListUrl,
-  MAX_COMPRESSED_SIZE,
-};
+export { validateStatusListUrl as _validateStatusListUrl, MAX_COMPRESSED_SIZE };

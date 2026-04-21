@@ -128,7 +128,7 @@ const FUNCTIONAL_IDENTITY_SUBJECT = {
 // overwritten in main() before any scenario runs.
 let ISSUE_PAYLOAD = {
   schemaId: "functional-identity/v1",
-  issuerDid: "",  // set by discoverIssuerDid()
+  issuerDid: "", // set by discoverIssuerDid()
   credentialSubject: FUNCTIONAL_IDENTITY_SUBJECT,
   validFrom: "2025-06-15T00:00:00Z",
   proofFormat: "vc-jwt",

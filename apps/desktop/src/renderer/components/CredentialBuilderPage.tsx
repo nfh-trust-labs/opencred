@@ -922,11 +922,14 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
   const [organizationName, setOrganizationName] = useState<string | undefined>(undefined);
 
   // Issuer branding for credential templates
-  const [branding, setBranding] = useState<{
-    primaryColor?: string;
-    logoDataUri?: string;
-    issuerDisplayName?: string;
-  } | undefined>(undefined);
+  const [branding, setBranding] = useState<
+    | {
+        primaryColor?: string;
+        logoDataUri?: string;
+        issuerDisplayName?: string;
+      }
+    | undefined
+  >(undefined);
 
   // did:web publication warning
   const [showDidWebWarning, setShowDidWebWarning] = useState(false);

@@ -258,7 +258,9 @@ export async function generatePdf(
           const logoX = (595.28 - logoW) / 2;
           doc.image(logoBuffer, logoX, doc.y, { width: logoW, height: logoH });
           doc.y += logoH + 8;
-        } catch { /* skip invalid logo data */ }
+        } catch {
+          /* skip invalid logo data */
+        }
       }
 
       // Top accent line
@@ -343,11 +345,7 @@ export async function generatePdf(
       }
 
       // Validity dates (compact, in the left column)
-      doc
-        .font("Helvetica")
-        .fontSize(9)
-        .fillColor(labelColor)
-        .text("VALIDITY PERIOD", CONTENT_LEFT);
+      doc.font("Helvetica").fontSize(9).fillColor(labelColor).text("VALIDITY PERIOD", CONTENT_LEFT);
       doc.moveDown(0.2);
       const validFromStr = formatDate(credential.validFrom);
       const validUntilStr = credential.validUntil
@@ -417,9 +415,23 @@ export async function generatePdf(
 
       drawLabelValue(doc, "Proof Type", credential.proof.type, 120, labelColor, textColor);
       if (credential.proof.cryptosuite) {
-        drawLabelValue(doc, "Cryptosuite", credential.proof.cryptosuite, 120, labelColor, textColor);
+        drawLabelValue(
+          doc,
+          "Cryptosuite",
+          credential.proof.cryptosuite,
+          120,
+          labelColor,
+          textColor,
+        );
       }
-      drawLabelValue(doc, "Created", formatDate(credential.proof.created), 120, labelColor, textColor);
+      drawLabelValue(
+        doc,
+        "Created",
+        formatDate(credential.proof.created),
+        120,
+        labelColor,
+        textColor,
+      );
       drawLabelValue(
         doc,
         "Verification Method",
@@ -454,7 +466,9 @@ export async function generatePdf(
           const sealX = (595.28 - sealSize) / 2;
           doc.image(sealBuffer, sealX, doc.y, { width: sealSize, height: sealSize });
           doc.y += sealSize + 8;
-        } catch { /* skip invalid seal data */ }
+        } catch {
+          /* skip invalid seal data */
+        }
       }
 
       // ---------------------------------------------------------------

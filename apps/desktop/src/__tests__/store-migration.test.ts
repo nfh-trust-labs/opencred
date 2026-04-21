@@ -65,7 +65,7 @@ describe("credentialHistory → recentTemplates migration", () => {
           schemaName: "Education",
           subjectSummary: "Alice — BSc",
           issuedAt: "2026-04-10T12:00:00.000Z",
-          credentialJson: "{\"type\":\"secret-that-should-not-be-on-disk\"}",
+          credentialJson: '{"type":"secret-that-should-not-be-on-disk"}',
           keyFingerprint: "aa:bb",
         },
         {
@@ -74,7 +74,7 @@ describe("credentialHistory → recentTemplates migration", () => {
           schemaName: "Employment",
           subjectSummary: "Bob — SWE",
           issuedAt: "2026-04-12T12:00:00.000Z",
-          credentialJson: "{\"type\":\"still-secret\"}",
+          credentialJson: '{"type":"still-secret"}',
           keyFingerprint: "cc:dd",
         },
       ],
@@ -158,7 +158,7 @@ describe("credentialHistory → recentTemplates migration", () => {
   });
 
   it("does not write credentialJson into recentTemplates entries", () => {
-    const secretJson = "{\"private\":\"MUST_NOT_SURFACE\"}";
+    const secretJson = '{"private":"MUST_NOT_SURFACE"}';
     const store = makeStore({
       credentialHistory: [
         {

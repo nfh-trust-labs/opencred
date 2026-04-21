@@ -50,7 +50,8 @@ describe("verify-formats: format detection", () => {
   });
 
   it("should detect raw JSON credentials", () => {
-    const json = '{"@context": ["https://www.w3.org/2018/credentials/v1"], "type": ["VerifiableCredential"]}';
+    const json =
+      '{"@context": ["https://www.w3.org/2018/credentials/v1"], "type": ["VerifiableCredential"]}';
     const result = detectFormat(json);
     expect(result.format).toBe("json");
     if (result.format === "json") {

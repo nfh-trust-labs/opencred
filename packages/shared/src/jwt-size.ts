@@ -26,8 +26,6 @@ export const MAX_JWT_BYTES = 1_048_576;
  */
 export function assertJwtSize(token: string): void {
   if (Buffer.byteLength(token, "utf8") > MAX_JWT_BYTES) {
-    throw new PayloadTooLargeError(
-      `JWT exceeds maximum allowed size of ${MAX_JWT_BYTES} bytes`,
-    );
+    throw new PayloadTooLargeError(`JWT exceeds maximum allowed size of ${MAX_JWT_BYTES} bytes`);
   }
 }

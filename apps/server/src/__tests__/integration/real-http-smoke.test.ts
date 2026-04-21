@@ -43,7 +43,7 @@ afterAll(async () => {
 function authHeaders(): Record<string, string> {
   return {
     "Content-Type": "application/json",
-    "Authorization": `Bearer ${DEFAULT_TEST_API_KEY}`,
+    Authorization: `Bearer ${DEFAULT_TEST_API_KEY}`,
   };
 }
 

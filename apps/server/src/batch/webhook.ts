@@ -68,9 +68,7 @@ export async function deliverWebhook(
   const validatedIp = addresses[0];
   const rewritten = new URL(url);
   const originalHost = rewritten.hostname;
-  rewritten.hostname = validatedIp.includes(":")
-    ? `[${validatedIp}]`
-    : validatedIp;
+  rewritten.hostname = validatedIp.includes(":") ? `[${validatedIp}]` : validatedIp;
 
   const body = JSON.stringify(payload);
 

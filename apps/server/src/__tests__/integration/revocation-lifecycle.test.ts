@@ -60,10 +60,10 @@ describe("revocation lifecycle — data-integrity", () => {
       signerId,
     );
 
-    const revokedResult = await verifyCredential(
-      credential as Record<string, unknown>,
-      { didResolver: mockResolver, dediClient: mockDedi },
-    );
+    const revokedResult = await verifyCredential(credential as Record<string, unknown>, {
+      didResolver: mockResolver,
+      dediClient: mockDedi,
+    });
     expect(revokedResult.code).toBe("REVOKED");
     expect(revokedResult.verified).toBe(false);
     expect(revokedResult.checks.some((c) => c.name === "revocation" && !c.passed)).toBe(true);
