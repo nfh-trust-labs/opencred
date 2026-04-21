@@ -36,6 +36,7 @@ import { requireSigner } from "../signing/key-manager.js";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { credentialsIssuedTotal, credentialsVerifiedTotal } from "../metrics.js";
+import { getLogger } from "../logger.js";
 
 const credentials = new Hono();
 
@@ -544,6 +545,18 @@ credentials.post("/credentials/verify", async (c) => {
   // `code` enum for programmatic handling instead. See
   // `sanitizeChecksForServerResponse` / `buildVerifyResponseBody` above for
   // the rationale.
+  //
+  // OBSERVABILITY (Anand's P2-04): the stripped `detail` strings are safe
+  // to log server-side (they stay off the wire, never reach an external
+  // caller) and are the only diagnostic operators have for intermittent
+  // verification failures — did:web resolution timeouts, X.509 chain
+  // issues, etc. Emit at DEBUG so production log volume stays bounded and
+  // the operator opts in via `OPENCRED_LOG_LEVEL=debug`.
+  getLogger().debug(
+    { code: verificationResult.code, checks: verificationResult.checks },
+    "Credential verification result (detail stripped from HTTP response)",
+  );
+
   credentialsVerifiedTotal.inc({ result: verificationResult.verified ? "valid" : "invalid" });
 
   return c.json(buildVerifyResponseBody(verificationResult));

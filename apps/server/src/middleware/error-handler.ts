@@ -43,8 +43,12 @@ export function errorHandler(err: Error, c: Context): Response {
     return c.json(ocErr.toJSON(), ocErr.statusCode as 400);
   }
 
-  // Unknown errors — log full error but return sanitized response
-  logger.error({ err: err.message }, "Unhandled error");
+  // Unknown errors — log the full Error via Pino's default serializer so
+  // the stack trace, name, and any custom props land in the structured
+  // JSON stream. The previous `{ err: err.message }` shape threw away the
+  // stack. The HTTP response stays the same sanitized 500 — this affects
+  // only the server log. See Anand's P3-01.
+  logger.error({ err }, "Unhandled error");
   return c.json(
     {
       error: {
