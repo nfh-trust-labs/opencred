@@ -125,7 +125,7 @@ jobs:
 
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
-        timeout-minutes: 10
+        timeout-minutes: 20
 
       - name: Verify native addons
         run: node scripts/verify-native-addons.cjs
@@ -188,7 +188,7 @@ jobs:
 
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
-        timeout-minutes: 10
+        timeout-minutes: 20
 
       # Fail the build if macos-keychain / windows-cng silently failed to
       # compile. Without this, the release ships without OS cert-store
