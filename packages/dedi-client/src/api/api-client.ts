@@ -306,76 +306,46 @@ export class DeDiApiClient {
   // ── Bulk ─────────────────────────────────────────────────────────
 
   async bulkUpload(_ns: string, _reg: string, file: Blob): Promise<{ job_id: string }> {
+    // Anand's P2-08: this method used to inline a copy of the entire
+    // `doFetch` pipeline — AbortController, timeout, SSRF re-check,
+    // logging, error handling — purely because the body is `FormData`
+    // rather than a JSON string. Every bugfix to the shared fetch path
+    // therefore had to be applied twice. `doFetch` now recognises
+    // FormData bodies and skips the JSON `Content-Type` auto-set, so
+    // we route through the shared pipeline. FormData is rebuilt per
+    // retry attempt so the underlying blob can be re-read from scratch.
     return this.circuitBreaker.execute(() =>
       withRetry(
         async () => {
           const formData = new FormData();
           formData.append("file", file);
-          const token = await this.tokenManager.getToken();
-
-          const path = "/dedi/bulk-upload";
-          const url = `${this.config.baseUrl}${path}`;
-          // Re-check SSRF on every request — DNS records can change
-          // between construction and the first call (rebinding).
-          await this.assertHostIsPublic(url);
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), this.effectiveTimeoutMs);
-
-          this.logger.info(`DeDi request`, { method: "POST", path });
-          const start = Date.now();
-
-          try {
-            const response = await globalThis.fetch(url, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${token}` },
-              body: formData,
-              redirect: "error",
-              signal: controller.signal,
-            });
-
-            this.logger.info(`DeDi response`, {
-              method: "POST",
-              path,
-              status: response.status,
-              durationMs: Date.now() - start,
-            });
-
-            if (!response.ok) {
-              throw new DeDiClientError(
-                `DeDi API error: ${response.status}`,
-                response.status >= 500 ? 502 : response.status,
-              );
+          const response = await this.doFetch("/dedi/bulk-upload", {
+            method: "POST",
+            body: formData,
+          });
+          if (!response.ok) {
+            let errBody = "";
+            try {
+              errBody = await response.text();
+            } catch {
+              /* ignore */
             }
-
-            const body: unknown = await response.json();
-            assertBulkUploadResultShape(body);
-            return body;
-          } catch (error) {
-            if (error instanceof DeDiClientError) throw error;
-            if (error instanceof DOMException && error.name === "AbortError") {
-              this.logger.error(`DeDi request timed out`, {
-                method: "POST",
-                path,
-                durationMs: Date.now() - start,
-              });
-              throw new DeDiClientError(
-                `DeDi API request timed out after ${this.effectiveTimeoutMs}ms`,
-                504,
-              );
-            }
-            this.logger.error(`DeDi network error`, {
-              method: "POST",
-              path,
-              durationMs: Date.now() - start,
-              error: error instanceof Error ? error.message : "unknown",
+            this.logger.error(`DeDi API ${response.status} /dedi/bulk-upload`, {
+              body: errBody.slice(0, 500),
             });
             throw new DeDiClientError(
-              `DeDi API network error: ${error instanceof Error ? error.message : "unknown"}`,
-              502,
+              `DeDi API error: ${response.status}`,
+              response.status >= 500 ? 502 : response.status,
             );
-          } finally {
-            clearTimeout(timeoutId);
           }
+          let parsed: unknown;
+          try {
+            parsed = await response.json();
+          } catch {
+            throw new DeDiClientError("DeDi API returned non-JSON response", 502);
+          }
+          assertBulkUploadResultShape(parsed);
+          return parsed;
         },
         { maxRetries: this.config.maxRetries, logger: this.logger },
       ),
@@ -487,12 +457,17 @@ export class DeDiApiClient {
     const start = Date.now();
 
     try {
+      // FormData bodies must not set `Content-Type`: the Fetch runtime
+      // fills in the multipart boundary itself. Every other body type
+      // (JSON strings, typed-array bodies) pre-P2-08 got the JSON
+      // header by default and still does. See Anand's P2-08.
+      const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
       const response = await globalThis.fetch(url, {
         ...init,
         signal: controller.signal,
         redirect: "error",
         headers: {
-          ...(init?.body ? { "Content-Type": "application/json" } : {}),
+          ...(init?.body && !isFormData ? { "Content-Type": "application/json" } : {}),
           Accept: "application/json",
           Authorization: `Bearer ${token}`,
           ...init?.headers,
