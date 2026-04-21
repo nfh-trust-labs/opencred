@@ -61,6 +61,21 @@ export interface CustomSchemaEntry {
   dediSchemaUrl?: string;
   /** DeDi lookup URL for the published context. */
   dediContextUrl?: string;
+  /**
+   * Publish status for the DeDi schema/context records.
+   *
+   * `pending`   — the publish promise is still in flight. UI should not
+   *               treat `dediSchemaUrl` / `dediContextUrl` as resolvable
+   *               yet.
+   * `published` — both schema and context were successfully published.
+   * `failed`    — at least one publish failed; UI should offer retry.
+   *
+   * Unset on entries that were not published to DeDi (no DeDi configured,
+   * or the entry pre-dates this field). Treat unset as "not attempted".
+   */
+  dediPublishState?: "pending" | "published" | "failed";
+  /** Last publish failure message for UI display (e.g. "namespace not found"). */
+  dediPublishError?: string;
   /** Auto-generated JSON-LD context for this schema. */
   generatedContext?: Record<string, unknown>;
   /**

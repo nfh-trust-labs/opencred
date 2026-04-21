@@ -98,3 +98,80 @@ export function parseIpcRequest<T>(
   const msg = first?.message ?? "invalid IPC payload";
   return { ok: false, error: `${path}${msg}` };
 }
+
+// ---------------------------------------------------------------------------
+// Filesystem-touching handlers (IPC-Zod fan-out, HIGH-17)
+// ---------------------------------------------------------------------------
+
+/**
+ * Zod schema for `KeyImportRequest`.
+ *
+ * `filePath` flows directly into `fs.readFileSync` in the main process.
+ * Cap length so a hostile renderer cannot OOM with a multi-gigabyte
+ * string; reject empty / non-string values that would surface as opaque
+ * `ERR_INVALID_ARG_TYPE` errors inside Node.
+ *
+ * Symlink resolution and allowlist enforcement are deliberately left to
+ * the handler — this schema is the first gate, not the last.
+ */
+export const keyImportRequestSchema = z
+  .object({
+    filePath: z.string().min(1).max(4096),
+    label: z.string().max(256).optional(),
+    password: z.string().max(4096).optional(),
+  })
+  .strict();
+
+/**
+ * Zod schema for `BatchExportRequest`.
+ *
+ * `outputPath` reaches `fs.createWriteStream` and writes a ZIP. Left
+ * unvalidated an attacker could over-write arbitrary files (startup
+ * agents, dotfiles, electron-store's own config). The handler is still
+ * expected to enforce the directory-containment policy.
+ */
+export const batchExportRequestSchema = z
+  .object({
+    outputPath: z.string().min(1).max(4096),
+  })
+  .strict();
+
+/**
+ * Zod schema for `FileOpenRequest`.
+ *
+ * These fields reach the native dialog, not fs directly — but they
+ * should still be bounded so a hostile renderer can't stuff megabytes
+ * into `title` or `filters`.
+ */
+export const fileOpenRequestSchema = z
+  .object({
+    title: z.string().max(256).optional(),
+    filters: z
+      .array(
+        z
+          .object({
+            name: z.string().max(64),
+            extensions: z.array(z.string().max(32)).max(32),
+          })
+          .strict(),
+      )
+      .max(16)
+      .optional(),
+  })
+  .strict();
+
+/**
+ * Zod schema for `FileSaveRequest`.
+ *
+ * `content` is what gets written, so its size IS bounded (32 MB —
+ * generous for PDFs / VCs, well below any reasonable DoS threshold).
+ * Encoding is pinned to the two documented forms.
+ */
+export const fileSaveRequestSchema = z
+  .object({
+    defaultName: z.string().min(1).max(512),
+    content: z.string().max(32 * 1024 * 1024),
+    encoding: z.enum(["utf-8", "base64"]).optional(),
+    filters: fileOpenRequestSchema.shape.filters,
+  })
+  .strict();

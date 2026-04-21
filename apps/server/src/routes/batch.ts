@@ -181,6 +181,10 @@ batch.post("/credentials/batch", async (c) => {
   return c.json(
     {
       jobId,
+      // PRD §5.4.2 canonical field: `status`. The POST response always
+      // emits "queued" — the engine has been started in the background
+      // (`void engine.start().then(...)`) but hasn't transitioned yet.
+      status: "queued" as const,
       headers: parseResult.headers,
       validCount: parseResult.validCount,
       invalidCount: parseResult.invalidCount,
@@ -203,10 +207,26 @@ batch.get("/credentials/batch/:jobId", (c) => {
   }
 
   const progress = job.engine.getProgress();
+  // PRD §5.4.2 canonical `status` enum derived from the booleans.
+  // The legacy `running` / `cancelled` booleans are retained as aliases
+  // for one release so existing clients do not break.
+  const status: "queued" | "running" | "completed" | "cancelled" | "failed" = progress.cancelled
+    ? "cancelled"
+    : progress.running
+      ? progress.completed === 0
+        ? "queued"
+        : "running"
+      : progress.errorCount > 0 && progress.successCount === 0
+        ? "failed"
+        : "completed";
   return c.json({
     jobId,
+    status,
     total: progress.total,
     completed: progress.completed,
+    // PRD §5.4.2 canonical names + legacy aliases.
+    succeeded: progress.successCount,
+    failed: progress.errorCount,
     successCount: progress.successCount,
     errorCount: progress.errorCount,
     skippedCount: progress.skippedCount,
