@@ -2,13 +2,21 @@
  * Auto-reload persisted signing keys on app startup.
  *
  * Reads `preferences.importedKeyPaths` from the electron-store and
- * re-creates SoftwareSigner instances for each saved key file. Stale
- * entries (files that were moved or deleted) are silently removed.
+ * re-creates SoftwareSigner instances for each saved key file.
+ *
+ * Entries whose key file no longer exists (ENOENT) are removed from the
+ * store — that's the "moved or deleted" case. Any other failure
+ * (permission denied, locked by another process, unparseable file, etc.)
+ * is logged at error level and the entry is kept so the user can retry
+ * on next launch. Previously every failure category flowed to silent
+ * removal, which meant a transient permission hiccup on startup could
+ * wipe the user's entire key list.
  *
  * SECURITY: Private key material is NEVER logged. Only key IDs and
  * fingerprints appear in log output.
  */
 
+import { existsSync } from "node:fs";
 import { createSoftwareSigner } from "../signing/software-signer.js";
 import type { KeyMetadata } from "../shared/ipc-types.js";
 import { createLogger } from "./logger.js";
@@ -69,6 +77,16 @@ export function reloadPersistedSigners(store: SignerStore): ReloadResult {
       const filePath = typeof entry === "string" ? entry : entry.path;
       const label = typeof entry === "string" ? undefined : entry.label;
 
+      // Pre-check file existence. If the file is gone, treat the entry as
+      // stale and remove — that's the "moved or deleted" case. If the file
+      // is present but createSoftwareSigner fails for some other reason,
+      // we keep the entry and log at error level so the user can retry.
+      if (!existsSync(filePath)) {
+        logger.warn("Stale signer path (file missing), removing", { id });
+        staleIds.push(id);
+        continue;
+      }
+
       try {
         const { signer, format } = createSoftwareSigner(filePath, label);
         const meta: KeyMetadata = {
@@ -84,9 +102,13 @@ export function reloadPersistedSigners(store: SignerStore): ReloadResult {
         metadata.set(signer.id, meta);
         signers.set(signer.id, signer);
         logger.info("Signer reloaded", { id: signer.id, fingerprint: meta.fingerprint });
-      } catch {
-        logger.warn("Stale signer path, removing", { id });
-        staleIds.push(id);
+      } catch (err) {
+        // File exists but loading failed (permission, locked, corrupt,
+        // unsupported format, etc.). Keep the entry so the user can retry.
+        logger.error("Signer reload failed, keeping entry for next launch", {
+          id,
+          error: err instanceof Error ? err.message : "unknown error",
+        });
       }
     }
 
