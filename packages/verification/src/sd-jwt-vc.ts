@@ -96,9 +96,7 @@ export function decodeDisclosure(disclosure: string): Disclosure {
   const json = Buffer.from(disclosure, "base64url").toString("utf-8");
   const parsed = JSON.parse(json) as unknown[];
   if (!Array.isArray(parsed) || (parsed.length !== 2 && parsed.length !== 3)) {
-    throw new Error(
-      "Invalid disclosure format: expected [salt, name, value] or [salt, value]",
-    );
+    throw new Error("Invalid disclosure format: expected [salt, name, value] or [salt, value]");
   }
   if (parsed.length === 3) {
     return [String(parsed[0]), String(parsed[1]), parsed[2]];

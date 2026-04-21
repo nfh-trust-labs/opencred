@@ -249,9 +249,9 @@ describe("processDisclosures", () => {
       _sd_alg: "sha-256",
     };
 
-    await expect(
-      processDisclosures(payload, [usedDisc, smuggledDisc]),
-    ).rejects.toThrow(/not referenced by any _sd digest/);
+    await expect(processDisclosures(payload, [usedDisc, smuggledDisc])).rejects.toThrow(
+      /not referenced by any _sd digest/,
+    );
   });
 
   it("leaves unmatched digests as decoys (does not fail verification)", async () => {
