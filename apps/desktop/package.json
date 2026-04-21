@@ -76,7 +76,7 @@
   "build": {
     "appId": "io.opencred.desktop",
     "productName": "OpenCred",
-    "forceCodeSigning": true,
+    "forceCodeSigning": false,
     "directories": {
       "output": "out",
       "buildResources": "build"

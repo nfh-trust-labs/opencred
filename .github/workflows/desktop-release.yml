@@ -15,15 +15,23 @@ permissions:
   contents: write
 
 jobs:
-  # Fails fast if signing secrets are missing so we never ship an unsigned
-  # release. electron-builder's forceCodeSigning usually catches this, but
-  # edge cases (empty strings, partial configs) can slip through — check
-  # explicitly before wasting a 30-minute Mac build.
+  # Determine which signing modes are available. When a full set of signing
+  # secrets is configured, the corresponding platform is built signed +
+  # notarised and we enforce verify-before-publish. When secrets are absent
+  # entirely, we build unsigned artefacts (clearly labelled in the release).
+  # PARTIAL configurations fail — that indicates a setup error.
+  #
+  # Long-term goal: ship signed on all platforms (see docs/release-signing.md
+  # and the issue tracking Apple Developer Program enrolment).
   preflight:
     name: Preflight
     runs-on: ubuntu-latest
+    outputs:
+      sign_mac: ${{ steps.mac.outputs.sign }}
+      sign_win: ${{ steps.win.outputs.sign }}
     steps:
-      - name: Require mac signing secrets
+      - name: Detect mac signing secrets
+        id: mac
         env:
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
@@ -32,36 +40,51 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
         run: |
+          present=()
           missing=()
-          [ -z "$MAC_CSC_LINK" ] && missing+=("MAC_CSC_LINK")
-          [ -z "$MAC_CSC_KEY_PASSWORD" ] && missing+=("MAC_CSC_KEY_PASSWORD")
-          [ -z "$APPLE_ID" ] && missing+=("APPLE_ID")
-          [ -z "$APPLE_TEAM_ID" ] && missing+=("APPLE_TEAM_ID")
-          if [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -z "$APPLE_ID_PASSWORD" ]; then
+          add() { if [ -n "$2" ]; then present+=("$1"); else missing+=("$1"); fi; }
+          add MAC_CSC_LINK "$MAC_CSC_LINK"
+          add MAC_CSC_KEY_PASSWORD "$MAC_CSC_KEY_PASSWORD"
+          add APPLE_ID "$APPLE_ID"
+          add APPLE_TEAM_ID "$APPLE_TEAM_ID"
+          if [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -n "$APPLE_ID_PASSWORD" ]; then
+            present+=("APPLE_APP_SPECIFIC_PASSWORD")
+          else
             missing+=("APPLE_APP_SPECIFIC_PASSWORD (or APPLE_ID_PASSWORD)")
           fi
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "::error::Missing required macOS signing/notarisation secrets:"
-            for s in "${missing[@]}"; do echo "::error::  - $s"; done
-            echo "::error::Refusing to publish an unsigned release. Configure these in repo Settings - Secrets - Actions."
+          if [ ${#missing[@]} -eq 0 ]; then
+            echo "macOS signing: ENABLED (all secrets present)"
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+          elif [ ${#present[@]} -eq 0 ]; then
+            echo "::warning::macOS signing secrets absent — building UNSIGNED artefacts."
+            echo "::warning::Users will see 'unknown developer' prompts on first launch."
+            echo "::warning::See docs/release-signing.md for the path to signed releases."
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Partial macOS signing configuration — refusing to proceed."
+            echo "::error::Present: ${present[*]}"
+            echo "::error::Missing: ${missing[*]}"
+            echo "::error::Either configure all secrets or none."
             exit 1
           fi
-          echo "macOS signing secrets: OK"
-      - name: Require windows signing secrets
+      - name: Detect windows signing secrets
+        id: win
         env:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
-          missing=()
-          [ -z "$WIN_CSC_LINK" ] && missing+=("WIN_CSC_LINK")
-          [ -z "$WIN_CSC_KEY_PASSWORD" ] && missing+=("WIN_CSC_KEY_PASSWORD")
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "::error::Missing required Windows signing secrets:"
-            for s in "${missing[@]}"; do echo "::error::  - $s"; done
-            echo "::error::Refusing to publish an unsigned release."
+          if [ -n "$WIN_CSC_LINK" ] && [ -n "$WIN_CSC_KEY_PASSWORD" ]; then
+            echo "Windows signing: ENABLED"
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$WIN_CSC_LINK" ] && [ -z "$WIN_CSC_KEY_PASSWORD" ]; then
+            echo "::warning::Windows signing secrets absent — building UNSIGNED artefacts."
+            echo "::warning::Users will see SmartScreen 'unrecognised app' warnings."
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Partial Windows signing configuration — refusing to proceed."
+            echo "::error::Set BOTH WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD, or neither."
             exit 1
           fi
-          echo "Windows signing secrets: OK"
 
   test:
     name: Test
@@ -116,7 +139,7 @@ jobs:
   # parallel Mac runners would race on that file and leave the auto-updater
   # manifest pointing at non-existent artefacts.
   release:
-    needs: test
+    needs: [preflight, test]
     strategy:
       fail-fast: false
       matrix:
@@ -194,11 +217,17 @@ jobs:
         run: mkdir -p out/@opencred
 
       # Build WITHOUT publishing so we can verify signatures first.
+      # When signing secrets are absent for this platform, set
+      # CSC_IDENTITY_AUTO_DISCOVERY=false so electron-builder doesn't
+      # fall through to an ad-hoc signature that macOS surfaces as
+      # "app is damaged" — truly unsigned is a strictly better UX.
       - name: Build and sign
         shell: bash
         working-directory: apps/desktop
         env:
           EB_ARGS: ${{ matrix.electron_builder_args }}
+          SIGN_MAC: ${{ needs.preflight.outputs.sign_mac }}
+          SIGN_WIN: ${{ needs.preflight.outputs.sign_win }}
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -207,14 +236,23 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-        run: npx electron-builder $EB_ARGS --publish never
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ] && [ "$SIGN_MAC" != "true" ]; then
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            echo "Building UNSIGNED macOS artefacts (no MAC_CSC_LINK)"
+          fi
+          if [ "${{ runner.os }}" = "Windows" ] && [ "$SIGN_WIN" != "true" ]; then
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            echo "Building UNSIGNED Windows artefacts (no WIN_CSC_LINK)"
+          fi
+          npx electron-builder $EB_ARGS --publish never
 
       # Verify Mac artefacts are properly code-signed, Gatekeeper-approved
       # and notarisation-stapled BEFORE publishing. Without this, a broken
       # signature chain would ship to end users and surface as "app is
       # damaged, move to trash".
       - name: Verify macOS signatures
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && needs.preflight.outputs.sign_mac == 'true'
         working-directory: apps/desktop
         run: |
           set -e
@@ -246,7 +284,7 @@ jobs:
           fi
 
       - name: Verify Windows signatures
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.preflight.outputs.sign_win == 'true'
         shell: pwsh
         working-directory: apps/desktop
         run: |
