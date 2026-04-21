@@ -297,6 +297,21 @@ describe("sanitization (security invariant)", () => {
     expect(err.message).toBe(raw); // un-sanitized
     expect(err.toJSON().error.message).not.toBe(raw); // sanitized
   });
+
+  it("CryptoError preserves the underlying error via { cause }", () => {
+    const underlying = new Error("EVP internal");
+    const err = new CryptoError("Signing operation failed", { cause: underlying });
+    expect(err.cause).toBe(underlying);
+    // The wire payload must still be sanitized and must not include the cause.
+    const body = err.toJSON();
+    expect(body.error.message).toBe("Signing operation failed");
+    expect(JSON.stringify(body)).not.toContain("EVP internal");
+  });
+
+  it("CryptoError without options leaves cause undefined (backwards compat)", () => {
+    const err = new CryptoError("Signing operation failed");
+    expect(err.cause).toBeUndefined();
+  });
 });
 
 describe("OpenCredError — kind discriminator + typed code enum (HIGH-19)", () => {

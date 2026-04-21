@@ -147,8 +147,13 @@ function createSignFn(
           );
         }
       }
-    } catch {
-      throw new CryptoError("Signing operation failed");
+    } catch (err) {
+      // Preserve the original node-crypto failure so operators
+      // troubleshooting "signing failed" can inspect `.cause` (or the
+      // stack chain in Node 16.9+) to distinguish padding errors, wrong
+      // key type, EVP internal errors, etc. The wire payload from
+      // toJSON()/toHttpBody() is still sanitized.
+      throw new CryptoError("Signing operation failed", { cause: err });
     }
   };
 }
@@ -248,8 +253,8 @@ export function createSoftwareSigner(
   let content: Buffer;
   try {
     content = readFileSync(filePath);
-  } catch {
-    throw new CryptoError("Failed to read key file");
+  } catch (err) {
+    throw new CryptoError("Failed to read key file", { cause: err });
   }
 
   const format = detectKeyFormat(content, filePath);
@@ -270,6 +275,7 @@ export function createSoftwareSigner(
     if (error instanceof CryptoError) throw error;
     throw new CryptoError(
       `Failed to parse key file: ${error instanceof Error ? error.message : "unknown error"}`,
+      { cause: error },
     );
   }
 }

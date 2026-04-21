@@ -371,6 +371,100 @@ describe("verifyCredential — VC-JWT", () => {
     const result = await verifyCredential(jwt, { didResolver: resolver });
     expect(result.verified).toBe(false);
   });
+
+  it("returns INVALID when jti does not match vc.id (VC-JOSE-COSE §3.3.1)", async () => {
+    const { privateKey, publicKey } = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = publicKey.export({ format: "jwk" });
+
+    const jwt = await createVcJwt(privateKey, {
+      iss: issuerDid,
+      jti: "urn:uuid:aaaa-aaaa",
+      nbf: Math.floor(Date.now() / 1000) - 60,
+      vc: {
+        "@context": ["https://www.w3.org/ns/credentials/v2"],
+        id: "urn:uuid:bbbb-bbbb", // mismatched
+        type: ["VerifiableCredential"],
+        credentialSubject: { name: "Jane Doe" },
+      },
+    });
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const result = await verifyCredential(jwt, { didResolver: resolver });
+    expect(result.code).toBe("INVALID");
+    expect(result.verified).toBe(false);
+    const crossCheck = result.checks.find((c) => c.name === "vc-jwt-claims");
+    expect(crossCheck?.passed).toBe(false);
+    expect(crossCheck?.detail).toMatch(/jti/i);
+  });
+
+  it("returns INVALID when sub does not match vc.credentialSubject.id (VC-JOSE-COSE §3.3.2)", async () => {
+    const { privateKey, publicKey } = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = publicKey.export({ format: "jwk" });
+
+    const jwt = await createVcJwt(privateKey, {
+      iss: issuerDid,
+      sub: "did:example:holder-A",
+      nbf: Math.floor(Date.now() / 1000) - 60,
+      vc: {
+        "@context": ["https://www.w3.org/ns/credentials/v2"],
+        type: ["VerifiableCredential"],
+        credentialSubject: { id: "did:example:holder-B", name: "Jane Doe" }, // mismatched
+      },
+    });
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const result = await verifyCredential(jwt, { didResolver: resolver });
+    expect(result.code).toBe("INVALID");
+    expect(result.verified).toBe(false);
+    const crossCheck = result.checks.find((c) => c.name === "vc-jwt-claims");
+    expect(crossCheck?.passed).toBe(false);
+    expect(crossCheck?.detail).toMatch(/sub/i);
+  });
+
+  it("passes the vc-jwt-claims check when jti/sub match vc.id / credentialSubject.id", async () => {
+    const { privateKey, publicKey } = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = publicKey.export({ format: "jwk" });
+
+    const jwt = await createVcJwt(privateKey, {
+      iss: issuerDid,
+      jti: "urn:uuid:matching-id",
+      sub: "did:example:holder",
+      nbf: Math.floor(Date.now() / 1000) - 60,
+      vc: {
+        "@context": ["https://www.w3.org/ns/credentials/v2"],
+        id: "urn:uuid:matching-id",
+        type: ["VerifiableCredential"],
+        credentialSubject: { id: "did:example:holder", name: "Jane Doe" },
+      },
+    });
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const result = await verifyCredential(jwt, { didResolver: resolver });
+    expect(result.code).toBe("VALID");
+    const crossCheck = result.checks.find((c) => c.name === "vc-jwt-claims");
+    expect(crossCheck?.passed).toBe(true);
+  });
 });
 
 describe("verifyCredential — SD-JWT VC", () => {

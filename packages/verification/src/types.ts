@@ -1,5 +1,6 @@
 import type { DeDiClient } from "@opencred/dedi-client";
 import type { DIDResolver } from "@opencred/did";
+import type { SdJwtVcVerifyOptions } from "./sd-jwt-vc.js";
 
 /**
  * Result codes for credential verification.
@@ -52,6 +53,16 @@ export interface VerifierConfig {
    * keys via did:web), trust anchors are not required.
    */
   trustAnchors?: string[];
+  /**
+   * SD-JWT VC verification options forwarded to `verifySdJwtVc`.
+   *
+   * Callers handling a presented (as opposed to issued) SD-JWT VC MUST
+   * supply `expectedAudience` and `expectedNonce` here — per SD-JWT VC
+   * §4.3.1, the KB-JWT's `aud` and `nonce` MUST be validated against
+   * the expected values to prevent replay and presentation misuse.
+   * `expectedVct` pins the credential type.
+   */
+  sdJwtVc?: SdJwtVcVerifyOptions;
 }
 
 /**

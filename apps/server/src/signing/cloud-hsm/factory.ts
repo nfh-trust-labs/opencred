@@ -36,7 +36,7 @@ export async function createSignerFromConfig(): Promise<Signer | null> {
         throw new Error("OPENCRED_KMS_PROVIDER=aws requires OPENCRED_KMS_KEY_ARN");
       }
       logger.info({ provider: "aws" }, "Initializing AWS KMS signer");
-      const signer = await createAwsKmsSigner(keyArn);
+      const signer = await createAwsKmsSigner(keyArn, config.OPENCRED_KMS_TIMEOUT_MS);
       logger.info(
         { keyId: signer.id, fingerprint: signer.metadata.fingerprint, algorithm: signer.algorithm },
         "AWS KMS signer ready",
@@ -53,7 +53,7 @@ export async function createSignerFromConfig(): Promise<Signer | null> {
         );
       }
       logger.info({ provider: "azure" }, "Initializing Azure Key Vault signer");
-      const signer = await createAzureKvSigner(vaultUrl, keyName);
+      const signer = await createAzureKvSigner(vaultUrl, keyName, config.OPENCRED_KMS_TIMEOUT_MS);
       logger.info(
         { keyId: signer.id, fingerprint: signer.metadata.fingerprint, algorithm: signer.algorithm },
         "Azure Key Vault signer ready",
@@ -67,7 +67,7 @@ export async function createSignerFromConfig(): Promise<Signer | null> {
         throw new Error("OPENCRED_KMS_PROVIDER=gcp requires OPENCRED_GCP_KMS_KEY_NAME");
       }
       logger.info({ provider: "gcp" }, "Initializing GCP Cloud KMS signer");
-      const signer = await createGcpKmsSigner(gcpKeyName);
+      const signer = await createGcpKmsSigner(gcpKeyName, config.OPENCRED_KMS_TIMEOUT_MS);
       logger.info(
         { keyId: signer.id, fingerprint: signer.metadata.fingerprint, algorithm: signer.algorithm },
         "GCP Cloud KMS signer ready",

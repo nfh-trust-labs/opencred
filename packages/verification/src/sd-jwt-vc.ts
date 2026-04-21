@@ -45,7 +45,14 @@ export interface SdJwtVcVerifyOptions {
 /**
  * A decoded disclosure: [salt, claim_name, claim_value].
  */
-export type Disclosure = [string, string, unknown];
+/**
+ * A decoded disclosure.
+ *
+ * Per draft-ietf-oauth-selective-disclosure-jwt:
+ *   - Object/property disclosures are 3-tuples `[salt, name, value]`.
+ *   - Array-element disclosures (§4.2.5) are 2-tuples `[salt, value]`.
+ */
+export type Disclosure = [string, string, unknown] | [string, unknown];
 
 /**
  * Parse an SD-JWT VC string into its components.
@@ -78,45 +85,123 @@ export function parseSdJwtVc(sdJwtVc: string): SdJwtVcComponents {
 }
 
 /**
- * Decode a single disclosure from base64url to [salt, name, value].
+ * Decode a single disclosure from base64url.
+ *
+ * Returns either a 3-tuple `[salt, name, value]` (object/property
+ * disclosure) or a 2-tuple `[salt, value]` (array-element disclosure
+ * per §4.2.5). The caller is expected to dispatch on the tuple length
+ * and reject disclosures used in the wrong position.
  */
 export function decodeDisclosure(disclosure: string): Disclosure {
   const json = Buffer.from(disclosure, "base64url").toString("utf-8");
   const parsed = JSON.parse(json) as unknown[];
-  if (!Array.isArray(parsed) || parsed.length < 3) {
-    throw new Error("Invalid disclosure format: expected [salt, name, value]");
+  if (!Array.isArray(parsed) || (parsed.length !== 2 && parsed.length !== 3)) {
+    throw new Error("Invalid disclosure format: expected [salt, name, value] or [salt, value]");
   }
-  return [String(parsed[0]), String(parsed[1]), parsed[2]];
+  if (parsed.length === 3) {
+    return [String(parsed[0]), String(parsed[1]), parsed[2]];
+  }
+  return [String(parsed[0]), parsed[1]];
 }
 
 /**
  * Process all disclosures and reconstruct the full claims.
- * Matches each disclosure's hash against _sd entries in the payload.
+ *
+ * Implements the SD-JWT draft (draft-ietf-oauth-selective-disclosure-jwt):
+ *
+ *  - §4.2.4: `_sd` entries may appear at any object nesting level. The
+ *    walker recurses into every object value.
+ *  - §4.2.5: array elements may be disclosed via the `{"...": "<digest>"}`
+ *    object marker. When a matching disclosure is an array-element
+ *    disclosure (`[salt, value]` — a 2-tuple, rather than the 3-tuple
+ *    `[salt, name, value]` used for object claims), the marker is
+ *    replaced with the disclosed value.
+ *  - §7.1: any supplied disclosure that is never referenced by a digest
+ *    MUST cause the verification to fail — unreferenced disclosures are
+ *    an attempt to smuggle data past the verifier.
+ *
+ * Returns the reconstructed payload with every `_sd` and `_sd_alg` key
+ * removed at every level.
  */
 export async function processDisclosures(
   payload: SdJwtVcPayload,
   disclosures: string[],
 ): Promise<Record<string, unknown>> {
-  const result: Record<string, unknown> = { ...payload };
+  const algorithm = payload["_sd_alg"] as string | undefined;
 
-  const sdDigests = (payload["_sd"] as string[] | undefined) ?? [];
+  // Build the digest → disclosure map once up-front.
   const disclosureMap = new Map<string, Disclosure>();
-
   for (const d of disclosures) {
-    const hash = await computeDisclosureDigest(d, payload["_sd_alg"] as string | undefined);
+    const hash = await computeDisclosureDigest(d, algorithm);
     disclosureMap.set(hash, decodeDisclosure(d));
   }
 
-  for (const digest of sdDigests) {
-    const disclosure = disclosureMap.get(digest);
-    if (disclosure) {
-      const [, name, value] = disclosure;
-      result[name] = value;
-    }
-  }
+  // Track which digests were actually consumed so we can reject unused
+  // disclosures per §7.1.
+  const used = new Set<string>();
 
-  delete result["_sd"];
-  delete result["_sd_alg"];
+  const walk = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+      const next: unknown[] = [];
+      for (const item of value) {
+        // §4.2.5 — array-element disclosure marker.
+        if (
+          typeof item === "object" &&
+          item !== null &&
+          !Array.isArray(item) &&
+          Object.keys(item as Record<string, unknown>).length === 1 &&
+          typeof (item as Record<string, unknown>)["..."] === "string"
+        ) {
+          const digest = (item as Record<string, string>)["..."];
+          const d = disclosureMap.get(digest);
+          // Array disclosures are 2-tuples [salt, value]. Object
+          // disclosures ([salt, name, value]) must NOT be used here.
+          if (d && d.length === 2) {
+            used.add(digest);
+            next.push(walk(d[1]));
+          }
+          // Unmatched digest = decoy; drop silently per spec.
+          continue;
+        }
+        next.push(walk(item));
+      }
+      return next;
+    }
+
+    if (typeof value === "object" && value !== null) {
+      const obj = value as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+
+      for (const [k, v] of Object.entries(obj)) {
+        if (k === "_sd" || k === "_sd_alg") continue; // stripped from output
+        out[k] = walk(v);
+      }
+
+      // §4.2.4 — process object-level `_sd` digests at this level.
+      const sdDigests = (obj["_sd"] as string[] | undefined) ?? [];
+      for (const digest of sdDigests) {
+        const d = disclosureMap.get(digest);
+        if (!d) continue; // unmatched digest = decoy
+        if (d.length !== 3) continue; // must be an object disclosure
+        const [, name, disclosedValue] = d;
+        used.add(digest);
+        out[name] = walk(disclosedValue);
+      }
+      return out;
+    }
+
+    return value;
+  };
+
+  const result = walk(payload) as Record<string, unknown>;
+
+  // §7.1 — reject when any supplied disclosure is unreferenced.
+  if (used.size < disclosureMap.size) {
+    const unused = disclosureMap.size - used.size;
+    throw new Error(
+      `SD-JWT VC verification rejected: ${unused} supplied disclosure(s) are not referenced by any _sd digest`,
+    );
+  }
 
   return result;
 }
