@@ -169,6 +169,59 @@ describe("DeDiApiClient SSRF and HTTPS protection", () => {
       await expect(client.getStats()).resolves.toBeDefined();
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
+
+    // Anand's P2-03: the SSRF check used to hit the resolver twice (A+AAAA)
+    // on every request. A 30 s per-hostname cache eliminates the DNS round-
+    // trip on the hot path while still running isPrivateIP on every request.
+    it("caches resolved addresses across requests within the TTL (P2-03)", async () => {
+      vi.mocked(dns.resolve4).mockResolvedValue(["93.184.216.34"]);
+      vi.mocked(dns.resolve6).mockRejectedValue(
+        Object.assign(new Error("ENODATA"), { code: "ENODATA" }),
+      );
+      // A Response body can only be consumed once, so mint a fresh one per call.
+      mockFetch.mockImplementation(async () => publicResponse());
+
+      const client = new DeDiApiClient(baseConfig());
+      await client.getStats();
+      await client.getStats();
+      await client.getStats();
+
+      // Three requests, but exactly one round-trip per resolver.
+      expect(vi.mocked(dns.resolve4)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(dns.resolve6)).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it("still rejects cached addresses that turn out to be private (P2-03)", async () => {
+      // Seed the cache with a public address on the first request.
+      vi.mocked(dns.resolve4).mockResolvedValue(["93.184.216.34"]);
+      vi.mocked(dns.resolve6).mockRejectedValue(
+        Object.assign(new Error("ENODATA"), { code: "ENODATA" }),
+      );
+      mockFetch.mockImplementation(async () => publicResponse());
+
+      const client = new DeDiApiClient(baseConfig());
+      await client.getStats();
+
+      // Swap the cache entry to a private IP (simulates a post-hoc
+      // reconfiguration or a deliberate test of the defense-in-depth
+      // isPrivateIP check on cached values).
+      const dnsCache: Map<string, { addresses: string[]; resolvedAt: number }> = (
+        client as unknown as {
+          dnsCache: Map<string, { addresses: string[]; resolvedAt: number }>;
+        }
+      ).dnsCache;
+      dnsCache.set("dedi.example.com", {
+        addresses: ["10.0.0.1"],
+        resolvedAt: Date.now(),
+      });
+
+      const err = await client.getStats().catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(DeDiClientError);
+      expect((err as DeDiClientError).message).toMatch(
+        /must not target a private, loopback, or link-local IP/,
+      );
+    });
   });
 
   describe("fetch hardening", () => {
