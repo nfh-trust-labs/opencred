@@ -122,6 +122,16 @@ const configSchema = z.object({
   OPENCRED_GCP_KMS_KEY_NAME: z.string().optional(),
 
   /**
+   * Per-call timeout for Cloud KMS sign() operations, in milliseconds.
+   *
+   * Without a timeout, a stuck or slow KMS endpoint blocks the batch
+   * engine indefinitely (the row loop is serial and `engine.cancel()`
+   * only checks between rows). Default 30 s is enough for a healthy
+   * call, tight enough to surface real outages quickly.
+   */
+  OPENCRED_KMS_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
+
+  /**
    * Path to a directory containing PEM/DER-encoded CSCA root certificates
    * used as trust anchors when verifying credentials with embedded x5c
    * chains (required by `checkX509Chain` per nfh-trust-labs/opencred#316).
