@@ -162,6 +162,23 @@ describe("setConfig — bugReportFormUrl validator", () => {
       /not accessible via setConfig/,
     );
   });
+
+  it("rejects 'preferences' — internal bag, not renderer-accessible", async () => {
+    await expect(setConfig("preferences", { some: "thing" })).rejects.toThrow(
+      /not accessible via setConfig/,
+    );
+  });
+});
+
+describe("getConfig — preferences is not renderer-accessible", () => {
+  const getConfig = async (key: string): Promise<unknown> => {
+    const handler = registeredHandlers[IPC_CHANNELS.GET_CONFIG];
+    return handler(fakeEvent, { key });
+  };
+
+  it("rejects 'preferences' — contains encrypted DeDi credential blob", async () => {
+    await expect(getConfig("preferences")).rejects.toThrow(/not accessible via getConfig/);
+  });
 });
 
 describe("setConfig — branding allowlist", () => {
