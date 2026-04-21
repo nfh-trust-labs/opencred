@@ -15,6 +15,9 @@ import {
   RateLimitError,
   ConflictError,
   NotImplementedError,
+  OpenCredErrorCode,
+  type AnyOpenCredError,
+  type OpenCredErrorCodeValue,
 } from "../errors.js";
 
 describe("OpenCredError", () => {
@@ -308,5 +311,81 @@ describe("sanitization (security invariant)", () => {
   it("CryptoError without options leaves cause undefined (backwards compat)", () => {
     const err = new CryptoError("Signing operation failed");
     expect(err.cause).toBeUndefined();
+  });
+});
+
+describe("OpenCredError — kind discriminator + typed code enum (HIGH-19)", () => {
+  it("each subclass carries the correct `kind`", () => {
+    expect(new ValidationError("x").kind).toBe("ValidationError");
+    expect(new AuthenticationError().kind).toBe("AuthenticationError");
+    expect(new AuthorizationError().kind).toBe("AuthorizationError");
+    expect(new NotFoundError().kind).toBe("NotFoundError");
+    expect(new ConflictError("x").kind).toBe("ConflictError");
+    expect(new RateLimitError().kind).toBe("RateLimitError");
+    expect(new CryptoError("x").kind).toBe("CryptoError");
+    expect(new DIDResolutionError("x").kind).toBe("DIDResolutionError");
+    expect(new SchemaValidationError("x").kind).toBe("SchemaValidationError");
+    expect(new DelegationError("x").kind).toBe("DelegationError");
+    expect(new DeDiClientError("x").kind).toBe("DeDiClientError");
+    expect(new SessionExpiredError().kind).toBe("SessionExpiredError");
+    expect(new VerificationError("x").kind).toBe("VerificationError");
+    expect(new NotImplementedError().kind).toBe("NotImplementedError");
+  });
+
+  it("OpenCredErrorCode maps 1:1 to the codes emitted by subclasses", () => {
+    const pairs: Array<[AnyOpenCredError, OpenCredErrorCodeValue]> = [
+      [new ValidationError("x"), OpenCredErrorCode.VALIDATION],
+      [new AuthenticationError(), OpenCredErrorCode.AUTHENTICATION],
+      [new AuthorizationError(), OpenCredErrorCode.AUTHORIZATION],
+      [new NotFoundError(), OpenCredErrorCode.NOT_FOUND],
+      [new ConflictError("x"), OpenCredErrorCode.CONFLICT],
+      [new RateLimitError(), OpenCredErrorCode.RATE_LIMIT_EXCEEDED],
+      [new CryptoError("x"), OpenCredErrorCode.CRYPTO],
+      [new DIDResolutionError("x"), OpenCredErrorCode.DID_RESOLUTION],
+      [new SchemaValidationError("x"), OpenCredErrorCode.SCHEMA_VALIDATION],
+      [new DelegationError("x"), OpenCredErrorCode.DELEGATION],
+      [new DeDiClientError("x"), OpenCredErrorCode.DEDI_CLIENT],
+      [new SessionExpiredError(), OpenCredErrorCode.SESSION_EXPIRED],
+      [new VerificationError("x"), OpenCredErrorCode.VERIFICATION],
+      [new NotImplementedError(), OpenCredErrorCode.NOT_IMPLEMENTED],
+    ];
+    for (const [err, expected] of pairs) {
+      expect(err.code).toBe(expected);
+    }
+  });
+
+  it("allows exhaustive matching via `kind`", () => {
+    const classify = (err: AnyOpenCredError): string => {
+      switch (err.kind) {
+        case "ValidationError":
+          return "4xx-validation";
+        case "AuthenticationError":
+        case "AuthorizationError":
+          return "4xx-auth";
+        case "NotFoundError":
+          return "4xx-notfound";
+        case "ConflictError":
+          return "4xx-conflict";
+        case "PayloadTooLargeError":
+          return "4xx-payload";
+        case "RateLimitError":
+          return "4xx-rate";
+        case "SchemaValidationError":
+          return "4xx-schema";
+        case "DelegationError":
+        case "VerificationError":
+          return "4xx-verify";
+        case "SessionExpiredError":
+          return "4xx-session";
+        case "CryptoError":
+        case "DIDResolutionError":
+        case "DeDiClientError":
+        case "NotImplementedError":
+        case "OpenCredError":
+          return "5xx";
+      }
+    };
+    expect(classify(new CryptoError("x"))).toBe("5xx");
+    expect(classify(new ValidationError("x"))).toBe("4xx-validation");
   });
 });
