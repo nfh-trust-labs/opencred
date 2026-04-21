@@ -35,6 +35,17 @@ vi.mock("@opencred/signing/software-signer", () => ({
   createSoftwareSigner: (...args: unknown[]) => mockCreateSoftwareSigner(...args),
 }));
 
+// Default: treat every path as existing. Individual tests override via
+// mockExistsSync.mockImplementation(...).
+const mockExistsSync = vi.fn(() => true);
+vi.mock("node:fs", async () => {
+  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+  return {
+    ...actual,
+    existsSync: (p: string) => mockExistsSync(p),
+  };
+});
+
 // Import after all mocks
 const { reloadPersistedSigners } = await import("../main/persisted-signer-loader.js");
 
@@ -66,6 +77,7 @@ function makeStore(data: Record<string, unknown> = {}) {
 describe("reloadPersistedSigners", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExistsSync.mockReturnValue(true);
   });
 
   it("skips reload when persistence is disabled", () => {
@@ -128,10 +140,8 @@ describe("reloadPersistedSigners", () => {
     expect(result.metadata.size).toBe(1);
   });
 
-  it("removes stale entries when files are missing", () => {
-    mockCreateSoftwareSigner.mockImplementation(() => {
-      throw new Error("ENOENT: no such file");
-    });
+  it("removes entries when the key file is missing (ENOENT)", () => {
+    mockExistsSync.mockReturnValue(false);
 
     const store = makeStore({
       persistKeyPaths: true,
@@ -145,6 +155,7 @@ describe("reloadPersistedSigners", () => {
 
     reloadPersistedSigners(store);
 
+    expect(mockCreateSoftwareSigner).not.toHaveBeenCalled();
     expect(store.set).toHaveBeenCalledWith(
       "preferences",
       expect.objectContaining({
@@ -154,14 +165,43 @@ describe("reloadPersistedSigners", () => {
     );
   });
 
-  it("handles mixed valid and stale entries", () => {
+  it("keeps entries when the file exists but loading fails (transient error)", () => {
+    // Simulates a permission-denied / locked-by-another-process / corrupt
+    // file case. The entry MUST be kept so the user can retry next launch.
+    mockExistsSync.mockReturnValue(true);
+    mockCreateSoftwareSigner.mockImplementation(() => {
+      throw new Error("Failed to read key file");
+    });
+
+    const store = makeStore({
+      persistKeyPaths: true,
+      preferences: {
+        importedKeyPaths: {
+          "did:key:locked": { path: "/signing/locked.pem", label: "Locked" },
+        },
+      },
+    });
+
+    const result = reloadPersistedSigners(store);
+
+    expect(result.metadata.size).toBe(0);
+    expect(result.signers.size).toBe(0);
+    // Crucially — store.set must NOT have been called with a cleaned map.
+    expect(store.set).not.toHaveBeenCalled();
+  });
+
+  it("handles mixed present-but-failing, present-and-ok, and missing entries", () => {
     const validSigner = makeMockSigner("did:key:valid");
 
+    mockExistsSync.mockImplementation((p: string) => p !== "/signing/gone.pem");
     mockCreateSoftwareSigner.mockImplementation((filePath: string) => {
       if (filePath === "/signing/valid.pem") {
         return { signer: validSigner, format: "pem" };
       }
-      throw new Error("ENOENT");
+      if (filePath === "/signing/locked.pem") {
+        throw new Error("EACCES: permission denied");
+      }
+      throw new Error("unexpected path");
     });
 
     const store = makeStore({
@@ -169,23 +209,25 @@ describe("reloadPersistedSigners", () => {
       preferences: {
         importedKeyPaths: {
           "did:key:valid": { path: "/signing/valid.pem", label: "Valid" },
-          "did:key:stale": { path: "/signing/stale.pem", label: "Stale" },
+          "did:key:gone": { path: "/signing/gone.pem", label: "Gone" }, // file missing
+          "did:key:locked": { path: "/signing/locked.pem", label: "Locked" }, // exists + fails
         },
       },
     });
 
     const result = reloadPersistedSigners(store);
 
-    expect(mockCreateSoftwareSigner).toHaveBeenCalledTimes(2);
+    // Only the valid entry loaded
     expect(result.metadata.size).toBe(1);
     expect(result.metadata.has("did:key:valid")).toBe(true);
 
-    // Stale entry cleaned up
+    // Gone entry removed, locked entry KEPT.
     expect(store.set).toHaveBeenCalledWith(
       "preferences",
       expect.objectContaining({
         importedKeyPaths: {
           "did:key:valid": { path: "/signing/valid.pem", label: "Valid" },
+          "did:key:locked": { path: "/signing/locked.pem", label: "Locked" },
         },
       }),
     );

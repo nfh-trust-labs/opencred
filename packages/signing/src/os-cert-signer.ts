@@ -20,7 +20,7 @@
 
 import { createPublicKey } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
-import { publicKeyFromEcBytes, type SigningAlgorithm } from "@opencred/crypto";
+import { publicKeyFromEcBytes, sha256, sha384, type SigningAlgorithm } from "@opencred/crypto";
 import {
   deriveDidKeyIdFromCompressedKey,
   computeKeyFingerprint,
@@ -250,8 +250,26 @@ export async function createOsCertSigner(
     metadata,
 
     async sign(data: Uint8Array): Promise<Uint8Array> {
+      // The caller (`prepareProof` for Data Integrity, `createJwsSignature`
+      // for VC-JWT, etc.) passes the *message* bytes — for P-256 this is
+      // the 64-byte concat of sha256(proofConfig)||sha256(document); for
+      // P-384, 96 bytes with SHA-384. Native cert-store addons on both
+      // macOS and Windows use the "Digest" signing variants
+      // (`kSecKeyAlgorithmECDSASignatureDigestX962SHA256/384`,
+      // `NCryptSignHash`) which require the caller to supply the digest.
+      // Hash here, matching the contract PKCS#11 and software signers
+      // already honor; the resulting ECDSA(sha256/sha384(data)) verifies
+      // against the verifier's `createVerify(...).update(data).verify(...)`
+      // pipeline unchanged.
+      const digest =
+        algorithm === "P-384"
+          ? sha384(data)
+          : algorithm === "P-256"
+            ? sha256(data)
+            : // RSA OS-cert signing uses PSS + SHA-256 in the addon
+              sha256(data);
       try {
-        const signature = await provider.sign(options.certificateId, data);
+        const signature = await provider.sign(options.certificateId, digest);
         validateSignatureLength(signature, algorithm);
         return signature;
       } catch (error) {
