@@ -118,7 +118,14 @@ import { exportBatchAsZip } from "../batch/batch-export.js";
 // PKCS#11 imports are lazy to avoid requiring the native pkcs11.node addon at startup.
 // The actual imports happen inside the handler functions via dynamic import().
 import { validatePkcs11Path, ALLOWED_PKCS11_DIRS_BY_PLATFORM } from "./pkcs11-path-validator.js";
-import { buildAndSignRequestSchema, parseIpcRequest } from "../shared/ipc-schemas.js";
+import {
+  buildAndSignRequestSchema,
+  keyImportRequestSchema,
+  batchExportRequestSchema,
+  fileOpenRequestSchema,
+  fileSaveRequestSchema,
+  parseIpcRequest,
+} from "../shared/ipc-schemas.js";
 
 import {
   checkForUpdates,
@@ -284,8 +291,19 @@ const batchState: {
  */
 async function handleKeyImport(
   _event: IpcMainInvokeEvent,
-  request: KeyImportRequest,
+  rawRequest: unknown,
 ): Promise<KeyImportResponse> {
+  // HIGH-17: validate every IPC payload before it reaches filesystem /
+  // native / network surfaces. `request.filePath` flows directly into
+  // `fs.readFileSync` inside `createSoftwareSigner`, so a non-string or
+  // empty value must be rejected at the boundary — not surface later as
+  // an opaque `ERR_INVALID_ARG_TYPE`.
+  const parsed = parseIpcRequest(keyImportRequestSchema, rawRequest);
+  if (!parsed.ok) {
+    logger.warn("Rejected KEY_IMPORT: invalid payload", { reason: parsed.error });
+    return { success: false, error: parsed.error };
+  }
+  const request = parsed.value as KeyImportRequest;
   try {
     const { signer, format } = createSoftwareSigner(
       request.filePath,
@@ -1056,8 +1074,17 @@ async function handleRevocationPublish(
 /** FILE_OPEN — show a native open-file dialog and return the file contents. */
 async function handleFileOpen(
   _event: IpcMainInvokeEvent,
-  request: FileOpenRequest,
+  rawRequest: unknown,
 ): Promise<FileOpenResponse> {
+  // HIGH-17: bound `title` / `filters` at the IPC boundary — they reach
+  // the native dialog; runtime validation keeps a hostile renderer from
+  // stuffing megabytes through those fields.
+  const parsed = parseIpcRequest(fileOpenRequestSchema, rawRequest);
+  if (!parsed.ok) {
+    logger.warn("Rejected FILE_OPEN: invalid payload", { reason: parsed.error });
+    return { content: null, filePath: null };
+  }
+  const request = parsed.value as FileOpenRequest;
   const result = await dialog.showOpenDialog({
     title: request.title ?? "Open File",
     filters: request.filters ?? [{ name: "All Files", extensions: ["*"] }],
@@ -1084,8 +1111,17 @@ async function handleFileOpen(
 /** FILE_SAVE — show a native save-file dialog and write contents. */
 async function handleFileSave(
   _event: IpcMainInvokeEvent,
-  request: FileSaveRequest,
+  rawRequest: unknown,
 ): Promise<FileSaveResponse> {
+  // HIGH-17: `content` gets written to disk; cap at 32 MB so a hostile
+  // renderer cannot drive memory pressure. `encoding` pinned to the
+  // documented forms.
+  const parsed = parseIpcRequest(fileSaveRequestSchema, rawRequest);
+  if (!parsed.ok) {
+    logger.warn("Rejected FILE_SAVE: invalid payload", { reason: parsed.error });
+    return { filePath: null };
+  }
+  const request = parsed.value as FileSaveRequest;
   const result = await dialog.showSaveDialog({
     defaultPath: request.defaultName,
     filters: request.filters ?? [{ name: "JSON", extensions: ["json"] }],
@@ -1287,8 +1323,17 @@ async function handleBatchCancel(): Promise<BatchCancelResponse> {
 /** BATCH_EXPORT — export successful batch results as a ZIP archive. */
 async function handleBatchExport(
   _event: IpcMainInvokeEvent,
-  request: BatchExportRequest,
+  rawRequest: unknown,
 ): Promise<BatchExportResponse> {
+  // HIGH-17: `request.outputPath` reaches `fs.createWriteStream` in
+  // batch-export.ts. Validate the payload at the IPC boundary before
+  // any downstream code trusts it.
+  const parsed = parseIpcRequest(batchExportRequestSchema, rawRequest);
+  if (!parsed.ok) {
+    logger.warn("Rejected BATCH_EXPORT: invalid payload", { reason: parsed.error });
+    return { success: false, error: parsed.error };
+  }
+  const request = parsed.value as BatchExportRequest;
   if (!batchState.engine) {
     return { success: false, error: "No batch results available for export." };
   }
