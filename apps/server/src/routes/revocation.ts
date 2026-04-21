@@ -4,12 +4,16 @@
  * POST /credentials/revocation-hash       — compute a single revocation hash
  * POST /credentials/revocation-hash/batch — compute batch revocation hashes
  *
- * Uses JCS canonicalization + SHA-256 from @opencred/crypto.
+ * Prefers the hash embedded in `credentialStatus.id` (what the issuer
+ * committed to at signing time) and falls back to a JCS-canonical SHA-256 of
+ * the whole credential for credentials issued by other implementations. See
+ * `resolveRevocationHash` in `@opencred/crypto` — issuance, verification, and
+ * revocation-submit MUST all agree on this hash.
  */
 
 import { Hono } from "hono";
 import { z } from "zod";
-import { computeRevocationHash } from "@opencred/crypto";
+import { resolveRevocationHash } from "@opencred/crypto";
 import { rejectKeyMaterial } from "./credentials.js";
 import { getDeDiClient } from "../dedi-singleton.js";
 import { revocationsPublishedTotal } from "../metrics.js";
@@ -29,7 +33,7 @@ revocation.post("/credentials/revocation-hash", async (c) => {
   // SECURITY: defense-in-depth — no route accepts key material. See CLAUDE.md rule 1.
   rejectKeyMaterial(body);
   const parsed = singleHashSchema.parse(body);
-  const hash = computeRevocationHash(parsed.credential);
+  const hash = resolveRevocationHash(parsed.credential);
   // PRD §7.3 specifies `revocationHash` as the canonical field name.
   // `hash` is retained as an alias for one release for backwards
   // compatibility with clients that shipped against the pre-rename shape.
@@ -43,7 +47,7 @@ revocation.post("/credentials/revocation-hash/batch", async (c) => {
   const parsed = batchHashSchema.parse(body);
 
   const entries = parsed.credentials.map((credential, index) => {
-    const hash = computeRevocationHash(credential);
+    const hash = resolveRevocationHash(credential);
     // Pull credentialId from VC.id when present; fall back to a stable
     // positional token so clients can correlate responses with input rows.
     const vcId = typeof credential["id"] === "string" ? (credential["id"] as string) : null;
@@ -93,7 +97,7 @@ revocation.post("/credentials/revoke", async (c) => {
     return c.json({ error: { code: "DEDI_NOT_CONFIGURED", message: "DeDi not configured" } }, 503);
   }
 
-  const hash = parsed.hash ?? computeRevocationHash(parsed.credential!);
+  const hash = parsed.hash ?? resolveRevocationHash(parsed.credential!);
   const result = await dediClient.publishRevocationHash(hash, parsed.namespace);
 
   revocationsPublishedTotal.inc();

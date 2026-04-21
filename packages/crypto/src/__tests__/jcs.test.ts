@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { jcsCanonicalize, computeRevocationHash } from "../jcs.js";
+import {
+  jcsCanonicalize,
+  computeRevocationHash,
+  extractRevocationHashFromStatusId,
+  resolveRevocationHash,
+} from "../jcs.js";
 
 describe("jcsCanonicalize (RFC 8785)", () => {
   it("should canonicalize a simple object with sorted keys", () => {
@@ -79,5 +84,110 @@ describe("computeRevocationHash", () => {
 
   it("should produce different hash for different input", () => {
     expect(computeRevocationHash({ a: 1 })).not.toBe(computeRevocationHash({ a: 2 }));
+  });
+});
+
+describe("extractRevocationHashFromStatusId", () => {
+  const HEX = "a".repeat(64);
+
+  it("extracts the hash from the last path segment of credentialStatus.id", () => {
+    const vc = {
+      credentialStatus: {
+        id: `https://dedi.example/dedi/lookup/issuers.example.org/${HEX}`,
+      },
+    };
+    expect(extractRevocationHashFromStatusId(vc)).toBe(HEX);
+  });
+
+  it("returns null when the credential has no credentialStatus", () => {
+    expect(extractRevocationHashFromStatusId({ id: "urn:uuid:x" })).toBeNull();
+  });
+
+  it("returns null when credentialStatus has no id", () => {
+    expect(extractRevocationHashFromStatusId({ credentialStatus: {} })).toBeNull();
+  });
+
+  it("returns null when id is not a valid URL", () => {
+    expect(
+      extractRevocationHashFromStatusId({
+        credentialStatus: { id: "not-a-url" },
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null when the last path segment is not a 64-char lowercase hex string", () => {
+    expect(
+      extractRevocationHashFromStatusId({
+        credentialStatus: { id: "https://example.com/status/SHORT" },
+      }),
+    ).toBeNull();
+    // Uppercase hex — strict match
+    expect(
+      extractRevocationHashFromStatusId({
+        credentialStatus: { id: `https://example.com/x/${"A".repeat(64)}` },
+      }),
+    ).toBeNull();
+    // 65 chars
+    expect(
+      extractRevocationHashFromStatusId({
+        credentialStatus: { id: `https://example.com/x/${"a".repeat(65)}` },
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null when the id is non-string", () => {
+    expect(
+      extractRevocationHashFromStatusId({ credentialStatus: { id: 42 } as unknown }),
+    ).toBeNull();
+    expect(
+      extractRevocationHashFromStatusId({ credentialStatus: { id: null } as unknown }),
+    ).toBeNull();
+  });
+
+  it("returns null for non-object inputs", () => {
+    expect(extractRevocationHashFromStatusId(null)).toBeNull();
+    expect(extractRevocationHashFromStatusId(undefined)).toBeNull();
+    expect(extractRevocationHashFromStatusId("a string")).toBeNull();
+    expect(extractRevocationHashFromStatusId(42)).toBeNull();
+  });
+
+  it("ignores trailing slashes in the URL", () => {
+    const vc = {
+      credentialStatus: {
+        id: `https://dedi.example/dedi/lookup/namespace/${HEX}/`,
+      },
+    };
+    expect(extractRevocationHashFromStatusId(vc)).toBe(HEX);
+  });
+});
+
+describe("resolveRevocationHash", () => {
+  const HEX = "b".repeat(64);
+
+  it("prefers the hash embedded in credentialStatus.id", () => {
+    const vc = {
+      id: "urn:uuid:example",
+      credentialStatus: {
+        id: `https://dedi.example/dedi/lookup/namespace/${HEX}`,
+        type: "dedi",
+      },
+      credentialSubject: { name: "Alice" },
+    };
+    expect(resolveRevocationHash(vc)).toBe(HEX);
+    // NOT the canonical hash — the embedded one is authoritative.
+    expect(resolveRevocationHash(vc)).not.toBe(computeRevocationHash(vc));
+  });
+
+  it("falls back to computeRevocationHash when credentialStatus.id is missing", () => {
+    const vc = { id: "urn:uuid:x", credentialSubject: { name: "Bob" } };
+    expect(resolveRevocationHash(vc)).toBe(computeRevocationHash(vc));
+  });
+
+  it("falls back when credentialStatus.id is malformed", () => {
+    const vc = {
+      credentialStatus: { id: "https://example.com/no-hash-here" },
+      credentialSubject: { name: "Carol" },
+    };
+    expect(resolveRevocationHash(vc)).toBe(computeRevocationHash(vc));
   });
 });

@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import type { Hono } from "hono";
-import { computeRevocationHash } from "@opencred/crypto";
+import {
+  computeRevocationHash,
+  extractRevocationHashFromStatusId,
+  resolveRevocationHash,
+} from "@opencred/crypto";
 import { verifyCredential } from "@opencred/verification";
 import { setActiveSigner } from "../../signing/key-manager.js";
 import {
@@ -134,5 +138,111 @@ describe("revocation hash stability", () => {
     expect(hash1).toBe(hash2);
     expect(typeof hash1).toBe("string");
     expect(hash1.length).toBe(64);
+  });
+});
+
+describe("revocation hash unification (#467)", () => {
+  // Regression guard for P2-07: when a credential is issued with a
+  // `revocationRegistryUrl`, issuance embeds sha256(uuid) in
+  // credentialStatus.id. The verifier MUST query DeDi with that embedded
+  // hash — not a recomputed canonical hash of the whole credential.
+  // Before the fix, verifier used computeRevocationHash(vc) and therefore
+  // never matched the DeDi record keyed by the embedded hash, so revoked
+  // credentials silently verified as valid.
+  it("verifier queries DeDi by the hash embedded in credentialStatus.id, not canonicalJson(vc)", async () => {
+    const issuerDid = testKey.signer.id.split("#")[0];
+    const signerId = testKey.signer.id;
+    const jwk = testKey.publicKey.export({ format: "jwk" });
+
+    const issueRes = await issueViaApp(app, {
+      ...VALID_ISSUE_REQUEST,
+      issuerDid,
+      proofFormat: "data-integrity",
+      revocationRegistryUrl: "https://dedi.example.org/dedi/query/issuers.example.org",
+    });
+    expect(issueRes.status).toBe(200);
+    const issued = (await issueRes.json()) as { credential: Record<string, unknown> };
+    const credential = issued.credential;
+
+    const embeddedHash = extractRevocationHashFromStatusId(credential);
+    expect(embeddedHash).not.toBeNull();
+    expect(embeddedHash).toMatch(/^[a-f0-9]{64}$/);
+
+    const canonicalHash = computeRevocationHash(credential);
+    // The bug was that these were different values and only the canonical
+    // one was consulted. Keep this assertion — if issuance changes to embed
+    // the canonical hash, the fix needs to be revisited.
+    expect(canonicalHash).not.toBe(embeddedHash);
+
+    // resolveRevocationHash must prefer the embedded hash.
+    expect(resolveRevocationHash(credential)).toBe(embeddedHash);
+
+    // DeDi store keyed by the embedded hash (what the issuer actually
+    // commits to). Verifier must find it and report REVOKED.
+    const revocationStore = new Map<string, boolean>();
+    revocationStore.set(embeddedHash!, true);
+    const mockDedi = createMockDediClient(revocationStore);
+    const mockResolver = createMockResolver(
+      issuerDid,
+      jwk as import("@opencred/did").JWK,
+      signerId,
+    );
+
+    const revokedResult = await verifyCredential(credential as Record<string, unknown>, {
+      didResolver: mockResolver,
+      dediClient: mockDedi,
+    });
+    expect(revokedResult.code).toBe("REVOKED");
+    expect(revokedResult.verified).toBe(false);
+    expect(revokedResult.checks.some((c) => c.name === "revocation" && !c.passed)).toBe(true);
+
+    // Sanity: if DeDi store is keyed by the canonical hash instead (the old
+    // broken path), the credential verifies as NOT revoked — exactly the
+    // bug this fix removes.
+    const canonicalOnlyStore = new Map<string, boolean>();
+    canonicalOnlyStore.set(canonicalHash, true);
+    const canonicalOnlyDedi = createMockDediClient(canonicalOnlyStore);
+    const missedResult = await verifyCredential(credential as Record<string, unknown>, {
+      didResolver: mockResolver,
+      dediClient: canonicalOnlyDedi,
+    });
+    // Revocation check "passes" (DeDi returns not-found), so verify is VALID.
+    expect(missedResult.checks.some((c) => c.name === "revocation" && c.passed)).toBe(true);
+  });
+
+  it("verifier uses canonical hash when credential has no credentialStatus", async () => {
+    // Back-compat path: credentials issued without revocationRegistryUrl (or
+    // by other implementations) have no embedded hash, so the verifier falls
+    // back to computeRevocationHash(vc).
+    const issuerDid = testKey.signer.id.split("#")[0];
+    const signerId = testKey.signer.id;
+    const jwk = testKey.publicKey.export({ format: "jwk" });
+
+    const issueRes = await issueViaApp(app, {
+      ...VALID_ISSUE_REQUEST,
+      issuerDid,
+      proofFormat: "data-integrity",
+    });
+    const issued = (await issueRes.json()) as { credential: Record<string, unknown> };
+    const credential = issued.credential;
+
+    expect(extractRevocationHashFromStatusId(credential)).toBeNull();
+    const canonicalHash = computeRevocationHash(credential);
+    expect(resolveRevocationHash(credential)).toBe(canonicalHash);
+
+    const revocationStore = new Map<string, boolean>();
+    revocationStore.set(canonicalHash, true);
+    const mockDedi = createMockDediClient(revocationStore);
+    const mockResolver = createMockResolver(
+      issuerDid,
+      jwk as import("@opencred/did").JWK,
+      signerId,
+    );
+
+    const revokedResult = await verifyCredential(credential as Record<string, unknown>, {
+      didResolver: mockResolver,
+      dediClient: mockDedi,
+    });
+    expect(revokedResult.code).toBe("REVOKED");
   });
 });

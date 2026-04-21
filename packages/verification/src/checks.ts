@@ -3,7 +3,7 @@ import { isIP } from "node:net";
 import { promisify } from "node:util";
 import { gunzip as gunzipCb } from "node:zlib";
 import type { DeDiClient } from "@opencred/dedi-client";
-import { computeRevocationHash } from "@opencred/crypto";
+import { resolveRevocationHash } from "@opencred/crypto";
 import type { DIDResolver } from "@opencred/did";
 import { isPrivateIP } from "@opencred/shared";
 import { verifyDataIntegrity } from "./data-integrity.js";
@@ -57,14 +57,21 @@ export function checkDates(
 
 /**
  * Check revocation status via DeDi registry.
- * Computes the JCS-canonical SHA-256 hash of the credential and queries DeDi.
+ *
+ * The hash used for the DeDi query is preferentially extracted from
+ * `credential.credentialStatus.id` (the hash the issuer committed to at
+ * signing time) and falls back to a JCS-canonical SHA-256 of the whole
+ * credential for credentials issued by other implementations. See
+ * `resolveRevocationHash` in `@opencred/crypto` for the full contract —
+ * issuance, verification, and revocation-submit MUST all agree on this hash
+ * or revocation is silently broken.
  */
 export async function checkRevocation(
   credential: unknown,
   dediClient: DeDiClient,
 ): Promise<VerificationCheck> {
   try {
-    const hash = computeRevocationHash(credential);
+    const hash = resolveRevocationHash(credential);
     const record = await dediClient.queryRevocationHash(hash);
     if (record.revoked) {
       return {
