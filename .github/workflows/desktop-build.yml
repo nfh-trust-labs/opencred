@@ -78,11 +78,9 @@ jobs:
       # Rebuild native addons for the Electron ABI before bundling
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
-        continue-on-error: true
 
       - name: Verify native addons
         run: node scripts/verify-native-addons.cjs
-        continue-on-error: true
         working-directory: packages/signing
 
       # Bundle main process + preload with esbuild (inlines all JS deps)

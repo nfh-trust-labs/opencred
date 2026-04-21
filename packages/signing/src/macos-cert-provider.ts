@@ -89,10 +89,21 @@ export interface MacOsNativeAddon {
 }
 
 /**
+ * The most recent reason the native addon failed to load, or `undefined`
+ * if load has not been attempted or succeeded. Attached to the CryptoError
+ * thrown from provider methods so operators can distinguish "not built
+ * for this platform" from "ABI mismatch" from "dlopen runtime error".
+ */
+let lastLoadError: string | undefined;
+
+/**
  * Attempt to load the native macOS addon.
  *
  * Returns null if the addon is not available (e.g., not built yet,
- * running on a different platform, or in a test environment).
+ * running on a different platform, or in a test environment). On
+ * failure the underlying reason is captured in `lastLoadError` (and
+ * emitted once via console.warn) so the subsequent "native addon is
+ * not available" CryptoError can carry root-cause context.
  */
 function loadNativeAddon(): MacOsNativeAddon | null {
   try {
@@ -105,10 +116,28 @@ function loadNativeAddon(): MacOsNativeAddon | null {
     ) {
       return addon;
     }
+    lastLoadError = "addon loaded but missing expected exports";
+    console.warn(`[macos-cert-provider] ${lastLoadError}`);
     return null;
-  } catch {
+  } catch (err) {
+    lastLoadError = err instanceof Error ? err.message : String(err);
+    console.warn(`[macos-cert-provider] native addon load failed: ${lastLoadError}`);
     return null;
   }
+}
+
+/** Exposed for tests — read the captured load error without attempting a reload. */
+export function getLastMacOsLoadError(): string | undefined {
+  return lastLoadError;
+}
+
+/**
+ * Compose the "native addon is not available" error message. If load was
+ * attempted and failed, the original cause is appended so the operator
+ * knows whether it was an ABI mismatch, missing build, dlopen error, etc.
+ */
+function missingAddonMessage(base = "macOS Keychain native addon is not available"): string {
+  return lastLoadError ? `${base} (cause: ${lastLoadError})` : base;
 }
 
 /**
@@ -127,9 +156,11 @@ export function createMacOsCertProvider(nativeAddon?: MacOsNativeAddon | null): 
     async listCertificates(): Promise<OsCertInfo[]> {
       if (!addon) {
         throw new CryptoError(
-          "macOS Keychain native addon is not available. " +
-            "Build the native addon for Security.framework integration, " +
-            "or use a software key or PKCS#11 token instead.",
+          missingAddonMessage(
+            "macOS Keychain native addon is not available. " +
+              "Build the native addon for Security.framework integration, " +
+              "or use a software key or PKCS#11 token instead.",
+          ),
         );
       }
 
@@ -142,7 +173,7 @@ export function createMacOsCertProvider(nativeAddon?: MacOsNativeAddon | null): 
 
     async sign(certificateId: string, data: Uint8Array): Promise<Uint8Array> {
       if (!addon) {
-        throw new CryptoError("macOS Keychain native addon is not available");
+        throw new CryptoError(missingAddonMessage());
       }
 
       if (!certificateId) {
@@ -166,7 +197,7 @@ export function createMacOsCertProvider(nativeAddon?: MacOsNativeAddon | null): 
 
     async getPublicKey(certificateId: string): Promise<Uint8Array> {
       if (!addon) {
-        throw new CryptoError("macOS Keychain native addon is not available");
+        throw new CryptoError(missingAddonMessage());
       }
 
       if (!certificateId) {

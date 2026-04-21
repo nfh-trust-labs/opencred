@@ -101,10 +101,21 @@ export interface WindowsNativeAddon {
 }
 
 /**
+ * The most recent reason the native addon failed to load, or `undefined`
+ * if load has not been attempted or succeeded. Attached to the CryptoError
+ * thrown from provider methods so operators can distinguish "not built
+ * for this platform" from "ABI mismatch" from "dlopen runtime error".
+ */
+let lastLoadError: string | undefined;
+
+/**
  * Attempt to load the native Windows addon.
  *
  * Returns null if the addon is not available (e.g., not built yet,
- * running on a non-Windows platform, or in a test environment).
+ * running on a non-Windows platform, or in a test environment). On
+ * failure the underlying reason is captured in `lastLoadError` (and
+ * emitted once via console.warn) so the subsequent "native addon is
+ * not available" CryptoError can carry root-cause context.
  */
 function loadNativeAddon(): WindowsNativeAddon | null {
   try {
@@ -117,10 +128,28 @@ function loadNativeAddon(): WindowsNativeAddon | null {
     ) {
       return addon;
     }
+    lastLoadError = "addon loaded but missing expected exports";
+    console.warn(`[windows-cert-provider] ${lastLoadError}`);
     return null;
-  } catch {
+  } catch (err) {
+    lastLoadError = err instanceof Error ? err.message : String(err);
+    console.warn(`[windows-cert-provider] native addon load failed: ${lastLoadError}`);
     return null;
   }
+}
+
+/** Exposed for tests — read the captured load error without attempting a reload. */
+export function getLastWindowsLoadError(): string | undefined {
+  return lastLoadError;
+}
+
+/**
+ * Compose the "native addon is not available" error message. If load was
+ * attempted and failed, the original cause is appended so the operator
+ * knows whether it was an ABI mismatch, missing build, dlopen error, etc.
+ */
+function missingAddonMessage(base = "Windows CNG native addon is not available"): string {
+  return lastLoadError ? `${base} (cause: ${lastLoadError})` : base;
 }
 
 /**
@@ -139,9 +168,11 @@ export function createWindowsCertProvider(nativeAddon?: WindowsNativeAddon | nul
     async listCertificates(): Promise<OsCertInfo[]> {
       if (!addon) {
         throw new CryptoError(
-          "Windows CNG native addon is not available. " +
-            "Build the native addon for Windows Certificate Store integration, " +
-            "or use a software key or PKCS#11 token instead.",
+          missingAddonMessage(
+            "Windows CNG native addon is not available. " +
+              "Build the native addon for Windows Certificate Store integration, " +
+              "or use a software key or PKCS#11 token instead.",
+          ),
         );
       }
 
@@ -154,7 +185,7 @@ export function createWindowsCertProvider(nativeAddon?: WindowsNativeAddon | nul
 
     async sign(certificateId: string, data: Uint8Array): Promise<Uint8Array> {
       if (!addon) {
-        throw new CryptoError("Windows CNG native addon is not available");
+        throw new CryptoError(missingAddonMessage());
       }
 
       if (!certificateId) {
@@ -178,7 +209,7 @@ export function createWindowsCertProvider(nativeAddon?: WindowsNativeAddon | nul
 
     async getPublicKey(certificateId: string): Promise<Uint8Array> {
       if (!addon) {
-        throw new CryptoError("Windows CNG native addon is not available");
+        throw new CryptoError(missingAddonMessage());
       }
 
       if (!certificateId) {

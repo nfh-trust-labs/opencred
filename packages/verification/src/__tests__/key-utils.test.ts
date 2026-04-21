@@ -106,4 +106,67 @@ describe("publicKeyFromMultibase", () => {
     const multibaseKey = multibaseEncode(bytes);
     expect(publicKeyFromMultibase(multibaseKey)).toBeNull();
   });
+
+  it("should convert a multibase-encoded P-384 key to a KeyObject", () => {
+    const { publicKey } = generateKeyPairSync("ec", { namedCurve: "P-384" });
+    const jwk = publicKey.export({ format: "jwk" });
+
+    // x and y coordinates are 48 bytes each for P-384
+    const x = Buffer.from(jwk.x!, "base64url");
+    const y = Buffer.from(jwk.y!, "base64url");
+    const prefix = y[y.length - 1] % 2 === 0 ? 0x02 : 0x03;
+    const compressedPoint = Buffer.alloc(49);
+    compressedPoint[0] = prefix;
+    x.copy(compressedPoint, 1);
+
+    // P-384 multicodec prefix: 0x81 0x24
+    const multicodec = Buffer.alloc(2 + 49);
+    multicodec[0] = 0x81;
+    multicodec[1] = 0x24;
+    compressedPoint.copy(multicodec, 2);
+
+    const multibaseKey = multibaseEncode(multicodec);
+    const result = publicKeyFromMultibase(multibaseKey);
+
+    expect(result).not.toBeNull();
+    expect(result!.type).toBe("public");
+    expect(result!.asymmetricKeyType).toBe("ec");
+    // Confirm the reconstructed key is actually P-384 (not accidentally P-256)
+    const reconstructedJwk = result!.export({ format: "jwk" });
+    expect(reconstructedJwk.crv).toBe("P-384");
+  });
+
+  it("should produce a P-384 key that can verify signatures", () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-384" });
+    const jwk = publicKey.export({ format: "jwk" });
+
+    const x = Buffer.from(jwk.x!, "base64url");
+    const y = Buffer.from(jwk.y!, "base64url");
+    const prefix = y[y.length - 1] % 2 === 0 ? 0x02 : 0x03;
+    const compressedPoint = Buffer.alloc(49);
+    compressedPoint[0] = prefix;
+    x.copy(compressedPoint, 1);
+    const multicodec = Buffer.alloc(2 + 49);
+    multicodec[0] = 0x81;
+    multicodec[1] = 0x24;
+    compressedPoint.copy(multicodec, 2);
+    const multibaseKey = multibaseEncode(multicodec);
+
+    const signer = createSign("SHA384");
+    signer.update("test data");
+    const signature = signer.sign(privateKey);
+
+    const reconstructedKey = publicKeyFromMultibase(multibaseKey)!;
+    const verifier = createVerify("SHA384");
+    verifier.update("test data");
+    expect(verifier.verify(reconstructedKey, signature)).toBe(true);
+  });
+
+  it("should return null for a P-384 prefix with wrong compressed-key length", () => {
+    const bytes = new Uint8Array(2 + 20);
+    bytes[0] = 0x81;
+    bytes[1] = 0x24;
+    const multibaseKey = multibaseEncode(bytes);
+    expect(publicKeyFromMultibase(multibaseKey)).toBeNull();
+  });
 });
