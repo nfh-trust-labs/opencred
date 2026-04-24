@@ -104,8 +104,9 @@ import {
   sanitizeErrorMessage,
   resolveDnsForSsrf,
   assertJwtSize,
+  canonicalJsonSha256,
 } from "@opencred/shared";
-import { SchemaRegistry, generateSchemaFromFields } from "@opencred/schema-engine";
+import { generateSchemaFromFields } from "@opencred/schema-engine";
 import { packageCredential as packageCredentialWithTemplates } from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
 import { deriveVerificationMethod } from "../signing/types.js";
@@ -749,7 +750,7 @@ async function handleBuildAndSign(
             version: "1",
             schema: def.schema,
             contextUrl: def.contextUrl,
-            checksum: SchemaRegistry.computeChecksum(def.schema),
+            checksum: canonicalJsonSha256(def.schema),
             publishedAt: new Date().toISOString(),
           })
           .then((r: import("@opencred/dedi-client").PublishResult | null) => {
@@ -2363,7 +2364,7 @@ async function handleCustomSchemaSave(
           schemaId: entry.id,
           version,
           schema: request.schema,
-          checksum: SchemaRegistry.computeChecksum(request.schema),
+          checksum: canonicalJsonSha256(request.schema),
           publishedAt: new Date().toISOString(),
         }),
       ];
@@ -2679,7 +2680,7 @@ async function handleDeDiPublishSchema(
       version: "1",
       schema: def.schema,
       contextUrl: def.contextUrl,
-      checksum: SchemaRegistry.computeChecksum(def.schema),
+      checksum: canonicalJsonSha256(def.schema),
       publishedAt: new Date().toISOString(),
     });
 

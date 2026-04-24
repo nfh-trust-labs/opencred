@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { NotFoundError } from "@opencred/shared";
+import { canonicalJsonSha256, NotFoundError } from "@opencred/shared";
 import type { SchemaCategory, SchemaDefinition, SchemaManifest } from "./types.js";
 
 export class SchemaRegistry {
@@ -60,14 +59,23 @@ export class SchemaRegistry {
 
   /**
    * Compute a SHA-256 checksum for a schema's JSON representation.
-   * Kept for backward compatibility with downstream callers
-   * (apps/desktop/src/main/ipc-handlers.ts) that hash user-supplied
-   * schema bodies. New code should prefer canonicalJsonSha256 from
-   * @opencred/shared.
+   *
+   * Uses the canonical sorted-key JSON form via
+   * {@link canonicalJsonSha256}. Any two V8 versions hashing the same
+   * logical schema object produce bit-identical checksums — the previous
+   * implementation used `JSON.stringify` (insertion-order key
+   * enumeration), so a user who saved a custom schema on one Node.js
+   * release and then upgraded the desktop app could hit a confusing
+   * "schema URL already registered with a different content" error even
+   * when the schema was identical. See Anand's P1-05.
+   *
+   * @deprecated Prefer `canonicalJsonSha256` from `@opencred/shared`
+   *   directly at new call sites. This wrapper is retained for
+   *   downstream callers (`apps/desktop/src/main/ipc-handlers.ts`)
+   *   during the migration.
    */
   static computeChecksum(schema: Record<string, unknown>): string {
-    const canonical = JSON.stringify(schema);
-    return createHash("sha256").update(canonical).digest("hex");
+    return canonicalJsonSha256(schema);
   }
 
   /**
