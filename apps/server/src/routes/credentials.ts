@@ -114,6 +114,16 @@ const FORBIDDEN_REQUEST_KEYS = new Set([
 const PEM_PRIVATE_KEY_RE = /-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----/;
 
 /**
+ * Upper bound on how many bytes of a long string value we scan for PEM
+ * headers. PEM blocks always begin with the `-----BEGIN ...-----` marker at
+ * the top of the blob, so a 4 KiB prefix is far more than enough to catch
+ * any realistic "key pasted into a CSV cell" attack without scanning the
+ * entire `csvContent` field (which can be up to 200 MiB under
+ * `OPENCRED_MAX_BATCH_BODY_BYTES`). See Anand's P3-03.
+ */
+const PEM_SCAN_PREFIX_BYTES = 4_096;
+
+/**
  * Recursively walk an unknown JSON value and throw a ValidationError if any
  * key in {@link FORBIDDEN_REQUEST_KEYS} is present, OR if any string value
  * looks like a PEM-encoded private key.
@@ -128,11 +138,18 @@ const PEM_PRIVATE_KEY_RE = /-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----/;
  */
 export function rejectKeyMaterial(value: unknown, path = ""): void {
   if (value === null || typeof value !== "object") {
-    if (typeof value === "string" && PEM_PRIVATE_KEY_RE.test(value)) {
-      throw new ValidationError(
-        `Request rejected: field at "${path || "<root>"}" looks like a PEM-encoded private key. ` +
-          "OpenCred never accepts private key material via the HTTP API.",
-      );
+    if (typeof value === "string") {
+      // Long string? Only scan the head. A PEM header always appears near
+      // the top of a key blob; scanning the tail adds no coverage but can
+      // block the event loop for tens of ms on a 200 MiB CSV payload.
+      const sample =
+        value.length > PEM_SCAN_PREFIX_BYTES ? value.slice(0, PEM_SCAN_PREFIX_BYTES) : value;
+      if (PEM_PRIVATE_KEY_RE.test(sample)) {
+        throw new ValidationError(
+          `Request rejected: field at "${path || "<root>"}" looks like a PEM-encoded private key. ` +
+            "OpenCred never accepts private key material via the HTTP API.",
+        );
+      }
     }
     return;
   }
