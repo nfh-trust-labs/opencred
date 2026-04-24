@@ -6,6 +6,44 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-04-21
+
+### Fixed
+
+- **"App is damaged" on macOS** — v1.0.1 shipped with
+  `forceCodeSigning: true` and no `MAC_CSC_LINK` configured in the
+  repo secrets, causing `electron-builder` to fall through to an
+  ad-hoc signature. macOS rejects that as a broken signature with
+  no user-bypass path. Flipped `forceCodeSigning: false` and
+  reworked the release workflow so missing signing secrets now
+  produce cleanly unsigned artefacts. Users get the standard
+  "unrecognised developer" prompt (right-click → Open) instead of
+  "app is damaged". See [docs/desktop/release-signing.md](docs/desktop/release-signing.md)
+  for the unsigned-state UX and the roadmap to signed releases (#498).
+
+### Infrastructure
+
+- **Preflight for signing secrets** — `.github/workflows/desktop-release.yml`
+  now emits `sign_mac` / `sign_win` job outputs from a preflight
+  check. All secrets present → signed + notarised build with full
+  `codesign`/`spctl`/`stapler` + `Authenticode` verification.
+  All absent → unsigned build with a warning. Partial → hard
+  fail. No further workflow change is required when certs are
+  eventually configured (#498).
+
+### Docs
+
+- **`docs/desktop/release-signing.md`** — new canonical record of
+  the current unsigned state, auto-update implications, target
+  state, and the exact steps to restore signing once Apple
+  Developer Program + Windows Authenticode certs are acquired
+  (tracked in #497).
+- **`docs/desktop/installation.md`** — replaced the incorrect
+  "signed + notarised" claim with the right-click → Open
+  walkthrough for macOS, SmartScreen "Run anyway" workaround for
+  Windows, and `xattr -cr` escape hatch for users still stuck on
+  the v1.0.1 broken bundle.
+
 ## [1.0.1] - 2026-04-14
 
 ### Fixed
