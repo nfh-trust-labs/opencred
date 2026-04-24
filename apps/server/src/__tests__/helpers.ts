@@ -13,6 +13,9 @@ import { ZodError } from "zod";
 import { getConfig, loadConfig, resetConfig } from "../config.js";
 import { createLogger, resetLogger } from "../logger.js";
 import { resetDeDiClient } from "../dedi-singleton.js";
+import { setSchemaRegistry, resetSchemaRegistry } from "../schema-registry-singleton.js";
+import { setValidator, resetValidator } from "../validator-singleton.js";
+import { createRegistry, Validator } from "@opencred/schema-engine";
 import { authMiddleware } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { health } from "../routes/health.js";
@@ -107,6 +110,16 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
   resetConfig();
   resetLogger();
   resetDeDiClient();
+  resetSchemaRegistry();
+  resetValidator();
+
+  // Bootstrap the schema registry + validator the same way src/index.ts does,
+  // so tests exercise the post-P1-01 "fail loud if uninitialised" contract
+  // rather than the pre-fix silent lazy-create that caused five modules to
+  // bind to divergent registry snapshots.
+  const testRegistry = createRegistry();
+  setSchemaRegistry(testRegistry);
+  setValidator(new Validator(testRegistry));
 
   // Wipe any prior auth-related env vars so previous tests don't bleed in.
   delete process.env.OPENCRED_API_KEY;

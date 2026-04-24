@@ -8,9 +8,8 @@
  * SECURITY: No key material is ever involved in parsing.
  */
 
-import { Validator } from "@opencred/schema-engine";
-import type { SchemaRegistry, ValidationResult } from "@opencred/schema-engine";
-import { getSchemaRegistry } from "../schema-registry-singleton.js";
+import type { ValidationResult } from "@opencred/schema-engine";
+import { getValidator } from "../validator-singleton.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -155,16 +154,11 @@ function parseRawCsv(
 // Schema validation
 // ---------------------------------------------------------------------------
 
-let validatorInstance: Validator | null = null;
-
-function getRegistry(): SchemaRegistry {
-  return getSchemaRegistry();
-}
-
-function getValidator(): Validator {
-  if (!validatorInstance) validatorInstance = new Validator(getRegistry());
-  return validatorInstance;
-}
+// The Validator is a single process-wide instance constructed during
+// bootstrap (see apps/server/src/index.ts / apps/server/src/validator-singleton.ts
+// and Anand's P1-01). Do not cache a Validator at module scope here —
+// multiple stale copies bound to different registry snapshots was the
+// original bug.
 
 function applyMapping(
   rawValues: Record<string, string>,

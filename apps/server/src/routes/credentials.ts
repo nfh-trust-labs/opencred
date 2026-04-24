@@ -17,9 +17,9 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { CredentialBuilder, isValidSubjectUri } from "@opencred/vc-core";
 import type { VerifiableCredential } from "@opencred/vc-core";
-import { Validator } from "@opencred/schema-engine";
 import type { SchemaRegistry } from "@opencred/schema-engine";
 import { getSchemaRegistry } from "../schema-registry-singleton.js";
+import { getValidator } from "../validator-singleton.js";
 import {
   prepareVcJwtProof,
   completeVcJwtProof,
@@ -155,17 +155,13 @@ export function rejectKeyMaterial(value: unknown, path = ""): void {
   }
 }
 
-let validatorInstance: Validator | null = null;
-
+// The Validator is a single process-wide instance held by
+// `validator-singleton.ts`. The route uses `getValidator()` instead of a
+// lazily-cached module-scope Validator to avoid binding the route's
+// validator to a different registry snapshot than the one the batch engine
+// or CSV parser see — see Anand's P1-01.
 function getRegistry(): SchemaRegistry {
   return getSchemaRegistry();
-}
-
-function getValidator(): Validator {
-  if (!validatorInstance) {
-    validatorInstance = new Validator(getRegistry());
-  }
-  return validatorInstance;
 }
 
 // --- Request schemas ---

@@ -20,6 +20,8 @@ import { parseCsv } from "../batch/csv-parser.js";
 import { createBatchEngine } from "../batch/batch-engine.js";
 import { createProgram, VERSION } from "../cli.js";
 import { resetConfig } from "../config.js";
+import { setSchemaRegistry, resetSchemaRegistry } from "../schema-registry-singleton.js";
+import { setValidator, resetValidator } from "../validator-singleton.js";
 
 const TEST_DIR = join(tmpdir(), `opencred-cli-tests-${Date.now()}`);
 let testKey: TestKeyPair;
@@ -27,10 +29,18 @@ let testKey: TestKeyPair;
 beforeAll(() => {
   mkdirSync(TEST_DIR, { recursive: true });
   testKey = generateTestKey();
+  // CLI batch tests call parseCsv/createBatchEngine directly and therefore
+  // need the same validator-singleton bootstrap that src/cli.ts performs for
+  // its `batch` subcommand (see P1-01).
+  const registry = createRegistry();
+  setSchemaRegistry(registry);
+  setValidator(new Validator(registry));
 });
 
 afterAll(() => {
   rmSync(TEST_DIR, { recursive: true, force: true });
+  resetSchemaRegistry();
+  resetValidator();
 });
 
 // ---------------------------------------------------------------------------

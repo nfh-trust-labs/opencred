@@ -22,9 +22,9 @@ import * as crypto from "node:crypto";
 import { CryptoError } from "@opencred/shared";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
-import { Validator } from "@opencred/schema-engine";
 import type { SchemaRegistry, ValidationResult } from "@opencred/schema-engine";
 import { getSchemaRegistry } from "../main/schema-registry-singleton.js";
+import { getValidator } from "../main/validator-singleton.js";
 import { signWithFormat } from "./proof-format-router.js";
 import type { UiProofFormat } from "../shared/ipc-types.js";
 import { deriveVerificationMethod } from "./types.js";
@@ -87,17 +87,12 @@ export interface LocalSigningResult {
   isCompactToken: boolean;
 }
 
-let validatorInstance: Validator | null = null;
-
+// The Validator is a single process-wide instance held by
+// `main/validator-singleton.ts` and constructed during bootstrap in
+// `main/index.ts`. Do not cache a Validator at module scope here — see
+// Anand's P1-01.
 function getRegistry(): SchemaRegistry {
   return getSchemaRegistry();
-}
-
-function getValidator(): Validator {
-  if (!validatorInstance) {
-    validatorInstance = new Validator(getRegistry());
-  }
-  return validatorInstance;
 }
 
 /**

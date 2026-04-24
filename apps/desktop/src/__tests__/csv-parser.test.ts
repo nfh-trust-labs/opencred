@@ -5,8 +5,13 @@
  * and edge cases (empty rows, quoted fields, various delimiters).
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { detectDelimiter, parseRawCsv, parseCsv } from "../batch/csv-parser";
+import { bootstrapTestValidator } from "./setup-validator.js";
+
+beforeAll(() => {
+  bootstrapTestValidator();
+});
 
 // ---------------------------------------------------------------------------
 // Delimiter detection

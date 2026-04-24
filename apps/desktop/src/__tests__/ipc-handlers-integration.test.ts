@@ -132,7 +132,9 @@ const { privateKey: testEcKey } = generateKeyPairSync("ec", {
   namedCurve: "P-256",
 });
 
-beforeAll(() => {
+beforeAll(async () => {
+  const { bootstrapTestValidator } = await import("./setup-validator.js");
+  bootstrapTestValidator();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "opencred-ipc-test-"));
   ecKeyPath = path.join(tmpDir, "test-p256.pem");
   fs.writeFileSync(ecKeyPath, testEcKey.export({ format: "pem", type: "pkcs8" }) as string);

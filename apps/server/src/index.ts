@@ -25,10 +25,11 @@ import { loadSigningKey, setActiveSigner } from "./signing/key-manager.js";
 import { createSignerFromConfig } from "./signing/cloud-hsm/factory.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createRegistryWithUpdates } from "@opencred/schema-engine";
+import { createRegistryWithUpdates, Validator } from "@opencred/schema-engine";
 import { CscaTrustStore } from "@opencred/verification";
 import { setTrustStore } from "./trust-store.js";
 import { setSchemaRegistry } from "./schema-registry-singleton.js";
+import { setValidator } from "./validator-singleton.js";
 import { createDeDiClientFromConfig } from "./dedi-factory.js";
 import { setDeDiClient } from "./dedi-singleton.js";
 import { health } from "./routes/health.js";
@@ -124,6 +125,7 @@ const schemaRegistry = await createRegistryWithUpdates({
   logger,
 });
 setSchemaRegistry(schemaRegistry);
+setValidator(new Validator(schemaRegistry));
 logger.info({ count: schemaRegistry.listSchemas().length }, "Schema registry initialised");
 
 // ---------------------------------------------------------------------------
