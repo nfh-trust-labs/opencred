@@ -33,12 +33,23 @@ import { createLogger } from "./logger.js";
 import { createRegistryWithUpdates, Validator } from "@opencred/schema-engine";
 import { setSchemaRegistry } from "./schema-registry-singleton.js";
 import { setValidator } from "./validator-singleton.js";
+import { setPkcs11Logger } from "@opencred/signing";
 
 // ---------------------------------------------------------------------------
 // Global crash handlers — catch unhandled errors before app.whenReady()
 // ---------------------------------------------------------------------------
 
 const logger = createLogger("main");
+
+// Route PKCS#11 warnings (C_Finalize failures, unreadable keys, etc.) to the
+// desktop Pino logger. Previously these hit console.warn in the packages/signing
+// code, which was invisible to aggregated log collectors and couldn't be
+// filtered by LOG_LEVEL. See Anand's P2-09.
+const pkcs11Logger = createLogger("pkcs11");
+setPkcs11Logger({
+  warn: (msg: string, meta?: Record<string, unknown>) => pkcs11Logger.warn(msg, meta),
+  error: (msg: string, meta?: Record<string, unknown>) => pkcs11Logger.error(msg, meta),
+});
 
 process.on("uncaughtException", (error) => {
   logger.error("Uncaught exception", { error: error.message, stack: error.stack });
