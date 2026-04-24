@@ -42,13 +42,31 @@ describe("isPrivateIP", () => {
     ["fc00::1", true],
     ["fd12::1", true],
     ["fe80::1", true],
+    // fe80::/10 covers fe80:: through febf::. The WHATWG URL parser lowercases
+    // each 16-bit group, so link-local addresses with the 9th-10th bits set
+    // (fe90::, fea0::, febf::) must also be detected.
+    ["fe90::1", true],
+    ["fea5::1", true],
+    ["febf::1", true],
     ["ff02::1", true],
+    // 0100::/64 discard prefix (RFC 6666). URL parsing strips the leading
+    // zero, so the normalized form is "100::…"; both forms must be private.
     ["0100::1", true],
+    ["100::1", true],
+    ["100::", true],
+    ["100:0:0:0:0:0:0:1", true],
   ])("IPv6 %s → %s", (ip, expected) => {
     expect(isPrivateIP(ip)).toBe(expected);
   });
 
-  it.each([["2001:4860:4860::8888", false]])("IPv6 public %s → %s", (ip, expected) => {
+  it.each([
+    ["2001:4860:4860::8888", false],
+    // fec0::/10 (site-local) was deprecated by RFC 3879 — not covered by the
+    // link-local /10 and intentionally still treated as public here.
+    ["fec0::1", false],
+    // Addresses outside 0100::/64 but starting with 100: must remain public.
+    ["100:1::1", false],
+  ])("IPv6 public %s → %s", (ip, expected) => {
     expect(isPrivateIP(ip)).toBe(expected);
   });
 

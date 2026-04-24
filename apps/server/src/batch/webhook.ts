@@ -26,7 +26,10 @@ export interface WebhookPayload {
  * 1. Resolves the hostname and validates it is not a private IP (SSRF).
  * 2. Requires HTTPS.
  * 3. Rewrites the URL to the validated IP to prevent DNS rebinding (TOCTOU).
- * 4. Computes HMAC-SHA256 signature of the JSON body.
+ * 4. Computes HMAC-SHA256 signature of the JSON body. `secret` must be a
+ *    non-empty string — the caller is responsible for rejecting webhook
+ *    requests that lack a configured secret (see LOW-04). Passing an empty
+ *    string is treated as a programming error.
  * 5. Retries up to 3 total attempts with exponential backoff (1s, 4s).
  * 6. Any 2xx response is treated as success.
  *
@@ -37,6 +40,15 @@ export async function deliverWebhook(
   payload: WebhookPayload,
   secret: string,
 ): Promise<void> {
+  if (!secret) {
+    // LOW-04: caller must reject webhook requests with no configured secret
+    // at the route boundary. Reaching this throw means that guard was
+    // bypassed — fail loudly rather than fall back to an unsigned payload.
+    throw new Error(
+      "deliverWebhook requires a non-empty secret; configure OPENCRED_WEBHOOK_SECRET",
+    );
+  }
+
   // SSRF: HTTPS only
   const parsed = new URL(url);
   if (parsed.protocol !== "https:") {
@@ -62,10 +74,9 @@ export async function deliverWebhook(
 
   const body = JSON.stringify(payload);
 
-  // Compute HMAC-SHA256 signature
-  const signature = secret
-    ? `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
-    : "sha256=unsigned";
+  // Compute HMAC-SHA256 signature. `secret` is guaranteed non-empty by the
+  // guard at the top of this function.
+  const signature = `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

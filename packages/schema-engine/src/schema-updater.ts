@@ -13,8 +13,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { lookup } from "node:dns/promises";
-import { isPrivateIP } from "@opencred/shared";
+import { resolveDnsForSsrf } from "@opencred/shared";
 import type { SchemaDefinition } from "./types.js";
 import type { SchemaRegistry } from "./schema-registry.js";
 
@@ -78,6 +77,10 @@ function compareSemver(a: string, b: string): number {
 /**
  * Validate that a URL is HTTPS, then resolve its hostname and reject
  * private/loopback IPs (SSRF protection).
+ *
+ * Uses `resolveDnsForSsrf`, which validates every resolved A and AAAA
+ * address, rather than `dns.lookup`, which returns only a single address
+ * and could leave other records unchecked.
  */
 async function ssrfSafeFetch(
   url: string,
@@ -88,10 +91,7 @@ async function ssrfSafeFetch(
     throw new Error(`Non-HTTPS URL rejected: ${url}`);
   }
 
-  const { address } = await lookup(parsed.hostname);
-  if (isPrivateIP(address)) {
-    throw new Error(`Private IP rejected for ${parsed.hostname} (${address})`);
-  }
+  await resolveDnsForSsrf(parsed.hostname);
 
   return fetch(url, {
     signal: AbortSignal.timeout(timeoutMs),
@@ -130,9 +130,23 @@ export async function checkForUpdates(
     return currentRegistry;
   }
 
+  // Compute the manifest origin once up front. Every downloadUrl MUST match
+  // this origin — this prevents a compromised or malicious manifest from
+  // redirecting schema fetches to an attacker-controlled host.
+  const manifestUrl = config.manifestUrl;
+  let manifestOrigin: string;
+  try {
+    manifestOrigin = new URL(manifestUrl).origin;
+  } catch (urlErr) {
+    log.warn(
+      `Schema update check failed: manifestUrl is not a valid URL: ${urlErr instanceof Error ? urlErr.message : String(urlErr)}`,
+    );
+    return currentRegistry;
+  }
+
   try {
     // 1. Fetch the manifest
-    const manifestRes = await ssrfSafeFetch(config.manifestUrl, timeoutMs);
+    const manifestRes = await ssrfSafeFetch(manifestUrl, timeoutMs);
     if (!manifestRes.ok) {
       log.warn(
         `Schema update manifest fetch failed: HTTP ${manifestRes.status}`,
@@ -180,6 +194,25 @@ export async function checkForUpdates(
 
         // Fetch from network if not cached
         if (!schemaJson) {
+          // Enforce that downloadUrl shares the manifest's origin. Any
+          // mismatch (different scheme, host, or port) is rejected so
+          // the manifest cannot redirect us to a third-party host.
+          let downloadOrigin: string;
+          try {
+            downloadOrigin = new URL(entry.downloadUrl).origin;
+          } catch {
+            log.warn(
+              `Skipping schema ${entry.id}: downloadUrl is not a valid URL`,
+            );
+            continue;
+          }
+          if (downloadOrigin !== manifestOrigin) {
+            log.warn(
+              `Skipping schema ${entry.id}: downloadUrl origin ${downloadOrigin} differs from manifest origin ${manifestOrigin}`,
+            );
+            continue;
+          }
+
           const res = await ssrfSafeFetch(entry.downloadUrl, timeoutMs);
           if (!res.ok) {
             log.warn(

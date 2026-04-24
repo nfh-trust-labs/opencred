@@ -15,7 +15,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
-import { CredentialBuilder } from "@opencred/vc-core";
+import { CredentialBuilder, isValidSubjectUri } from "@opencred/vc-core";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import { Validator } from "@opencred/schema-engine";
 import type { SchemaRegistry } from "@opencred/schema-engine";
@@ -184,7 +184,17 @@ const issueRequestSchema = z.object({
   validUntil: z.string().optional(),
   proofFormat: z.enum(["vc-jwt", "data-integrity", "sd-jwt-vc"]).default("vc-jwt"),
   additionalTypes: z.array(z.string()).optional(),
-  subjectDid: z.string().optional(),
+  // HIGH-02: reject `credentialSubject.id` values whose URI scheme is not
+  // one of `did:*`, `urn:uuid:*`, or `https://*` before they reach the
+  // builder. `CredentialBuilder.setCredentialSubject()` enforces the same
+  // rule post-#A (defense in depth) but doing it here returns a clearer
+  // Zod-formatted error with a stable path instead of a generic 500.
+  subjectDid: z
+    .string()
+    .refine(isValidSubjectUri, {
+      message: "subjectDid must be a valid DID (did:*), urn:uuid, or https:// URI",
+    })
+    .optional(),
   selectiveDisclosureClaims: z.array(z.string()).optional(),
   revocationRegistryUrl: z.string().url().optional(),
   credentialSchemaUrl: z.string().url().optional(),

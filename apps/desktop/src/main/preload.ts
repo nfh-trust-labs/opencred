@@ -15,11 +15,8 @@
  *    from this preload context.
  */
 
-console.log("[preload] script starting");
 import { contextBridge, ipcRenderer } from "electron";
-console.log("[preload] electron imports OK");
 import { IPC_CHANNELS } from "../shared/ipc-channels.js";
-console.log("[preload] IPC_CHANNELS imported OK");
 import type {
   KeyImportRequest,
   KeyImportResponse,
@@ -60,6 +57,7 @@ import type {
   Pkcs11ListKeysResponse,
   Pkcs11ConnectRequest,
   Pkcs11ConnectResponse,
+  Pkcs11PickLibraryResponse,
   UpdateStatusResponse,
   OsCertListResponse,
   OsCertSignRequest,
@@ -172,6 +170,9 @@ const api: OpenCredDesktopAPI = {
   pkcs11Connect: (request: Pkcs11ConnectRequest): Promise<Pkcs11ConnectResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.PKCS11_CONNECT, request),
 
+  pkcs11PickLibrary: (): Promise<Pkcs11PickLibraryResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PKCS11_PICK_LIBRARY),
+
   // Auto-update
   updateCheck: (): Promise<UpdateStatusResponse> => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
 
@@ -279,6 +280,4 @@ const api: OpenCredDesktopAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.LOG_TAIL, { lines }),
 };
 
-console.log("[preload] about to expose API on window.opencred");
 contextBridge.exposeInMainWorld("opencred", api);
-console.log("[preload] API exposed successfully");

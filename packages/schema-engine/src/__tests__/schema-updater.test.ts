@@ -55,10 +55,17 @@ function seedRegistry(entries: Array<{ id: string; version: string; schema: Reco
 // Mocks
 // ---------------------------------------------------------------------------
 
-const mockLookup = vi.fn();
-vi.mock("node:dns/promises", () => ({
-  default: { lookup: (...args: unknown[]) => mockLookup(...args) },
-  lookup: (...args: unknown[]) => mockLookup(...args),
+// `resolveDnsForSsrf` (the canonical SSRF helper) uses resolve4/resolve6
+// from node:dns, so mock the underlying DNS promises API directly. Default
+// each mock to a single public IP so tests that don't care about DNS
+// resolution still pass.
+const mockResolve4 = vi.fn();
+const mockResolve6 = vi.fn();
+vi.mock("node:dns", () => ({
+  promises: {
+    resolve4: (...args: unknown[]) => mockResolve4(...args),
+    resolve6: (...args: unknown[]) => mockResolve6(...args),
+  },
 }));
 
 vi.mock("node:fs/promises", () => ({
@@ -87,7 +94,11 @@ function makeConfig(overrides?: Partial<SchemaUpdateConfig>): SchemaUpdateConfig
 describe("checkForUpdates", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockLookup.mockResolvedValue({ address: "93.184.216.34", family: 4 });
+    // Default: all DNS resolutions return a single public IP (A record only).
+    // `resolveDnsForSsrf` tolerates ENODATA on AAAA when A succeeds.
+    mockResolve4.mockResolvedValue(["93.184.216.34"]);
+    const enodata = Object.assign(new Error("ENODATA"), { code: "ENODATA" });
+    mockResolve6.mockRejectedValue(enodata);
   });
 
   it("returns bundled registry unchanged when manifestUrl is not set", async () => {
@@ -204,9 +215,12 @@ describe("checkForUpdates", () => {
     const schema = { type: "object" };
     const manifest = makeManifest([{ id: "ssrf-test", version: "1.0.0", schema }]);
 
-    mockLookup
-      .mockResolvedValueOnce({ address: "93.184.216.34", family: 4 })
-      .mockResolvedValueOnce({ address: "10.0.0.1", family: 4 });
+    // Manifest hostname → public IP (first lookup). Download URL hostname →
+    // private IP (second lookup), which `resolveDnsForSsrf` rejects with a
+    // message containing "SSRF protection".
+    mockResolve4
+      .mockResolvedValueOnce(["93.184.216.34"])
+      .mockResolvedValueOnce(["10.0.0.1"]);
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -217,7 +231,7 @@ describe("checkForUpdates", () => {
 
     expect(result.listSchemas()).not.toContain("ssrf-test");
     expect(config.logger?.warn).toHaveBeenCalledWith(
-      expect.stringContaining("Private IP rejected"),
+      expect.stringContaining("SSRF protection"),
     );
   });
 
@@ -271,6 +285,189 @@ describe("checkForUpdates", () => {
     expect(result).toBe(registry);
     expect(config.logger?.warn).toHaveBeenCalledWith(
       expect.stringContaining("Unsupported manifest version"),
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Origin-enforcement tests (downloadUrl must share manifest origin)
+  // ---------------------------------------------------------------------------
+
+  it("fetches when downloadUrl shares the manifest origin", async () => {
+    const registry = seedRegistry([]);
+    const schema = { type: "object", properties: { a: { type: "string" } } };
+    const schemaJson = JSON.stringify(schema);
+    const manifest: SchemaUpdateManifest = {
+      version: 1,
+      timestamp: "2026-04-12T00:00:00Z",
+      schemas: [
+        {
+          id: "same-origin",
+          version: "1.0.0",
+          checksum: sha256(schemaJson),
+          downloadUrl: "https://a.example.com/schemas/1.json",
+        },
+      ],
+    };
+    const config = makeConfig({
+      manifestUrl: "https://a.example.com/manifest.json",
+    });
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(manifest),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(schemaJson),
+      });
+
+    const result = await checkForUpdates(config, registry);
+
+    expect(result.listSchemas()).toContain("same-origin");
+    // Manifest fetch + download fetch = 2 calls
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips schema when downloadUrl origin differs from manifest origin", async () => {
+    const registry = seedRegistry([]);
+    const schema = { type: "object" };
+    const schemaJson = JSON.stringify(schema);
+    const manifest: SchemaUpdateManifest = {
+      version: 1,
+      timestamp: "2026-04-12T00:00:00Z",
+      schemas: [
+        {
+          id: "cross-origin",
+          version: "1.0.0",
+          checksum: sha256(schemaJson),
+          downloadUrl: "https://b.example.com/schemas/1.json",
+        },
+      ],
+    };
+    const config = makeConfig({
+      manifestUrl: "https://a.example.com/manifest.json",
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(manifest),
+    });
+
+    const result = await checkForUpdates(config, registry);
+
+    expect(result.listSchemas()).not.toContain("cross-origin");
+    // Only the manifest was fetched — cross-origin download was rejected
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(config.logger?.warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "differs from manifest origin",
+      ),
+    );
+  });
+
+  it("skips schema when downloadUrl is not a valid URL", async () => {
+    const registry = seedRegistry([]);
+    const manifest: SchemaUpdateManifest = {
+      version: 1,
+      timestamp: "2026-04-12T00:00:00Z",
+      schemas: [
+        {
+          id: "bad-url",
+          version: "1.0.0",
+          checksum: sha256(JSON.stringify({ type: "object" })),
+          downloadUrl: "not a url",
+        },
+      ],
+    };
+    const config = makeConfig();
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(manifest),
+    });
+
+    const result = await checkForUpdates(config, registry);
+
+    expect(result.listSchemas()).not.toContain("bad-url");
+    // Only the manifest was fetched — invalid downloadUrl was rejected before fetch
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(config.logger?.warn).toHaveBeenCalledWith(
+      expect.stringContaining("downloadUrl is not a valid URL"),
+    );
+  });
+
+  it("rejects when scheme differs (http manifest vs https download)", async () => {
+    // Note: an http:// manifestUrl is rejected by ssrfSafeFetch before we
+    // reach the loop, so the origin check also needs to be demonstrated
+    // with a matched-scheme-but-different-port variant. We model the
+    // "scheme/port differ → different origin" invariant here.
+    const registry = seedRegistry([]);
+    const schema = { type: "object" };
+    const schemaJson = JSON.stringify(schema);
+    const manifest: SchemaUpdateManifest = {
+      version: 1,
+      timestamp: "2026-04-12T00:00:00Z",
+      schemas: [
+        {
+          id: "different-port",
+          version: "1.0.0",
+          checksum: sha256(schemaJson),
+          // Same host and scheme, different port → different origin.
+          downloadUrl: "https://a.example.com:8443/schemas/1.json",
+        },
+      ],
+    };
+    const config = makeConfig({
+      manifestUrl: "https://a.example.com/manifest.json",
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(manifest),
+    });
+
+    const result = await checkForUpdates(config, registry);
+
+    expect(result.listSchemas()).not.toContain("different-port");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(config.logger?.warn).toHaveBeenCalledWith(
+      expect.stringContaining("differs from manifest origin"),
+    );
+  });
+
+  it("rejects when scheme differs (https manifest vs http download)", async () => {
+    const registry = seedRegistry([]);
+    const schema = { type: "object" };
+    const schemaJson = JSON.stringify(schema);
+    const manifest: SchemaUpdateManifest = {
+      version: 1,
+      timestamp: "2026-04-12T00:00:00Z",
+      schemas: [
+        {
+          id: "different-scheme",
+          version: "1.0.0",
+          checksum: sha256(schemaJson),
+          // http scheme vs https manifest → different origin.
+          downloadUrl: "http://a.example.com/schemas/1.json",
+        },
+      ],
+    };
+    const config = makeConfig({
+      manifestUrl: "https://a.example.com/manifest.json",
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(manifest),
+    });
+
+    const result = await checkForUpdates(config, registry);
+
+    expect(result.listSchemas()).not.toContain("different-scheme");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(config.logger?.warn).toHaveBeenCalledWith(
+      expect.stringContaining("differs from manifest origin"),
     );
   });
 });

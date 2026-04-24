@@ -836,4 +836,169 @@ describe("IPC Handler Integration Tests", () => {
       expect(storeData["keyRotationDismissedUntil"]).toBe("2026-05-01T00:00:00.000Z");
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Error-response sanitisation (LOW-01)
+  // -----------------------------------------------------------------------
+  describe("IPC error sanitisation", () => {
+    it("KEY_IMPORT scrubs filesystem paths from the error response", async () => {
+      // Pointing at a non-existent POSIX path causes the underlying fs
+      // layer to throw with the absolute path embedded in the message.
+      // The sanitised response must NOT contain /Users/alice/....
+      const handler = registeredHandlers[IPC_CHANNELS.KEY_IMPORT];
+      const result = (await handler(fakeEvent, {
+        filePath: "/Users/alice/private.pem",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(typeof result.error).toBe("string");
+      // The raw error would typically embed the full path; after
+      // sanitisation, only the basename should appear.
+      expect(result.error).not.toContain("/Users/alice");
+      expect(result.error).not.toContain("/Users/alice/private.pem");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Security audit — HIGH-02, HIGH-03
+  // -----------------------------------------------------------------------
+  describe("Security audit regressions", () => {
+    /**
+     * HIGH-03: PKCS#11 library path allowlist.
+     * The detect handler must refuse an attacker-controlled path that points
+     * outside the platform library allowlist, even if the file exists and
+     * carries the right extension.
+     */
+    it("pkcs11:detect rejects a path outside the allowlist", async () => {
+      const handler = registeredHandlers[IPC_CHANNELS.PKCS11_DETECT];
+      const result = (await handler(fakeEvent, {
+        libraryPath: "/tmp/evil.dylib",
+      })) as { exists: boolean; error?: string };
+
+      expect(result.exists).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error).toMatch(/path rejected/i);
+      // Must NEVER echo the attacker-supplied path back in the error.
+      expect(result.error).not.toContain("/tmp/evil.dylib");
+    });
+
+    it("pkcs11:list-slots rejects a path outside the allowlist", async () => {
+      const handler = registeredHandlers[IPC_CHANNELS.PKCS11_LIST_SLOTS];
+      const result = (await handler(fakeEvent, {
+        libraryPath: "/tmp/evil.dylib",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/path rejected/i);
+    });
+
+    it("pkcs11:list-keys rejects a path outside the allowlist", async () => {
+      const handler = registeredHandlers[IPC_CHANNELS.PKCS11_LIST_KEYS];
+      const result = (await handler(fakeEvent, {
+        libraryPath: "/tmp/evil.dylib",
+        slotIndex: 0,
+        pin: "1234",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/path rejected/i);
+    });
+
+    it("pkcs11:connect rejects a path outside the allowlist", async () => {
+      const handler = registeredHandlers[IPC_CHANNELS.PKCS11_CONNECT];
+      const result = (await handler(fakeEvent, {
+        libraryPath: "/tmp/evil.dylib",
+        slotIndex: 0,
+        pin: "1234",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/path rejected/i);
+    });
+
+    /**
+     * HIGH-02: `BuildAndSignRequest` Zod validation.
+     * A renderer (or a compromised IPC client) must not be able to pass a
+     * `subjectDid` with a dangerous URI scheme — `javascript:`, `data:`,
+     * `file:`, or path-traversal — into the signed credential.
+     */
+    it("credential:build-and-sign rejects a javascript: subjectDid", async () => {
+      const { keyId } = await importTestKey();
+      const result = await buildAndSign({
+        keyId,
+        schemaId: "functional-identity/v1",
+        issuerDid: "did:key:z6Mktest",
+        credentialSubject: {
+          name: "Jane Doe",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
+        },
+        validFrom: "2025-01-01T00:00:00Z",
+        proofFormat: "vc-jwt",
+        subjectDid: "javascript:alert(1)",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe("VALIDATION_ERROR");
+      expect(result.error).toMatch(/subjectDid/);
+    });
+
+    it("credential:build-and-sign rejects a data: subjectDid", async () => {
+      const { keyId } = await importTestKey();
+      const result = await buildAndSign({
+        keyId,
+        schemaId: "functional-identity/v1",
+        issuerDid: "did:key:z6Mktest",
+        credentialSubject: {
+          name: "Jane Doe",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
+        },
+        validFrom: "2025-01-01T00:00:00Z",
+        proofFormat: "vc-jwt",
+        subjectDid: "data:text/html,<script>",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe("VALIDATION_ERROR");
+    });
+
+    it("credential:build-and-sign accepts a valid did:key subjectDid", async () => {
+      const { keyId } = await importTestKey();
+      const result = await buildAndSign({
+        keyId,
+        schemaId: "functional-identity/v1",
+        issuerDid: "did:key:z6Mktest",
+        credentialSubject: {
+          name: "Jane Doe",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
+        },
+        validFrom: "2025-01-01T00:00:00Z",
+        proofFormat: "vc-jwt",
+        subjectDid: "did:key:z6MkHolderValid",
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it("credential:build-and-sign accepts a valid urn:uuid subjectDid", async () => {
+      const { keyId } = await importTestKey();
+      const result = await buildAndSign({
+        keyId,
+        schemaId: "functional-identity/v1",
+        issuerDid: "did:key:z6Mktest",
+        credentialSubject: {
+          name: "Jane Doe",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
+        },
+        validFrom: "2025-01-01T00:00:00Z",
+        proofFormat: "vc-jwt",
+        subjectDid: "urn:uuid:12345678-1234-1234-1234-123456789abc",
+      });
+
+      expect(result.success).toBe(true);
+    });
+  });
 });

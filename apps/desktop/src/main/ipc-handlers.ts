@@ -59,6 +59,7 @@ import type {
   Pkcs11ListKeysResponse,
   Pkcs11ConnectRequest,
   Pkcs11ConnectResponse,
+  Pkcs11PickLibraryResponse,
   UpdateStatusResponse,
   OsCertListResponse,
   OsCertSignRequest,
@@ -82,8 +83,12 @@ import type {
   LogTailResponse,
 } from "../shared/ipc-types.js";
 import { createLogger, getLogFilePath, readRecentLogs } from "./logger.js";
-import { getStore, restrictStoreFilePermissions, CREDENTIAL_HISTORY_CAP } from "./store.js";
-import type { CredentialHistoryEntry, CustomSchemaEntry } from "./store.js";
+import { getStore, restrictStoreFilePermissions } from "./store.js";
+import type {
+  CredentialHistoryEntry,
+  CustomSchemaEntry,
+  RecentTemplateEntry,
+} from "./store.js";
 import { createSoftwareSigner, buildSigner } from "../signing/software-signer.js";
 import type { PersistedSignerEntry } from "./persisted-signer-loader.js";
 import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local-signing-flow.js";
@@ -95,7 +100,15 @@ import { generateKeyPairSync, createPublicKey, randomUUID, createHash } from "no
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { parseCredentialJson } from "../packaging/json-export.js";
-import { CryptoError, ValidationError, SchemaValidationError, isPrivateIP, assertJwtSize } from "@opencred/shared";
+import {
+  CryptoError,
+  ValidationError,
+  SchemaValidationError,
+  OpenCredError,
+  sanitizeErrorMessage,
+  resolveDnsForSsrf,
+  assertJwtSize,
+} from "@opencred/shared";
 import { SchemaRegistry, generateSchemaFromFields } from "@opencred/schema-engine";
 import { packageCredential as packageCredentialWithTemplates } from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
@@ -108,6 +121,11 @@ import type { BatchEngine, BatchRowResult } from "../batch/batch-engine.js";
 import { exportBatchAsZip } from "../batch/batch-export.js";
 // PKCS#11 imports are lazy to avoid requiring the native pkcs11.node addon at startup.
 // The actual imports happen inside the handler functions via dynamic import().
+import {
+  validatePkcs11Path,
+  ALLOWED_PKCS11_DIRS_BY_PLATFORM,
+} from "./pkcs11-path-validator.js";
+import { buildAndSignRequestSchema, parseIpcRequest } from "../shared/ipc-schemas.js";
 
 import {
   checkForUpdates,
@@ -126,6 +144,37 @@ import {
 } from "@opencred/dedi-client";
 import type { ContextRecord } from "@opencred/dedi-client";
 import { generateInlineContext } from "@opencred/vc-core";
+
+// ---------------------------------------------------------------------------
+// IPC error sanitisation
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a sanitised error message for an IPC response.
+ *
+ * Main-process logs remain untouched — they're trusted and useful for
+ * debugging. But the message that crosses the IPC boundary into the
+ * renderer (and ultimately into the DOM) must never leak filesystem
+ * paths, PEM blocks, key fingerprints, or stack traces.
+ *
+ * - If `err` is an {@link OpenCredError}, its `toJSON()` already produces
+ *   a sanitised body — use that message.
+ * - Otherwise, pass the raw `Error.message` through
+ *   {@link sanitizeErrorMessage} which strips POSIX/Windows paths,
+ *   PEM blocks, long hex/base64 blobs, and V8 stack frames.
+ *
+ * Never returns `undefined` — falls back to `fallback`.
+ */
+function ipcErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof OpenCredError) {
+    const sanitized = err.toJSON();
+    const message = sanitized?.error?.message;
+    return typeof message === "string" && message.length > 0 ? message : fallback;
+  }
+  const raw = err instanceof Error ? err.message : fallback;
+  const sanitized = sanitizeErrorMessage(raw);
+  return sanitized.length > 0 ? sanitized : fallback;
+}
 
 // ---------------------------------------------------------------------------
 // Config key allowlist
@@ -150,6 +199,40 @@ export const ALLOWED_CONFIG_KEYS = new Set([
   "selfPublishedKeyDomain",
   "organizationName",
 ]);
+
+/**
+ * Per-key validators for {@link handleSetConfig}.
+ *
+ * A validator throws a {@link ValidationError} when the value is not safe
+ * to persist. Only keys with sensitivity (user-controllable URLs, etc.)
+ * need an entry — most preference keys are plain primitives and fall
+ * through to the store unchanged.
+ */
+const CONFIG_KEY_VALIDATORS: Record<string, (value: unknown) => void> = {
+  bugReportFormUrl: (value: unknown) => {
+    if (typeof value !== "string") {
+      throw new ValidationError("bugReportFormUrl must be a string");
+    }
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new ValidationError("bugReportFormUrl must be a valid URL");
+    }
+    if (url.protocol !== "https:") {
+      throw new ValidationError("bugReportFormUrl must use https://");
+    }
+    const ALLOWED_HOSTS = ["forms.gle", "docs.google.com", "github.com"];
+    const ok = ALLOWED_HOSTS.some(
+      (host) => url.hostname === host || url.hostname.endsWith(`.${host}`),
+    );
+    if (!ok) {
+      throw new ValidationError(
+        `bugReportFormUrl host not permitted: ${url.hostname}`,
+      );
+    }
+  },
+};
 
 // ---------------------------------------------------------------------------
 // In-memory registries
@@ -262,7 +345,7 @@ async function handleKeyImport(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to import key.";
     logger.error("Key import failed", { error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to import key.") };
   }
 }
 
@@ -306,7 +389,7 @@ async function handleKeyGenerate(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Key generation failed.";
     logger.error("Key generation failed", { error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Key generation failed.") };
   }
 }
 
@@ -396,7 +479,7 @@ async function handleSignCredential(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Signing failed.";
     logger.error("Credential signing failed", { keyId: request.keyId, error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Signing failed.") };
   }
 }
 
@@ -409,8 +492,24 @@ async function handleSignCredential(
  */
 async function handleBuildAndSign(
   _event: IpcMainInvokeEvent,
-  request: BuildAndSignRequest,
+  rawRequest: BuildAndSignRequest,
 ): Promise<BuildAndSignResponse> {
+  // SECURITY (HIGH-02): validate the IPC payload via Zod BEFORE any signing
+  // logic runs. The schema refuses `subjectDid` values that aren't safe URIs
+  // (e.g. `javascript:alert(1)`, `data:...`, `file:...`) so we never embed an
+  // active-content URI into a signed credential's `credentialSubject.id`.
+  const parsed = parseIpcRequest(buildAndSignRequestSchema, rawRequest);
+  if (!parsed.ok) {
+    logger.warn("Build and sign rejected by schema", { reason: parsed.error });
+    return {
+      success: false,
+      error: `Invalid build-and-sign request: ${parsed.error}`,
+      errorCode: "VALIDATION_ERROR",
+    };
+  }
+  // `request` is the validated, typed payload — use it from here on.
+  const request = parsed.value as BuildAndSignRequest;
+
   const signer = loadedSigners.get(request.keyId);
   if (!signer) {
     return { success: false, error: `Key not found: ${request.keyId}`, errorCode: "KEY_NOT_FOUND" };
@@ -672,7 +771,12 @@ async function handleBuildAndSign(
     }
 
     logger.error("Build and sign failed", { keyId: request.keyId, errorCode, error: message });
-    return { success: false, error: message, errorCode, errorField };
+    return {
+      success: false,
+      error: ipcErrorMessage(err, "Build and sign failed."),
+      errorCode,
+      errorField,
+    };
   }
 }
 
@@ -799,7 +903,7 @@ async function handleVerifyCredential(
       message.includes("resolve hostname") || message.includes("Timeout fetching");
     const userMessage = isNetworkError
       ? "Verification requires network access to resolve the issuer's DID document (did:web). Please check your connection."
-      : message;
+      : ipcErrorMessage(err, "Verification failed.");
     logger.error("Credential verification failed", { error: message });
     return { success: false, error: userMessage };
   }
@@ -855,7 +959,7 @@ async function handlePackageCredential(
           });
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Template packaging failed.";
+        const message = ipcErrorMessage(err, "Template packaging failed.");
         for (const fmt of templateRequested) {
           allErrors.push({ format: fmt, error: message });
         }
@@ -886,8 +990,10 @@ async function handlePackageCredential(
       errors: allErrors.length > 0 ? allErrors : undefined,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Packaging failed.";
-    return { success: false, errors: [{ format: "unknown", error: message }] };
+    return {
+      success: false,
+      errors: [{ format: "unknown", error: ipcErrorMessage(err, "Packaging failed.") }],
+    };
   }
 }
 
@@ -916,8 +1022,7 @@ async function handleRevocationQueue(
       },
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to queue revocation.";
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to queue revocation.") };
   }
 }
 
@@ -1033,6 +1138,7 @@ async function handleSetConfig(
   if (!ALLOWED_CONFIG_KEYS.has(request.key)) {
     throw new Error(`Config key '${request.key}' is not accessible via setConfig`);
   }
+  CONFIG_KEY_VALIDATORS[request.key]?.(request.value);
   const store = getStore();
   store.set(request.key as keyof typeof store.store, request.value);
 }
@@ -1124,7 +1230,7 @@ async function handleBatchStart(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to start batch.";
     logger.error("Batch start failed", { error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to start batch.") };
   }
 }
 
@@ -1199,8 +1305,7 @@ async function handleBatchExport(
       fileCount: result.fileCount,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Export failed.";
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Export failed.") };
   }
 }
 
@@ -1209,31 +1314,23 @@ async function handleBatchExport(
 // ---------------------------------------------------------------------------
 
 /**
- * PKCS11_DETECT — check if a PKCS#11 library exists at the given path.
+ * PKCS11_DETECT — check if a PKCS#11 library exists at the given path AND that
+ * the path resolves inside the trusted system library allowlist. See
+ * `pkcs11-path-validator.ts` for rationale.
  */
 async function handlePkcs11Detect(
   _event: IpcMainInvokeEvent,
   request: Pkcs11DetectRequest,
 ): Promise<Pkcs11DetectResponse> {
   try {
-    const stat = await fs.stat(request.libraryPath);
-    if (!stat.isFile()) {
-      return { exists: false, error: "Path is not a file" };
-    }
-
-    const ext = request.libraryPath.toLowerCase();
-    const validExtensions = [".so", ".dll", ".dylib"];
-    const hasValidExt = validExtensions.some((e) => ext.endsWith(e));
-    if (!hasValidExt) {
-      return {
-        exists: true,
-        error: "File does not have a shared library extension (.so, .dll, .dylib)",
-      };
-    }
-
+    await validatePkcs11Path(request.libraryPath);
     return { exists: true };
-  } catch {
-    return { exists: false, error: "File not found" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Path rejected.";
+    // The validator uses "path rejected: <reason>" wording, so the file can
+    // be either missing or simply outside the allowlist. Surface the reason
+    // to the UI but never echo the attacker-controlled user path.
+    return { exists: false, error: message };
   }
 }
 
@@ -1246,12 +1343,13 @@ async function handlePkcs11ListSlots(
 ): Promise<Pkcs11ListSlotsResponse> {
   let p11;
   try {
+    const validatedPath = await validatePkcs11Path(request.libraryPath);
     const {
       initializePkcs11,
       finalizePkcs11,
       listSlots: listPkcs11Slots,
     } = await import("../signing/pkcs11-session.js");
-    p11 = initializePkcs11(request.libraryPath);
+    p11 = initializePkcs11(validatedPath);
     const slots = listPkcs11Slots(p11);
     finalizePkcs11(p11);
 
@@ -1270,8 +1368,7 @@ async function handlePkcs11ListSlots(
       const { finalizePkcs11 } = await import("../signing/pkcs11-session.js");
       finalizePkcs11(p11);
     }
-    const message = err instanceof Error ? err.message : "Failed to list PKCS#11 slots.";
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to list PKCS#11 slots.") };
   }
 }
 
@@ -1285,6 +1382,7 @@ async function handlePkcs11ListKeys(
   let p11;
   let session;
   try {
+    const validatedPath = await validatePkcs11Path(request.libraryPath);
     const {
       initializePkcs11,
       finalizePkcs11,
@@ -1292,7 +1390,7 @@ async function handlePkcs11ListKeys(
       closeSession: closePkcs11Session,
       listKeys: listPkcs11Keys,
     } = await import("../signing/pkcs11-session.js");
-    p11 = initializePkcs11(request.libraryPath);
+    p11 = initializePkcs11(validatedPath);
     session = openPkcs11Session(p11, request.slotIndex, request.pin);
     const keys = listPkcs11Keys(session);
     closePkcs11Session(session);
@@ -1315,8 +1413,7 @@ async function handlePkcs11ListKeys(
     if (p11 && pkcs11Session) {
       pkcs11Session.finalizePkcs11(p11);
     }
-    const message = err instanceof Error ? err.message : "Failed to list keys.";
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to list keys.") };
   }
 }
 
@@ -1328,9 +1425,10 @@ async function handlePkcs11Connect(
   request: Pkcs11ConnectRequest,
 ): Promise<Pkcs11ConnectResponse> {
   try {
+    const validatedPath = await validatePkcs11Path(request.libraryPath);
     const { createPkcs11Signer } = await import("../signing/pkcs11-signer.js");
     const { signer, availableKeys } = createPkcs11Signer({
-      libraryPath: request.libraryPath,
+      libraryPath: validatedPath,
       slotIndex: request.slotIndex,
       pin: request.pin,
       keyId: request.keyId,
@@ -1368,6 +1466,52 @@ async function handlePkcs11Connect(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to connect to hardware token.";
     logger.error("PKCS#11 connect failed", { error: message });
+    return {
+      success: false,
+      error: ipcErrorMessage(err, "Failed to connect to hardware token."),
+    };
+  }
+}
+
+/**
+ * PKCS11_PICK_LIBRARY — native file picker scoped to the platform's PKCS#11
+ * allowlist. The chosen path is round-tripped through `validatePkcs11Path` so
+ * symlink escapes or user-typed paths in the dialog's file-name field are
+ * rejected before any subsequent `initializePkcs11` call.
+ */
+async function handlePkcs11PickLibrary(): Promise<Pkcs11PickLibraryResponse> {
+  const platform = process.platform;
+  const allowed = ALLOWED_PKCS11_DIRS_BY_PLATFORM[platform];
+  if (!allowed || allowed.length === 0) {
+    return {
+      success: false,
+      error: "Platform not supported for PKCS#11 loading.",
+    };
+  }
+
+  const filters: Array<{ name: string; extensions: string[] }> =
+    platform === "darwin"
+      ? [{ name: "PKCS#11 libraries", extensions: ["dylib"] }]
+      : platform === "win32"
+        ? [{ name: "PKCS#11 libraries", extensions: ["dll"] }]
+        : [{ name: "PKCS#11 libraries", extensions: ["so"] }];
+
+  const result = await dialog.showOpenDialog({
+    title: "Select PKCS#11 library",
+    defaultPath: allowed[0],
+    filters,
+    properties: ["openFile"],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { success: false };
+  }
+
+  try {
+    const validatedPath = await validatePkcs11Path(result.filePaths[0]);
+    return { success: true, libraryPath: validatedPath };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Path rejected.";
     return { success: false, error: message };
   }
 }
@@ -1418,8 +1562,7 @@ async function handleOsCertList(): Promise<OsCertListResponse> {
       storeName: result.storeName,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to list OS certificates.";
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to list OS certificates.") };
   }
 }
 
@@ -1455,8 +1598,7 @@ async function handleOsCertSign(
       signature: Buffer.from(signature).toString("base64"),
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "OS certificate signing failed.";
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "OS certificate signing failed.") };
   }
 }
 
@@ -1505,7 +1647,7 @@ async function handleOsCertConnect(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to connect OS certificate.";
     logger.error("OS certificate connect failed", { error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Failed to connect OS certificate.") };
   }
 }
 
@@ -1513,51 +1655,102 @@ async function handleOsCertConnect(
 // Credential history handlers
 // ---------------------------------------------------------------------------
 
-/** CREDENTIAL_HISTORY_LIST — return all credential history entries. */
+/**
+ * CREDENTIAL_HISTORY_LIST — return all credential history entries.
+ *
+ * @deprecated Reads are now routed to `recentTemplates`. The full VC JSON
+ * is intentionally not persisted, so entries only surface template metadata.
+ * UI that needs the signed credential must capture it from
+ * `BuildAndSignResponse.signedCredential` at signing time.
+ */
 async function handleCredentialHistoryList(): Promise<CredentialHistoryListResponse> {
   const store = getStore();
-  const history =
-    (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
-  return { entries: history };
+  const templates =
+    (store.get("recentTemplates" as keyof typeof store.store) as RecentTemplateEntry[]) ?? [];
+  return {
+    entries: templates.map((t) => ({
+      // Deterministic ID so repeated reads are stable across calls.
+      id: `template:${t.schemaId}`,
+      schemaId: t.schemaId,
+      schemaName: t.schemaName,
+      subjectSummary: `${t.useCount} issuance${t.useCount === 1 ? "" : "s"}`,
+      issuedAt: t.lastUsedAt,
+      keyFingerprint: "",
+    })),
+  };
 }
 
-/** CREDENTIAL_HISTORY_ADD — add a credential to history (FIFO cap). */
+/**
+ * CREDENTIAL_HISTORY_ADD — record an issuance event.
+ *
+ * @deprecated Writes are now routed to `recentTemplates`. The signed
+ * credential payload is NOT persisted — the request's `credentialJson`
+ * is no longer part of the contract and any copy stored on disk is a
+ * data-at-rest risk.
+ */
 async function handleCredentialHistoryAdd(
   _event: IpcMainInvokeEvent,
   request: CredentialHistoryAddRequest,
 ): Promise<CredentialHistoryEntry> {
   const store = getStore();
-  const history =
-    (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
+  const templates =
+    (store.get("recentTemplates" as keyof typeof store.store) as RecentTemplateEntry[]) ?? [];
 
-  const entry: CredentialHistoryEntry = {
-    id: randomUUID(),
+  const existing = templates.find((t) => t.schemaId === request.schemaId);
+  const issuedAt = new Date().toISOString();
+  if (existing) {
+    existing.lastUsedAt = issuedAt;
+    existing.useCount += 1;
+    existing.schemaName = request.schemaName;
+  } else {
+    templates.unshift({
+      schemaId: request.schemaId,
+      schemaName: request.schemaName,
+      lastUsedAt: issuedAt,
+      useCount: 1,
+    });
+  }
+  templates.sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
+  store.set(
+    "recentTemplates" as keyof typeof store.store,
+    templates.slice(0, RECENT_TEMPLATES_CAP),
+  );
+
+  return {
+    id: `template:${request.schemaId}`,
     schemaId: request.schemaId,
     schemaName: request.schemaName,
     subjectSummary: request.subjectSummary,
-    issuedAt: new Date().toISOString(),
-    credentialJson: request.credentialJson,
+    issuedAt,
     keyFingerprint: request.keyFingerprint,
     proofFormat: request.proofFormat,
   };
-
-  // Prepend new entry, cap at limit
-  const updated = [entry, ...history].slice(0, CREDENTIAL_HISTORY_CAP);
-  store.set("credentialHistory" as keyof typeof store.store, updated);
-  return entry;
 }
 
-/** CREDENTIAL_HISTORY_DELETE — remove a credential from history. */
+/**
+ * CREDENTIAL_HISTORY_DELETE — remove an entry.
+ *
+ * @deprecated Deletes are routed to `recentTemplates`. The deterministic
+ * id used above (`template:<schemaId>`) identifies the template.
+ */
 async function handleCredentialHistoryDelete(
   _event: IpcMainInvokeEvent,
   request: CredentialHistoryDeleteRequest,
 ): Promise<CredentialHistoryDeleteResponse> {
   const store = getStore();
-  const history =
-    (store.get("credentialHistory" as keyof typeof store.store) as CredentialHistoryEntry[]) ?? [];
-  const filtered = history.filter((e) => e.id !== request.id);
-  const deleted = filtered.length < history.length;
-  store.set("credentialHistory" as keyof typeof store.store, filtered);
+  const templates =
+    (store.get("recentTemplates" as keyof typeof store.store) as RecentTemplateEntry[]) ?? [];
+  // Accept either the new deterministic id or an older UUID id (no-op for
+  // the latter since data is already migrated).
+  const targetSchemaId = request.id.startsWith("template:")
+    ? request.id.slice("template:".length)
+    : null;
+  if (!targetSchemaId) {
+    return { deleted: false };
+  }
+  const filtered = templates.filter((t) => t.schemaId !== targetSchemaId);
+  const deleted = filtered.length < templates.length;
+  store.set("recentTemplates" as keyof typeof store.store, filtered);
   return { deleted };
 }
 
@@ -1581,12 +1774,19 @@ async function handleSchemaFetchUrl(
       return { success: false, error: "URL must use HTTPS" };
     }
 
-    // SSRF protection: resolve hostname and reject private IPs
+    // SSRF protection: resolve hostname and validate ALL resolved addresses
+    // (both A and AAAA) are public. `dns.lookup` only returns a single
+    // address which can leave other records unchecked — `resolveDnsForSsrf`
+    // validates every resolved IP and fails closed on DNS errors.
     const { hostname } = new URL(url);
-    const { promises: dnsPromises } = await import("node:dns");
-    const { address } = await dnsPromises.lookup(hostname);
-    if (isPrivateIP(address)) {
-      return { success: false, error: "URL resolves to a private IP address" };
+    try {
+      await resolveDnsForSsrf(hostname);
+    } catch (err) {
+      logger.warn("Schema fetch SSRF check failed", {
+        hostname,
+        error: err instanceof Error ? err.message : "unknown",
+      });
+      return { success: false, error: "URL resolves to a private or unreachable IP" };
     }
 
     const controller = new AbortController();
@@ -1634,7 +1834,7 @@ async function handleSchemaFetchUrl(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     logger.warn("Schema fetch failed", { url: request.url, error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Schema fetch failed.") };
   }
 }
 
@@ -2209,7 +2409,7 @@ async function handleDidWebExport(
   } catch (err) {
     return {
       success: false,
-      error: err instanceof Error ? err.message : "DID document export failed.",
+      error: ipcErrorMessage(err, "DID document export failed."),
     };
   }
 }
@@ -2231,7 +2431,7 @@ async function handleDidWebVerify(
     return {
       success: true,
       accessible: false,
-      error: err instanceof Error ? err.message : "DID verification failed.",
+      error: ipcErrorMessage(err, "DID verification failed."),
     };
   }
 }
@@ -2328,7 +2528,7 @@ async function handleDeDiSetConfig(
   } catch (err) {
     return {
       success: false,
-      error: err instanceof Error ? err.message : "Failed to configure DeDi",
+      error: ipcErrorMessage(err, "Failed to configure DeDi"),
     };
   }
 }
@@ -2386,7 +2586,7 @@ async function handleDeDiPublishSchema(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Schema publication failed";
     logger.error("DeDi schema publication failed", { schemaId: request.schemaId, error: message });
-    return { success: false, error: message };
+    return { success: false, error: ipcErrorMessage(err, "Schema publication failed.") };
   }
 }
 
@@ -2436,7 +2636,6 @@ import type {
   RecentTemplateRecordRequest,
 } from "../shared/ipc-types.js";
 import { RECENT_TEMPLATES_CAP } from "./store.js";
-import type { RecentTemplateEntry } from "./store.js";
 
 async function handleRecentTemplatesList(
   _event: IpcMainInvokeEvent,
@@ -2523,6 +2722,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.PKCS11_LIST_SLOTS, handlePkcs11ListSlots);
   ipcMain.handle(IPC_CHANNELS.PKCS11_LIST_KEYS, handlePkcs11ListKeys);
   ipcMain.handle(IPC_CHANNELS.PKCS11_CONNECT, handlePkcs11Connect);
+  ipcMain.handle(IPC_CHANNELS.PKCS11_PICK_LIBRARY, handlePkcs11PickLibrary);
 
   // Auto-update
   ipcMain.handle(IPC_CHANNELS.UPDATE_CHECK, handleUpdateCheck);

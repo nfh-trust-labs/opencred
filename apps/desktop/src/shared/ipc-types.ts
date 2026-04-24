@@ -523,6 +523,21 @@ export interface Pkcs11ConnectResponse {
   error?: string;
 }
 
+/**
+ * Response for PKCS11_PICK_LIBRARY: a main-process file picker that scopes the
+ * dialog to the platform-specific allowlist of trusted system library
+ * directories. The returned path has already been validated and resolved via
+ * realpath, so callers can pass it directly to subsequent PKCS#11 IPC calls.
+ */
+export interface Pkcs11PickLibraryResponse {
+  /** Whether a path was selected and validated. False if user cancelled or validation failed. */
+  success: boolean;
+  /** Validated, canonicalized absolute path. Null when user cancelled. */
+  libraryPath?: string;
+  /** Rejection reason (e.g. "outside the trusted system library directories"). */
+  error?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Auto-update
 // ---------------------------------------------------------------------------
@@ -742,13 +757,18 @@ export interface RecentTemplateRecordRequest {
 
 // ---------------------------------------------------------------------------
 // Credential history (deprecated — replaced by recent templates)
+//
+// NOTE: the full signed credential JSON is NOT persisted. These handlers are
+// thin shims over `recentTemplates`, so `credentialJson` has been removed
+// from request/response shapes. Consumers that need the freshly signed VC
+// must capture it from {@link BuildAndSignResponse.signedCredential} at
+// signing time.
 // ---------------------------------------------------------------------------
 
 export interface CredentialHistoryAddRequest {
   schemaId: string;
   schemaName: string;
   subjectSummary: string;
-  credentialJson: string;
   keyFingerprint: string;
   proofFormat?: string;
 }
@@ -760,7 +780,6 @@ export interface CredentialHistoryListResponse {
     schemaName: string;
     subjectSummary: string;
     issuedAt: string;
-    credentialJson: string;
     keyFingerprint: string;
     proofFormat?: string;
   }>;
@@ -915,6 +934,7 @@ export interface OpenCredDesktopAPI {
   pkcs11ListSlots: (request: Pkcs11ListSlotsRequest) => Promise<Pkcs11ListSlotsResponse>;
   pkcs11ListKeys: (request: Pkcs11ListKeysRequest) => Promise<Pkcs11ListKeysResponse>;
   pkcs11Connect: (request: Pkcs11ConnectRequest) => Promise<Pkcs11ConnectResponse>;
+  pkcs11PickLibrary: () => Promise<Pkcs11PickLibraryResponse>;
 
   // Auto-update
   updateCheck: () => Promise<UpdateStatusResponse>;

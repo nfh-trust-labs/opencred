@@ -15,7 +15,19 @@ import { createLogger } from "./logger.js";
 
 const logger = createLogger("store");
 
-/** A record of a previously issued credential (stored locally). */
+/**
+ * A record of a previously issued credential (stored locally).
+ *
+ * @deprecated Use {@link RecentTemplateEntry} instead — credential history
+ * is migrated on startup and {@link migrateCredentialHistory} clears the
+ * old store. This type is retained only so legacy reads of the persisted
+ * data on disk type-check during the migration step.
+ *
+ * NOTE: the `credentialJson` field has been removed. Signed credentials
+ * are ephemeral and never persisted to disk; consumers that need the
+ * full VC must capture it at signing time (see {@link
+ * BuildAndSignResponse.signedCredential}).
+ */
 export interface CredentialHistoryEntry {
   /** Unique ID for this history entry. */
   id: string;
@@ -27,8 +39,6 @@ export interface CredentialHistoryEntry {
   subjectSummary: string;
   /** ISO 8601 timestamp when the credential was issued. */
   issuedAt: string;
-  /** The full signed credential JSON (serialized). */
-  credentialJson: string;
   /** Fingerprint of the key used to sign. */
   keyFingerprint: string;
   /** Proof format used (backward-compatible — absent means "vc-jwt"). */
@@ -163,6 +173,59 @@ const DEFAULTS: StoreSchema = {
 let store: ElectronStore<StoreSchema> | null = null;
 
 /**
+ * One-time migration from the deprecated `credentialHistory` field to
+ * `recentTemplates`.
+ *
+ * For each legacy history entry that does not already have a matching
+ * `recentTemplates` row (keyed by `schemaId`), insert a summary entry.
+ * After migration the `credentialHistory` field is cleared so the full
+ * credential JSON is no longer persisted on disk.
+ *
+ * Exposed so callers (and tests) can run the migration on-demand; `initStore`
+ * also calls it automatically on first use.
+ */
+export function migrateCredentialHistory(s: ElectronStore<StoreSchema>): void {
+  // electron-store's generic get() returns the value defaulted via the schema
+  // (here, []). Read safely to tolerate older on-disk shapes.
+  const history = (s.get("credentialHistory") as unknown as CredentialHistoryEntry[] | undefined) ?? [];
+  if (history.length === 0) {
+    return;
+  }
+  const templates = (s.get("recentTemplates") as unknown as RecentTemplateEntry[] | undefined) ?? [];
+  const bySchema = new Map<string, RecentTemplateEntry>();
+  for (const t of templates) {
+    bySchema.set(t.schemaId, t);
+  }
+  for (const entry of history) {
+    const existing = bySchema.get(entry.schemaId);
+    if (existing) {
+      // Keep the richer existing entry; bump lastUsedAt if the legacy entry is newer.
+      if (entry.issuedAt > existing.lastUsedAt) {
+        existing.lastUsedAt = entry.issuedAt;
+      }
+      existing.useCount += 1;
+      continue;
+    }
+    const migrated: RecentTemplateEntry = {
+      schemaId: entry.schemaId,
+      schemaName: entry.schemaName,
+      lastUsedAt: entry.issuedAt,
+      useCount: 1,
+    };
+    bySchema.set(entry.schemaId, migrated);
+  }
+  const merged = Array.from(bySchema.values()).sort((a, b) =>
+    b.lastUsedAt.localeCompare(a.lastUsedAt),
+  );
+  s.set("recentTemplates", merged.slice(0, RECENT_TEMPLATES_CAP));
+  s.set("credentialHistory", []);
+  logger.info("Migrated credentialHistory → recentTemplates", {
+    migrated: history.length,
+    templates: merged.length,
+  });
+}
+
+/**
  * Initialise the store. Call once during app startup.
  */
 export function initStore(): ElectronStore<StoreSchema> {
@@ -171,6 +234,7 @@ export function initStore(): ElectronStore<StoreSchema> {
       name: "opencred-config",
       defaults: DEFAULTS,
     });
+    migrateCredentialHistory(store);
   }
   return store;
 }

@@ -36,7 +36,6 @@ function createTestCredential(): UnsignedCredential {
 const defaultProofOptions: ProofOptions = {
   verificationMethod: "did:web:university.example#key-p384",
   proofPurpose: "assertionMethod",
-  created: "2026-01-01T00:00:00Z",
 };
 
 describe("P-384 Data Integrity — signCredential", () => {
@@ -129,7 +128,10 @@ describe("P-384 Data Integrity — sign/verify round-trip", () => {
     // The proof metadata should be correct
     expect(signedVC.proof.verificationMethod).toBe("did:web:university.example#key-p384");
     expect(signedVC.proof.proofPurpose).toBe("assertionMethod");
-    expect(signedVC.proof.created).toBe("2026-01-01T00:00:00Z");
+    // `created` is always server-generated; assert it's a valid ISO 8601 timestamp.
+    expect(signedVC.proof.created).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/,
+    );
   });
 });
 
