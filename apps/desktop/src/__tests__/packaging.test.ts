@@ -33,6 +33,8 @@ const { privateKey: testPrivateKey } = generateKeyPairSync("ec", {
 });
 
 beforeAll(async () => {
+  const { bootstrapTestValidator } = await import("./setup-validator.js");
+  bootstrapTestValidator();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "opencred-packaging-test-"));
 
   const pemKey = testPrivateKey.export({ format: "pem", type: "pkcs8" }) as string;

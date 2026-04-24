@@ -261,7 +261,7 @@ window.opencred = {
   },
   async credentialHistoryAdd({ schemaId, schemaName, subjectSummary, keyFingerprint, proofFormat }) {
     const entry = {
-      id: `template:${schemaId}`,
+      id: \`template:${schemaId}\`,
       schemaId, schemaName, subjectSummary, keyFingerprint,
       proofFormat: proofFormat || 'vc-jwt',
       issuedAt: new Date().toISOString(),

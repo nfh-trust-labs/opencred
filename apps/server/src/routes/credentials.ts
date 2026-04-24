@@ -17,9 +17,9 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { CredentialBuilder, isValidSubjectUri } from "@opencred/vc-core";
 import type { VerifiableCredential } from "@opencred/vc-core";
-import { Validator } from "@opencred/schema-engine";
 import type { SchemaRegistry } from "@opencred/schema-engine";
 import { getSchemaRegistry } from "../schema-registry-singleton.js";
+import { getValidator } from "../validator-singleton.js";
 import {
   prepareVcJwtProof,
   completeVcJwtProof,
@@ -36,6 +36,7 @@ import { requireSigner } from "../signing/key-manager.js";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { credentialsIssuedTotal, credentialsVerifiedTotal } from "../metrics.js";
+import { getLogger } from "../logger.js";
 
 const credentials = new Hono();
 
@@ -65,17 +66,11 @@ export const customizationSchema = z
       .string()
       .regex(/^#[0-9a-fA-F]{6}$/, "6-digit hex color required")
       .optional(),
-    logoDataUri: z
-      .string()
-      .startsWith("data:image/", "Must be data URI")
-      .optional(),
+    logoDataUri: z.string().startsWith("data:image/", "Must be data URI").optional(),
     logoWidth: z.number().int().min(10).max(200).optional(),
     logoHeight: z.number().int().min(10).max(200).optional(),
     footerText: z.string().max(500).optional(),
-    sealDataUri: z
-      .string()
-      .startsWith("data:image/", "Must be data URI")
-      .optional(),
+    sealDataUri: z.string().startsWith("data:image/", "Must be data URI").optional(),
     issuerDisplayName: z.string().max(200).optional(),
   })
   .optional();
@@ -120,6 +115,16 @@ const FORBIDDEN_REQUEST_KEYS = new Set([
 const PEM_PRIVATE_KEY_RE = /-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----/;
 
 /**
+ * Upper bound on how many bytes of a long string value we scan for PEM
+ * headers. PEM blocks always begin with the `-----BEGIN ...-----` marker at
+ * the top of the blob, so a 4 KiB prefix is far more than enough to catch
+ * any realistic "key pasted into a CSV cell" attack without scanning the
+ * entire `csvContent` field (which can be up to 200 MiB under
+ * `OPENCRED_MAX_BATCH_BODY_BYTES`). See Anand's P3-03.
+ */
+const PEM_SCAN_PREFIX_BYTES = 4_096;
+
+/**
  * Recursively walk an unknown JSON value and throw a ValidationError if any
  * key in {@link FORBIDDEN_REQUEST_KEYS} is present, OR if any string value
  * looks like a PEM-encoded private key.
@@ -134,11 +139,18 @@ const PEM_PRIVATE_KEY_RE = /-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----/;
  */
 export function rejectKeyMaterial(value: unknown, path = ""): void {
   if (value === null || typeof value !== "object") {
-    if (typeof value === "string" && PEM_PRIVATE_KEY_RE.test(value)) {
-      throw new ValidationError(
-        `Request rejected: field at "${path || "<root>"}" looks like a PEM-encoded private key. ` +
-          "OpenCred never accepts private key material via the HTTP API.",
-      );
+    if (typeof value === "string") {
+      // Long string? Only scan the head. A PEM header always appears near
+      // the top of a key blob; scanning the tail adds no coverage but can
+      // block the event loop for tens of ms on a 200 MiB CSV payload.
+      const sample =
+        value.length > PEM_SCAN_PREFIX_BYTES ? value.slice(0, PEM_SCAN_PREFIX_BYTES) : value;
+      if (PEM_PRIVATE_KEY_RE.test(sample)) {
+        throw new ValidationError(
+          `Request rejected: field at "${path || "<root>"}" looks like a PEM-encoded private key. ` +
+            "OpenCred never accepts private key material via the HTTP API.",
+        );
+      }
     }
     return;
   }
@@ -161,17 +173,13 @@ export function rejectKeyMaterial(value: unknown, path = ""): void {
   }
 }
 
-let validatorInstance: Validator | null = null;
-
+// The Validator is a single process-wide instance held by
+// `validator-singleton.ts`. The route uses `getValidator()` instead of a
+// lazily-cached module-scope Validator to avoid binding the route's
+// validator to a different registry snapshot than the one the batch engine
+// or CSV parser see — see Anand's P1-01.
 function getRegistry(): SchemaRegistry {
   return getSchemaRegistry();
-}
-
-function getValidator(): Validator {
-  if (!validatorInstance) {
-    validatorInstance = new Validator(getRegistry());
-  }
-  return validatorInstance;
 }
 
 // --- Request schemas ---
@@ -198,9 +206,7 @@ const issueRequestSchema = z.object({
   selectiveDisclosureClaims: z.array(z.string()).optional(),
   revocationRegistryUrl: z.string().url().optional(),
   credentialSchemaUrl: z.string().url().optional(),
-  packageFormats: z
-    .array(z.enum(["qr-png", "qr-svg", "pdf", "json", "json-compact"]))
-    .optional(),
+  packageFormats: z.array(z.enum(["qr-png", "qr-svg", "pdf", "json", "json-compact"])).optional(),
   customization: customizationSchema,
 });
 
@@ -539,6 +545,18 @@ credentials.post("/credentials/verify", async (c) => {
   // `code` enum for programmatic handling instead. See
   // `sanitizeChecksForServerResponse` / `buildVerifyResponseBody` above for
   // the rationale.
+  //
+  // OBSERVABILITY (Anand's P2-04): the stripped `detail` strings are safe
+  // to log server-side (they stay off the wire, never reach an external
+  // caller) and are the only diagnostic operators have for intermittent
+  // verification failures — did:web resolution timeouts, X.509 chain
+  // issues, etc. Emit at DEBUG so production log volume stays bounded and
+  // the operator opts in via `OPENCRED_LOG_LEVEL=debug`.
+  getLogger().debug(
+    { code: verificationResult.code, checks: verificationResult.checks },
+    "Credential verification result (detail stripped from HTTP response)",
+  );
+
   credentialsVerifiedTotal.inc({ result: verificationResult.verified ? "valid" : "invalid" });
 
   return c.json(buildVerifyResponseBody(verificationResult));

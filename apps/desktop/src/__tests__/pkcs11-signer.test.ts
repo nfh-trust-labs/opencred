@@ -264,11 +264,11 @@ import {
   closeSession,
   listKeys,
 } from "../signing/pkcs11-session.js";
+import { publicKeyFromEcPoint, normalizeSignature } from "../signing/pkcs11-utils.js";
 import {
-  publicKeyFromEcPoint,
-  normalizeSignature,
-} from "../signing/pkcs11-utils.js";
-import { deriveDidKeyId as deriveDidKeyIdFromPublicKey, computeKeyFingerprint as computeFingerprint } from "@opencred/did";
+  deriveDidKeyId as deriveDidKeyIdFromPublicKey,
+  computeKeyFingerprint as computeFingerprint,
+} from "@opencred/did";
 
 // ---------------------------------------------------------------------------
 // Generate a real EC key pair once, after imports resolve.

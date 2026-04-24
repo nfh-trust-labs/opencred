@@ -287,6 +287,50 @@ describe("resolveAndValidateIp", () => {
   });
 });
 
+// --- BitstringStatusList fetch-timeout regression (P1-02 / #469) ---
+//
+// The bitstring-status fetch previously had no AbortSignal, so a stalled
+// remote host could hold the verify request open indefinitely. The fix
+// adds a 10 s AbortController. This test asserts the abort is wired by
+// stubbing fetch with a promise that rejects when the AbortSignal fires.
+
+describe("checkBitstringStatusList — fetch timeout (P1-02)", () => {
+  it("aborts the fetch after ~10s when the remote host stalls", async () => {
+    // Stub fetch so it observes the AbortSignal and rejects with AbortError
+    // as soon as the signal fires. We don't use real timers here — we just
+    // prove the signal is passed through.
+    const fetchSpy = vi.fn().mockImplementation((_url: string, opts: { signal: AbortSignal }) => {
+      return new Promise((_resolve, reject) => {
+        opts.signal.addEventListener("abort", () => {
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+        });
+      });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    vi.useFakeTimers();
+
+    const resultPromise = checkBitstringStatusList({
+      type: "BitstringStatusListEntry",
+      statusPurpose: "revocation",
+      statusListIndex: "0",
+      statusListCredential: "https://example.com/status/1",
+    });
+
+    // Fast-forward past the 10 s abort.
+    await vi.advanceTimersByTimeAsync(11_000);
+    const result = await resultPromise;
+
+    expect(result.passed).toBe(false);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+});
+
 // --- BitstringStatusList tests ---
 
 describe("checkBitstringStatusList", () => {
@@ -484,25 +528,20 @@ describe("checkBitstringStatusList", () => {
       ["255.255.255.255 broadcast", "255.255.255.255"],
     ];
 
-    it.each(privateRanges)(
-      "rejects hostname resolving to IPv4 %s (%s)",
-      async (_label, ip) => {
-        mockResolve4.mockResolvedValue([ip]);
-        mockResolve6.mockRejectedValue(
-          Object.assign(new Error("ENODATA"), { code: "ENODATA" }),
-        );
+    it.each(privateRanges)("rejects hostname resolving to IPv4 %s (%s)", async (_label, ip) => {
+      mockResolve4.mockResolvedValue([ip]);
+      mockResolve6.mockRejectedValue(Object.assign(new Error("ENODATA"), { code: "ENODATA" }));
 
-        const result = await checkBitstringStatusList({
-          type: "BitstringStatusListEntry",
-          statusPurpose: "revocation",
-          statusListIndex: "0",
-          statusListCredential: "https://status.example.org/status/1",
-        });
+      const result = await checkBitstringStatusList({
+        type: "BitstringStatusListEntry",
+        statusPurpose: "revocation",
+        statusListIndex: "0",
+        statusListCredential: "https://status.example.org/status/1",
+      });
 
-        expect(result.passed).toBe(false);
-        expect(result.detail).toContain("private/reserved IP");
-      },
-    );
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("private/reserved IP");
+    });
 
     const privateIPv6s: Array<[label: string, ip: string]> = [
       ["::1 loopback", "::1"],
@@ -513,25 +552,20 @@ describe("checkBitstringStatusList", () => {
       ["ff00::/8 multicast", "ff02::1"],
     ];
 
-    it.each(privateIPv6s)(
-      "rejects hostname resolving to IPv6 %s (%s)",
-      async (_label, ip) => {
-        mockResolve4.mockRejectedValue(
-          Object.assign(new Error("ENODATA"), { code: "ENODATA" }),
-        );
-        mockResolve6.mockResolvedValue([ip]);
+    it.each(privateIPv6s)("rejects hostname resolving to IPv6 %s (%s)", async (_label, ip) => {
+      mockResolve4.mockRejectedValue(Object.assign(new Error("ENODATA"), { code: "ENODATA" }));
+      mockResolve6.mockResolvedValue([ip]);
 
-        const result = await checkBitstringStatusList({
-          type: "BitstringStatusListEntry",
-          statusPurpose: "revocation",
-          statusListIndex: "0",
-          statusListCredential: "https://status.example.org/status/1",
-        });
+      const result = await checkBitstringStatusList({
+        type: "BitstringStatusListEntry",
+        statusPurpose: "revocation",
+        statusListIndex: "0",
+        statusListCredential: "https://status.example.org/status/1",
+      });
 
-        expect(result.passed).toBe(false);
-        expect(result.detail).toContain("private/reserved IP");
-      },
-    );
+      expect(result.passed).toBe(false);
+      expect(result.detail).toContain("private/reserved IP");
+    });
   });
 
   it("should reject invalid URL strings", async () => {

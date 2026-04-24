@@ -18,6 +18,7 @@ import type { LocalSigningOptions } from "../signing/local-signing-flow.js";
 import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat, PackagingResult } from "../packaging/packager.js";
 import { queueRevocation } from "../main/revocation-queue.js";
+import { extractRevocationHashFromStatusId } from "@opencred/crypto";
 import type { Signer } from "../signing/types.js";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import type { UiProofFormat } from "../shared/ipc-types.js";
@@ -170,10 +171,19 @@ export function createBatchEngine(signer: Signer, parsedRows: ParsedRow[], confi
         );
       }
 
-      // Queue revocation hash if a revocation registry URL is configured
+      // Queue revocation hash if a revocation registry URL is configured.
+      //
+      // The hash we queue MUST match what the verifier extracts from the
+      // credential's `credentialStatus.id`. Otherwise the DeDi record we
+      // publish is keyed by one hash while the verifier queries by another
+      // and revocation is silently broken (see
+      // `resolveRevocationHash` in `@opencred/crypto`).
       const credentialId = typeof result.credential === "string" ? undefined : result.credential.id;
       if (config.revocationRegistryUrl && credentialId) {
-        queueRevocation(credentialId, config.revocationRegistryUrl);
+        const revocationHash = extractRevocationHashFromStatusId(result.credential);
+        if (revocationHash) {
+          queueRevocation(credentialId, config.revocationRegistryUrl, { revocationHash });
+        }
       }
 
       rowResult.status = "success";

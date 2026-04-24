@@ -45,9 +45,27 @@ export const envSchema = z
     OPENCRED_SIGNING_KEY_PATH: z.string().optional(),
 
     // CORS
+    //
+    // Anand's P3-02: the previous default `http://localhost:5173` was the
+    // Vite dev-server port. In production, an operator who forgot to set
+    // `CORS_ORIGIN` shipped a silent CORS misconfiguration — every request
+    // from the real frontend got blocked and the only signal was the
+    // browser's CORS error (no server log). The default stays for dev/test
+    // convenience, but production now refuses to start without an explicit
+    // `CORS_ORIGIN` (see the superRefine below). Same pattern the server's
+    // `OPENCRED_API_KEY` uses.
     CORS_ORIGIN: z.string().default("http://localhost:5173"),
   })
   .superRefine((data, ctx) => {
+    if (data.NODE_ENV === "production" && data.CORS_ORIGIN === "http://localhost:5173") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "CORS_ORIGIN must be set to the production frontend origin when NODE_ENV=production " +
+          "(the default 'http://localhost:5173' is only appropriate for local development).",
+        path: ["CORS_ORIGIN"],
+      });
+    }
     if (data.DEDI_API_URL) {
       if (data.DEDI_AUTH_TYPE === "api-key" && !data.DEDI_API_KEY) {
         ctx.addIssue({

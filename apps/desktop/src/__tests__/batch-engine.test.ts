@@ -36,6 +36,7 @@ const { createSoftwareSigner } = await import("../signing/software-signer");
 const { parseCsv } = await import("../batch/csv-parser");
 const { createBatchEngine } = await import("../batch/batch-engine");
 import type { BatchProgress } from "../batch/batch-engine";
+import { bootstrapTestValidator } from "./setup-validator.js";
 
 let tmpDir: string;
 let keyPath: string;
@@ -46,6 +47,7 @@ const { privateKey: testPrivateKey } = generateKeyPairSync("ec", {
 });
 
 beforeAll(() => {
+  bootstrapTestValidator();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "opencred-batch-test-"));
   const keyContent = testPrivateKey.export({ format: "pem", type: "pkcs8" }) as string;
   keyPath = path.join(tmpDir, "test-key");

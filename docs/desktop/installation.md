@@ -21,13 +21,44 @@ Download the installer for your platform from the [GitHub Releases](https://gith
 | Linux | `OpenCred-<version>.AppImage` | Make the file executable (`chmod +x OpenCred-<version>.AppImage`) and run it. |
 | Linux (Debian/Ubuntu) | `opencred-desktop_<version>_amd64.deb` | `sudo dpkg -i opencred-desktop_<version>_amd64.deb` |
 
-### macOS code signing and notarization
+### macOS first launch (unsigned build)
 
-The macOS DMG is signed with NFH Trust Labs' Apple Developer ID and notarized through the Apple notary service. The first launch will trigger Gatekeeper, which verifies the signature against Apple's notarization records.
+> **Current releases are unsigned.** We are working toward signed + notarised
+> macOS releases; see [`release-signing.md`](release-signing.md) for the
+> roadmap. Until then, the first launch requires a one-time trust step.
 
-### Windows code signing
+macOS will show *"OpenCred cannot be opened because the developer cannot be
+verified"* on the first launch. To approve the app:
 
-The Windows installer is signed with an Authenticode certificate. Microsoft SmartScreen may prompt on the first download until the certificate has accumulated reputation; click **More info → Run anyway** if you trust the source.
+1. **Right-click** (or Ctrl-click) `OpenCred.app` in Finder → choose **Open**.
+2. In the confirmation dialog, click **Open** again.
+3. macOS remembers the approval. All subsequent launches work normally.
+
+If you instead see *"OpenCred is damaged and can't be opened"*, the download
+has been tagged with Apple's quarantine attribute in a way macOS can't
+reconcile with the unsigned bundle. Clear it from Terminal:
+
+```bash
+xattr -cr /Applications/OpenCred.app
+open /Applications/OpenCred.app
+```
+
+Auto-updates are **disabled** on unsigned builds — macOS will not install an
+update whose signing identity differs from the installed version's. Check
+[the releases page](https://github.com/nfh-trust-labs/opencred/releases)
+manually for new versions until signed releases ship.
+
+### Windows first launch (unsigned build)
+
+> **Current releases are unsigned.** Microsoft Defender SmartScreen will
+> block the installer on first run.
+
+When you run `OpenCred-Setup-<version>.exe`, SmartScreen shows *"Microsoft
+Defender SmartScreen prevented an unrecognised app from starting"*. To
+proceed:
+
+1. Click **More info**.
+2. Click **Run anyway**.
 
 ### Linux signature
 

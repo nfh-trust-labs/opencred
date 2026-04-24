@@ -38,12 +38,20 @@ function algorithmToGcpDigestField(alg: SigningAlgorithm): "sha256" | "sha384" {
 
 /**
  * Create a Signer backed by GCP Cloud KMS.
+ *
+ * Anand's P1-03: the GCP KMS client's default grpc transport manages its
+ * own channel pool and keepalive, so no extra agent plumbing is required.
+ * The `@google-cloud/kms` client accepts a top-level `timeout` that is
+ * applied across all gRPC retries plus exposes per-call timeouts via the
+ * second argument to `asymmetricSign` / `getPublicKey` (see below). Tie the
+ * constructor-level `timeout` to `timeoutMs` so that gRPC retries are
+ * bounded at the SDK level, not just per call.
  */
-export async function createGcpKmsSigner(keyName: string): Promise<Signer> {
-  const client = new KeyManagementServiceClient();
+export async function createGcpKmsSigner(keyName: string, timeoutMs = 30_000): Promise<Signer> {
+  const client = new KeyManagementServiceClient({ timeout: timeoutMs });
 
   // Get the public key to determine algorithm and derive DID
-  const [publicKeyResponse] = await client.getPublicKey({ name: keyName });
+  const [publicKeyResponse] = await client.getPublicKey({ name: keyName }, { timeout: timeoutMs });
   const gcpAlgorithm = publicKeyResponse.algorithm!;
   const algorithm = gcpAlgorithmToSigningAlgorithm(gcpAlgorithm as string);
 
@@ -75,10 +83,13 @@ export async function createGcpKmsSigner(keyName: string): Promise<Signer> {
     async sign(data: Uint8Array): Promise<Uint8Array> {
       const digest = digestField === "sha384" ? sha384(data) : sha256(data);
 
-      const [signResponse] = await client.asymmetricSign({
-        name: keyName,
-        digest: { [digestField]: digest },
-      });
+      const [signResponse] = await client.asymmetricSign(
+        {
+          name: keyName,
+          digest: { [digestField]: digest },
+        },
+        { timeout: timeoutMs },
+      );
 
       return new Uint8Array(signResponse.signature as Uint8Array);
     },

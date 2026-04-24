@@ -45,7 +45,10 @@ export function renderSvg(svgTemplate: string, options: RenderOptions): string {
   lookup.set("labelColor", escapeXml(customization?.labelColor ?? "#666666"));
   lookup.set("logoWidth", String(customization?.logoWidth ?? 50));
   lookup.set("logoHeight", String(customization?.logoHeight ?? 50));
-  lookup.set("footerText", escapeXml(customization?.footerText ?? "Verifiable Credential — powered by OpenCred"));
+  lookup.set(
+    "footerText",
+    escapeXml(customization?.footerText ?? "Verifiable Credential — powered by OpenCred"),
+  );
 
   if (customization?.logoDataUri) {
     lookup.set("logoDataUri", customization.logoDataUri);

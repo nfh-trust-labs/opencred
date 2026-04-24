@@ -174,53 +174,41 @@ describe("resolveDnsForSsrf", () => {
     vi.mocked(dns.resolve4).mockResolvedValue(["93.184.216.34"]);
     vi.mocked(dns.resolve6).mockRejectedValue(dnsError("ETIMEOUT"));
 
-    await expect(resolveDnsForSsrf("example.com")).rejects.toThrow(
-      "DNS AAAA lookup failed",
-    );
+    await expect(resolveDnsForSsrf("example.com")).rejects.toThrow("DNS AAAA lookup failed");
   });
 
   it("throws when A lookup has transient ESERVFAIL error", async () => {
     vi.mocked(dns.resolve4).mockRejectedValue(dnsError("ESERVFAIL"));
     vi.mocked(dns.resolve6).mockResolvedValue(["2606:2800:220:1:248:1893:25c8:1946"]);
 
-    await expect(resolveDnsForSsrf("example.com")).rejects.toThrow(
-      "DNS A lookup failed",
-    );
+    await expect(resolveDnsForSsrf("example.com")).rejects.toThrow("DNS A lookup failed");
   });
 
   it("throws when both lookups have transient errors", async () => {
     vi.mocked(dns.resolve4).mockRejectedValue(dnsError("ETIMEOUT"));
     vi.mocked(dns.resolve6).mockRejectedValue(dnsError("ECONNREFUSED"));
 
-    await expect(resolveDnsForSsrf("example.com")).rejects.toThrow(
-      "DNS A lookup failed",
-    );
+    await expect(resolveDnsForSsrf("example.com")).rejects.toThrow("DNS A lookup failed");
   });
 
   it("throws when A resolves to a private IP", async () => {
     vi.mocked(dns.resolve4).mockResolvedValue(["192.168.1.1"]);
     vi.mocked(dns.resolve6).mockRejectedValue(dnsError("ENODATA"));
 
-    await expect(resolveDnsForSsrf("evil.example")).rejects.toThrow(
-      "SSRF protection",
-    );
+    await expect(resolveDnsForSsrf("evil.example")).rejects.toThrow("SSRF protection");
   });
 
   it("throws when AAAA resolves to a private IPv6", async () => {
     vi.mocked(dns.resolve4).mockResolvedValue(["93.184.216.34"]);
     vi.mocked(dns.resolve6).mockResolvedValue(["::1"]);
 
-    await expect(resolveDnsForSsrf("evil.example")).rejects.toThrow(
-      "SSRF protection",
-    );
+    await expect(resolveDnsForSsrf("evil.example")).rejects.toThrow("SSRF protection");
   });
 
   it("throws on DNS error without a code property (fail-closed)", async () => {
     vi.mocked(dns.resolve4).mockResolvedValue(["93.184.216.34"]);
     vi.mocked(dns.resolve6).mockRejectedValue(new Error("unexpected"));
 
-    await expect(resolveDnsForSsrf("example.com")).rejects.toThrow(
-      "DNS AAAA lookup failed",
-    );
+    await expect(resolveDnsForSsrf("example.com")).rejects.toThrow("DNS AAAA lookup failed");
   });
 });

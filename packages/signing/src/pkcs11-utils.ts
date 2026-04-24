@@ -14,10 +14,7 @@
 import { createPublicKey, type KeyObject } from "node:crypto";
 import { CryptoError } from "@opencred/shared";
 import { derToRaw, publicKeyFromEcBytes } from "@opencred/crypto";
-import {
-  encodeDidJwk,
-  didJwkVerificationMethodId,
-} from "@opencred/did";
+import { encodeDidJwk, didJwkVerificationMethodId } from "@opencred/did";
 import type { SigningAlgorithm } from "@opencred/crypto";
 
 /**
@@ -75,8 +72,10 @@ export function publicKeyFromRsaComponents(
       key: { kty: "RSA", n, e },
       format: "jwk",
     });
-  } catch {
-    throw new CryptoError("Failed to construct RSA public key from modulus and exponent");
+  } catch (err) {
+    throw new CryptoError("Failed to construct RSA public key from modulus and exponent", {
+      cause: err,
+    });
   }
 }
 

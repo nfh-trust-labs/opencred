@@ -84,11 +84,7 @@ import type {
 } from "../shared/ipc-types.js";
 import { createLogger, getLogFilePath, readRecentLogs } from "./logger.js";
 import { getStore, restrictStoreFilePermissions } from "./store.js";
-import type {
-  CredentialHistoryEntry,
-  CustomSchemaEntry,
-  RecentTemplateEntry,
-} from "./store.js";
+import type { CredentialHistoryEntry, CustomSchemaEntry, RecentTemplateEntry } from "./store.js";
 import { createSoftwareSigner, buildSigner } from "../signing/software-signer.js";
 import type { PersistedSignerEntry } from "./persisted-signer-loader.js";
 import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local-signing-flow.js";
@@ -108,8 +104,9 @@ import {
   sanitizeErrorMessage,
   resolveDnsForSsrf,
   assertJwtSize,
+  canonicalJsonSha256,
 } from "@opencred/shared";
-import { SchemaRegistry, generateSchemaFromFields } from "@opencred/schema-engine";
+import { generateSchemaFromFields } from "@opencred/schema-engine";
 import { packageCredential as packageCredentialWithTemplates } from "./credential-export.js";
 import { queueRevocation, getQueueItems, publishPendingRevocations } from "./revocation-queue.js";
 import { deriveVerificationMethod } from "../signing/types.js";
@@ -121,11 +118,15 @@ import type { BatchEngine, BatchRowResult } from "../batch/batch-engine.js";
 import { exportBatchAsZip } from "../batch/batch-export.js";
 // PKCS#11 imports are lazy to avoid requiring the native pkcs11.node addon at startup.
 // The actual imports happen inside the handler functions via dynamic import().
+import { validatePkcs11Path, ALLOWED_PKCS11_DIRS_BY_PLATFORM } from "./pkcs11-path-validator.js";
 import {
-  validatePkcs11Path,
-  ALLOWED_PKCS11_DIRS_BY_PLATFORM,
-} from "./pkcs11-path-validator.js";
-import { buildAndSignRequestSchema, parseIpcRequest } from "../shared/ipc-schemas.js";
+  buildAndSignRequestSchema,
+  keyImportRequestSchema,
+  batchExportRequestSchema,
+  fileOpenRequestSchema,
+  fileSaveRequestSchema,
+  parseIpcRequest,
+} from "../shared/ipc-schemas.js";
 
 import {
   checkForUpdates,
@@ -191,13 +192,17 @@ export const ALLOWED_CONFIG_KEYS = new Set([
   "theme",
   "offlineMode",
   "persistKeyPaths",
-  "preferences",
+  // "preferences" intentionally excluded — it is an internal bag that
+  // contains the safeStorage-encrypted DeDi credential blob and imported-key
+  // paths; neither should be readable by the renderer via the generic
+  // getConfig/setConfig surface. Access goes through dedicated handlers.
   "bugReportFormUrl",
   "keyRotationDismissedUntil",
   "recentTemplates",
   "lastKeyId",
   "selfPublishedKeyDomain",
   "organizationName",
+  "branding",
 ]);
 
 /**
@@ -227,9 +232,7 @@ const CONFIG_KEY_VALIDATORS: Record<string, (value: unknown) => void> = {
       (host) => url.hostname === host || url.hostname.endsWith(`.${host}`),
     );
     if (!ok) {
-      throw new ValidationError(
-        `bugReportFormUrl host not permitted: ${url.hostname}`,
-      );
+      throw new ValidationError(`bugReportFormUrl host not permitted: ${url.hostname}`);
     }
   },
 };
@@ -289,8 +292,19 @@ const batchState: {
  */
 async function handleKeyImport(
   _event: IpcMainInvokeEvent,
-  request: KeyImportRequest,
+  rawRequest: unknown,
 ): Promise<KeyImportResponse> {
+  // HIGH-17: validate every IPC payload before it reaches filesystem /
+  // native / network surfaces. `request.filePath` flows directly into
+  // `fs.readFileSync` inside `createSoftwareSigner`, so a non-string or
+  // empty value must be rejected at the boundary — not surface later as
+  // an opaque `ERR_INVALID_ARG_TYPE`.
+  const parsed = parseIpcRequest(keyImportRequestSchema, rawRequest);
+  if (!parsed.ok) {
+    logger.warn("Rejected KEY_IMPORT: invalid payload", { reason: parsed.error });
+    return { success: false, error: parsed.error };
+  }
+  const request = parsed.value as KeyImportRequest;
   try {
     const { signer, format } = createSoftwareSigner(
       request.filePath,
@@ -736,7 +750,7 @@ async function handleBuildAndSign(
             version: "1",
             schema: def.schema,
             contextUrl: def.contextUrl,
-            checksum: SchemaRegistry.computeChecksum(def.schema),
+            checksum: canonicalJsonSha256(def.schema),
             publishedAt: new Date().toISOString(),
           })
           .then((r: import("@opencred/dedi-client").PublishResult | null) => {
@@ -834,8 +848,7 @@ async function handleVerifyCredential(
     } else {
       return {
         success: false,
-        error:
-          "Unrecognized credential format. Expected JSON, OPENCRED1: QR data, JWT, or SD-JWT.",
+        error: "Unrecognized credential format. Expected JSON, OPENCRED1: QR data, JWT, or SD-JWT.",
       };
     }
 
@@ -969,7 +982,9 @@ async function handlePackageCredential(
     // Process legacy packager formats (includes pdf)
     if (legacyRequested.length > 0) {
       const legacyFormats = legacyRequested as PackageFormat[];
-      const pdfOptions = request.customization ? { customization: request.customization } : undefined;
+      const pdfOptions = request.customization
+        ? { customization: request.customization }
+        : undefined;
       const result = await packageCredential(credential, legacyFormats, pdfOptions);
 
       for (const output of result.outputs) {
@@ -1060,8 +1075,17 @@ async function handleRevocationPublish(
 /** FILE_OPEN — show a native open-file dialog and return the file contents. */
 async function handleFileOpen(
   _event: IpcMainInvokeEvent,
-  request: FileOpenRequest,
+  rawRequest: unknown,
 ): Promise<FileOpenResponse> {
+  // HIGH-17: bound `title` / `filters` at the IPC boundary — they reach
+  // the native dialog; runtime validation keeps a hostile renderer from
+  // stuffing megabytes through those fields.
+  const parsed = parseIpcRequest(fileOpenRequestSchema, rawRequest);
+  if (!parsed.ok) {
+    logger.warn("Rejected FILE_OPEN: invalid payload", { reason: parsed.error });
+    return { content: null, filePath: null };
+  }
+  const request = parsed.value as FileOpenRequest;
   const result = await dialog.showOpenDialog({
     title: request.title ?? "Open File",
     filters: request.filters ?? [{ name: "All Files", extensions: ["*"] }],
@@ -1088,8 +1112,17 @@ async function handleFileOpen(
 /** FILE_SAVE — show a native save-file dialog and write contents. */
 async function handleFileSave(
   _event: IpcMainInvokeEvent,
-  request: FileSaveRequest,
+  rawRequest: unknown,
 ): Promise<FileSaveResponse> {
+  // HIGH-17: `content` gets written to disk; cap at 32 MB so a hostile
+  // renderer cannot drive memory pressure. `encoding` pinned to the
+  // documented forms.
+  const parsed = parseIpcRequest(fileSaveRequestSchema, rawRequest);
+  if (!parsed.ok) {
+    logger.warn("Rejected FILE_SAVE: invalid payload", { reason: parsed.error });
+    return { filePath: null };
+  }
+  const request = parsed.value as FileSaveRequest;
   const result = await dialog.showSaveDialog({
     defaultPath: request.defaultName,
     filters: request.filters ?? [{ name: "JSON", extensions: ["json"] }],
@@ -1210,14 +1243,24 @@ async function handleBatchStart(
       totalRows: parseResult.totalCount,
       validRows: parseResult.validCount,
     });
-    void engine.start().then((finalProgress) => {
-      batchState.results = finalProgress.rows;
-      logger.info("Batch completed", {
-        total: finalProgress.total,
-        success: finalProgress.successCount,
-        errors: finalProgress.errorCount,
+    void engine
+      .start()
+      .then((finalProgress) => {
+        batchState.results = finalProgress.rows;
+        logger.info("Batch completed", {
+          total: finalProgress.total,
+          success: finalProgress.successCount,
+          errors: finalProgress.errorCount,
+        });
+      })
+      .catch((err: unknown) => {
+        // Wholesale engine crash (unexpected exception outside per-row
+        // error handling). Without this catch the rejection only surfaces
+        // as an UnhandledPromiseRejection; the renderer keeps polling
+        // progress forever with no breadcrumb in the log.
+        logger.error("Desktop batch engine crashed", { err });
+        batchState.results = [];
       });
-    });
 
     return {
       success: true,
@@ -1281,8 +1324,17 @@ async function handleBatchCancel(): Promise<BatchCancelResponse> {
 /** BATCH_EXPORT — export successful batch results as a ZIP archive. */
 async function handleBatchExport(
   _event: IpcMainInvokeEvent,
-  request: BatchExportRequest,
+  rawRequest: unknown,
 ): Promise<BatchExportResponse> {
+  // HIGH-17: `request.outputPath` reaches `fs.createWriteStream` in
+  // batch-export.ts. Validate the payload at the IPC boundary before
+  // any downstream code trusts it.
+  const parsed = parseIpcRequest(batchExportRequestSchema, rawRequest);
+  if (!parsed.ok) {
+    logger.warn("Rejected BATCH_EXPORT: invalid payload", { reason: parsed.error });
+    return { success: false, error: parsed.error };
+  }
+  const request = parsed.value as BatchExportRequest;
   if (!batchState.engine) {
     return { success: false, error: "No batch results available for export." };
   }
@@ -2153,6 +2205,44 @@ function findContextHashConflict(
  * shared URL → document cache consistent with the spec without needing
  * per-schema execution-context scoping around canonicalization.
  */
+
+/**
+ * Update the `dediPublishState` (and optional error message) for a
+ * single custom-schema entry after its DeDi publish promises settle.
+ *
+ * Looks the entry up by id because by the time the publishes resolve the
+ * store may have been modified by other writes. If the entry has been
+ * deleted, this is a no-op.
+ */
+function updateCustomSchemaPublishState(
+  schemaId: string,
+  state: "published" | "failed",
+  error?: string,
+): void {
+  try {
+    const store = getStore();
+    const schemas =
+      (store.get("customSchemas" as keyof typeof store.store) as CustomSchemaEntry[]) ?? [];
+    const idx = schemas.findIndex((s) => s.id === schemaId);
+    if (idx === -1) return;
+    const updated = { ...schemas[idx], dediPublishState: state, dediPublishError: error };
+    if (!error) delete updated.dediPublishError;
+    const next = [...schemas];
+    next[idx] = updated;
+    store.set("customSchemas" as keyof typeof store.store, next);
+    if (state === "failed") {
+      logger.warn("DeDi publish failed for custom schema", { schemaId, error });
+    } else {
+      logger.info("DeDi publish succeeded for custom schema", { schemaId });
+    }
+  } catch (err) {
+    logger.error("Failed to update custom schema publish state", {
+      schemaId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 async function handleCustomSchemaSave(
   _event: IpcMainInvokeEvent,
   request: CustomSchemaSaveRequest,
@@ -2255,21 +2345,29 @@ async function handleCustomSchemaSave(
       const version = "1.0.0";
       const schemaRecordName = `${entry.id}-v${version}`;
       const contextRecordName = `${entry.id}-ctx-v${version}`;
+      // Plan the URLs eagerly; surface them immediately so the UI can show
+      // them, but tag the entry as `pending` until the publish promises
+      // settle. If publish fails, dediPublishState flips to "failed" and
+      // the UI can prompt the user to retry — this prevents verifiers
+      // from silently hitting dangling lookup URLs.
+      const schemaUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${SCHEMA_REGISTRY}/${schemaRecordName}`;
+      const ctxUrl = entry.dediContextUrl
+        ? entry.dediContextUrl
+        : `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${CONTEXT_REGISTRY}/${contextRecordName}`;
 
-      // Publish schema (fire-and-forget)
-      mgr
-        .ensureSchemaPublished({
+      entry.dediSchemaUrl = schemaUrl;
+      if (!entry.dediContextUrl) entry.dediContextUrl = ctxUrl;
+      entry.dediPublishState = "pending";
+
+      const publishPromises: Promise<unknown>[] = [
+        mgr.ensureSchemaPublished({
           schemaId: entry.id,
           version,
           schema: request.schema,
-          checksum: SchemaRegistry.computeChecksum(request.schema),
+          checksum: canonicalJsonSha256(request.schema),
           publishedAt: new Date().toISOString(),
-        })
-        .catch(() => {
-          /* logged internally */
-        });
-
-      // Publish context (fire-and-forget)
+        }),
+      ];
       if (entry.generatedContext) {
         const contextRecord: ContextRecord = {
           schemaId: entry.id,
@@ -2277,16 +2375,28 @@ async function handleCustomSchemaSave(
           context: entry.generatedContext,
           publishedAt: new Date().toISOString(),
         };
-        mgr.publishContext(contextRecord).catch(() => {
-          /* logged internally */
-        });
+        publishPromises.push(mgr.publishContext(contextRecord));
       }
 
-      entry.dediSchemaUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${SCHEMA_REGISTRY}/${schemaRecordName}`;
-      // Only overwrite the user-provided context URL if none was supplied.
-      if (!entry.dediContextUrl) {
-        entry.dediContextUrl = `${dediConfig.baseUrl}/dedi/lookup/${dediConfig.namespace}/${CONTEXT_REGISTRY}/${contextRecordName}`;
-      }
+      // Resolve asynchronously — the IPC response has already returned
+      // by the time this updates the store. The renderer re-reads the
+      // customSchemas list to pick up the new state on the next poll
+      // (or the user's next visit to the schema-management screen).
+      Promise.allSettled(publishPromises).then((results) => {
+        const failures = results.filter((r) => r.status === "rejected");
+        updateCustomSchemaPublishState(
+          entry.id,
+          failures.length === 0 ? "published" : "failed",
+          failures.length === 0
+            ? undefined
+            : failures
+                .map((r) => {
+                  const reason = (r as PromiseRejectedResult).reason;
+                  return reason instanceof Error ? reason.message : String(reason);
+                })
+                .join("; "),
+        );
+      });
     }
   }
 
@@ -2570,7 +2680,7 @@ async function handleDeDiPublishSchema(
       version: "1",
       schema: def.schema,
       contextUrl: def.contextUrl,
-      checksum: SchemaRegistry.computeChecksum(def.schema),
+      checksum: canonicalJsonSha256(def.schema),
       publishedAt: new Date().toISOString(),
     });
 

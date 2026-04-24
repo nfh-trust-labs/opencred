@@ -187,9 +187,7 @@ describe("SCHEMA_FETCH_URL SSRF protection", () => {
   it("fails closed when DNS resolution fails with a transient error", async () => {
     // ETIMEOUT / ESERVFAIL / network errors must fail closed — we cannot
     // verify the address is public, so the fetch must not proceed.
-    mockResolve4.mockRejectedValue(
-      Object.assign(new Error("ETIMEOUT"), { code: "ETIMEOUT" }),
-    );
+    mockResolve4.mockRejectedValue(Object.assign(new Error("ETIMEOUT"), { code: "ETIMEOUT" }));
     mockResolve6.mockRejectedValue(enodata());
 
     const result = await schemaFetchUrlHandler(
@@ -203,12 +201,8 @@ describe("SCHEMA_FETCH_URL SSRF protection", () => {
   });
 
   it("fails closed when no DNS records are returned (NXDOMAIN)", async () => {
-    mockResolve4.mockRejectedValue(
-      Object.assign(new Error("ENOTFOUND"), { code: "ENOTFOUND" }),
-    );
-    mockResolve6.mockRejectedValue(
-      Object.assign(new Error("ENOTFOUND"), { code: "ENOTFOUND" }),
-    );
+    mockResolve4.mockRejectedValue(Object.assign(new Error("ENOTFOUND"), { code: "ENOTFOUND" }));
+    mockResolve6.mockRejectedValue(Object.assign(new Error("ENOTFOUND"), { code: "ENOTFOUND" }));
 
     const result = await schemaFetchUrlHandler(
       {},
@@ -235,10 +229,7 @@ describe("SCHEMA_FETCH_URL SSRF protection", () => {
   });
 
   it("rejects HTTP URLs before any DNS resolution runs", async () => {
-    const result = await schemaFetchUrlHandler(
-      {},
-      { url: "http://example.org/schema.json" },
-    );
+    const result = await schemaFetchUrlHandler({}, { url: "http://example.org/schema.json" });
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("URL must use HTTPS");

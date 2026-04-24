@@ -36,6 +36,7 @@ const { createSoftwareSigner } = await import("../signing/software-signer");
 const { parseCsv } = await import("../batch/csv-parser");
 const { createBatchEngine } = await import("../batch/batch-engine");
 const { exportBatchAsZip } = await import("../batch/batch-export");
+import { bootstrapTestValidator } from "./setup-validator.js";
 
 let tmpDir: string;
 let keyPath: string;
@@ -46,6 +47,7 @@ const { privateKey: testPrivateKey } = generateKeyPairSync("ec", {
 });
 
 beforeAll(() => {
+  bootstrapTestValidator();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "opencred-export-test-"));
   const keyContent = testPrivateKey.export({ format: "pem", type: "pkcs8" }) as string;
   keyPath = path.join(tmpDir, "test-key");
@@ -181,5 +183,26 @@ describe("exportBatchAsZip", () => {
 
     // Clean up temp file
     fs.unlinkSync(exportResult.filePath);
+  });
+
+  // Anand's P2-05: a fail in the middle of a zip export used to leak the
+  // partial .zip file and the open write stream. The handler now closes
+  // the stream and unlinks the partial file before rejecting the promise.
+  it("cleans up the partial .zip file when the write stream errors (P2-05)", async () => {
+    // Put a regular file where the .zip parent directory should go. mkdir
+    // will succeed (parent exists), but `createWriteStream` will fail
+    // because the target path cannot be opened (its parent is a file not
+    // a directory), so the stream emits 'error'. The cleanup handler must
+    // delete any partial bytes on disk.
+    const blockerFile = path.join(tmpDir, "blocker");
+    fs.writeFileSync(blockerFile, "not a directory");
+    const outputPath = path.join(blockerFile, "partial.zip");
+    const batchResult = await runBatch(1);
+
+    const err = await exportBatchAsZip({ rows: batchResult.rows, outputPath }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(fs.existsSync(outputPath)).toBe(false);
   });
 });

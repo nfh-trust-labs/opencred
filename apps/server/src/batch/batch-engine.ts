@@ -12,9 +12,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { VerifiableCredential } from "@opencred/vc-core";
-import { Validator } from "@opencred/schema-engine";
-import type { SchemaRegistry } from "@opencred/schema-engine";
-import { getSchemaRegistry } from "../schema-registry-singleton.js";
+import { getValidator } from "../validator-singleton.js";
 import {
   prepareVcJwtProof,
   completeVcJwtProof,
@@ -67,17 +65,9 @@ export interface BatchConfig {
   credentialSchemaUrl?: string;
 }
 
-// Singleton schema registry and validator
-let validatorInstance: Validator | null = null;
-
-function getRegistry(): SchemaRegistry {
-  return getSchemaRegistry();
-}
-
-function getValidator(): Validator {
-  if (!validatorInstance) validatorInstance = new Validator(getRegistry());
-  return validatorInstance;
-}
+// The Validator is a single process-wide instance constructed during
+// bootstrap (see apps/server/src/validator-singleton.ts). Do not cache a
+// local Validator at module scope — see Anand's P1-01.
 
 // ---------------------------------------------------------------------------
 // Batch engine

@@ -32,6 +32,25 @@ import type {
  */
 const MAX_REQUEST_TIMEOUT_MS = 10_000;
 
+/**
+ * TTL for the per-hostname DNS SSRF cache (Anand's P2-03). `assertHostIsPublic`
+ * used to fire live `resolve4`+`resolve6` lookups on every single request;
+ * for an operator-configured DeDi host under sustained load that is two
+ * lookups per request to the same hostname. The cache drops the per-request
+ * DNS I/O while still running the `isPrivateIP` check on the cached
+ * addresses — so an IP that was public at resolution time but is now private
+ * is still rejected during the 30 s window. A conservative TTL keeps the
+ * rebinding window small enough that any realistic DNS attack still fails
+ * within seconds, while allowing the hot path to avoid a resolver round
+ * trip.
+ */
+const DNS_CACHE_TTL_MS = 30_000;
+
+interface DnsCacheEntry {
+  addresses: string[];
+  resolvedAt: number;
+}
+
 export interface DeDiApiClientConfig {
   baseUrl: string;
   timeoutMs: number;
@@ -47,6 +66,11 @@ export class DeDiApiClient {
   private readonly circuitBreaker: CircuitBreaker;
   private readonly logger: DeDiLogger;
   private readonly effectiveTimeoutMs: number;
+  // Per-hostname cache of resolved addresses. Protects against DNS
+  // rebinding the same way the uncached path did (every request still
+  // runs `isPrivateIP` on the cached addresses), but avoids two DNS
+  // lookups per request for static operator-configured hostnames.
+  private readonly dnsCache = new Map<string, DnsCacheEntry>();
 
   constructor(config: DeDiApiClientConfig) {
     if (config.timeoutMs <= 0) {
@@ -282,76 +306,46 @@ export class DeDiApiClient {
   // ── Bulk ─────────────────────────────────────────────────────────
 
   async bulkUpload(_ns: string, _reg: string, file: Blob): Promise<{ job_id: string }> {
+    // Anand's P2-08: this method used to inline a copy of the entire
+    // `doFetch` pipeline — AbortController, timeout, SSRF re-check,
+    // logging, error handling — purely because the body is `FormData`
+    // rather than a JSON string. Every bugfix to the shared fetch path
+    // therefore had to be applied twice. `doFetch` now recognises
+    // FormData bodies and skips the JSON `Content-Type` auto-set, so
+    // we route through the shared pipeline. FormData is rebuilt per
+    // retry attempt so the underlying blob can be re-read from scratch.
     return this.circuitBreaker.execute(() =>
       withRetry(
         async () => {
           const formData = new FormData();
           formData.append("file", file);
-          const token = await this.tokenManager.getToken();
-
-          const path = "/dedi/bulk-upload";
-          const url = `${this.config.baseUrl}${path}`;
-          // Re-check SSRF on every request — DNS records can change
-          // between construction and the first call (rebinding).
-          await this.assertHostIsPublic(url);
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), this.effectiveTimeoutMs);
-
-          this.logger.info(`DeDi request`, { method: "POST", path });
-          const start = Date.now();
-
-          try {
-            const response = await globalThis.fetch(url, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${token}` },
-              body: formData,
-              redirect: "error",
-              signal: controller.signal,
-            });
-
-            this.logger.info(`DeDi response`, {
-              method: "POST",
-              path,
-              status: response.status,
-              durationMs: Date.now() - start,
-            });
-
-            if (!response.ok) {
-              throw new DeDiClientError(
-                `DeDi API error: ${response.status}`,
-                response.status >= 500 ? 502 : response.status,
-              );
+          const response = await this.doFetch("/dedi/bulk-upload", {
+            method: "POST",
+            body: formData,
+          });
+          if (!response.ok) {
+            let errBody = "";
+            try {
+              errBody = await response.text();
+            } catch {
+              /* ignore */
             }
-
-            const body: unknown = await response.json();
-            assertBulkUploadResultShape(body);
-            return body;
-          } catch (error) {
-            if (error instanceof DeDiClientError) throw error;
-            if (error instanceof DOMException && error.name === "AbortError") {
-              this.logger.error(`DeDi request timed out`, {
-                method: "POST",
-                path,
-                durationMs: Date.now() - start,
-              });
-              throw new DeDiClientError(
-                `DeDi API request timed out after ${this.effectiveTimeoutMs}ms`,
-                504,
-              );
-            }
-            this.logger.error(`DeDi network error`, {
-              method: "POST",
-              path,
-              durationMs: Date.now() - start,
-              error: error instanceof Error ? error.message : "unknown",
+            this.logger.error(`DeDi API ${response.status} /dedi/bulk-upload`, {
+              body: errBody.slice(0, 500),
             });
             throw new DeDiClientError(
-              `DeDi API network error: ${error instanceof Error ? error.message : "unknown"}`,
-              502,
+              `DeDi API error: ${response.status}`,
+              response.status >= 500 ? 502 : response.status,
             );
-          } finally {
-            clearTimeout(timeoutId);
           }
+          let parsed: unknown;
+          try {
+            parsed = await response.json();
+          } catch {
+            throw new DeDiClientError("DeDi API returned non-JSON response", 502);
+          }
+          assertBulkUploadResultShape(parsed);
+          return parsed;
         },
         { maxRetries: this.config.maxRetries, logger: this.logger },
       ),
@@ -463,12 +457,17 @@ export class DeDiApiClient {
     const start = Date.now();
 
     try {
+      // FormData bodies must not set `Content-Type`: the Fetch runtime
+      // fills in the multipart boundary itself. Every other body type
+      // (JSON strings, typed-array bodies) pre-P2-08 got the JSON
+      // header by default and still does. See Anand's P2-08.
+      const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
       const response = await globalThis.fetch(url, {
         ...init,
         signal: controller.signal,
         redirect: "error",
         headers: {
-          ...(init?.body ? { "Content-Type": "application/json" } : {}),
+          ...(init?.body && !isFormData ? { "Content-Type": "application/json" } : {}),
           Accept: "application/json",
           Authorization: `Bearer ${token}`,
           ...init?.headers,
@@ -484,7 +483,12 @@ export class DeDiApiClient {
     } catch (error) {
       const durationMs = Date.now() - start;
       if (error instanceof DeDiClientError) {
-        this.logger.error(`DeDi request failed`, { method, path, durationMs, error: error.message });
+        this.logger.error(`DeDi request failed`, {
+          method,
+          path,
+          durationMs,
+          error: error.message,
+        });
         throw error;
       }
       if (error instanceof DOMException && error.name === "AbortError") {
@@ -539,18 +543,30 @@ export class DeDiApiClient {
 
     // Hostname — resolve both A and AAAA records and require every
     // returned IP to be public. A single private record is enough
-    // to reject the request.
-    const [v4Result, v6Result] = await Promise.allSettled([
-      dns.resolve4(hostname),
-      dns.resolve6(hostname),
-    ]);
-    const addresses = [
-      ...(v4Result.status === "fulfilled" ? v4Result.value : []),
-      ...(v6Result.status === "fulfilled" ? v6Result.value : []),
-    ];
+    // to reject the request. Reuse a 30s cache to avoid hitting the
+    // resolver twice per request for the same operator-configured
+    // hostname. The `isPrivateIP` check still runs on every request
+    // against the cached addresses — the cache only eliminates the
+    // DNS I/O, not the SSRF decision.
+    const cached = this.dnsCache.get(hostname);
+    let addresses: string[];
+    if (cached && Date.now() - cached.resolvedAt < DNS_CACHE_TTL_MS) {
+      addresses = cached.addresses;
+    } else {
+      const [v4Result, v6Result] = await Promise.allSettled([
+        dns.resolve4(hostname),
+        dns.resolve6(hostname),
+      ]);
+      addresses = [
+        ...(v4Result.status === "fulfilled" ? v4Result.value : []),
+        ...(v6Result.status === "fulfilled" ? v6Result.value : []),
+      ];
 
-    if (addresses.length === 0) {
-      throw new DeDiClientError(`DeDi host did not resolve: ${hostname}`, 502);
+      if (addresses.length === 0) {
+        throw new DeDiClientError(`DeDi host did not resolve: ${hostname}`, 502);
+      }
+
+      this.dnsCache.set(hostname, { addresses, resolvedAt: Date.now() });
     }
 
     for (const ip of addresses) {
@@ -585,10 +601,7 @@ function assertBulkUploadResultShape(value: unknown): asserts value is { job_id:
   }
   const rec = value as Record<string, unknown>;
   if (typeof rec["job_id"] !== "string") {
-    throw new DeDiClientError(
-      "DeDi API bulk upload response missing required field: job_id",
-      502,
-    );
+    throw new DeDiClientError("DeDi API bulk upload response missing required field: job_id", 502);
   }
 }
 

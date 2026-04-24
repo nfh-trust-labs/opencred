@@ -279,6 +279,45 @@ describe("OS Certificate Store Signer", () => {
       expect(allZeroR && allZeroS).toBe(false);
     });
 
+    it("hashes the data before calling the native provider (HIGH-01)", async () => {
+      // The macOS Keychain addon uses kSecKeyAlgorithmECDSASignatureDigestX962SHA256
+      // and Windows CNG uses NCryptSignHash — both expect a pre-computed
+      // digest. The signer wrapper must therefore call provider.sign()
+      // with SHA-256(data) for P-256, not the raw 64-byte message.
+      let capturedInput: Uint8Array | undefined;
+      const provider: OsCertProvider = {
+        async listCertificates() {
+          return [testCertInfoP256];
+        },
+        async sign(_id, data) {
+          capturedInput = data;
+          // Return a fixed 64-byte "signature" so validateSignatureLength passes.
+          return new Uint8Array(64).fill(0x11);
+        },
+        async getPublicKey() {
+          return compressedP256Key;
+        },
+      };
+
+      const { signer } = await createOsCertSigner(
+        { platform: "darwin", certificateId: "test-cert-p256" },
+        provider,
+      );
+
+      const rawMessage = new Uint8Array(64);
+      rawMessage.fill(0xef);
+      await signer.sign(rawMessage);
+
+      // Digest length must be 32 bytes (SHA-256 output), not 64 (raw input).
+      expect(capturedInput).toBeDefined();
+      expect(capturedInput!.length).toBe(32);
+
+      // And it must equal sha256(rawMessage) exactly.
+      const { createHash } = await import("node:crypto");
+      const expected = createHash("sha256").update(rawMessage).digest();
+      expect(Buffer.from(capturedInput!).equals(expected)).toBe(true);
+    });
+
     it("should throw CryptoError on signing failure", async () => {
       const mockProvider = createMockProvider({ throwOnSign: true });
 

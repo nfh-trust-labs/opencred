@@ -43,7 +43,12 @@ export {
   signCredentialAuto,
   defaultProofFormat,
 } from "./jws-proof.js";
-export { jcsCanonicalize, computeRevocationHash } from "./jcs.js";
+export {
+  jcsCanonicalize,
+  computeRevocationHash,
+  extractRevocationHashFromStatusId,
+  resolveRevocationHash,
+} from "./jcs.js";
 
 export { signingAlgorithmToJwsAlg } from "./alg-mapping.js";
 export { detectKeyAlgorithm, publicKeyFromEcBytes } from "./key-utils.js";

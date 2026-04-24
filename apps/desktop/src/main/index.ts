@@ -30,14 +30,26 @@ import {
   uninstallCustomContextResolver,
 } from "./document-loader-with-cache.js";
 import { createLogger } from "./logger.js";
-import { createRegistryWithUpdates } from "@opencred/schema-engine";
+import { createRegistryWithUpdates, Validator } from "@opencred/schema-engine";
 import { setSchemaRegistry } from "./schema-registry-singleton.js";
+import { setValidator } from "./validator-singleton.js";
+import { setPkcs11Logger } from "@opencred/signing";
 
 // ---------------------------------------------------------------------------
 // Global crash handlers — catch unhandled errors before app.whenReady()
 // ---------------------------------------------------------------------------
 
 const logger = createLogger("main");
+
+// Route PKCS#11 warnings (C_Finalize failures, unreadable keys, etc.) to the
+// desktop Pino logger. Previously these hit console.warn in the packages/signing
+// code, which was invisible to aggregated log collectors and couldn't be
+// filtered by LOG_LEVEL. See Anand's P2-09.
+const pkcs11Logger = createLogger("pkcs11");
+setPkcs11Logger({
+  warn: (msg: string, meta?: Record<string, unknown>) => pkcs11Logger.warn(msg, meta),
+  error: (msg: string, meta?: Record<string, unknown>) => pkcs11Logger.error(msg, meta),
+});
 
 process.on("uncaughtException", (error) => {
   logger.error("Uncaught exception", { error: error.message, stack: error.stack });
@@ -92,13 +104,21 @@ function createWindow(): void {
   // -------------------------------------------------------------------------
   // Permission handler: allow camera access for QR code scanning.
   // -------------------------------------------------------------------------
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
-    if (permission === "media" && details?.mediaTypes?.includes("video")) {
-      callback(true);
-      return;
-    }
-    callback(false);
-  });
+  session.defaultSession.setPermissionRequestHandler(
+    (_webContents, permission, callback, details) => {
+      // `details` is a discriminated union; `mediaTypes` only exists on
+      // the media-access variant. Narrow explicitly before accessing.
+      if (
+        permission === "media" &&
+        "mediaTypes" in details &&
+        details.mediaTypes?.includes("video")
+      ) {
+        callback(true);
+        return;
+      }
+      callback(false);
+    },
+  );
 
   // -------------------------------------------------------------------------
   // Navigation guard — prevent the renderer from navigating away from the app.
@@ -107,14 +127,22 @@ function createWindow(): void {
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (IS_DEV && url.startsWith(DEV_SERVER_URL)) return;
     event.preventDefault();
-    try { logger.warn("Blocked navigation attempt", { url: new URL(url).origin }); } catch { logger.warn("Blocked navigation attempt"); }
+    try {
+      logger.warn("Blocked navigation attempt", { url: new URL(url).origin });
+    } catch {
+      logger.warn("Blocked navigation attempt");
+    }
   });
 
   // -------------------------------------------------------------------------
   // Block window.open — the app should never open new windows.
   // -------------------------------------------------------------------------
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    try { logger.warn("Blocked window.open attempt", { url: new URL(url).origin }); } catch { logger.warn("Blocked window.open attempt"); }
+    try {
+      logger.warn("Blocked window.open attempt", { url: new URL(url).origin });
+    } catch {
+      logger.warn("Blocked window.open attempt");
+    }
     return { action: "deny" };
   });
 
@@ -275,6 +303,7 @@ app.whenReady().then(async () => {
     logger: { info: logger.info.bind(logger), warn: logger.warn.bind(logger) },
   });
   setSchemaRegistry(schemaRegistry);
+  setValidator(new Validator(schemaRegistry));
   logger.info("Schema registry initialised", { count: schemaRegistry.listSchemas().length });
 
   // Register the process-wide JSON-LD document loader extension so that

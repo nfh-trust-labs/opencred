@@ -174,6 +174,7 @@ describe("generateSchemaFromFields", () => {
     });
 
     // AJV does not accept the $schema meta-schema URI in registered schemas
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { $schema: _meta, ...schemaForValidation } = schema;
 
     const registry = new SchemaRegistry();

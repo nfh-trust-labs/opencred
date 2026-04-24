@@ -9,6 +9,26 @@ import type { Context } from "hono";
 import { OpenCredError, SchemaValidationError } from "@opencred/shared";
 import { getLogger } from "../logger.js";
 
+/**
+ * Duck-type detection for OpenCredError instances that crossed a realm
+ * boundary (vi.mock, worker thread, re-serialized error). `instanceof`
+ * is unreliable in those cases; checking for the shape preserves the
+ * sanitized-response contract when something synthetic (or a cross-realm
+ * instance) comes through.
+ */
+function isOpenCredErrorShape(e: unknown): e is OpenCredError {
+  return (
+    typeof e === "object" &&
+    e !== null &&
+    "code" in e &&
+    typeof (e as { code: unknown }).code === "string" &&
+    "statusCode" in e &&
+    typeof (e as { statusCode: unknown }).statusCode === "number" &&
+    "toJSON" in e &&
+    typeof (e as { toJSON: unknown }).toJSON === "function"
+  );
+}
+
 export function errorHandler(err: Error, c: Context): Response {
   const logger = getLogger();
 
@@ -17,13 +37,18 @@ export function errorHandler(err: Error, c: Context): Response {
     return c.json(err.toJSON(), err.statusCode as 400);
   }
 
-  if (err instanceof OpenCredError) {
-    logger.warn({ code: err.code, message: err.message }, "Application error");
-    return c.json(err.toJSON(), err.statusCode as 400);
+  if (err instanceof OpenCredError || isOpenCredErrorShape(err)) {
+    const ocErr = err as OpenCredError;
+    logger.warn({ code: ocErr.code, message: ocErr.message }, "Application error");
+    return c.json(ocErr.toJSON(), ocErr.statusCode as 400);
   }
 
-  // Unknown errors — log full error but return sanitized response
-  logger.error({ err: err.message }, "Unhandled error");
+  // Unknown errors — log the full Error via Pino's default serializer so
+  // the stack trace, name, and any custom props land in the structured
+  // JSON stream. The previous `{ err: err.message }` shape threw away the
+  // stack. The HTTP response stays the same sanitized 500 — this affects
+  // only the server log. See Anand's P3-01.
+  logger.error({ err }, "Unhandled error");
   return c.json(
     {
       error: {

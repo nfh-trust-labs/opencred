@@ -132,7 +132,9 @@ const { privateKey: testEcKey } = generateKeyPairSync("ec", {
   namedCurve: "P-256",
 });
 
-beforeAll(() => {
+beforeAll(async () => {
+  const { bootstrapTestValidator } = await import("./setup-validator.js");
+  bootstrapTestValidator();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "opencred-ipc-test-"));
   ecKeyPath = path.join(tmpDir, "test-p256.pem");
   fs.writeFileSync(ecKeyPath, testEcKey.export({ format: "pem", type: "pkcs8" }) as string);
@@ -584,7 +586,9 @@ describe("IPC Handler Integration Tests", () => {
   describe("Schema operations", () => {
     it("should list available schemas", async () => {
       const handler = registeredHandlers[IPC_CHANNELS.SCHEMA_LIST];
-      const result = (await handler(fakeEvent)) as { schemas: Array<{ id: string; category?: string }> };
+      const result = (await handler(fakeEvent)) as {
+        schemas: Array<{ id: string; category?: string }>;
+      };
 
       const ids = result.schemas.map((s) => s.id);
       expect(ids).toContain("functional-identity/v1");
@@ -794,23 +798,23 @@ describe("IPC Handler Integration Tests", () => {
 
     it("setConfig should throw for a disallowed key (dediCredentials)", async () => {
       const handler = registeredHandlers[IPC_CHANNELS.SET_CONFIG];
-      await expect(
-        handler(fakeEvent, { key: "dediCredentials", value: "stolen" }),
-      ).rejects.toThrow(/not accessible via setConfig/);
+      await expect(handler(fakeEvent, { key: "dediCredentials", value: "stolen" })).rejects.toThrow(
+        /not accessible via setConfig/,
+      );
     });
 
     it("setConfig should throw for a disallowed key (credentialHistory)", async () => {
       const handler = registeredHandlers[IPC_CHANNELS.SET_CONFIG];
-      await expect(
-        handler(fakeEvent, { key: "credentialHistory", value: [] }),
-      ).rejects.toThrow(/not accessible via setConfig/);
+      await expect(handler(fakeEvent, { key: "credentialHistory", value: [] })).rejects.toThrow(
+        /not accessible via setConfig/,
+      );
     });
 
     it("setConfig should throw for a disallowed key (dediConfig)", async () => {
       const handler = registeredHandlers[IPC_CHANNELS.SET_CONFIG];
-      await expect(
-        handler(fakeEvent, { key: "dediConfig", value: {} }),
-      ).rejects.toThrow(/not accessible via setConfig/);
+      await expect(handler(fakeEvent, { key: "dediConfig", value: {} })).rejects.toThrow(
+        /not accessible via setConfig/,
+      );
     });
 
     it("getConfig should succeed for organizationName (used by renderer)", async () => {

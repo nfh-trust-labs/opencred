@@ -185,10 +185,15 @@ export function initAutoUpdater(): void {
     void checkForUpdates();
   }, INITIAL_CHECK_DELAY_MS);
 
-  // Periodic checks every 4 hours.
+  // Periodic checks every 4 hours. `.unref()` (Anand's P2-06) so the
+  // interval never keeps the Electron main process alive past `app.quit()`.
+  // `cleanupAutoUpdater` is still wired to `before-quit` for the
+  // cooperative-shutdown path — this just guarantees that if that wiring
+  // ever regresses the app won't hang on exit for up to 4 hours.
   periodicCheckInterval = setInterval(() => {
     void checkForUpdates();
   }, PERIODIC_CHECK_INTERVAL_MS);
+  periodicCheckInterval.unref?.();
 }
 
 /**

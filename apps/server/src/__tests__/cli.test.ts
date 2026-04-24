@@ -20,6 +20,8 @@ import { parseCsv } from "../batch/csv-parser.js";
 import { createBatchEngine } from "../batch/batch-engine.js";
 import { createProgram, VERSION } from "../cli.js";
 import { resetConfig } from "../config.js";
+import { setSchemaRegistry, resetSchemaRegistry } from "../schema-registry-singleton.js";
+import { setValidator, resetValidator } from "../validator-singleton.js";
 
 const TEST_DIR = join(tmpdir(), `opencred-cli-tests-${Date.now()}`);
 let testKey: TestKeyPair;
@@ -27,10 +29,18 @@ let testKey: TestKeyPair;
 beforeAll(() => {
   mkdirSync(TEST_DIR, { recursive: true });
   testKey = generateTestKey();
+  // CLI batch tests call parseCsv/createBatchEngine directly and therefore
+  // need the same validator-singleton bootstrap that src/cli.ts performs for
+  // its `batch` subcommand (see P1-01).
+  const registry = createRegistry();
+  setSchemaRegistry(registry);
+  setValidator(new Validator(registry));
 });
 
 afterAll(() => {
   rmSync(TEST_DIR, { recursive: true, force: true });
+  resetSchemaRegistry();
+  resetValidator();
 });
 
 // ---------------------------------------------------------------------------
@@ -254,7 +264,11 @@ describe("CLI --version flag", () => {
     const program = createProgram();
     let output = "";
     program.exitOverride();
-    program.configureOutput({ writeOut: (str: string) => { output += str; } });
+    program.configureOutput({
+      writeOut: (str: string) => {
+        output += str;
+      },
+    });
 
     try {
       program.parse(["node", "opencred", "--version"]);
@@ -271,7 +285,11 @@ describe("CLI --version flag", () => {
     const program = createProgram();
     let output = "";
     program.exitOverride();
-    program.configureOutput({ writeOut: (str: string) => { output += str; } });
+    program.configureOutput({
+      writeOut: (str: string) => {
+        output += str;
+      },
+    });
 
     try {
       program.parse(["node", "opencred", "-v"]);
@@ -288,7 +306,11 @@ describe("CLI --help flag", () => {
     const program = createProgram();
     let output = "";
     program.exitOverride();
-    program.configureOutput({ writeOut: (str: string) => { output += str; } });
+    program.configureOutput({
+      writeOut: (str: string) => {
+        output += str;
+      },
+    });
 
     try {
       program.parse(["node", "opencred", "--help"]);
@@ -345,18 +367,10 @@ describe("CLI config validate subcommand", () => {
 
     await program.parseAsync(["node", "opencred", "config", "validate"]);
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Configuration valid"),
-    );
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("port: 3100"),
-    );
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("auth: enabled"),
-    );
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("kms: file-based"),
-    );
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Configuration valid"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("port: 3100"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("auth: enabled"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("kms: file-based"));
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
@@ -373,15 +387,9 @@ describe("CLI config validate subcommand", () => {
     const program = createProgram();
     await program.parseAsync(["node", "opencred", "config", "validate"]);
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Configuration valid"),
-    );
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("port: 8080"),
-    );
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("auth: dev-mode (no auth)"),
-    );
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Configuration valid"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("port: 8080"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("auth: dev-mode (no auth)"));
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
@@ -396,9 +404,7 @@ describe("CLI config validate subcommand", () => {
     const program = createProgram();
     await program.parseAsync(["node", "opencred", "config", "validate"]);
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("kms: aws"),
-    );
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("kms: aws"));
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
@@ -412,9 +418,7 @@ describe("CLI config validate subcommand", () => {
     const program = createProgram();
     await program.parseAsync(["node", "opencred", "config", "validate"]);
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Configuration error:"),
-    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("Configuration error:"));
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining("OPENCRED_API_KEY is required"),
     );
@@ -432,9 +436,7 @@ describe("CLI config validate subcommand", () => {
     const program = createProgram();
     await program.parseAsync(["node", "opencred", "config", "validate"]);
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Configuration error:"),
-    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("Configuration error:"));
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining("not permitted when NODE_ENV=production"),
     );

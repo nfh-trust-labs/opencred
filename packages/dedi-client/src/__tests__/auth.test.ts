@@ -234,6 +234,71 @@ describe("DeDiTokenManager", () => {
     });
   });
 
+  // ── Atomic setTokens (P1-04) ─────────────────────────────────────
+
+  describe("atomic setTokens (P1-04)", () => {
+    it("does not mutate token state when decodeExp fails partway through setTokens", async () => {
+      const validJwt = jwtExpiringIn(3600);
+
+      // 1) Initial login: valid JWT, manager now holds usable tokens.
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: validJwt,
+            refresh_token: "rt_ok",
+            token_type: "bearer",
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig({ auth: { refreshBufferMs: 60_000 } }));
+      await tm.login();
+      expect(await tm.getToken()).toBe(validJwt);
+
+      // 2) Force a refresh that returns a JWT with a bad payload so decodeExp
+      //    throws AFTER fetch resolves. Pre-P1-04 the implementation would
+      //    have already zeroed accessToken/refreshToken by the time decodeExp
+      //    ran; post-fix, it leaves the old values in place.
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "header.%%bad-base64%%.sig",
+            refresh_token: "rt_bad",
+            token_type: "bearer",
+          }),
+          { status: 200 },
+        ),
+      );
+
+      await expect(tm.refresh()).rejects.toThrow(/undecodable payload|malformed JWT/);
+
+      // 3) After the failed refresh, the manager should still hold the ORIGINAL
+      //    tokens — no third network call is needed to answer getToken().
+      const stillValid = await tm.getToken();
+      expect(stillValid).toBe(validJwt);
+      // login + failed refresh = 2 calls. A broken setTokens would have forced
+      // a third login here.
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("fires exactly one /dedi/register under 50 concurrent getToken() on an expired state", async () => {
+      const jwt = jwtExpiringIn(3600);
+      mockFetch.mockResolvedValue(
+        new Response(
+          JSON.stringify({ access_token: jwt, refresh_token: "rt_coalesce", token_type: "bearer" }),
+          { status: 200 },
+        ),
+      );
+
+      const tm = new DeDiTokenManager(createBearerConfig());
+      const results = await Promise.all(Array.from({ length: 50 }, () => tm.getToken()));
+
+      expect(results.every((t) => t === jwt)).toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
   // ── Token zeroing ────────────────────────────────────────────────
 
   describe("token zeroing", () => {

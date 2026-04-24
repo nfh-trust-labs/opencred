@@ -28,7 +28,9 @@ const { privateKey: testPrivateKey } = generateKeyPairSync("ec", {
   namedCurve: "P-256",
 });
 
-beforeAll(() => {
+beforeAll(async () => {
+  const { bootstrapTestValidator } = await import("./setup-validator.js");
+  bootstrapTestValidator();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "opencred-flow-test-"));
 
   const pemKey = testPrivateKey.export({ format: "pem", type: "pkcs8" }) as string;

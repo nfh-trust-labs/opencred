@@ -11,9 +11,14 @@
  * parsing/counting and limit constant.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { parseCsv } from "../batch/csv-parser";
 import { BATCH_ROW_LIMIT } from "../shared/constants";
+import { bootstrapTestValidator } from "./setup-validator.js";
+
+beforeAll(() => {
+  bootstrapTestValidator();
+});
 
 // ---------------------------------------------------------------------------
 // Helper to generate a CSV with N rows

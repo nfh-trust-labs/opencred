@@ -2,7 +2,7 @@ import { VerificationError, assertJwtSize } from "@opencred/shared";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import { verifyDataIntegrity } from "./data-integrity.js";
 import { verifyJwsProof } from "./jws-proof.js";
-import { verifyVcJwt, extractVcJwtCredentialFields } from "./vc-jwt.js";
+import { verifyVcJwt, extractVcJwtCredentialFields, crossValidateVcJwtClaims } from "./vc-jwt.js";
 import { verifySdJwtVc, extractSdJwtVcCredentialFields } from "./sd-jwt-vc.js";
 import { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
 import { checkX509Chain } from "./x509-chain-check.js";
@@ -131,15 +131,37 @@ export async function verifyCredential(
       return buildResult(checks, check);
     }
 
+    // VC-JOSE-COSE §3.3.1 / §3.3.2 — `jti` MUST equal `vc.id` and `sub`
+    // MUST equal `vc.credentialSubject.id` when the envelope uses the
+    // DM 1.1 nested layout. Signature verification alone does not enforce
+    // this, so a malicious issuer could reuse a valid envelope signature
+    // around a swapped inner `vc` object unless we cross-validate.
+    const crossErrors = crossValidateVcJwtClaims(payload);
+    if (crossErrors.length > 0) {
+      const crossCheck: VerificationCheck = {
+        name: "vc-jwt-claims",
+        passed: false,
+        detail: crossErrors.join("; "),
+      };
+      checks.push(crossCheck);
+      return buildResult(checks, crossCheck);
+    }
+    checks.push({ name: "vc-jwt-claims", passed: true });
+
     const fields = extractVcJwtCredentialFields(payload);
     validFrom = fields.validFrom;
     validUntil = fields.validUntil;
     credentialStatus = fields.credentialStatus;
     credentialForRevocationHash = payload.vc ?? payload;
   } else {
+    // Forward the caller's KB-JWT expectations (audience, nonce, vct) to
+    // the SD-JWT VC verifier. For KB-bearing presentations these MUST be
+    // supplied by the relying party per SD-JWT VC §4.3.1, or the KB
+    // claims cannot be validated and presentation replay is possible.
     const { check, payload, resolvedClaims } = await verifySdJwtVc(
       input as string,
       config.didResolver,
+      config.sdJwtVc,
     );
     checks.push(check);
 

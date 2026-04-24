@@ -12,6 +12,14 @@ CVE-2025-61728
 CVE-2025-61729
 CVE-2025-68121
 CVE-2026-25679
+# Go stdlib internal/crypto/x509 chain-building DoS — not reachable from Node app code.
+CVE-2026-32280
+# Go stdlib crypto/x509 DoS — same class as 32280; not reachable from Node app code.
+CVE-2026-32281
+# Go stdlib internal/syscall/unix Root.Chmod follow — container runs non-root + read-only FS.
+CVE-2026-32282
+# Go stdlib crypto/tls multiple key updates — not reachable from Node app code.
+CVE-2026-32283
 
 # Transitive npm dependencies — overrides are set in root package.json
 # (pnpm.overrides) but the Docker prod install resolves from the lockfile

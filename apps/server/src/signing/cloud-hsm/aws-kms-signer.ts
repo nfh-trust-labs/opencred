@@ -10,6 +10,7 @@
  */
 
 import { createPublicKey } from "node:crypto";
+import { Agent as HttpsAgent } from "node:https";
 import {
   KMSClient,
   SignCommand,
@@ -63,17 +64,46 @@ function algorithmToKmsSigningAlg(alg: SigningAlgorithm): SigningAlgorithmSpec {
 
 /**
  * Create a Signer backed by AWS KMS.
+ *
+ * The KMS client is constructed once at startup (invoked from
+ * `factory.ts`) and reused for every Sign call — both for the
+ * fingerprint/DID derivation path and the hot signing path. See
+ * Anand's P1-03: the prior `new KMSClient({})` construction used
+ * SDK defaults (no keepalive, no retries), which under 50+ concurrent
+ * signing requests produced a fresh TLS handshake per call. We now
+ * explicitly wire an HTTPS agent with keepalive and set `maxAttempts`
+ * so the SDK transparently retries transient 5xx / network errors.
+ *
+ * @param keyArn   KMS key ARN (or alias) to use for signing.
+ * @param timeoutMs Per-call timeout for the KMS Sign API. Defaults to
+ *                  30 s. Without a timeout, a stuck KMS endpoint hangs
+ *                  the synchronous batch-engine loop indefinitely.
  */
-export async function createAwsKmsSigner(keyArn: string): Promise<Signer> {
-  const client = new KMSClient({});
+export async function createAwsKmsSigner(keyArn: string, timeoutMs = 30_000): Promise<Signer> {
+  // The AWS SDK v3 accepts a plain config object for `requestHandler`; it
+  // forwards that config to the default NodeHttpHandler internally. Passing
+  // an `HttpsAgent` with `keepAlive: true` means the same TCP+TLS connection
+  // is reused across Sign calls on the hot path.
+  const client = new KMSClient({
+    requestHandler: {
+      httpsAgent: new HttpsAgent({ keepAlive: true, maxSockets: 50 }),
+    },
+    // Built-in SDK retry on 5xx / throttling / network errors. Per-call
+    // timeouts below still apply — this just absorbs transient blips.
+    maxAttempts: 3,
+  });
 
   // Describe the key to determine algorithm
-  const describeRes = await client.send(new DescribeKeyCommand({ KeyId: keyArn }));
+  const describeRes = await client.send(new DescribeKeyCommand({ KeyId: keyArn }), {
+    abortSignal: AbortSignal.timeout(timeoutMs),
+  });
   const keyMeta: KeyMetadata = describeRes.KeyMetadata!;
   const algorithm = kmsKeySpecToAlgorithm(keyMeta.KeySpec!);
 
   // Get public key for DID derivation and fingerprint
-  const pubKeyRes = await client.send(new GetPublicKeyCommand({ KeyId: keyArn }));
+  const pubKeyRes = await client.send(new GetPublicKeyCommand({ KeyId: keyArn }), {
+    abortSignal: AbortSignal.timeout(timeoutMs),
+  });
   const publicKeyDer = pubKeyRes.PublicKey!;
   const publicKeyObj = createPublicKey({
     key: Buffer.from(publicKeyDer),
@@ -110,6 +140,7 @@ export async function createAwsKmsSigner(keyArn: string): Promise<Signer> {
           MessageType: "DIGEST",
           SigningAlgorithm: kmsSigningAlg,
         }),
+        { abortSignal: AbortSignal.timeout(timeoutMs) },
       );
 
       return new Uint8Array(signRes.Signature!);

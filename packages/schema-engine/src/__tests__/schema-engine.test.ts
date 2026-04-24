@@ -64,6 +64,26 @@ describe("SchemaRegistry", () => {
     expect(a).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  // Anand's P1-05 regression: computeChecksum must use canonical sorted-key
+  // JSON so that object literals with the same content but different
+  // insertion order produce the same digest. Before the fix this relied on
+  // `JSON.stringify` (insertion order), which could drift across V8
+  // versions and cause "schema URL already registered with a different
+  // content" errors after a desktop upgrade.
+  it("computeChecksum produces identical digests for keys in different insertion orders", () => {
+    const a = SchemaRegistry.computeChecksum({
+      $id: "https://example.org/schemas/test/v1",
+      type: "object",
+      properties: { name: { type: "string" }, age: { type: "integer" } },
+    });
+    const b = SchemaRegistry.computeChecksum({
+      properties: { age: { type: "integer" }, name: { type: "string" } },
+      type: "object",
+      $id: "https://example.org/schemas/test/v1",
+    });
+    expect(a).toBe(b);
+  });
+
   it("getManifest returns ids/versions/checksums from registered schemas", () => {
     registry.register(makeDef({ id: "alpha", version: "1.2.3", checksum: "a".repeat(64) }));
     registry.register(makeDef({ id: "beta", version: "2.0.0", checksum: "b".repeat(64) }));

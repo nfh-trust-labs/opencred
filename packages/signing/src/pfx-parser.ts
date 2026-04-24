@@ -36,15 +36,17 @@ export function parsePfx(buffer: Buffer, password: string): PfxContents {
   try {
     const binaryString = buffer.toString("binary");
     asn1 = forge.asn1.fromDer(binaryString);
-  } catch {
-    throw new CryptoError("Invalid PFX data: failed to parse ASN.1 structure");
+  } catch (err) {
+    throw new CryptoError("Invalid PFX data: failed to parse ASN.1 structure", { cause: err });
   }
 
   let p12: forge.pkcs12.Pkcs12Pfx;
   try {
     p12 = forge.pkcs12.pkcs12FromAsn1(asn1, password);
-  } catch {
-    throw new CryptoError("Failed to decrypt PFX: wrong password or corrupted file");
+  } catch (err) {
+    throw new CryptoError("Failed to decrypt PFX: wrong password or corrupted file", {
+      cause: err,
+    });
   }
 
   // Extract private key
@@ -63,8 +65,8 @@ export function parsePfx(buffer: Buffer, password: string): PfxContents {
     const pem = forge.pki.privateKeyToPem(bag.key);
     try {
       privateKey = createPrivateKey(pem);
-    } catch {
-      throw new CryptoError("Failed to convert PFX private key to KeyObject");
+    } catch (err) {
+      throw new CryptoError("Failed to convert PFX private key to KeyObject", { cause: err });
     }
   } else if (bag.asn1) {
     // EC: node-forge cannot parse EC keys, but the decrypted PKCS#8
@@ -73,8 +75,8 @@ export function parsePfx(buffer: Buffer, password: string): PfxContents {
       const derBytes = forge.asn1.toDer(bag.asn1);
       const derBuffer = Buffer.from(derBytes.getBytes(), "binary");
       privateKey = createPrivateKey({ key: derBuffer, format: "der", type: "pkcs8" });
-    } catch {
-      throw new CryptoError("Failed to extract private key from PFX");
+    } catch (err) {
+      throw new CryptoError("Failed to extract private key from PFX", { cause: err });
     }
   } else {
     throw new CryptoError("Failed to extract private key from PFX");
@@ -115,4 +117,3 @@ export function parsePfx(buffer: Buffer, password: string): PfxContents {
     keyAlgorithm,
   };
 }
-

@@ -106,7 +106,9 @@ export async function packageCredential(
           break;
         }
         case "pdf": {
-          const pdfBuffer = await generatePdf(credential, { customization: options?.customization });
+          const pdfBuffer = await generatePdf(credential, {
+            customization: options?.customization,
+          });
           outputs.push({
             format: "pdf",
             data: pdfBuffer,

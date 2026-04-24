@@ -159,13 +159,23 @@ export class DeDiTokenManager {
   }
 
   private setTokens(tokens: DeDiAuthTokens): void {
-    // Zero old token before assigning new one
-    this.accessToken = "";
-    this.refreshToken = "";
-
+    // Anand's P1-04: the previous implementation zeroed the token fields
+    // BEFORE assigning the new values. If `decodeExp` or anything else
+    // between the zero and the assignment threw, the token manager was
+    // left holding empty strings — and a concurrent `getToken()` caller
+    // that observed that intermediate state could race to a fresh
+    // `/dedi/register` even though an in-flight refresh was still
+    // running.
+    //
+    // Compute `expiresAt` from the new JWT FIRST. If that throws, no
+    // observable state is mutated (the manager still holds whatever
+    // token state it had on entry). Only once we have all three new
+    // values do we commit the update in one synchronous pass — no
+    // interleaved microtask, no observable half-assigned state.
+    const newExpiresAt = this.decodeExp(tokens.access_token);
     this.accessToken = tokens.access_token;
     this.refreshToken = tokens.refresh_token;
-    this.expiresAt = this.decodeExp(tokens.access_token);
+    this.expiresAt = newExpiresAt;
   }
 
   private isExpiringSoon(): boolean {

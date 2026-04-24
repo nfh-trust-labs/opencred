@@ -85,54 +85,52 @@ export function BrandingSettings() {
   }, [loadBranding]);
 
   // Debounced save
-  const saveBranding = useCallback(
-    (updated: BrandingState) => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => {
-        void (async () => {
-          setSaving(true);
-          try {
-            const toSave: BrandingState = {};
-            if (updated.primaryColor && updated.primaryColor !== DEFAULT_PRIMARY) {
-              toSave.primaryColor = updated.primaryColor;
-            }
-            if (updated.backgroundColor && updated.backgroundColor !== DEFAULT_BACKGROUND) {
-              toSave.backgroundColor = updated.backgroundColor;
-            }
-            if (updated.secondaryColor && updated.secondaryColor !== DEFAULT_SECONDARY) {
-              toSave.secondaryColor = updated.secondaryColor;
-            }
-            if (updated.textColor && updated.textColor !== DEFAULT_TEXT) {
-              toSave.textColor = updated.textColor;
-            }
-            if (updated.labelColor && updated.labelColor !== DEFAULT_LABEL) {
-              toSave.labelColor = updated.labelColor;
-            }
-            if (updated.logoDataUri) toSave.logoDataUri = updated.logoDataUri;
-            if (updated.logoWidth && updated.logoWidth !== 60) toSave.logoWidth = updated.logoWidth;
-            if (updated.logoHeight && updated.logoHeight !== 60) toSave.logoHeight = updated.logoHeight;
-            if (updated.issuerDisplayName?.trim()) {
-              toSave.issuerDisplayName = updated.issuerDisplayName.trim();
-            }
-            if (updated.footerText?.trim()) {
-              toSave.footerText = updated.footerText.trim();
-            }
-            if (updated.sealDataUri) toSave.sealDataUri = updated.sealDataUri;
-
-            const hasValues = Object.keys(toSave).length > 0;
-            await window.opencred.setConfig("branding", hasValues ? toSave : undefined);
-            setSaved(true);
-            setTimeout(() => setSaved(false), 2000);
-          } catch {
-            // non-fatal
-          } finally {
-            setSaving(false);
+  const saveBranding = useCallback((updated: BrandingState) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      void (async () => {
+        setSaving(true);
+        try {
+          const toSave: BrandingState = {};
+          if (updated.primaryColor && updated.primaryColor !== DEFAULT_PRIMARY) {
+            toSave.primaryColor = updated.primaryColor;
           }
-        })();
-      }, 600);
-    },
-    [],
-  );
+          if (updated.backgroundColor && updated.backgroundColor !== DEFAULT_BACKGROUND) {
+            toSave.backgroundColor = updated.backgroundColor;
+          }
+          if (updated.secondaryColor && updated.secondaryColor !== DEFAULT_SECONDARY) {
+            toSave.secondaryColor = updated.secondaryColor;
+          }
+          if (updated.textColor && updated.textColor !== DEFAULT_TEXT) {
+            toSave.textColor = updated.textColor;
+          }
+          if (updated.labelColor && updated.labelColor !== DEFAULT_LABEL) {
+            toSave.labelColor = updated.labelColor;
+          }
+          if (updated.logoDataUri) toSave.logoDataUri = updated.logoDataUri;
+          if (updated.logoWidth && updated.logoWidth !== 60) toSave.logoWidth = updated.logoWidth;
+          if (updated.logoHeight && updated.logoHeight !== 60)
+            toSave.logoHeight = updated.logoHeight;
+          if (updated.issuerDisplayName?.trim()) {
+            toSave.issuerDisplayName = updated.issuerDisplayName.trim();
+          }
+          if (updated.footerText?.trim()) {
+            toSave.footerText = updated.footerText.trim();
+          }
+          if (updated.sealDataUri) toSave.sealDataUri = updated.sealDataUri;
+
+          const hasValues = Object.keys(toSave).length > 0;
+          await window.opencred.setConfig("branding", hasValues ? toSave : undefined);
+          setSaved(true);
+          setTimeout(() => setSaved(false), 2000);
+        } catch {
+          // non-fatal
+        } finally {
+          setSaving(false);
+        }
+      })();
+    }, 600);
+  }, []);
 
   function handleColorFieldChange(
     field: keyof BrandingState,
@@ -294,13 +292,17 @@ export function BrandingSettings() {
             <input
               type="color"
               value={isValidHexColor(colorInput) ? colorInput : DEFAULT_PRIMARY}
-              onChange={(e) => handleColorPickerFieldChange("primaryColor", e.target.value, setColorInput)}
+              onChange={(e) =>
+                handleColorPickerFieldChange("primaryColor", e.target.value, setColorInput)
+              }
               className={colorPickerClass}
             />
             <input
               type="text"
               value={colorInput}
-              onChange={(e) => handleColorFieldChange("primaryColor", e.target.value, setColorInput)}
+              onChange={(e) =>
+                handleColorFieldChange("primaryColor", e.target.value, setColorInput)
+              }
               placeholder="#0057FF"
               maxLength={9}
               className={hexInputClass}
@@ -316,13 +318,17 @@ export function BrandingSettings() {
             <input
               type="color"
               value={isValidHexColor(secColorInput) ? secColorInput : DEFAULT_SECONDARY}
-              onChange={(e) => handleColorPickerFieldChange("secondaryColor", e.target.value, setSecColorInput)}
+              onChange={(e) =>
+                handleColorPickerFieldChange("secondaryColor", e.target.value, setSecColorInput)
+              }
               className={colorPickerClass}
             />
             <input
               type="text"
               value={secColorInput}
-              onChange={(e) => handleColorFieldChange("secondaryColor", e.target.value, setSecColorInput)}
+              onChange={(e) =>
+                handleColorFieldChange("secondaryColor", e.target.value, setSecColorInput)
+              }
               placeholder={DEFAULT_SECONDARY}
               maxLength={9}
               className={hexInputClass}
@@ -338,13 +344,17 @@ export function BrandingSettings() {
             <input
               type="color"
               value={isValidHexColor(bgColorInput) ? bgColorInput : DEFAULT_BACKGROUND}
-              onChange={(e) => handleColorPickerFieldChange("backgroundColor", e.target.value, setBgColorInput)}
+              onChange={(e) =>
+                handleColorPickerFieldChange("backgroundColor", e.target.value, setBgColorInput)
+              }
               className={colorPickerClass}
             />
             <input
               type="text"
               value={bgColorInput}
-              onChange={(e) => handleColorFieldChange("backgroundColor", e.target.value, setBgColorInput)}
+              onChange={(e) =>
+                handleColorFieldChange("backgroundColor", e.target.value, setBgColorInput)
+              }
               placeholder={DEFAULT_BACKGROUND}
               maxLength={9}
               className={hexInputClass}
@@ -360,13 +370,17 @@ export function BrandingSettings() {
             <input
               type="color"
               value={isValidHexColor(txtColorInput) ? txtColorInput : DEFAULT_TEXT}
-              onChange={(e) => handleColorPickerFieldChange("textColor", e.target.value, setTxtColorInput)}
+              onChange={(e) =>
+                handleColorPickerFieldChange("textColor", e.target.value, setTxtColorInput)
+              }
               className={colorPickerClass}
             />
             <input
               type="text"
               value={txtColorInput}
-              onChange={(e) => handleColorFieldChange("textColor", e.target.value, setTxtColorInput)}
+              onChange={(e) =>
+                handleColorFieldChange("textColor", e.target.value, setTxtColorInput)
+              }
               placeholder={DEFAULT_TEXT}
               maxLength={9}
               className={hexInputClass}
@@ -382,13 +396,17 @@ export function BrandingSettings() {
             <input
               type="color"
               value={isValidHexColor(lblColorInput) ? lblColorInput : DEFAULT_LABEL}
-              onChange={(e) => handleColorPickerFieldChange("labelColor", e.target.value, setLblColorInput)}
+              onChange={(e) =>
+                handleColorPickerFieldChange("labelColor", e.target.value, setLblColorInput)
+              }
               className={colorPickerClass}
             />
             <input
               type="text"
               value={lblColorInput}
-              onChange={(e) => handleColorFieldChange("labelColor", e.target.value, setLblColorInput)}
+              onChange={(e) =>
+                handleColorFieldChange("labelColor", e.target.value, setLblColorInput)
+              }
               placeholder={DEFAULT_LABEL}
               maxLength={9}
               className={hexInputClass}
@@ -558,10 +576,7 @@ export function BrandingSettings() {
           style={{ backgroundColor: effectiveBg }}
         >
           {/* Color bar */}
-          <div
-            className="h-2 rounded-full mb-3"
-            style={{ backgroundColor: effectiveColor }}
-          />
+          <div className="h-2 rounded-full mb-3" style={{ backgroundColor: effectiveColor }} />
           <div className="flex items-center gap-3">
             {branding.logoDataUri ? (
               <div className="h-10 w-10 rounded border border-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0">

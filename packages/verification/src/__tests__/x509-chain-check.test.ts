@@ -179,9 +179,7 @@ function buildCertChain(): ChainBundle {
  * `leafKeyUsage` is passed directly as `keyUsageOverride` to `generateCert`.
  * Pass `null` to omit the keyUsage extension from the leaf entirely.
  */
-function buildCertChainWithLeafKeyUsage(
-  leafKeyUsage: Record<string, unknown> | null,
-): ChainBundle {
+function buildCertChainWithLeafKeyUsage(leafKeyUsage: Record<string, unknown> | null): ChainBundle {
   const root = generateCert({ commonName: "Test Root CA KU", isCa: true });
   const rootForgeCert = forge.pki.certificateFromPem(root.pem);
 
@@ -496,7 +494,10 @@ describe("checkX509Chain", () => {
 
   describe("#326 — leaf certificate keyUsage check", () => {
     it("passes when the leaf cert has digitalSignature in keyUsage", async () => {
-      const chain = buildCertChainWithLeafKeyUsage({ digitalSignature: true, keyEncipherment: true });
+      const chain = buildCertChainWithLeafKeyUsage({
+        digitalSignature: true,
+        keyEncipherment: true,
+      });
       const did = "did:web:test.example";
       const vmId = `${did}#key-0`;
 

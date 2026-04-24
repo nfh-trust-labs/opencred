@@ -82,10 +82,7 @@ function compareSemver(a: string, b: string): number {
  * address, rather than `dns.lookup`, which returns only a single address
  * and could leave other records unchecked.
  */
-async function ssrfSafeFetch(
-  url: string,
-  timeoutMs: number,
-): Promise<Response> {
+async function ssrfSafeFetch(url: string, timeoutMs: number): Promise<Response> {
   const parsed = new URL(url);
   if (parsed.protocol !== "https:") {
     throw new Error(`Non-HTTPS URL rejected: ${url}`);
@@ -148,25 +145,19 @@ export async function checkForUpdates(
     // 1. Fetch the manifest
     const manifestRes = await ssrfSafeFetch(manifestUrl, timeoutMs);
     if (!manifestRes.ok) {
-      log.warn(
-        `Schema update manifest fetch failed: HTTP ${manifestRes.status}`,
-      );
+      log.warn(`Schema update manifest fetch failed: HTTP ${manifestRes.status}`);
       return currentRegistry;
     }
 
     const manifest = (await manifestRes.json()) as SchemaUpdateManifest;
     if (manifest.version !== 1) {
-      log.warn(
-        `Unsupported manifest version ${manifest.version}, skipping update`,
-      );
+      log.warn(`Unsupported manifest version ${manifest.version}, skipping update`);
       return currentRegistry;
     }
 
     // 2. Build a lookup of currently registered schemas
     const currentManifest = currentRegistry.getManifest();
-    const currentVersions = new Map(
-      currentManifest.schemas.map((s) => [s.id, s.version]),
-    );
+    const currentVersions = new Map(currentManifest.schemas.map((s) => [s.id, s.version]));
 
     // 3. Ensure cache directory exists
     await mkdir(config.cacheDir, { recursive: true });
@@ -201,9 +192,7 @@ export async function checkForUpdates(
           try {
             downloadOrigin = new URL(entry.downloadUrl).origin;
           } catch {
-            log.warn(
-              `Skipping schema ${entry.id}: downloadUrl is not a valid URL`,
-            );
+            log.warn(`Skipping schema ${entry.id}: downloadUrl is not a valid URL`);
             continue;
           }
           if (downloadOrigin !== manifestOrigin) {
@@ -215,9 +204,7 @@ export async function checkForUpdates(
 
           const res = await ssrfSafeFetch(entry.downloadUrl, timeoutMs);
           if (!res.ok) {
-            log.warn(
-              `Failed to fetch schema ${entry.id}: HTTP ${res.status}`,
-            );
+            log.warn(`Failed to fetch schema ${entry.id}: HTTP ${res.status}`);
             continue;
           }
 
@@ -228,9 +215,7 @@ export async function checkForUpdates(
 
           // Verify checksum
           if (sha256(schemaJson) !== entry.checksum) {
-            log.warn(
-              `Checksum mismatch for schema ${entry.id}, skipping`,
-            );
+            log.warn(`Checksum mismatch for schema ${entry.id}, skipping`);
             continue;
           }
 
@@ -269,9 +254,7 @@ export async function checkForUpdates(
       }
     }
   } catch (err) {
-    log.warn(
-      `Schema update check failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    log.warn(`Schema update check failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   return currentRegistry;

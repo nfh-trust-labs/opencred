@@ -37,12 +37,7 @@ import { ValidationError } from "@opencred/shared";
 export const ALLOWED_PKCS11_DIRS_BY_PLATFORM: Record<NodeJS.Platform, readonly string[]> = {
   aix: [],
   android: [],
-  darwin: [
-    "/usr/lib/",
-    "/usr/local/lib/",
-    "/opt/homebrew/lib/",
-    "/Library/OpenSC/lib/",
-  ],
+  darwin: ["/usr/lib/", "/usr/local/lib/", "/opt/homebrew/lib/", "/Library/OpenSC/lib/"],
   freebsd: [],
   haiku: [],
   linux: [
@@ -55,11 +50,7 @@ export const ALLOWED_PKCS11_DIRS_BY_PLATFORM: Record<NodeJS.Platform, readonly s
   ],
   openbsd: [],
   sunos: [],
-  win32: [
-    "C:\\Windows\\System32\\",
-    "C:\\Program Files\\",
-    "C:\\Program Files (x86)\\",
-  ],
+  win32: ["C:\\Windows\\System32\\", "C:\\Program Files\\", "C:\\Program Files (x86)\\"],
   cygwin: [],
   netbsd: [],
 };
@@ -139,7 +130,9 @@ export async function validatePkcs11Path(userPath: string): Promise<string> {
   }
 
   if (!stat.isFile()) {
-    throw new ValidationError("PKCS#11 library path rejected: resolved path is not a regular file.");
+    throw new ValidationError(
+      "PKCS#11 library path rejected: resolved path is not a regular file.",
+    );
   }
 
   if (platform !== "win32") {
