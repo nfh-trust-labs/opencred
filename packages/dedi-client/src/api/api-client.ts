@@ -32,6 +32,25 @@ import type {
  */
 const MAX_REQUEST_TIMEOUT_MS = 10_000;
 
+/**
+ * TTL for the per-hostname DNS SSRF cache (Anand's P2-03). `assertHostIsPublic`
+ * used to fire live `resolve4`+`resolve6` lookups on every single request;
+ * for an operator-configured DeDi host under sustained load that is two
+ * lookups per request to the same hostname. The cache drops the per-request
+ * DNS I/O while still running the `isPrivateIP` check on the cached
+ * addresses — so an IP that was public at resolution time but is now private
+ * is still rejected during the 30 s window. A conservative TTL keeps the
+ * rebinding window small enough that any realistic DNS attack still fails
+ * within seconds, while allowing the hot path to avoid a resolver round
+ * trip.
+ */
+const DNS_CACHE_TTL_MS = 30_000;
+
+interface DnsCacheEntry {
+  addresses: string[];
+  resolvedAt: number;
+}
+
 export interface DeDiApiClientConfig {
   baseUrl: string;
   timeoutMs: number;
@@ -47,6 +66,11 @@ export class DeDiApiClient {
   private readonly circuitBreaker: CircuitBreaker;
   private readonly logger: DeDiLogger;
   private readonly effectiveTimeoutMs: number;
+  // Per-hostname cache of resolved addresses. Protects against DNS
+  // rebinding the same way the uncached path did (every request still
+  // runs `isPrivateIP` on the cached addresses), but avoids two DNS
+  // lookups per request for static operator-configured hostnames.
+  private readonly dnsCache = new Map<string, DnsCacheEntry>();
 
   constructor(config: DeDiApiClientConfig) {
     if (config.timeoutMs <= 0) {
@@ -544,18 +568,30 @@ export class DeDiApiClient {
 
     // Hostname — resolve both A and AAAA records and require every
     // returned IP to be public. A single private record is enough
-    // to reject the request.
-    const [v4Result, v6Result] = await Promise.allSettled([
-      dns.resolve4(hostname),
-      dns.resolve6(hostname),
-    ]);
-    const addresses = [
-      ...(v4Result.status === "fulfilled" ? v4Result.value : []),
-      ...(v6Result.status === "fulfilled" ? v6Result.value : []),
-    ];
+    // to reject the request. Reuse a 30s cache to avoid hitting the
+    // resolver twice per request for the same operator-configured
+    // hostname. The `isPrivateIP` check still runs on every request
+    // against the cached addresses — the cache only eliminates the
+    // DNS I/O, not the SSRF decision.
+    const cached = this.dnsCache.get(hostname);
+    let addresses: string[];
+    if (cached && Date.now() - cached.resolvedAt < DNS_CACHE_TTL_MS) {
+      addresses = cached.addresses;
+    } else {
+      const [v4Result, v6Result] = await Promise.allSettled([
+        dns.resolve4(hostname),
+        dns.resolve6(hostname),
+      ]);
+      addresses = [
+        ...(v4Result.status === "fulfilled" ? v4Result.value : []),
+        ...(v6Result.status === "fulfilled" ? v6Result.value : []),
+      ];
 
-    if (addresses.length === 0) {
-      throw new DeDiClientError(`DeDi host did not resolve: ${hostname}`, 502);
+      if (addresses.length === 0) {
+        throw new DeDiClientError(`DeDi host did not resolve: ${hostname}`, 502);
+      }
+
+      this.dnsCache.set(hostname, { addresses, resolvedAt: Date.now() });
     }
 
     for (const ip of addresses) {
