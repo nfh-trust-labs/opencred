@@ -274,19 +274,32 @@ export async function checkBitstringStatusList(
       fetchHeaders["Host"] = hostname;
     }
 
-    const response = await globalThis.fetch(fetchUrl, {
-      redirect: "error", // Prevent redirect-based SSRF
-      headers: fetchHeaders,
-    });
-    if (!response.ok) {
-      return {
-        name: "bitstringStatus",
-        passed: false,
-        detail: `Failed to fetch status list: HTTP ${response.status}`,
-      };
-    }
+    // #469 (P1-02): the status-list fetch used to have no timeout, so a stalled
+    // remote host could hold a verify request open indefinitely. Cap at 10 s
+    // to match the DID-web resolver and DeDi client, which use the same
+    // budget. AbortController + try/finally clearTimeout avoids a dangling
+    // timer if fetch resolves first.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    let statusListVC: Record<string, unknown>;
+    try {
+      const response = await globalThis.fetch(fetchUrl, {
+        redirect: "error", // Prevent redirect-based SSRF
+        headers: fetchHeaders,
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        return {
+          name: "bitstringStatus",
+          passed: false,
+          detail: `Failed to fetch status list: HTTP ${response.status}`,
+        };
+      }
 
-    const statusListVC = (await response.json()) as Record<string, unknown>;
+      statusListVC = (await response.json()) as Record<string, unknown>;
+    } finally {
+      clearTimeout(timer);
+    }
 
     // #128: Verify proof on the status list credential before trusting it
     if (options.didResolver) {

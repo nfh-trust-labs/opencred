@@ -59,6 +59,14 @@ function algorithmToAzureSignAlg(alg: SigningAlgorithm): string {
 
 /**
  * Create a Signer backed by Azure Key Vault.
+ *
+ * Anand's P1-03: the Azure SDK's CryptographyClient defaulted to three retry
+ * attempts, but with a 30 s initial backoff — which combined with a per-call
+ * 30 s timeout (from #458) means a single transient blip could stall the
+ * batch engine for nearly two minutes before the first retry. Configure a
+ * tighter retry budget here: max 3 attempts, 500 ms initial delay. The
+ * per-call AbortSignal from #458 continues to cap each attempt at
+ * `timeoutMs`.
  */
 export async function createAzureKvSigner(
   vaultUrl: string,
@@ -66,6 +74,8 @@ export async function createAzureKvSigner(
   timeoutMs = 30_000,
 ): Promise<Signer> {
   const credential = new DefaultAzureCredential();
+  // The KeyClient is used only for the one-time getKey at startup. It uses
+  // the default retry policy — no tighter budget is needed on the cold path.
   const keyClient = new KeyClient(vaultUrl, credential);
 
   // Get key to determine algorithm and derive DID
@@ -87,7 +97,16 @@ export async function createAzureKvSigner(
   const fingerprint = computeFingerprint(publicKeyObj);
   const id = deriveDidKeyIdFromPublicKey(publicKeyObj);
 
-  const cryptoClient = new CryptographyClient(key.id!, credential);
+  const cryptoClient = new CryptographyClient(key.id!, credential, {
+    retryOptions: {
+      maxRetries: 3,
+      // Conservative initial backoff so the hot-path batch engine doesn't
+      // stall under default Azure SDK retry defaults (see P1-03).
+      retryDelayInMs: 500,
+      // Cap total retry time at the same budget as the per-call timeout.
+      maxRetryDelayInMs: timeoutMs,
+    },
+  });
   const azureAlg = algorithmToAzureSignAlg(algorithm);
 
   const metadata: SignerMetadata = {
