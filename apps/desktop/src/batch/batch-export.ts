@@ -14,7 +14,7 @@ import { createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, unlink } from "node:fs/promises";
 import archiver from "archiver";
 import type { BatchRowResult } from "./batch-engine.js";
 
@@ -132,7 +132,29 @@ export async function exportBatchAsZip(options: BatchExportOptions): Promise<Bat
 
     let fileCount = 0;
 
+    // Anand's P2-05: if the archive errored partway through, the previous
+    // implementation rejected the outer promise but left the write stream
+    // open and the partially-written .zip on disk. Over a long desktop
+    // session of repeated failed exports that accumulated into a file-
+    // descriptor leak. Closing the stream and best-effort unlinking the
+    // partial file on both archive and stream errors keeps the system
+    // clean.
+    let settled = false;
+    const failWith = (err: Error): void => {
+      if (settled) return;
+      settled = true;
+      try {
+        output.destroy();
+      } catch {
+        // swallow — we're already in an error path
+      }
+      void unlink(outputPath).catch(() => undefined);
+      reject(err);
+    };
+
     output.on("close", () => {
+      if (settled) return;
+      settled = true;
       resolve({
         filePath: outputPath,
         credentialCount: successRows.length,
@@ -140,9 +162,8 @@ export async function exportBatchAsZip(options: BatchExportOptions): Promise<Bat
       });
     });
 
-    archive.on("error", (err: Error) => {
-      reject(err);
-    });
+    output.on("error", failWith);
+    archive.on("error", failWith);
 
     archive.pipe(output);
 
