@@ -198,6 +198,95 @@ The response body is guaranteed by `apps/server/src/__tests__/v1-smoke.test.ts` 
 
 ---
 
+### `POST /v1/keys/publish`
+
+Publish a DID document to the DeDi `public_key_registry`. Lets verifiers resolve an issuer's public keys from DeDi instead of relying on `did:web` HTTPS lookups.
+
+**Auth:** required.
+**Content-Type:** `application/json`.
+
+**Request body**
+
+```ts
+{
+  did: string;
+  document: Record<string, unknown>;
+  namespace?: string;  // override OPENCRED_DEDI_NAMESPACE
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `did` | `string` | Yes | The DID this document belongs to (e.g. `did:web:bootcamp.example.org`). |
+| `document` | `object` | Yes | The full W3C DID Core document. `verificationMethod` entries hold public keys only. |
+| `namespace` | `string` | No | DeDi namespace override. When omitted, `OPENCRED_DEDI_NAMESPACE` is used. |
+
+**Security.** The same `rejectKeyMaterial()` guard that protects every other POST route runs over the body before anything reaches DeDi. A `privateKey` field anywhere in `document` (or any nested string starting with `-----BEGIN ... PRIVATE KEY-----`) returns `400 VALIDATION_ERROR`.
+
+**Response: `200 OK`**
+
+```json
+{
+  "published": true,
+  "recordName": "did-web-bootcamp-example-org",
+  "namespace": "opencred-bootcamp"
+}
+```
+
+**Error responses**
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Body failed Zod parsing, contained a forbidden key, or contained a PEM string. |
+| `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. Set `OPENCRED_DEDI_BASE_URL`, `OPENCRED_DEDI_AUTH_TYPE`, `OPENCRED_DEDI_NAMESPACE`, and the matching auth secret. |
+
+---
+
+### `POST /v1/keys/resolve`
+
+Resolve a DID document from the DeDi `public_key_registry`.
+
+**Auth:** required.
+**Content-Type:** `application/json`.
+
+**Request body**
+
+```ts
+{
+  did: string;
+  namespace?: string;
+}
+```
+
+POST (not GET) so DIDs containing colons or path components don't have to be URL-encoded by callers.
+
+**Response: `200 OK`**
+
+```json
+{
+  "did": "did:web:bootcamp.example.org",
+  "document": {
+    "@context": "https://www.w3.org/ns/did/v1",
+    "id": "did:web:bootcamp.example.org",
+    "verificationMethod": [ ... ]
+  },
+  "resolvedAt": "2026-04-27T10:00:00.000Z"
+}
+```
+
+**Error responses**
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Body failed Zod parsing or contained a forbidden key. |
+| `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
+
+The underlying DeDi adapter (`packages/dedi-client/src/adapter/client.ts`) returns `502` if the DeDi response is malformed (missing required fields on the record).
+
+---
+
 ### `POST /v1/credentials/issue`
 
 Builds, validates, and signs a Verifiable Credential. The server holds the issuer's private key in memory (loaded once at startup); the request body provides only the public credential payload.
@@ -211,7 +300,9 @@ The request is parsed by `issueRequestSchema` in `apps/server/src/routes/credent
 
 ```ts
 {
-  schemaId: string;
+  schemaId?: string;                // optional when inlineSchema is set
+  inlineSchema?: Record<string, unknown>; // optional pasted JSON Schema
+  inlineContext?: Record<string, unknown>; // optional JSON-LD context for data-integrity
   issuerDid: string;
   credentialSubject: Record<string, unknown>;
   validFrom: string;
@@ -226,9 +317,16 @@ The request is parsed by `issueRequestSchema` in `apps/server/src/routes/credent
 }
 ```
 
+> **At least one of `schemaId` or `inlineSchema` must be present** —
+> enforced by a Zod `.refine()` guard that returns `400 VALIDATION_ERROR`
+> on a request that omits both. When both are supplied, the inline schema
+> wins for validation and for `credentialSchema.id`.
+
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `schemaId` | `string` | Yes | Built-in schema id (e.g. `functional-identity/v1`, `electricity/v1`, `open-badges/v3`, `traceability/commercial-invoice/v1`). Use `GET /v1/schemas` to list all available ids. The `credentialSubject` is validated against this schema. |
+| `schemaId` | `string` | Yes (unless `inlineSchema` set) | Built-in schema id (e.g. `functional-identity/v1`, `electricity/v1`, `open-badges/v3`, `traceability/commercial-invoice/v1`). Use `GET /v1/schemas` to list all available ids. The `credentialSubject` is validated against this schema. |
+| `inlineSchema` | `object` | Yes (unless `schemaId` set) | A pasted JSON Schema document. The server compiles it ad-hoc and validates `credentialSubject` against it without registry lookup. Supports both subject-only and full W3C VC 2.0 envelope schemas (with `properties.credentialSubject`). The schema's `$schema` declaration is stripped before compilation so subject-only schemas declaring Draft 2020-12 still validate under Ajv 8 defaults. |
+| `inlineContext` | `object` | No | A JSON-LD context document attached to the credential when `proofFormat=data-integrity`. Required (or supply `credentialSchemaUrl` to a context) for inline-schema credentials with `data-integrity` — RDFC-1.0 safe mode rejects undefined terms. `vc-jwt` and `sd-jwt-vc` ignore this field. |
 | `issuerDid` | `string` | Yes | The issuer's DID. Must match the `id` of the active signer (the server uses the active signer regardless, but downstream verifiers will compare these). |
 | `credentialSubject` | `object` | Yes | The credential claims. Validated against the JSON Schema bound to `schemaId`. |
 | `validFrom` | `string` | Yes | ISO-8601 timestamp marking the start of the credential's validity. |

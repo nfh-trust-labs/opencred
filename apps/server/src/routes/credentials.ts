@@ -184,31 +184,64 @@ function getRegistry(): SchemaRegistry {
 
 // --- Request schemas ---
 
-const issueRequestSchema = z.object({
-  schemaId: z.string(),
-  issuerDid: z.string(),
-  credentialSubject: z.record(z.unknown()),
-  validFrom: z.string(),
-  validUntil: z.string().optional(),
-  proofFormat: z.enum(["vc-jwt", "data-integrity", "sd-jwt-vc"]).default("vc-jwt"),
-  additionalTypes: z.array(z.string()).optional(),
-  // HIGH-02: reject `credentialSubject.id` values whose URI scheme is not
-  // one of `did:*`, `urn:uuid:*`, or `https://*` before they reach the
-  // builder. `CredentialBuilder.setCredentialSubject()` enforces the same
-  // rule post-#A (defense in depth) but doing it here returns a clearer
-  // Zod-formatted error with a stable path instead of a generic 500.
-  subjectDid: z
-    .string()
-    .refine(isValidSubjectUri, {
-      message: "subjectDid must be a valid DID (did:*), urn:uuid, or https:// URI",
-    })
-    .optional(),
-  selectiveDisclosureClaims: z.array(z.string()).optional(),
-  revocationRegistryUrl: z.string().url().optional(),
-  credentialSchemaUrl: z.string().url().optional(),
-  packageFormats: z.array(z.enum(["qr-png", "qr-svg", "pdf", "json", "json-compact"])).optional(),
-  customization: customizationSchema,
-});
+const issueRequestSchema = z
+  .object({
+    /**
+     * Built-in registry id (e.g. `functional-identity/v1`). Optional only
+     * when `inlineSchema` is supplied — at least one of the two must be
+     * present (enforced by the `.refine()` below).
+     */
+    schemaId: z.string().optional(),
+    /**
+     * Pasted JSON Schema document. When present, the server validates the
+     * `credentialSubject` against this schema instead of the registry, and
+     * the credential's `credentialSchema.id` priority shifts so the inline
+     * schema's `$id` (or a data-URI of the schema body) is referenced.
+     *
+     * The same defense-in-depth `rejectKeyMaterial()` walk runs over the
+     * full request body before this schema is even read, so an inline
+     * schema that smuggles a PEM block in any nested string is rejected
+     * with 400 just like every other field.
+     */
+    inlineSchema: z.record(z.unknown()).optional(),
+    /**
+     * Optional JSON-LD context document to attach when proofFormat is
+     * `data-integrity`. RDFC-1.0 canonicalization in safe mode requires
+     * every term in the credential to be defined in some context, and an
+     * inline-schema credential has no built-in context to fall back on.
+     * Mirrors the desktop's `inlineContext` flow.
+     */
+    inlineContext: z.record(z.unknown()).optional(),
+    issuerDid: z.string(),
+    credentialSubject: z.record(z.unknown()),
+    validFrom: z.string(),
+    validUntil: z.string().optional(),
+    proofFormat: z.enum(["vc-jwt", "data-integrity", "sd-jwt-vc"]).default("vc-jwt"),
+    additionalTypes: z.array(z.string()).optional(),
+    // HIGH-02: reject `credentialSubject.id` values whose URI scheme is not
+    // one of `did:*`, `urn:uuid:*`, or `https://*` before they reach the
+    // builder. `CredentialBuilder.setCredentialSubject()` enforces the same
+    // rule post-#A (defense in depth) but doing it here returns a clearer
+    // Zod-formatted error with a stable path instead of a generic 500.
+    subjectDid: z
+      .string()
+      .refine(isValidSubjectUri, {
+        message: "subjectDid must be a valid DID (did:*), urn:uuid, or https:// URI",
+      })
+      .optional(),
+    selectiveDisclosureClaims: z.array(z.string()).optional(),
+    revocationRegistryUrl: z.string().url().optional(),
+    credentialSchemaUrl: z.string().url().optional(),
+    packageFormats: z
+      .array(z.enum(["qr-png", "qr-svg", "pdf", "json", "json-compact"]))
+      .optional(),
+    customization: customizationSchema,
+  })
+  .refine((data) => Boolean(data.schemaId) || Boolean(data.inlineSchema), {
+    message:
+      "Either schemaId (built-in registry) or inlineSchema (custom JSON Schema document) must be provided",
+    path: ["schemaId"],
+  });
 
 const verifyRequestSchema = z.object({
   credential: z.string(),
@@ -224,8 +257,20 @@ credentials.post("/credentials/issue", async (c) => {
   const parsed = issueRequestSchema.parse(body);
   const signer = requireSigner();
 
-  // Validate credential subject against schema
-  getValidator().validateOrThrow(parsed.schemaId, parsed.credentialSubject);
+  // Validate credential subject against schema. Two paths:
+  //   1. inlineSchema present → compile + validate ad-hoc (no registry lookup)
+  //   2. inlineSchema absent  → registry lookup by schemaId (existing behaviour)
+  if (parsed.inlineSchema) {
+    getValidator().validateInlineOrThrow(
+      parsed.inlineSchema,
+      parsed.credentialSubject,
+      parsed.schemaId,
+    );
+  } else if (parsed.schemaId) {
+    getValidator().validateOrThrow(parsed.schemaId, parsed.credentialSubject);
+  }
+  // The Zod `.refine()` on issueRequestSchema guarantees at least one of
+  // schemaId / inlineSchema is set, so an `else` branch is unreachable.
 
   // Build unsigned credential
   const builder = new CredentialBuilder()
@@ -241,10 +286,19 @@ credentials.post("/credentials/issue", async (c) => {
   // Add JSON-LD context for Data Integrity proofs (required for RDFC-1.0
   // canonicalization with safe mode). VC-JWT and SD-JWT-VC don't need this —
   // fields are preserved as-is in the JWT payload.
+  //
+  // Priority for inline-schema credentials:
+  //   1. parsed.inlineContext  — caller pasted a context alongside the schema
+  //   2. registry context for schemaId (when schemaId is in the registry)
+  // Without a context, RDFC-1.0 safe mode will reject undefined terms.
   if (parsed.proofFormat === "data-integrity") {
-    const builtInContextUrl = getRegistry().getContextForType(parsed.schemaId);
-    if (builtInContextUrl) {
-      builder.addContext(builtInContextUrl);
+    if (parsed.inlineContext) {
+      builder.addContext(parsed.inlineContext);
+    } else if (parsed.schemaId) {
+      const builtInContextUrl = getRegistry().getContextForType(parsed.schemaId);
+      if (builtInContextUrl) {
+        builder.addContext(builtInContextUrl);
+      }
     }
   }
 
@@ -274,26 +328,43 @@ credentials.post("/credentials/issue", async (c) => {
   // mirrors the desktop path (see `apps/desktop/src/signing/local-signing-flow.ts`
   // and `apps/desktop/src/main/ipc-handlers.ts handleBuildAndSign`):
   //   1. explicit credentialSchemaUrl from the request
-  //   2. the schema's own `$id` when it has one
-  //   3. a data-URI containing the base64-encoded schema as a last resort,
-  //      so the credential is never silently shipped without a schema
-  //      reference.
+  //   2. inlineSchema.$id, if the caller pasted a schema with one
+  //   3. registry schema's own $id (for built-in schemaIds)
+  //   4. a data-URI containing the base64-encoded schema as a last resort,
+  //      preferring the inline schema body if present, so the credential is
+  //      never silently shipped without a schema reference.
   const credentialSchemaId = ((): string => {
     if (parsed.credentialSchemaUrl) {
       return parsed.credentialSchemaUrl;
     }
-    let schemaObject: Record<string, unknown> = {};
-    try {
-      const def = getRegistry().getSchema(parsed.schemaId);
-      schemaObject = def.schema as Record<string, unknown>;
-      const id = (schemaObject as { $id?: unknown }).$id;
-      if (typeof id === "string" && id.length > 0) {
-        return id;
+    // Inline schema is the highest-priority source of a $id when the
+    // caller pasted a schema. We still check the registry below so that a
+    // request with both schemaId AND inlineSchema doesn't lose the
+    // built-in $id when the inline schema lacks one.
+    if (parsed.inlineSchema) {
+      const inlineId = (parsed.inlineSchema as { $id?: unknown })["$id"];
+      if (typeof inlineId === "string" && inlineId.length > 0) {
+        return inlineId;
       }
-    } catch {
-      // Schema not in the registry (e.g. inline/custom). Fall through to
-      // the data-URI fallback with whatever we have — an empty object is
-      // still a well-formed JSON Schema document.
+    }
+    let schemaObject: Record<string, unknown> = parsed.inlineSchema ?? {};
+    if (parsed.schemaId) {
+      try {
+        const def = getRegistry().getSchema(parsed.schemaId);
+        // Only fall back to the registry schema when no inline schema was
+        // supplied — otherwise the caller's pasted schema wins.
+        if (!parsed.inlineSchema) {
+          schemaObject = def.schema as Record<string, unknown>;
+        }
+        const id = (def.schema as { $id?: unknown })["$id"];
+        if (typeof id === "string" && id.length > 0 && !parsed.inlineSchema) {
+          return id;
+        }
+      } catch {
+        // Schema not in the registry. Fall through to the data-URI fallback
+        // with whatever object we have — an empty object is still a
+        // well-formed JSON Schema document.
+      }
     }
     const base64 = Buffer.from(JSON.stringify(schemaObject), "utf8").toString("base64");
     return `data:application/schema+json;base64,${base64}`;
@@ -304,7 +375,17 @@ credentials.post("/credentials/issue", async (c) => {
 
   // Sign based on proof format
   const proofFormat = parsed.proofFormat;
-  const vct = parsed.additionalTypes?.[0] ?? parsed.schemaId;
+  // SD-JWT VC needs a `vct` (verifiable credential type) header. Priority:
+  //   additionalTypes[0] — explicit, wins
+  //   schemaId           — when issuing against a registry id
+  //   inlineSchema.title — for pasted schemas with a human-readable title
+  //   "VerifiableCredential" — last-resort default; well-formed but generic
+  const inlineSchemaTitle =
+    parsed.inlineSchema && typeof (parsed.inlineSchema as { title?: unknown })["title"] === "string"
+      ? ((parsed.inlineSchema as { title?: string })["title"] as string)
+      : undefined;
+  const vct =
+    parsed.additionalTypes?.[0] ?? parsed.schemaId ?? inlineSchemaTitle ?? "VerifiableCredential";
 
   let signedOutput: string;
   let isCompactToken = false;

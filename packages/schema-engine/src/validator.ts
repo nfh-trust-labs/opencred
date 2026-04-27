@@ -91,4 +91,58 @@ export class Validator {
       throw new SchemaValidationError(`Validation failed for schema "${schemaId}"`, result.errors);
     }
   }
+
+  /**
+   * Validate `data` against an inline JSON Schema document — no registry
+   * lookup. Used when a caller pastes a custom schema into the request body
+   * (e.g. `POST /credentials/issue` with `inlineSchema`).
+   *
+   * The same `extractSubjectSchema` helper is applied so callers can submit
+   * either a full W3C VC 2.0 envelope schema (with
+   * `properties.credentialSubject`) or a legacy subject-only schema. The
+   * Ajv instance is shared with registry-based validations — Ajv compiles
+   * the inline schema fresh per call rather than caching it under the
+   * registry id, so there is no collision risk.
+   */
+  validateInline(schema: Record<string, unknown>, data: unknown): ValidationResult {
+    const subjectSchema = extractSubjectSchema(schema);
+    // Ajv 8 (Draft 7 by default) refuses to compile a schema that declares
+    // `$schema: "https://json-schema.org/draft/2020-12/schema"` (the most
+    // common form for VC schemas) unless the matching meta-schema has been
+    // added explicitly. Strip the `$schema` declaration before compiling
+    // so subject-only schemas validate under Ajv's default meta. The
+    // features OpenCred relies on (type, required, properties, format,
+    // enum, minLength, $defs/$ref) are compatible across these drafts.
+    // This mirrors how registry-based validation works, where
+    // `extractSubjectSchema` returns a sub-schema that has no `$schema`.
+    const cloned: Record<string, unknown> = { ...subjectSchema };
+    if ("$schema" in cloned) {
+      delete cloned["$schema"];
+    }
+    const validate = this.ajv.compile(cloned);
+    const valid = validate(data);
+
+    if (valid) {
+      return { valid: true, errors: [] };
+    }
+
+    const errors: ValidationFieldError[] = (validate.errors ?? []).map((err: ErrorObject) => ({
+      field: err.instancePath
+        ? err.instancePath.slice(1).replace(/\//g, ".")
+        : ((err.params?.["missingProperty"] as string) ?? "(root)"),
+      message: err.message ?? "Validation failed",
+    }));
+
+    return { valid: false, errors };
+  }
+
+  validateInlineOrThrow(schema: Record<string, unknown>, data: unknown, label?: string): void {
+    const result = this.validateInline(schema, data);
+    if (!result.valid) {
+      throw new SchemaValidationError(
+        `Validation failed for inline schema${label ? ` "${label}"` : ""}`,
+        result.errors,
+      );
+    }
+  }
 }
