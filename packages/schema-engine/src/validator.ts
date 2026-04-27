@@ -91,4 +91,54 @@ export class Validator {
       throw new SchemaValidationError(`Validation failed for schema "${schemaId}"`, result.errors);
     }
   }
+
+  /**
+   * Validate `data` against an inline JSON Schema document — no registry
+   * lookup. Used when a caller pastes a custom schema into the request body
+   * (e.g. `POST /credentials/issue` with `inlineSchema`).
+   *
+   * The Ajv instance is shared with registry-based validations. We strip
+   * `$id` before compiling because Ajv caches compiled schemas by `$id`,
+   * so two requests with the same `$id` but different bodies would throw
+   * `"schema with key or id already exists"` on the second compile.
+   */
+  validateInline(schema: Record<string, unknown>, data: unknown): ValidationResult {
+    const subjectSchema = extractSubjectSchema(schema);
+    // Ajv 8 (Draft 7 by default) refuses to compile a schema that declares
+    // `$schema: "https://json-schema.org/draft/2020-12/schema"` (the most
+    // common form for VC schemas) unless the matching meta-schema has been
+    // added explicitly. Strip `$schema` so subject-only schemas validate
+    // under Ajv's default meta. The features OpenCred relies on (type,
+    // required, properties, format, enum, minLength, $defs/$ref) are
+    // compatible across these drafts. Strip `$id` to avoid the shared
+    // Ajv cache rejecting a second inline schema with the same id.
+    const cloned: Record<string, unknown> = { ...subjectSchema };
+    delete cloned["$schema"];
+    delete cloned["$id"];
+    const validate = this.ajv.compile(cloned);
+    const valid = validate(data);
+
+    if (valid) {
+      return { valid: true, errors: [] };
+    }
+
+    const errors: ValidationFieldError[] = (validate.errors ?? []).map((err: ErrorObject) => ({
+      field: err.instancePath
+        ? err.instancePath.slice(1).replace(/\//g, ".")
+        : ((err.params?.["missingProperty"] as string) ?? "(root)"),
+      message: err.message ?? "Validation failed",
+    }));
+
+    return { valid: false, errors };
+  }
+
+  validateInlineOrThrow(schema: Record<string, unknown>, data: unknown, label?: string): void {
+    const result = this.validateInline(schema, data);
+    if (!result.valid) {
+      throw new SchemaValidationError(
+        `Validation failed for inline schema${label ? ` "${label}"` : ""}`,
+        result.errors,
+      );
+    }
+  }
 }
