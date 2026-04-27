@@ -97,28 +97,24 @@ export class Validator {
    * lookup. Used when a caller pastes a custom schema into the request body
    * (e.g. `POST /credentials/issue` with `inlineSchema`).
    *
-   * The same `extractSubjectSchema` helper is applied so callers can submit
-   * either a full W3C VC 2.0 envelope schema (with
-   * `properties.credentialSubject`) or a legacy subject-only schema. The
-   * Ajv instance is shared with registry-based validations — Ajv compiles
-   * the inline schema fresh per call rather than caching it under the
-   * registry id, so there is no collision risk.
+   * The Ajv instance is shared with registry-based validations. We strip
+   * `$id` before compiling because Ajv caches compiled schemas by `$id`,
+   * so two requests with the same `$id` but different bodies would throw
+   * `"schema with key or id already exists"` on the second compile.
    */
   validateInline(schema: Record<string, unknown>, data: unknown): ValidationResult {
     const subjectSchema = extractSubjectSchema(schema);
     // Ajv 8 (Draft 7 by default) refuses to compile a schema that declares
     // `$schema: "https://json-schema.org/draft/2020-12/schema"` (the most
     // common form for VC schemas) unless the matching meta-schema has been
-    // added explicitly. Strip the `$schema` declaration before compiling
-    // so subject-only schemas validate under Ajv's default meta. The
-    // features OpenCred relies on (type, required, properties, format,
-    // enum, minLength, $defs/$ref) are compatible across these drafts.
-    // This mirrors how registry-based validation works, where
-    // `extractSubjectSchema` returns a sub-schema that has no `$schema`.
+    // added explicitly. Strip `$schema` so subject-only schemas validate
+    // under Ajv's default meta. The features OpenCred relies on (type,
+    // required, properties, format, enum, minLength, $defs/$ref) are
+    // compatible across these drafts. Strip `$id` to avoid the shared
+    // Ajv cache rejecting a second inline schema with the same id.
     const cloned: Record<string, unknown> = { ...subjectSchema };
-    if ("$schema" in cloned) {
-      delete cloned["$schema"];
-    }
+    delete cloned["$schema"];
+    delete cloned["$id"];
     const validate = this.ajv.compile(cloned);
     const valid = validate(data);
 

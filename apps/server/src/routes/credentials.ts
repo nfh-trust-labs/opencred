@@ -377,13 +377,19 @@ credentials.post("/credentials/issue", async (c) => {
   //   additionalTypes[0] — explicit, wins
   //   schemaId           — when issuing against a registry id
   //   inlineSchema.title — for pasted schemas with a human-readable title
-  //   "VerifiableCredential" — last-resort default; well-formed but generic
+  // SD-JWT-VC verifiers route on `vct`, so a generic fallback would produce
+  // non-discriminating tokens; reject early below if none of the three is set.
   const inlineSchemaTitle =
     parsed.inlineSchema && typeof (parsed.inlineSchema as { title?: unknown })["title"] === "string"
       ? ((parsed.inlineSchema as { title?: string })["title"] as string)
       : undefined;
-  const vct =
-    parsed.additionalTypes?.[0] ?? parsed.schemaId ?? inlineSchemaTitle ?? "VerifiableCredential";
+  const vct = parsed.additionalTypes?.[0] ?? parsed.schemaId ?? inlineSchemaTitle;
+  if (proofFormat === "sd-jwt-vc" && !vct) {
+    throw new ValidationError(
+      "sd-jwt-vc requires a credential type identifier. Provide one of: " +
+        "additionalTypes[0], schemaId, or inlineSchema.title.",
+    );
+  }
 
   let signedOutput: string;
   let isCompactToken = false;
@@ -439,9 +445,10 @@ credentials.post("/credentials/issue", async (c) => {
     }
 
     case "sd-jwt-vc": {
+      // The validation above guarantees vct is set whenever proofFormat is sd-jwt-vc.
       const sdJwtOptions = {
         selectiveDisclosureClaims: parsed.selectiveDisclosureClaims ?? [],
-        vct,
+        vct: vct as string,
         verificationMethod: signer.id,
       };
 

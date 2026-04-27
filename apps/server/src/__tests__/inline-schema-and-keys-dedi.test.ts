@@ -219,6 +219,49 @@ describe("POST /v1/credentials/issue with inlineSchema", () => {
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("SCHEMA_VALIDATION_ERROR");
   });
+
+  // Regression: sd-jwt-vc verifiers route on `vct`. When the caller pastes
+  // an inline schema with no $id/title, declares no additionalTypes, and
+  // omits schemaId, the generic "VerifiableCredential" fallback would
+  // produce a non-discriminating token. Reject early with 400 instead.
+  it("rejects sd-jwt-vc when no vct can be derived (no schemaId, no inline title, no additionalTypes)", async () => {
+    const titlelessSchema = {
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      required: ["name"],
+      properties: { name: { type: "string", minLength: 1 } },
+    };
+    const res = await app.request("/v1/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        inlineSchema: titlelessSchema,
+        issuerDid: "did:key:test-issuer",
+        credentialSubject: { name: "Jane Doe" },
+        validFrom: "2026-04-27T00:00:00Z",
+        proofFormat: "sd-jwt-vc",
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toMatch(/credential type identifier/i);
+  });
+
+  it("issues sd-jwt-vc when inlineSchema.title supplies the vct", async () => {
+    const res = await app.request("/v1/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        inlineSchema: SUBJECT_ONLY_INLINE_SCHEMA, // has title: "Training Certificate"
+        issuerDid: "did:key:test-issuer",
+        credentialSubject: TRAINING_SUBJECT,
+        validFrom: "2026-04-27T00:00:00Z",
+        proofFormat: "sd-jwt-vc",
+      }),
+    });
+    expect(res.status).toBe(200);
+  });
 });
 
 // ---------------------------------------------------------------------------

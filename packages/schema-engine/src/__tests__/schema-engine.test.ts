@@ -158,4 +158,34 @@ describe("Validator", () => {
   it("validateOrThrow throws on invalid input", () => {
     expect(() => validator.validateOrThrow("custom", { foo: "x" })).toThrow();
   });
+
+  // Regression: a single Validator instance must accept multiple inline
+  // schemas that share the same `$id`. Ajv 8 caches compiled schemas by
+  // `$id`, so without stripping `$id` the second compile would throw
+  // `"schema with key or id ... already exists"` and surface as a 500 in
+  // production (the Validator is a process-wide singleton).
+  it("validateInline tolerates two inline schemas with the same $id but different shapes", () => {
+    const sharedId = "https://example.org/schemas/training-cert/v1.json";
+    const first = {
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      $id: sharedId,
+      type: "object",
+      required: ["course"],
+      properties: { course: { type: "string" } },
+    };
+    const second = {
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      $id: sharedId,
+      type: "object",
+      required: ["passedOn"],
+      properties: { passedOn: { type: "string", format: "date" } },
+    };
+
+    expect(validator.validateInline(first, { course: "Bootcamp 101" }).valid).toBe(true);
+    // Same `$id`, different schema body — must not throw the Ajv cache error.
+    expect(validator.validateInline(second, { passedOn: "2026-04-27" }).valid).toBe(true);
+    // And the second compile must reflect the second schema's shape, not a
+    // stale cache entry from the first.
+    expect(validator.validateInline(second, { course: "Bootcamp 101" }).valid).toBe(false);
+  });
 });
