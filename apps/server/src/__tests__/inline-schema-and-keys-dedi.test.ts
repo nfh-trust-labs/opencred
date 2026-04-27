@@ -129,9 +129,7 @@ describe("POST /v1/credentials/issue with inlineSchema", () => {
     const body = (await res.json()) as {
       credential: { credentialSchema?: { id?: string } };
     };
-    expect(body.credential.credentialSchema?.id).toMatch(
-      /^data:application\/schema\+json;base64,/,
-    );
+    expect(body.credential.credentialSchema?.id).toMatch(/^data:application\/schema\+json;base64,/);
   });
 
   it("rejects requests with neither schemaId nor inlineSchema", async () => {

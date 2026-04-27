@@ -232,9 +232,7 @@ const issueRequestSchema = z
     selectiveDisclosureClaims: z.array(z.string()).optional(),
     revocationRegistryUrl: z.string().url().optional(),
     credentialSchemaUrl: z.string().url().optional(),
-    packageFormats: z
-      .array(z.enum(["qr-png", "qr-svg", "pdf", "json", "json-compact"]))
-      .optional(),
+    packageFormats: z.array(z.enum(["qr-png", "qr-svg", "pdf", "json", "json-compact"])).optional(),
     customization: customizationSchema,
   })
   .refine((data) => Boolean(data.schemaId) || Boolean(data.inlineSchema), {
