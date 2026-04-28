@@ -169,10 +169,14 @@ export async function packageCredential(
           break;
         }
         case "json": {
-          // For compact-token input, export the wrapped token (still
-          // valid JSON, mime-typed application/json). Use a `.json`
-          // extension instead of `.jsonld` because the envelope isn't
-          // a JSON-LD document.
+          // For compact-token input, export the wrapped token; for
+          // JSON-LD input, export the VC. Both use `.json` rather than
+          // `.jsonld` — the latter is technically correct for
+          // data-integrity VCs (they carry `@context`) but in practice
+          // OS / editor / browser tooling does not associate `.jsonld`
+          // with anything by default, so attendees can't double-click
+          // to open. The mime type is still `application/json`, so the
+          // extension change is surface-only.
           const jsonOutput = compactToken
             ? exportAsJson(compactToken)
             : exportAsJson(displayCredential);
@@ -180,7 +184,7 @@ export async function packageCredential(
             format: "json",
             data: jsonOutput,
             mimeType: "application/json",
-            suggestedFileName: compactToken ? `${baseName}.json` : `${baseName}.jsonld`,
+            suggestedFileName: `${baseName}.json`,
           });
           break;
         }
