@@ -173,7 +173,9 @@ export async function packageCredential(
           // valid JSON, mime-typed application/json). Use a `.json`
           // extension instead of `.jsonld` because the envelope isn't
           // a JSON-LD document.
-          const jsonOutput = compactToken ? exportAsJson(compactToken) : exportAsJson(displayCredential);
+          const jsonOutput = compactToken
+            ? exportAsJson(compactToken)
+            : exportAsJson(displayCredential);
           outputs.push({
             format: "json",
             data: jsonOutput,

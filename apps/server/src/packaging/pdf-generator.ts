@@ -420,7 +420,8 @@ export async function generatePdf(
       drawSectionHeader(doc, "Digital Signature", secondaryColor);
 
       const proof =
-        (credential.proof as Record<string, unknown> | undefined) ?? ({} as Record<string, unknown>);
+        (credential.proof as Record<string, unknown> | undefined) ??
+        ({} as Record<string, unknown>);
       const proofType = typeof proof["type"] === "string" ? (proof["type"] as string) : undefined;
       const proofCryptosuite =
         typeof proof["cryptosuite"] === "string" ? (proof["cryptosuite"] as string) : undefined;
