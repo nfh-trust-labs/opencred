@@ -549,6 +549,7 @@ curl -s http://localhost:3100/v1/credentials/verify \
 
 | Status | Code | When |
 |---|---|---|
+| `400` | `INVALID_JSON` | The request body itself is not valid JSON — e.g. an unescaped `"` inside a string value. Hono's `c.req.json()` raised a `SyntaxError`; the error handler maps that to a 400 instead of a 500 so a misformatted request is unambiguously a client problem. |
 | `400` | `VALIDATION_ERROR` | Missing `credential` field, request body contained a forbidden key, or contained a PEM string. |
 | `400` | `VERIFICATION_ERROR` | The verifier could not parse the credential at all (malformed JSON, invalid JWT structure, unsupported format). |
 | `401` | `AUTHENTICATION_ERROR` | Missing, malformed, or invalid `Authorization` header. |
@@ -738,6 +739,12 @@ Packages an already-signed credential into one or more delivery formats (PDF, QR
 }
 ```
 
+> ⚠️ **`credential` must be a JSON object, not a compact token.** This rules out
+> the responses you get from `proofFormat: "vc-jwt"` and `proofFormat: "sd-jwt-vc"`
+> — those return `credential` as a compact string, which Zod rejects with
+> `400 VALIDATION_ERROR`. Issue with `proofFormat: "data-integrity"` (default)
+> when you intend to package the result.
+
 **Response: `200 OK`**
 
 ```json
@@ -891,6 +898,7 @@ Zod parse failures from request body validation use the same envelope and add a 
 
 | Code | HTTP status | Source class | Meaning |
 |---|---|---|---|
+| `INVALID_JSON` | 400 | error-handler `SyntaxError` branch | Request body itself is not valid JSON. Hono's `c.req.json()` raised a `SyntaxError`; the handler maps that to a 400 instead of leaking it as a 500. The original `SyntaxError.message` (e.g. `Expected ',' or '}' after property value in JSON at position 21`) is included so the caller can locate the malformed character. |
 | `VALIDATION_ERROR` | 400 | `ValidationError`, Zod handler | Request body failed schema parsing or hit the `rejectKeyMaterial` guard. |
 | `SCHEMA_VALIDATION_ERROR` | 400 | `SchemaValidationError` | `credentialSubject` did not satisfy the JSON Schema. |
 | `VERIFICATION_ERROR` | 400 | `VerificationError` | Verifier could not parse the credential. |

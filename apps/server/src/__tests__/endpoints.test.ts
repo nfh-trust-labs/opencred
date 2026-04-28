@@ -395,6 +395,30 @@ describe("POST /credentials/verify", () => {
     expect(result.valid).toBe(true);
   });
 
+  // Bootcamp regression: when an attendee mis-templated their Postman body
+  // (e.g. wrapped a JSON object inside string quotes so the inner `"`
+  // closed the outer string early), `c.req.json()` threw a SyntaxError and
+  // the global error handler returned a generic 500 INTERNAL_ERROR. The
+  // user has no way to tell that from a real server bug. Map malformed
+  // JSON bodies to 400 INVALID_JSON instead.
+  it("returns 400 INVALID_JSON when request body is malformed JSON", async () => {
+    // Reproduces the exact "Expected ',' or '}' after property value" shape
+    // observed during the live bootcamp run — an inner unescaped `"` after
+    // the property value.
+    const malformedBody = '{"credential":"{"@context":"https://example.org"}"}';
+
+    const verifyRes = await app.request("/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: malformedBody,
+    });
+
+    expect(verifyRes.status).toBe(400);
+    const body = (await verifyRes.json()) as { error?: { code?: string; message?: string } };
+    expect(body.error?.code).toBe("INVALID_JSON");
+    expect(body.error?.message).toMatch(/Request body is not valid JSON/i);
+  });
+
   // SECURITY: Per CLAUDE.md invariant #5, the /credentials/verify response must
   // not leak operator config or parser errors through `checks[].detail` strings.
   // The desktop IPC handler is allowed full detail (trusted user on both sides),
