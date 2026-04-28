@@ -483,12 +483,22 @@ credentials.post("/credentials/issue", async (c) => {
         encoding: string;
       }>
     | undefined;
-  if (!isCompactToken && parsed.packageFormats && parsed.packageFormats.length > 0) {
-    const credential = JSON.parse(signedOutput) as Parameters<typeof packageCredential>[0];
+  if (parsed.packageFormats && parsed.packageFormats.length > 0) {
+    // For data-integrity output, `signedOutput` is the JSON-stringified
+    // VerifiableCredential — parse it back into an object so the
+    // packager has the full VC tree. For compact tokens
+    // (vc-jwt / sd-jwt-vc) the packager accepts the raw token string
+    // directly: it decodes the payload for the PDF layout and embeds
+    // the original token verbatim into the QR.
+    const credentialForPackaging: Parameters<typeof packageCredential>[0] = isCompactToken
+      ? signedOutput
+      : (JSON.parse(signedOutput) as Parameters<typeof packageCredential>[0]);
     const customization = parsed.customization as TemplateCustomization | undefined;
-    const result = await packageCredential(credential, parsed.packageFormats as PackageFormat[], {
-      customization,
-    });
+    const result = await packageCredential(
+      credentialForPackaging,
+      parsed.packageFormats as PackageFormat[],
+      { customization },
+    );
     packagedOutputs = result.outputs.map((output) => ({
       format: output.format,
       data: Buffer.isBuffer(output.data) ? output.data.toString("base64") : output.data,

@@ -57,19 +57,42 @@ export function decodeQrData(qrData: string): string {
 }
 
 /**
- * Generate a QR code from a VerifiableCredential as a PNG data URL.
+ * Resolve the QR payload for either a JSON-LD credential (PixelPass
+ * compress + `OPENCRED1:` prefix) or a compact JWT/SD-JWT token
+ * (embed verbatim — already compact, and verifiers expect the raw token).
  *
- * The credential is compressed via PixelPass before QR encoding.
+ * Embedding a compact token verbatim is intentional:
  *
- * @param credential - The signed VerifiableCredential.
- * @returns A PNG data URL (base64-encoded).
- * @throws {ValidationError} if the compressed data still exceeds QR capacity.
+ *   1. JWTs are already base64url-encoded and small (a few hundred bytes
+ *      for typical bootcamp credentials), so PixelPass compression
+ *      doesn't help and would force scanners to decompress before
+ *      verifying.
+ *   2. The QR scanner side calls into the verification engine, which
+ *      auto-detects compact-JWT input via `detectCredentialInputFormat`
+ *      and runs a real cryptographic check. Wrapping the JWT in another
+ *      envelope would break that path.
  */
-export async function generateQrPng(credential: VerifiableCredential): Promise<string> {
-  const compressed = compressCredentialForQr(credential);
+function resolveQrPayload(credential: VerifiableCredential | string): string {
+  if (typeof credential === "string") {
+    return credential;
+  }
+  return compressCredentialForQr(credential);
+}
+
+/**
+ * Generate a QR code from a credential as a PNG data URL.
+ *
+ * Accepts either a JSON-LD VerifiableCredential (compressed via
+ * PixelPass) or a compact JWT/SD-JWT token (embedded verbatim).
+ *
+ * @returns A PNG data URL (base64-encoded).
+ * @throws {ValidationError} if the data still exceeds QR capacity.
+ */
+export async function generateQrPng(credential: VerifiableCredential | string): Promise<string> {
+  const payload = resolveQrPayload(credential);
 
   try {
-    return await QRCode.toDataURL(compressed, {
+    return await QRCode.toDataURL(payload, {
       errorCorrectionLevel: "L",
       type: "image/png",
       margin: 2,
@@ -83,19 +106,19 @@ export async function generateQrPng(credential: VerifiableCredential): Promise<s
 }
 
 /**
- * Generate a QR code from a VerifiableCredential as an SVG string.
+ * Generate a QR code from a credential as an SVG string.
  *
- * The credential is compressed via PixelPass before QR encoding.
+ * Accepts either a JSON-LD VerifiableCredential (compressed via
+ * PixelPass) or a compact JWT/SD-JWT token (embedded verbatim).
  *
- * @param credential - The signed VerifiableCredential.
  * @returns An SVG string.
- * @throws {ValidationError} if the compressed data still exceeds QR capacity.
+ * @throws {ValidationError} if the data still exceeds QR capacity.
  */
-export async function generateQrSvg(credential: VerifiableCredential): Promise<string> {
-  const compressed = compressCredentialForQr(credential);
+export async function generateQrSvg(credential: VerifiableCredential | string): Promise<string> {
+  const payload = resolveQrPayload(credential);
 
   try {
-    return await QRCode.toString(compressed, {
+    return await QRCode.toString(payload, {
       errorCorrectionLevel: "L",
       type: "svg",
       margin: 2,
@@ -109,19 +132,19 @@ export async function generateQrSvg(credential: VerifiableCredential): Promise<s
 }
 
 /**
- * Generate a QR code from a VerifiableCredential as a PNG Buffer.
+ * Generate a QR code from a credential as a PNG Buffer.
  *
- * The credential is compressed via PixelPass before QR encoding.
+ * Accepts either a JSON-LD VerifiableCredential (compressed via
+ * PixelPass) or a compact JWT/SD-JWT token (embedded verbatim).
  *
- * @param credential - The signed VerifiableCredential.
  * @returns A PNG Buffer.
- * @throws {ValidationError} if the compressed data still exceeds QR capacity.
+ * @throws {ValidationError} if the data still exceeds QR capacity.
  */
-export async function generateQrBuffer(credential: VerifiableCredential): Promise<Buffer> {
-  const compressed = compressCredentialForQr(credential);
+export async function generateQrBuffer(credential: VerifiableCredential | string): Promise<Buffer> {
+  const payload = resolveQrPayload(credential);
 
   try {
-    return await QRCode.toBuffer(compressed, {
+    return await QRCode.toBuffer(payload, {
       errorCorrectionLevel: "L",
       type: "png",
       margin: 2,

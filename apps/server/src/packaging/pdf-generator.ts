@@ -25,6 +25,19 @@ import { generateQrBuffer } from "./qr-generator.js";
  */
 export interface PdfOptions {
   customization?: TemplateCustomization;
+  /**
+   * If set, the QR code embedded in the PDF will encode this string
+   * verbatim (typically the original compact `vc-jwt` / `sd-jwt-vc`
+   * token) rather than a PixelPass-compressed JSON-LD payload built
+   * from `credential`. The `credential` argument is still used for the
+   * page layout (title, subject fields, validity dates).
+   *
+   * Used by the packager when the caller passed a compact-token input:
+   * the JWT is already small and a verifier scanning the QR runs a real
+   * cryptographic check against the issuer's public key. Wrapping it in
+   * an OPENCRED1: envelope would break that path.
+   */
+  qrPayloadOverride?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,9 +142,11 @@ function drawLabelValue(
 // QR code generation (uses PixelPass compression via qr-generator)
 // ---------------------------------------------------------------------------
 
-async function generateQrPngBuffer(credential: VerifiableCredential): Promise<Buffer | null> {
+async function generateQrPngBuffer(
+  credentialOrToken: VerifiableCredential | string,
+): Promise<Buffer | null> {
   try {
-    return await generateQrBuffer(credential);
+    return await generateQrBuffer(credentialOrToken);
   } catch {
     return null; // Too large even after compression — skip QR in PDF
   }
@@ -155,8 +170,12 @@ export async function generatePdf(
   credential: VerifiableCredential,
   options?: PdfOptions,
 ): Promise<Buffer> {
-  // Generate QR code first (async), then build PDF
-  const qrBuffer = await generateQrPngBuffer(credential);
+  // Generate QR code first (async), then build PDF. If the caller passed
+  // a `qrPayloadOverride` (i.e. the original compact JWT/SD-JWT token),
+  // embed it verbatim — see PdfOptions.qrPayloadOverride for the
+  // rationale. Otherwise PixelPass-compress the full VC JSON.
+  const qrSource: VerifiableCredential | string = options?.qrPayloadOverride ?? credential;
+  const qrBuffer = await generateQrPngBuffer(qrSource);
   const customization = options?.customization;
   const accentColor = customization?.primaryColor ?? COLOR_ACCENT;
   const primaryHeadingColor = customization?.primaryColor ?? COLOR_PRIMARY;
@@ -390,38 +409,49 @@ export async function generatePdf(
       // ---------------------------------------------------------------
       // Digital Signature
       // ---------------------------------------------------------------
+      // Tolerate a missing `proof` block: compact-token credentials
+      // (vc-jwt / sd-jwt-vc) don't carry a Data Integrity-style proof
+      // block — the signature is the JWT itself, embedded verbatim in
+      // the QR code below. We still want to render the section so the
+      // certificate doesn't lose visual structure; we just emit the
+      // fields we can derive from the synthetic VC shape and skip
+      // sub-fields that aren't there. Same goes for partially-formed
+      // VCs in tests.
       drawSectionHeader(doc, "Digital Signature", secondaryColor);
 
-      drawLabelValue(doc, "Proof Type", credential.proof.type, 120, labelColor, textColor);
-      if (credential.proof.cryptosuite) {
+      const proof =
+        (credential.proof as Record<string, unknown> | undefined) ?? ({} as Record<string, unknown>);
+      const proofType = typeof proof["type"] === "string" ? (proof["type"] as string) : undefined;
+      const proofCryptosuite =
+        typeof proof["cryptosuite"] === "string" ? (proof["cryptosuite"] as string) : undefined;
+      const proofCreated =
+        typeof proof["created"] === "string" ? (proof["created"] as string) : undefined;
+      const proofVerificationMethod =
+        typeof proof["verificationMethod"] === "string"
+          ? (proof["verificationMethod"] as string)
+          : undefined;
+
+      if (proofType) {
+        drawLabelValue(doc, "Proof Type", proofType, 120, labelColor, textColor);
+      }
+      if (proofCryptosuite) {
+        drawLabelValue(doc, "Cryptosuite", proofCryptosuite, 120, labelColor, textColor);
+      }
+      if (proofCreated) {
+        drawLabelValue(doc, "Created", formatDate(proofCreated), 120, labelColor, textColor);
+      }
+      if (proofVerificationMethod) {
         drawLabelValue(
           doc,
-          "Cryptosuite",
-          credential.proof.cryptosuite,
+          "Verification Method",
+          proofVerificationMethod,
           120,
           labelColor,
           textColor,
         );
       }
-      drawLabelValue(
-        doc,
-        "Created",
-        formatDate(credential.proof.created),
-        120,
-        labelColor,
-        textColor,
-      );
-      drawLabelValue(
-        doc,
-        "Verification Method",
-        credential.proof.verificationMethod,
-        120,
-        labelColor,
-        textColor,
-      );
 
       // X.509 chain info (if present)
-      const proof = credential.proof as Record<string, unknown>;
       if (Array.isArray(proof.x5c) && proof.x5c.length > 0) {
         drawLabelValue(
           doc,

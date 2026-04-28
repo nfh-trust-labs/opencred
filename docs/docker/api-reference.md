@@ -734,16 +734,17 @@ Packages an already-signed credential into one or more delivery formats (PDF, QR
 
 ```ts
 {
-  credential: Record<string, unknown>;
+  credential: Record<string, unknown> | string;  // VC object OR compact JWT/SD-JWT token
   formats?: Array<"qr-png" | "qr-svg" | "pdf" | "json" | "json-compact">;  // default ["json"]
 }
 ```
 
-> ⚠️ **`credential` must be a JSON object, not a compact token.** This rules out
-> the responses you get from `proofFormat: "vc-jwt"` and `proofFormat: "sd-jwt-vc"`
-> — those return `credential` as a compact string, which Zod rejects with
-> `400 VALIDATION_ERROR`. Issue with `proofFormat: "data-integrity"` (default)
-> when you intend to package the result.
+`credential` accepts either form returned by `/v1/credentials/issue`:
+
+- **A JSON object** — JSON-LD VerifiableCredential. Returned by `proofFormat: "data-integrity"` and `proofFormat: "vc-jwt"` (the latter wraps the JWT in `proof.jwt`).
+- **A compact token string** — `vc-jwt` (`header.payload.signature`) or `sd-jwt-vc` (`<issuer-jwt>~<disclosure>~...`). Returned by `proofFormat: "sd-jwt-vc"`.
+
+For compact-token input, the server decodes the JWT payload offline (no signature verification — packaging is a rendering operation) to drive the PDF certificate layout, and embeds the original token verbatim into the QR code. The integrity guarantee lives in the original token and any verifier scanning the QR runs a real cryptographic check against the issuer's public key. The JSON output wraps the token as `{"format": "vc-jwt"|"sd-jwt-vc", "credential": "<token>"}` so the file is still valid `application/json`.
 
 **Response: `200 OK`**
 

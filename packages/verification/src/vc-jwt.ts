@@ -21,6 +21,24 @@ export interface VcJwtPayload {
 }
 
 /**
+ * Decode the payload of a compact JWT **without verifying the signature**.
+ *
+ * Intended for offline rendering paths (e.g. the credential packager
+ * extracting display claims for a PDF certificate) where the integrity
+ * guarantee comes from preserving the original token byte-for-byte
+ * elsewhere — never use this as a replacement for `verifyVcJwt`.
+ *
+ * Re-exported via the package index so other workspace packages don't
+ * have to take a direct dependency on `jose`.
+ *
+ * @throws if the input isn't parseable as a compact JWT.
+ */
+export function decodeJwtPayloadUnsafe(jwt: string): Record<string, unknown> {
+  assertJwtSize(jwt);
+  return jose.decodeJwt(jwt) as Record<string, unknown>;
+}
+
+/**
  * Verify a VC-JWT credential string.
  * Parses the JWT, resolves the issuer's public key via DID resolution,
  * and verifies the JWT signature.
