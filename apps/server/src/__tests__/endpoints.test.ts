@@ -395,6 +395,29 @@ describe("POST /credentials/verify", () => {
     expect(result.valid).toBe(true);
   });
 
+  // Regression: a mis-templated request body (e.g. wrapping a JSON object
+  // inside string quotes so the inner `"` closes the outer string early)
+  // caused `c.req.json()` to throw a SyntaxError, and the global error
+  // handler returned a generic 500 INTERNAL_ERROR — indistinguishable
+  // from a real server fault. Map malformed bodies to 400 INVALID_JSON
+  // so the caller can recognise the parser-level problem.
+  it("returns 400 INVALID_JSON when request body is malformed JSON", async () => {
+    // Inner unescaped `"` after the property value — produces the
+    // "Expected ',' or '}' after property value" SyntaxError shape.
+    const malformedBody = '{"credential":"{"@context":"https://example.org"}"}';
+
+    const verifyRes = await app.request("/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: malformedBody,
+    });
+
+    expect(verifyRes.status).toBe(400);
+    const body = (await verifyRes.json()) as { error?: { code?: string; message?: string } };
+    expect(body.error?.code).toBe("INVALID_JSON");
+    expect(body.error?.message).toMatch(/Request body is not valid JSON/i);
+  });
+
   // SECURITY: Per CLAUDE.md invariant #5, the /credentials/verify response must
   // not leak operator config or parser errors through `checks[].detail` strings.
   // The desktop IPC handler is allowed full detail (trusted user on both sides),
@@ -975,6 +998,239 @@ describe("issuer branding customization", () => {
     expect(res.status).toBe(202);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toHaveProperty("jobId");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Packaging compact-token credentials (vc-jwt / sd-jwt-vc)
+// ---------------------------------------------------------------------------
+//
+// `/credentials/package` accepts the credential as either a JSON object
+// (data-integrity) or a compact token string (vc-jwt, sd-jwt-vc). For a
+// caller using `proofFormat: "sd-jwt-vc"` the issue endpoint returns a
+// `~`-separated compact string that this endpoint must accept directly
+// (otherwise the only path to a printable PDF is to re-issue in another
+// format). The packager:
+//   - decodes the JWT payload offline (no signature check) to drive the PDF
+//     layout;
+//   - embeds the raw compact token verbatim in the QR (so any verifier
+//     scanning the QR runs a real cryptographic check);
+//   - wraps the token in a `{ format, credential }` envelope for JSON.
+
+describe("POST /credentials/package — compact-token input", () => {
+  // Use sd-jwt-vc to obtain a real compact token. The vc-jwt proof format
+  // returns a JSON-LD VC with the JWT embedded as `proof.jwt` (i.e. an
+  // object), not a compact string — so the compact-token packaging path
+  // is exercised via sd-jwt-vc which always returns a `~`-separated
+  // compact string.
+  async function issueSdJwtVc(): Promise<string> {
+    const res = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...VALID_ISSUE_REQUEST,
+        issuerDid: testKey.signer.id.split("#")[0],
+        proofFormat: "sd-jwt-vc",
+        selectiveDisclosureClaims: ["/credentialSubject/role"],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { credential: string; isCompactToken: boolean };
+    expect(body.isCompactToken).toBe(true);
+    expect(typeof body.credential).toBe("string");
+    return body.credential;
+  }
+
+  it("accepts an sd-jwt-vc compact token and returns json + qr-svg + pdf", async () => {
+    const token = await issueSdJwtVc();
+
+    const res = await app.request("/credentials/package", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        credential: token,
+        formats: ["json", "qr-svg", "qr-png", "pdf"],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      outputs: Array<{
+        format: string;
+        data: string;
+        mimeType: string;
+        encoding: string;
+        suggestedFileName: string;
+      }>;
+      errors: unknown[];
+    };
+    expect(body.errors).toEqual([]);
+    expect(body.outputs.map((o) => o.format).sort()).toEqual(
+      ["json", "pdf", "qr-png", "qr-svg"].sort(),
+    );
+
+    // JSON envelope must wrap the original token verbatim, not the decoded payload.
+    const jsonOutput = body.outputs.find((o) => o.format === "json");
+    expect(jsonOutput).toBeDefined();
+    const wrapper = JSON.parse(jsonOutput!.data) as { format: string; credential: string };
+    expect(wrapper.format).toBe("sd-jwt-vc");
+    expect(wrapper.credential).toBe(token);
+
+    // QR SVG must contain the raw token (no PixelPass `OPENCRED1:`
+    // wrapper) so a generic QR scanner sees the same JWT a verifier
+    // would consume.
+    const svgOutput = body.outputs.find((o) => o.format === "qr-svg");
+    expect(svgOutput).toBeDefined();
+    expect(svgOutput!.data).toContain("<svg");
+    // The raw JWT shouldn't appear textually in the SVG (it's encoded as
+    // QR pixels), but the PixelPass header *would* be present if we
+    // were going through that pipeline. Asserting it isn't is enough.
+    expect(svgOutput!.data).not.toContain("OPENCRED1:");
+
+    // PDF comes back base64-encoded with the application/pdf mime type.
+    const pdfOutput = body.outputs.find((o) => o.format === "pdf");
+    expect(pdfOutput).toBeDefined();
+    expect(pdfOutput!.encoding).toBe("base64");
+    expect(pdfOutput!.mimeType).toBe("application/pdf");
+    const pdfBytes = Buffer.from(pdfOutput!.data, "base64");
+    // PDF magic number: `%PDF`
+    expect(pdfBytes.subarray(0, 4).toString()).toBe("%PDF");
+  });
+
+  it("rejects an empty string credential with 400", async () => {
+    const res = await app.request("/credentials/package", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: "", formats: ["json"] }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a non-JWT, non-object credential string with a deterministic 400", async () => {
+    // ValidationError from `decode-for-display.ts:235-238` (the dot-count guard)
+    // bubbles to the route, which the global error handler renders as a 400
+    // via `OpenCredError.toJSON()`. We assert the exact status and the stable
+    // error code — accepting 500 here would hide a regression that drops the
+    // dot-count check.
+    const res = await app.request("/credentials/package", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        credential: "this-is-just-a-plain-string-with-no-dots-or-tildes",
+        formats: ["json"],
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: { code?: string; message?: string } };
+    expect(body.error?.code).toBe("VALIDATION_ERROR");
+    expect(body.error?.message).toMatch(/2 '\.' separators/);
+  });
+
+  it("does not trip rejectKeyMaterial when given a legitimate compact token", async () => {
+    // Security invariant (CLAUDE.md rule 1) — `rejectKeyMaterial` runs
+    // recursively on every POST body and rejects any string field that
+    // looks like a PEM-encoded private key. A compact JWT is base64url
+    // segments separated by `.` — no `-----BEGIN ...` headers — so the
+    // guard must not false-positive. This test pins that contract: if
+    // a future refactor decodes string fields before scanning, every
+    // compact-token request would silently break, and this test would
+    // fail with a 400 BAD_REQUEST instead of a 200.
+    const issueRes = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...VALID_ISSUE_REQUEST,
+        issuerDid: testKey.signer.id.split("#")[0],
+        proofFormat: "sd-jwt-vc",
+        selectiveDisclosureClaims: ["/credentialSubject/role"],
+      }),
+    });
+    const issued = (await issueRes.json()) as { credential: string };
+
+    const res = await app.request("/credentials/package", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: issued.credential, formats: ["json"] }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { errors: unknown[] };
+    expect(body.errors).toEqual([]);
+  });
+
+  it("renders a PDF without footer text when customization.footerText is empty", async () => {
+    // The empty-string suppression at pdf-generator.ts is the only way
+    // for an issuer to opt out of the verification disclaimer footer.
+    // Pin the contract by extracting the PDF text and asserting the
+    // default footer string is absent. Pdfkit emits text via Tj/TJ
+    // operators in the content stream — a substring check on the raw
+    // PDF bytes is sufficient (the default is plain ASCII so it would
+    // appear verbatim in an unencrypted stream).
+    const issueRes = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...VALID_ISSUE_REQUEST,
+        issuerDid: testKey.signer.id.split("#")[0],
+        proofFormat: "data-integrity",
+      }),
+    });
+    const issued = (await issueRes.json()) as { credential: Record<string, unknown> };
+
+    const res = await app.request("/credentials/package", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        credential: issued.credential,
+        formats: ["pdf"],
+        customization: { footerText: "" },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { outputs: Array<{ format: string; data: string }> };
+    const pdfOutput = body.outputs.find((o) => o.format === "pdf");
+    expect(pdfOutput).toBeDefined();
+    const pdfBytes = Buffer.from(pdfOutput!.data, "base64");
+    const pdfText = pdfBytes.toString("latin1");
+    expect(pdfText).not.toContain("This credential is digitally signed");
+    expect(pdfText).not.toContain("OpenCred Desktop");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// /credentials/issue inline-package for vc-jwt
+// ---------------------------------------------------------------------------
+
+describe("POST /credentials/issue — packageFormats with compact-token proofs", () => {
+  it("returns packagedOutputs when proofFormat is sd-jwt-vc (compact token)", async () => {
+    // Regression: the inline-package branch on /credentials/issue was
+    // previously gated by `!isCompactToken`, so a caller issuing with a
+    // compact proof format and asking for `packageFormats` got an empty
+    // array. After the JWT-aware packager the same call returns a full
+    // set of outputs.
+    const res = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...VALID_ISSUE_REQUEST,
+        issuerDid: testKey.signer.id.split("#")[0],
+        proofFormat: "sd-jwt-vc",
+        selectiveDisclosureClaims: ["/credentialSubject/role"],
+        packageFormats: ["pdf", "json"],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      credential: string;
+      isCompactToken: boolean;
+      packagedOutputs?: Array<{ format: string; data: string }>;
+    };
+    expect(body.isCompactToken).toBe(true);
+    expect(body.packagedOutputs).toBeDefined();
+    expect(body.packagedOutputs!.length).toBe(2);
+    const formats = body.packagedOutputs!.map((o) => o.format);
+    expect(formats).toContain("pdf");
+    expect(formats).toContain("json");
   });
 });
 

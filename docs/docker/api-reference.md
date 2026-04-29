@@ -337,7 +337,7 @@ The request is parsed by `issueRequestSchema` in `apps/server/src/routes/credent
 | `selectiveDisclosureClaims` | `string[]` | No | JSON pointer-style paths into `credentialSubject` whose values become selectively disclosable when `proofFormat=sd-jwt-vc`. |
 | `revocationRegistryUrl` | `string` | No | URL of a DeDi status list. When set, the server generates a `urn:uuid:` credential id, computes a SHA-256 revocation hash from the UUID, and adds a `credentialStatus` block of type `dedi`. |
 | `credentialSchemaUrl` | `string` | No | URL of an external JSON Schema. When set, written to the credential's `credentialSchema` field with `type: "JsonSchema"`. |
-| `packageFormats` | `string[]` | No | Optional packaging formats to render alongside the signed credential. Only applies to JSON credentials, not compact tokens (SD-JWT VC). |
+| `packageFormats` | `string[]` | No | Optional packaging formats to render alongside the signed credential. Works with all three `proofFormat` values, including `sd-jwt-vc` — for compact tokens the QR embeds the raw token verbatim and the PDF layout is driven by the decoded JWT payload. |
 
 **Security: `rejectKeyMaterial()` defense-in-depth check**
 
@@ -549,6 +549,7 @@ curl -s http://localhost:3100/v1/credentials/verify \
 
 | Status | Code | When |
 |---|---|---|
+| `400` | `INVALID_JSON` | The request body itself is not valid JSON — e.g. an unescaped `"` inside a string value. Hono's `c.req.json()` raised a `SyntaxError`; the error handler maps that to a 400 instead of a 500 so a misformatted request is unambiguously a client problem. |
 | `400` | `VALIDATION_ERROR` | Missing `credential` field, request body contained a forbidden key, or contained a PEM string. |
 | `400` | `VERIFICATION_ERROR` | The verifier could not parse the credential at all (malformed JSON, invalid JWT structure, unsupported format). |
 | `401` | `AUTHENTICATION_ERROR` | Missing, malformed, or invalid `Authorization` header. |
@@ -724,7 +725,7 @@ Entries are returned in input order. `rejectKeyMaterial()` runs on the request b
 
 ### `POST /v1/credentials/package`
 
-Packages an already-signed credential into one or more delivery formats (PDF, QR PNG, QR SVG, JSON-LD, compact JSON).
+Packages an already-signed credential into one or more delivery formats (PDF, QR PNG, QR SVG, JSON, compact JSON).
 
 **Auth:** required.
 **Content-Type:** `application/json`.
@@ -733,10 +734,17 @@ Packages an already-signed credential into one or more delivery formats (PDF, QR
 
 ```ts
 {
-  credential: Record<string, unknown>;
+  credential: Record<string, unknown> | string;  // VC object OR compact JWT/SD-JWT token
   formats?: Array<"qr-png" | "qr-svg" | "pdf" | "json" | "json-compact">;  // default ["json"]
 }
 ```
+
+`credential` accepts either form returned by `/v1/credentials/issue`:
+
+- **A JSON object** — JSON-LD VerifiableCredential. Returned by `proofFormat: "data-integrity"` and `proofFormat: "vc-jwt"` (the latter wraps the JWT in `proof.jwt`).
+- **A compact token string** — `vc-jwt` (`header.payload.signature`) or `sd-jwt-vc` (`<issuer-jwt>~<disclosure>~...`). Returned by `proofFormat: "sd-jwt-vc"`.
+
+For compact-token input, the server decodes the JWT payload offline (no signature verification — packaging is a rendering operation) to drive the PDF certificate layout, and embeds the original token verbatim into the QR code. The integrity guarantee lives in the original token and any verifier scanning the QR runs a real cryptographic check against the issuer's public key. The JSON output wraps the token as `{"format": "vc-jwt"|"sd-jwt-vc", "credential": "<token>"}` so the file is still valid `application/json`.
 
 **Response: `200 OK`**
 
@@ -755,7 +763,21 @@ Packages an already-signed credential into one or more delivery formats (PDF, QR
 }
 ```
 
-Binary formats (`pdf`, `qr-png`) are base64-encoded with `encoding: "base64"`. Text formats (`qr-svg`, `json`, `json-compact`) are returned inline with `encoding: "utf-8"`. Any per-format packaging failures are reported in `errors` without failing the whole request. `rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/packaging.ts`.
+**Per-format encoding:**
+
+| `format` | `encoding` | `data` shape |
+|---|---|---|
+| `pdf` | `base64` | Pure base64 — decode with `base64 -d` |
+| `qr-png` | `utf-8` ⚠️ | `data:image/png;base64,<...>` data URL — strip the `data:image/png;base64,` prefix before `base64 -d` |
+| `qr-svg` | `utf-8` | Inline SVG XML |
+| `json` | `utf-8` | Pretty-printed VC for object input; `{ "format": "vc-jwt"\|"sd-jwt-vc", "credential": "<token>" }` envelope for compact-token input |
+| `json-compact` | `utf-8` | Same content as `json`, no whitespace |
+
+`suggestedFileName` uses `.json` (not `.jsonld`) regardless of input — the mime type is still `application/json`, the extension change is surface-only so attendees can double-click the file.
+
+**Customization** — every field under `customization` is optional. Hex colors: `primaryColor`, `secondaryColor`, `textColor`, `labelColor`, `backgroundColor`. Strings: `issuerDisplayName` (≤200; replaces the issuer DID under "ISSUED BY"), `footerText` (≤500; pass `""` to suppress the disclaimer footer entirely). Data URIs: `logoDataUri`, `sealDataUri`, both must start with `data:image/`. Numbers: `logoWidth`, `logoHeight` (10–200, in PDF points). Unknown fields are silently dropped by Zod, so e.g. `issuerName` instead of `issuerDisplayName` will appear to "succeed" but won't do anything.
+
+Any per-format packaging failures are reported in `errors` without failing the whole request. `rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/packaging.ts`.
 
 ---
 
@@ -891,6 +913,7 @@ Zod parse failures from request body validation use the same envelope and add a 
 
 | Code | HTTP status | Source class | Meaning |
 |---|---|---|---|
+| `INVALID_JSON` | 400 | error-handler `SyntaxError` branch | Request body itself is not valid JSON. Hono's `c.req.json()` raised a `SyntaxError`; the handler maps that to a 400 instead of leaking it as a 500. The original `SyntaxError.message` (e.g. `Expected ',' or '}' after property value in JSON at position 21`) is included so the caller can locate the malformed character. |
 | `VALIDATION_ERROR` | 400 | `ValidationError`, Zod handler | Request body failed schema parsing or hit the `rejectKeyMaterial` guard. |
 | `SCHEMA_VALIDATION_ERROR` | 400 | `SchemaValidationError` | `credentialSubject` did not satisfy the JSON Schema. |
 | `VERIFICATION_ERROR` | 400 | `VerificationError` | Verifier could not parse the credential. |
