@@ -114,8 +114,21 @@ function normalizeInput(input: VerifiableCredential | string): {
  *
  * Accepts either a JSON-LD `VerifiableCredential` object or a compact
  * `vc-jwt` / `sd-jwt-vc` token string. All packaging happens offline —
- * no network requests. If a specific format fails (e.g., QR exceeds
- * capacity), the error is captured in the result rather than throwing.
+ * no network requests.
+ *
+ * Two error policies are in play:
+ *
+ *  1. **Per-format errors** (e.g. QR payload exceeds QR capacity, PDF
+ *     generator throws on a specific layout) — captured into
+ *     `result.errors[]` keyed by format. The HTTP response stays 200,
+ *     other formats still come back. This is the "best-effort"
+ *     contract callers rely on for batch usage.
+ *
+ *  2. **Input-shape errors** (e.g. `credential` is a string but isn't a
+ *     parseable JWT/SD-JWT compact token) — `normalizeInput` throws
+ *     `ValidationError` *before* the per-format loop runs, because the
+ *     inputs to all formats are derived from the same shape. The route
+ *     surfaces this as a 400. No formats run.
  *
  * For compact-token input the QR code embeds the token verbatim (which
  * a verifier can scan + cryptographically validate), the PDF uses the

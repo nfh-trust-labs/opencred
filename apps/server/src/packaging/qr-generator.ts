@@ -80,6 +80,21 @@ function resolveQrPayload(credential: VerifiableCredential | string): string {
 }
 
 /**
+ * Build a precise capacity-exceeded error message for a QR generation
+ * failure. The compressed-vs-verbatim distinction matters: telling a
+ * caller their compact token was rejected "even after compression"
+ * misleads them — no compression ran.
+ */
+function qrCapacityError(credential: VerifiableCredential | string, err: unknown): string {
+  const detail =
+    typeof credential === "string"
+      ? "Compact token exceeds QR data capacity."
+      : "Credential too large for QR code even after compression.";
+  const cause = err instanceof Error ? err.message : "unknown error";
+  return `${detail} Consider using JSON export instead. (${cause})`;
+}
+
+/**
  * Generate a QR code from a credential as a PNG data URL.
  *
  * Accepts either a JSON-LD VerifiableCredential (compressed via
@@ -99,9 +114,7 @@ export async function generateQrPng(credential: VerifiableCredential | string): 
       width: 400,
     });
   } catch (err) {
-    throw new ValidationError(
-      `Credential too large for QR code even after compression. Consider using JSON export instead. (${err instanceof Error ? err.message : "unknown error"})`,
-    );
+    throw new ValidationError(qrCapacityError(credential, err));
   }
 }
 
@@ -125,9 +138,7 @@ export async function generateQrSvg(credential: VerifiableCredential | string): 
       width: 400,
     });
   } catch (err) {
-    throw new ValidationError(
-      `Credential too large for QR code even after compression. Consider using JSON export instead. (${err instanceof Error ? err.message : "unknown error"})`,
-    );
+    throw new ValidationError(qrCapacityError(credential, err));
   }
 }
 
@@ -151,8 +162,6 @@ export async function generateQrBuffer(credential: VerifiableCredential | string
       width: 400,
     });
   } catch (err) {
-    throw new ValidationError(
-      `Credential too large for QR code even after compression. Consider using JSON export instead. (${err instanceof Error ? err.message : "unknown error"})`,
-    );
+    throw new ValidationError(qrCapacityError(credential, err));
   }
 }

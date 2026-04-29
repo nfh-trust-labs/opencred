@@ -19,6 +19,7 @@ import PDFDocument from "pdfkit";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import type { TemplateCustomization } from "@opencred/templates";
 import { generateQrBuffer } from "./qr-generator.js";
+import { getLogger } from "../logger.js";
 
 /**
  * Options for PDF generation.
@@ -88,8 +89,22 @@ function getCredentialTitle(credential: VerifiableCredential): string {
   return "Verifiable Credential";
 }
 
+/**
+ * Best-effort issuer-display string. Tolerant of:
+ *  - `issuer` being a string (W3C VC compact form),
+ *  - `issuer` being an object with `id` (W3C VC long form),
+ *  - `issuer` being absent or malformed (e.g. a synthetic VC shape from
+ *    a compact JWT that had no `iss` claim) — returns a placeholder
+ *    rather than crashing.
+ */
 function getIssuerDisplay(credential: VerifiableCredential): string {
-  return typeof credential.issuer === "string" ? credential.issuer : credential.issuer.id;
+  const issuer = (credential as { issuer?: unknown }).issuer;
+  if (typeof issuer === "string") return issuer;
+  if (issuer && typeof issuer === "object" && "id" in issuer) {
+    const id = (issuer as { id?: unknown }).id;
+    if (typeof id === "string") return id;
+  }
+  return "(issuer not provided)";
 }
 
 function drawHorizontalRule(
@@ -142,13 +157,33 @@ function drawLabelValue(
 // QR code generation (uses PixelPass compression via qr-generator)
 // ---------------------------------------------------------------------------
 
+/**
+ * Generate the QR code that gets embedded into the PDF.
+ *
+ * Returns `null` when QR generation fails — the PDF still renders, but
+ * with the "credential too large for QR" footnote in place of the QR.
+ * We log at `warn` level so operators investigating "the cert has no
+ * QR" have a signal to correlate, including the credential id when
+ * available. Standalone `qr-png` / `qr-svg` formats surface the same
+ * failure via `result.errors[]`; this code path is the only embed-only
+ * failure mode that wouldn't otherwise be reachable from the response.
+ */
 async function generateQrPngBuffer(
   credentialOrToken: VerifiableCredential | string,
+  credentialId: string | undefined,
 ): Promise<Buffer | null> {
   try {
     return await generateQrBuffer(credentialOrToken);
-  } catch {
-    return null; // Too large even after compression — skip QR in PDF
+  } catch (err) {
+    getLogger().warn(
+      {
+        credentialId,
+        err: err instanceof Error ? err.message : String(err),
+        inputKind: typeof credentialOrToken === "string" ? "compact-token" : "vc-object",
+      },
+      "QR omitted from PDF certificate",
+    );
+    return null;
   }
 }
 
@@ -175,7 +210,10 @@ export async function generatePdf(
   // embed it verbatim — see PdfOptions.qrPayloadOverride for the
   // rationale. Otherwise PixelPass-compress the full VC JSON.
   const qrSource: VerifiableCredential | string = options?.qrPayloadOverride ?? credential;
-  const qrBuffer = await generateQrPngBuffer(qrSource);
+  const qrBuffer = await generateQrPngBuffer(
+    qrSource,
+    typeof credential.id === "string" ? credential.id : undefined,
+  );
   const customization = options?.customization;
   const accentColor = customization?.primaryColor ?? COLOR_ACCENT;
   const primaryHeadingColor = customization?.primaryColor ?? COLOR_PRIMARY;
@@ -321,14 +359,24 @@ export async function generatePdf(
         .text(issuerDisplay, CONTENT_LEFT, doc.y, { width: leftColWidth });
       doc.moveDown(0.8);
 
-      // Logo (rendered below issuer name if provided)
+      // Logo (rendered below issuer name if provided). If decoding the
+      // data URI or rendering fails (corrupted base64, unsupported
+      // image format, oversized buffer), skip the logo — but log at
+      // `debug` so an issuer who paid the cost of supplying a logo can
+      // discover why it didn't render via OPENCRED_LOG_LEVEL=debug.
       if (logoUri) {
         try {
           const logoBuffer = Buffer.from(logoUri.split(",")[1], "base64");
           doc.image(logoBuffer, CONTENT_LEFT, doc.y, { width: logoW, height: logoH });
           doc.y += logoH + 10;
-        } catch {
-          /* skip if logo data is invalid */
+        } catch (err) {
+          getLogger().debug(
+            {
+              err: err instanceof Error ? err.message : String(err),
+              uriPrefix: logoUri.slice(0, Math.min(40, logoUri.indexOf(",") + 1)),
+            },
+            "Logo image render failed; logo omitted from PDF",
+          );
         }
       }
 
@@ -345,13 +393,20 @@ export async function generatePdf(
         doc.moveDown(0.8);
       }
 
-      // Validity dates (compact, in the left column)
+      // Validity dates (compact, in the left column). Tolerant of
+      // `validFrom` being absent on synthetic VC shapes (a compact JWT
+      // with no `nbf` claim) — render a placeholder rather than the
+      // string "Invalid Date".
       doc.font("Helvetica").fontSize(9).fillColor(labelColor).text("VALIDITY PERIOD", CONTENT_LEFT);
       doc.moveDown(0.2);
-      const validFromStr = formatDate(credential.validFrom);
-      const validUntilStr = credential.validUntil
-        ? formatDate(credential.validUntil)
-        : "No expiration";
+      const validFromStr =
+        typeof credential.validFrom === "string"
+          ? formatDate(credential.validFrom)
+          : "(not specified)";
+      const validUntilStr =
+        typeof credential.validUntil === "string"
+          ? formatDate(credential.validUntil)
+          : "No expiration";
       doc
         .font("Helvetica")
         .fontSize(10)
@@ -413,16 +468,23 @@ export async function generatePdf(
       // ---------------------------------------------------------------
       // Digital Signature
       // ---------------------------------------------------------------
-      // Tolerate a missing `proof` block: compact-token credentials
-      // (vc-jwt / sd-jwt-vc) don't carry a Data Integrity-style proof
-      // block — the signature is the JWT itself, embedded verbatim in
-      // the QR code below. We still want to render the section so the
-      // certificate doesn't lose visual structure; we just emit the
-      // fields we can derive from the synthetic VC shape and skip
-      // sub-fields that aren't there. Same goes for partially-formed
-      // VCs in tests.
+      // Two input shapes flow through here:
+      //
+      //  1. **Real Data Integrity VC** (no `qrPayloadOverride`). Per
+      //     VCDM §5 / DI 1.0 §2.1, `proof.type` is mandatory and
+      //     `cryptosuite` / `created` / `verificationMethod` should be
+      //     present. If any are missing the credential is malformed —
+      //     we render a "(unknown)" placeholder *and* warn so operators
+      //     can investigate, rather than silently omit the row.
+      //
+      //  2. **Synthetic shape from a compact JWT/SD-JWT** (caller set
+      //     `qrPayloadOverride`). `decode-for-display.ts` always fills
+      //     `type` and best-effort `created` + `verificationMethod`,
+      //     and never sets `cryptosuite` (it's a Data Integrity concept).
+      //     Missing fields here are expected — skip silently.
       drawSectionHeader(doc, "Digital Signature", secondaryColor);
 
+      const isSyntheticProof = options?.qrPayloadOverride !== undefined;
       const proof =
         (credential.proof as Record<string, unknown> | undefined) ??
         ({} as Record<string, unknown>);
@@ -436,14 +498,37 @@ export async function generatePdf(
           ? (proof["verificationMethod"] as string)
           : undefined;
 
+      const credentialId = typeof credential.id === "string" ? credential.id : undefined;
+      const warnIfReal = (field: string) => {
+        if (!isSyntheticProof) {
+          getLogger().warn(
+            { credentialId, field },
+            "Data Integrity proof field missing — rendered as (unknown) on PDF",
+          );
+        }
+      };
+
+      // proof.type — mandatory per the DI spec; for synthetic input we
+      // always populate it, so a miss here is a real-VC bug worth surfacing.
       if (proofType) {
         drawLabelValue(doc, "Proof Type", proofType, 120, labelColor, textColor);
+      } else {
+        warnIfReal("type");
+        drawLabelValue(doc, "Proof Type", "(unknown)", 120, labelColor, textColor);
       }
+      // proof.cryptosuite — DI-only. Skip silently for compact tokens;
+      // warn for real VCs.
       if (proofCryptosuite) {
         drawLabelValue(doc, "Cryptosuite", proofCryptosuite, 120, labelColor, textColor);
+      } else if (!isSyntheticProof) {
+        warnIfReal("cryptosuite");
+        drawLabelValue(doc, "Cryptosuite", "(unknown)", 120, labelColor, textColor);
       }
       if (proofCreated) {
         drawLabelValue(doc, "Created", formatDate(proofCreated), 120, labelColor, textColor);
+      } else if (!isSyntheticProof) {
+        warnIfReal("created");
+        drawLabelValue(doc, "Created", "(unknown)", 120, labelColor, textColor);
       }
       if (proofVerificationMethod) {
         drawLabelValue(
@@ -454,6 +539,9 @@ export async function generatePdf(
           labelColor,
           textColor,
         );
+      } else if (!isSyntheticProof) {
+        warnIfReal("verificationMethod");
+        drawLabelValue(doc, "Verification Method", "(unknown)", 120, labelColor, textColor);
       }
 
       // X.509 chain info (if present)
@@ -477,8 +565,15 @@ export async function generatePdf(
         try {
           const sealBuffer = Buffer.from(sealUri.split(",")[1], "base64");
           doc.image(sealBuffer, PAGE_RIGHT - 80 - 15, doc.y - 10, { width: 80, height: 80 });
-        } catch {
-          /* skip if seal data is invalid */
+        } catch (err) {
+          // Same policy as logo — debug log so operators can investigate.
+          getLogger().debug(
+            {
+              err: err instanceof Error ? err.message : String(err),
+              uriPrefix: sealUri.slice(0, Math.min(40, sealUri.indexOf(",") + 1)),
+            },
+            "Seal image render failed; seal omitted from PDF",
+          );
         }
       }
 

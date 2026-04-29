@@ -395,16 +395,15 @@ describe("POST /credentials/verify", () => {
     expect(result.valid).toBe(true);
   });
 
-  // Bootcamp regression: when an attendee mis-templated their Postman body
-  // (e.g. wrapped a JSON object inside string quotes so the inner `"`
-  // closed the outer string early), `c.req.json()` threw a SyntaxError and
-  // the global error handler returned a generic 500 INTERNAL_ERROR. The
-  // user has no way to tell that from a real server bug. Map malformed
-  // JSON bodies to 400 INVALID_JSON instead.
+  // Regression: a mis-templated request body (e.g. wrapping a JSON object
+  // inside string quotes so the inner `"` closes the outer string early)
+  // caused `c.req.json()` to throw a SyntaxError, and the global error
+  // handler returned a generic 500 INTERNAL_ERROR — indistinguishable
+  // from a real server fault. Map malformed bodies to 400 INVALID_JSON
+  // so the caller can recognise the parser-level problem.
   it("returns 400 INVALID_JSON when request body is malformed JSON", async () => {
-    // Reproduces the exact "Expected ',' or '}' after property value" shape
-    // observed during the live bootcamp run — an inner unescaped `"` after
-    // the property value.
+    // Inner unescaped `"` after the property value — produces the
+    // "Expected ',' or '}' after property value" SyntaxError shape.
     const malformedBody = '{"credential":"{"@context":"https://example.org"}"}';
 
     const verifyRes = await app.request("/credentials/verify", {
@@ -1006,11 +1005,12 @@ describe("issuer branding customization", () => {
 // Packaging compact-token credentials (vc-jwt / sd-jwt-vc)
 // ---------------------------------------------------------------------------
 //
-// `/v1/credentials/package` accepts the credential as either a JSON object
-// (data-integrity) or a compact token string (vc-jwt, sd-jwt-vc). The compact
-// token path was added so attendees who issue with `proofFormat: "vc-jwt"`
-// (the JOSE-stack default) can still get a printable PDF / scannable QR
-// without re-issuing in another format. The packager:
+// `/credentials/package` accepts the credential as either a JSON object
+// (data-integrity) or a compact token string (vc-jwt, sd-jwt-vc). For a
+// caller using `proofFormat: "sd-jwt-vc"` the issue endpoint returns a
+// `~`-separated compact string that this endpoint must accept directly
+// (otherwise the only path to a printable PDF is to re-issue in another
+// format). The packager:
 //   - decodes the JWT payload offline (no signature check) to drive the PDF
 //     layout;
 //   - embeds the raw compact token verbatim in the QR (so any verifier
@@ -1106,7 +1106,12 @@ describe("POST /credentials/package — compact-token input", () => {
     expect(res.status).toBe(400);
   });
 
-  it("rejects a non-JWT, non-object credential string with 400", async () => {
+  it("rejects a non-JWT, non-object credential string with a deterministic 400", async () => {
+    // ValidationError from `decode-for-display.ts:235-238` (the dot-count guard)
+    // bubbles to the route, which the global error handler renders as a 400
+    // via `OpenCredError.toJSON()`. We assert the exact status and the stable
+    // error code — accepting 500 here would hide a regression that drops the
+    // dot-count check.
     const res = await app.request("/credentials/package", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1115,11 +1120,79 @@ describe("POST /credentials/package — compact-token input", () => {
         formats: ["json"],
       }),
     });
-    // The Zod schema accepts any non-empty string; the failure surfaces
-    // from the JWT decoder as a packaging error captured per-format,
-    // OR as a 500 unhandled error since it leaks through. Either way
-    // we should NOT see a 200 with successfully-rendered outputs.
-    expect([400, 500]).toContain(res.status);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: { code?: string; message?: string } };
+    expect(body.error?.code).toBe("VALIDATION_ERROR");
+    expect(body.error?.message).toMatch(/2 '\.' separators/);
+  });
+
+  it("does not trip rejectKeyMaterial when given a legitimate compact token", async () => {
+    // Security invariant (CLAUDE.md rule 1) — `rejectKeyMaterial` runs
+    // recursively on every POST body and rejects any string field that
+    // looks like a PEM-encoded private key. A compact JWT is base64url
+    // segments separated by `.` — no `-----BEGIN ...` headers — so the
+    // guard must not false-positive. This test pins that contract: if
+    // a future refactor decodes string fields before scanning, every
+    // compact-token request would silently break, and this test would
+    // fail with a 400 BAD_REQUEST instead of a 200.
+    const issueRes = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...VALID_ISSUE_REQUEST,
+        issuerDid: testKey.signer.id.split("#")[0],
+        proofFormat: "sd-jwt-vc",
+        selectiveDisclosureClaims: ["/credentialSubject/role"],
+      }),
+    });
+    const issued = (await issueRes.json()) as { credential: string };
+
+    const res = await app.request("/credentials/package", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: issued.credential, formats: ["json"] }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { errors: unknown[] };
+    expect(body.errors).toEqual([]);
+  });
+
+  it("renders a PDF without footer text when customization.footerText is empty", async () => {
+    // The empty-string suppression at pdf-generator.ts is the only way
+    // for an issuer to opt out of the verification disclaimer footer.
+    // Pin the contract by extracting the PDF text and asserting the
+    // default footer string is absent. Pdfkit emits text via Tj/TJ
+    // operators in the content stream — a substring check on the raw
+    // PDF bytes is sufficient (the default is plain ASCII so it would
+    // appear verbatim in an unencrypted stream).
+    const issueRes = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...VALID_ISSUE_REQUEST,
+        issuerDid: testKey.signer.id.split("#")[0],
+        proofFormat: "data-integrity",
+      }),
+    });
+    const issued = (await issueRes.json()) as { credential: Record<string, unknown> };
+
+    const res = await app.request("/credentials/package", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        credential: issued.credential,
+        formats: ["pdf"],
+        customization: { footerText: "" },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { outputs: Array<{ format: string; data: string }> };
+    const pdfOutput = body.outputs.find((o) => o.format === "pdf");
+    expect(pdfOutput).toBeDefined();
+    const pdfBytes = Buffer.from(pdfOutput!.data, "base64");
+    const pdfText = pdfBytes.toString("latin1");
+    expect(pdfText).not.toContain("This credential is digitally signed");
+    expect(pdfText).not.toContain("OpenCred Desktop");
   });
 });
 
@@ -1129,11 +1202,11 @@ describe("POST /credentials/package — compact-token input", () => {
 
 describe("POST /credentials/issue — packageFormats with compact-token proofs", () => {
   it("returns packagedOutputs when proofFormat is sd-jwt-vc (compact token)", async () => {
-    // Previously, the inline-package branch in /credentials/issue was
-    // gated by `!isCompactToken`, so attendees who issued with a compact
-    // proof format and asked for `packageFormats` got an empty array.
-    // After the JWT-aware packager, the same call returns a full set
-    // of outputs.
+    // Regression: the inline-package branch on /credentials/issue was
+    // previously gated by `!isCompactToken`, so a caller issuing with a
+    // compact proof format and asking for `packageFormats` got an empty
+    // array. After the JWT-aware packager the same call returns a full
+    // set of outputs.
     const res = await app.request("/credentials/issue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
