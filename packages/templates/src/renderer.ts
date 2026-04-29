@@ -51,7 +51,8 @@ export function renderSvg(svgTemplate: string, options: RenderOptions): string {
   lookup.set(
     "footerText",
     escapeXml(
-      customization?.footerText ?? "This credential is digitally signed and can be independently verified.",
+      customization?.footerText ??
+        "This credential is digitally signed and can be independently verified.",
     ),
   );
 

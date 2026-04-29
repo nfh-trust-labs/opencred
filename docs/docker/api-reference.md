@@ -337,7 +337,7 @@ The request is parsed by `issueRequestSchema` in `apps/server/src/routes/credent
 | `selectiveDisclosureClaims` | `string[]` | No | JSON pointer-style paths into `credentialSubject` whose values become selectively disclosable when `proofFormat=sd-jwt-vc`. |
 | `revocationRegistryUrl` | `string` | No | URL of a DeDi status list. When set, the server generates a `urn:uuid:` credential id, computes a SHA-256 revocation hash from the UUID, and adds a `credentialStatus` block of type `dedi`. |
 | `credentialSchemaUrl` | `string` | No | URL of an external JSON Schema. When set, written to the credential's `credentialSchema` field with `type: "JsonSchema"`. |
-| `packageFormats` | `string[]` | No | Optional packaging formats to render alongside the signed credential. Only applies to JSON credentials, not compact tokens (SD-JWT VC). |
+| `packageFormats` | `string[]` | No | Optional packaging formats to render alongside the signed credential. Works with all three `proofFormat` values, including `sd-jwt-vc` — for compact tokens the QR embeds the raw token verbatim and the PDF layout is driven by the decoded JWT payload. |
 
 **Security: `rejectKeyMaterial()` defense-in-depth check**
 
@@ -725,7 +725,7 @@ Entries are returned in input order. `rejectKeyMaterial()` runs on the request b
 
 ### `POST /v1/credentials/package`
 
-Packages an already-signed credential into one or more delivery formats (PDF, QR PNG, QR SVG, JSON-LD, compact JSON).
+Packages an already-signed credential into one or more delivery formats (PDF, QR PNG, QR SVG, JSON, compact JSON).
 
 **Auth:** required.
 **Content-Type:** `application/json`.
@@ -763,7 +763,21 @@ For compact-token input, the server decodes the JWT payload offline (no signatur
 }
 ```
 
-Binary formats (`pdf`, `qr-png`) are base64-encoded with `encoding: "base64"`. Text formats (`qr-svg`, `json`, `json-compact`) are returned inline with `encoding: "utf-8"`. Any per-format packaging failures are reported in `errors` without failing the whole request. `rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/packaging.ts`.
+**Per-format encoding:**
+
+| `format` | `encoding` | `data` shape |
+|---|---|---|
+| `pdf` | `base64` | Pure base64 — decode with `base64 -d` |
+| `qr-png` | `utf-8` ⚠️ | `data:image/png;base64,<...>` data URL — strip the `data:image/png;base64,` prefix before `base64 -d` |
+| `qr-svg` | `utf-8` | Inline SVG XML |
+| `json` | `utf-8` | Pretty-printed VC for object input; `{ "format": "vc-jwt"\|"sd-jwt-vc", "credential": "<token>" }` envelope for compact-token input |
+| `json-compact` | `utf-8` | Same content as `json`, no whitespace |
+
+`suggestedFileName` uses `.json` (not `.jsonld`) regardless of input — the mime type is still `application/json`, the extension change is surface-only so attendees can double-click the file.
+
+**Customization** — every field under `customization` is optional. Hex colors: `primaryColor`, `secondaryColor`, `textColor`, `labelColor`, `backgroundColor`. Strings: `issuerDisplayName` (≤200; replaces the issuer DID under "ISSUED BY"), `footerText` (≤500; pass `""` to suppress the disclaimer footer entirely). Data URIs: `logoDataUri`, `sealDataUri`, both must start with `data:image/`. Numbers: `logoWidth`, `logoHeight` (10–200, in PDF points). Unknown fields are silently dropped by Zod, so e.g. `issuerName` instead of `issuerDisplayName` will appear to "succeed" but won't do anything.
+
+Any per-format packaging failures are reported in `errors` without failing the whole request. `rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/packaging.ts`.
 
 ---
 
