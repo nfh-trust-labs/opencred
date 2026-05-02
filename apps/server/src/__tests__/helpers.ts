@@ -25,6 +25,7 @@ import { batch } from "../routes/batch.js";
 import { revocation } from "../routes/revocation.js";
 import { packaging } from "../routes/packaging.js";
 import { keys } from "../routes/keys.js";
+import { dedi } from "../routes/dedi.js";
 import { metrics } from "../routes/metrics.js";
 import { metricsMiddleware } from "../middleware/metrics.js";
 import { computeFingerprint, deriveDidKeyIdFromPublicKey } from "@opencred/signing";
@@ -204,6 +205,7 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
   app.route("/", revocation);
   app.route("/", packaging);
   app.route("/", keys);
+  app.route("/", dedi);
 
   app.route("/v1", health);
   app.route("/v1", metrics);
@@ -213,6 +215,7 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
   app.route("/v1", revocation);
   app.route("/v1", packaging);
   app.route("/v1", keys);
+  app.route("/v1", dedi);
 
   // Global error handler (same as index.ts)
   app.onError((err, c) => {
