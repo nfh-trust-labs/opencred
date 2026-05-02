@@ -358,6 +358,7 @@ describe("OpenCredError — kind discriminator + typed code enum (HIGH-19)", () 
     const classify = (err: AnyOpenCredError): string => {
       switch (err.kind) {
         case "ValidationError":
+        case "MalformedJsonError":
           return "4xx-validation";
         case "AuthenticationError":
         case "AuthorizationError":

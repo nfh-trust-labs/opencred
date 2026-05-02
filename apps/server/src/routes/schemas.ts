@@ -9,6 +9,7 @@ import { z } from "zod";
 import { generateSchemaFromFields } from "@opencred/schema-engine";
 import type { SchemaCategory } from "@opencred/schema-engine";
 import { getSchemaRegistry } from "../schema-registry-singleton.js";
+import { parseJsonBody } from "../middleware/parse-json.js";
 
 const schemas = new Hono();
 
@@ -65,10 +66,9 @@ const generateSchema = z.object({
 });
 
 schemas.post("/schemas/generate", async (c) => {
-  const body = await c.req.json().catch(() => null);
-  if (!body) {
-    return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid JSON body" } }, 400);
-  }
+  // Malformed-body 400 is now emitted by `parseJsonBody` as INVALID_JSON
+  // (small UX improvement over the previous VALIDATION_ERROR fallback).
+  const body = await parseJsonBody(c);
   const parsed = generateSchema.safeParse(body);
   if (!parsed.success) {
     return c.json(

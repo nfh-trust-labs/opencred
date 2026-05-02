@@ -418,6 +418,56 @@ describe("POST /credentials/verify", () => {
     expect(body.error?.message).toMatch(/Request body is not valid JSON/i);
   });
 
+  // The 400 message must surface the V8/JSC parser's positional hint so a
+  // bootcamp attendee can paste a long body into a tool and jump to the
+  // failing offset. This locks the contract that `parseJsonBody` does NOT
+  // strip the parser's own description on its way to the wire.
+  it("INVALID_JSON 400 message includes parser position info", async () => {
+    const malformedBody = '{"credential":"{"@context":"https://example.org"}"}';
+
+    const verifyRes = await app.request("/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: malformedBody,
+    });
+
+    expect(verifyRes.status).toBe(400);
+    const body = (await verifyRes.json()) as { error?: { code?: string; message?: string } };
+    expect(body.error?.code).toBe("INVALID_JSON");
+    expect(body.error?.message).toMatch(/at position \d+/i);
+  });
+
+  // Regression guard: the OLD heuristic-based detector classified ANY
+  // SyntaxError as a malformed body when its stack mentioned Hono internals.
+  // The route-level wrapper is narrower — a SyntaxError thrown DEEPER in a
+  // handler (e.g. the verify route's inner `JSON.parse(parsed.credential)`
+  // for `format === "json"` input) must NOT be re-classified as
+  // INVALID_JSON. The outer body here is valid JSON; the `credential` field
+  // value is not.
+  it("does not re-classify a SyntaxError thrown inside the handler as INVALID_JSON", async () => {
+    const requestBody = JSON.stringify({ credential: "{not valid json" });
+
+    const verifyRes = await app.request("/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: requestBody,
+    });
+
+    // The exact status depends on which guard catches first (format
+    // detection sees an unrecognized shape, or the JSON.parse inside the
+    // handler throws and falls through to 500 INTERNAL_ERROR). The
+    // assertion is strictly the no-misclassification contract: whatever
+    // the response is, it must NOT be a 400 INVALID_JSON.
+    if (verifyRes.status === 400) {
+      const body = (await verifyRes.json()) as { error?: { code?: string } };
+      expect(body.error?.code).not.toBe("INVALID_JSON");
+    } else {
+      // Anything other than 400 is fine — by definition it can't be the
+      // INVALID_JSON code we are guarding against.
+      expect(verifyRes.status).not.toBe(400);
+    }
+  });
+
   // SECURITY: Per CLAUDE.md invariant #5, the /credentials/verify response must
   // not leak operator config or parser errors through `checks[].detail` strings.
   // The desktop IPC handler is allowed full detail (trusted user on both sides),

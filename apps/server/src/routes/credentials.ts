@@ -37,6 +37,7 @@ import { packageCredential } from "../packaging/packager.js";
 import type { PackageFormat } from "../packaging/packager.js";
 import { credentialsIssuedTotal, credentialsVerifiedTotal } from "../metrics.js";
 import { getLogger } from "../logger.js";
+import { parseJsonBody } from "../middleware/parse-json.js";
 
 const credentials = new Hono();
 
@@ -248,7 +249,7 @@ const verifyRequestSchema = z.object({
 // --- Issue endpoint ---
 
 credentials.post("/credentials/issue", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   // SECURITY: reject any request that contains private key material BEFORE
   // we even look at the schema. See FORBIDDEN_REQUEST_KEYS above.
   rejectKeyMaterial(body);
@@ -576,7 +577,7 @@ export function buildVerifyResponseBody(result: {
 }
 
 credentials.post("/credentials/verify", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   // SECURITY: even verify requests must not contain private key material.
   rejectKeyMaterial(body);
   const parsed = verifyRequestSchema.parse(body);
