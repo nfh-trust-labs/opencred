@@ -23,9 +23,10 @@
 
 import { Hono } from "hono";
 import { z } from "zod";
+import type { VerifiableCredential } from "@opencred/vc-core";
 import type { TemplateCustomization } from "@opencred/templates";
 import { packageCredential } from "../packaging/packager.js";
-import type { PackageFormat } from "../packaging/packager.js";
+import type { CredentialInput, PackageFormat } from "../packaging/packager.js";
 import { rejectKeyMaterial, customizationSchema } from "./credentials.js";
 
 const packaging = new Hono();
@@ -51,11 +52,20 @@ packaging.post("/credentials/package", async (c) => {
   rejectKeyMaterial(body);
   const parsed = packageRequestSchema.parse(body);
 
-  const credential = parsed.credential as unknown as Parameters<typeof packageCredential>[0];
+  // Build the discriminated `CredentialInput` from the request body.
+  // Zod accepted either a string or a record above — the `string` branch
+  // is the compact `vc-jwt` / `sd-jwt-vc` token, the record branch is a
+  // JSON-LD VC. Tagging with `kind` here removes the previous
+  // `as unknown as Parameters<typeof packageCredential>[0]` cast and
+  // makes downstream type narrowing automatic.
+  const input: CredentialInput =
+    typeof parsed.credential === "string"
+      ? { kind: "compact-token", token: parsed.credential }
+      : { kind: "vc", credential: parsed.credential as unknown as VerifiableCredential };
   const formats = parsed.formats as PackageFormat[];
   const customization = parsed.customization as TemplateCustomization | undefined;
 
-  const result = await packageCredential(credential, formats, { customization });
+  const result = await packageCredential(input, formats, { customization });
 
   const outputs = result.outputs.map((output) => ({
     format: output.format,

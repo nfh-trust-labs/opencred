@@ -1,10 +1,12 @@
 /**
  * Credential packager — orchestrates offline packaging of signed VCs.
  *
- * Accepts either a JSON-LD VerifiableCredential (object) or a compact
- * `vc-jwt` / `sd-jwt-vc` token (string), and produces QR codes
- * (PNG/SVG), PDF certificates, and JSON-LD exports. All operations work
- * completely offline — no network requests.
+ * Accepts a discriminated `CredentialInput` union — either a JSON-LD
+ * `VerifiableCredential` (`{ kind: "vc", credential }`) or a compact
+ * `vc-jwt` / `sd-jwt-vc` token (`{ kind: "compact-token", token }`). The
+ * discriminator surfaces what `string` would otherwise hide: a string
+ * here means a compact token, never a stringified VC. See
+ * `./types.ts` for the rationale.
  *
  * **JWT input handling:** the compact token is decoded *for display*
  * only — no signature verification. The packager reconstructs a
@@ -15,7 +17,6 @@
  * to keep the file mime-typeable as `application/json`.
  */
 
-import type { VerifiableCredential } from "@opencred/vc-core";
 import type { TemplateCustomization } from "@opencred/templates";
 import { generateQrPng, generateQrSvg } from "./qr-generator.js";
 
@@ -24,6 +25,11 @@ export { decodeQrData } from "./qr-generator.js";
 import { generatePdf } from "./pdf-generator.js";
 import { exportAsJson, exportAsCompactJson } from "./json-export.js";
 import { decodeCompactCredentialForDisplay } from "./decode-for-display.js";
+import type { CredentialInput, PartialVerifiableCredential } from "./types.js";
+
+// Re-export so downstream consumers (routes, tests) don't have to import
+// from two different paths.
+export type { CredentialInput, PartialVerifiableCredential } from "./types.js";
 
 /**
  * Options for credential packaging.
@@ -65,7 +71,7 @@ export interface PackagingResult {
  * placeholder `id` like `urn:opencred:packaged-token` and a minimal
  * `type` array of just `["VerifiableCredential"]`.
  */
-function suggestedBaseName(credential: VerifiableCredential): string {
+function suggestedBaseName(credential: PartialVerifiableCredential): string {
   const typeArr = Array.isArray(credential.type)
     ? credential.type
     : [String(credential.type ?? "")];
@@ -86,35 +92,49 @@ function suggestedBaseName(credential: VerifiableCredential): string {
 }
 
 /**
- * Normalize the packager input into:
+ * Normalize the discriminated `CredentialInput` into:
  *   - `displayCredential`: VC-shaped object the PDF / JSON exporters
- *     can read (`id`, `type`, `issuer`, `credentialSubject`, etc.)
- *   - `qrPayload`: what to embed in QR codes — the original compact
- *     token if the input was a string, otherwise the same VC object
- *     (which `qr-generator` will PixelPass-compress).
+ *     can read (`id`, `type`, `issuer`, `credentialSubject`, etc.). For
+ *     compact-token input this is a synthetic shape from
+ *     `decode-for-display.ts` — a `PartialVerifiableCredential`, not a
+ *     fully-formed Data Integrity VC.
+ *   - `compactToken`: the original token string when the input was a
+ *     compact-token, used to override the QR/JSON payload downstream.
+ *     Absent for `kind: "vc"` input.
  */
-function normalizeInput(input: VerifiableCredential | string): {
-  displayCredential: VerifiableCredential;
-  qrPayload: VerifiableCredential | string;
+function normalizeInput(input: CredentialInput): {
+  displayCredential: PartialVerifiableCredential;
   compactToken?: string;
 } {
-  if (typeof input === "string") {
-    const decoded = decodeCompactCredentialForDisplay(input);
-    return {
-      displayCredential: decoded.vcShape as unknown as VerifiableCredential,
-      qrPayload: decoded.compactToken,
-      compactToken: decoded.compactToken,
-    };
+  switch (input.kind) {
+    case "compact-token": {
+      const decoded = decodeCompactCredentialForDisplay(input.token);
+      // `decode-for-display.ts` types `vcShape` as `Record<string,
+      // unknown>` because it's reconstructed from a JWT payload whose
+      // claim types aren't statically known. `PartialVerifiableCredential`
+      // is the narrowed surface the renderers actually consume — fields
+      // like `id`, `type`, `issuer`, `credentialSubject` are always
+      // populated by `buildVcShape` (see decode-for-display.ts). The
+      // remaining cast acknowledges that synthesis but no longer pretends
+      // we have a fully-formed Data Integrity VC.
+      return {
+        displayCredential: decoded.vcShape as unknown as PartialVerifiableCredential,
+        compactToken: decoded.compactToken,
+      };
+    }
+    case "vc": {
+      return { displayCredential: input.credential };
+    }
   }
-  return { displayCredential: input, qrPayload: input };
 }
 
 /**
  * Package a signed credential into the requested formats.
  *
- * Accepts either a JSON-LD `VerifiableCredential` object or a compact
- * `vc-jwt` / `sd-jwt-vc` token string. All packaging happens offline —
- * no network requests.
+ * Accepts a discriminated `CredentialInput` — `{ kind: "vc", credential }`
+ * for a JSON-LD VerifiableCredential, or `{ kind: "compact-token", token }`
+ * for a compact `vc-jwt` / `sd-jwt-vc` token string. All packaging
+ * happens offline — no network requests.
  *
  * Two error policies are in play:
  *
@@ -124,11 +144,11 @@ function normalizeInput(input: VerifiableCredential | string): {
  *     other formats still come back. This is the "best-effort"
  *     contract callers rely on for batch usage.
  *
- *  2. **Input-shape errors** (e.g. `credential` is a string but isn't a
- *     parseable JWT/SD-JWT compact token) — `normalizeInput` throws
- *     `ValidationError` *before* the per-format loop runs, because the
- *     inputs to all formats are derived from the same shape. The route
- *     surfaces this as a 400. No formats run.
+ *  2. **Input-shape errors** (e.g. `kind: "compact-token"` but the
+ *     `token` isn't a parseable JWT/SD-JWT compact token) —
+ *     `normalizeInput` throws `ValidationError` *before* the per-format
+ *     loop runs, because the inputs to all formats are derived from the
+ *     same shape. The route surfaces this as a 400. No formats run.
  *
  * For compact-token input the QR code embeds the token verbatim (which
  * a verifier can scan + cryptographically validate), the PDF uses the
@@ -136,20 +156,25 @@ function normalizeInput(input: VerifiableCredential | string): {
  * export wraps the token in a `{ format, credential }` envelope.
  */
 export async function packageCredential(
-  credential: VerifiableCredential | string,
+  input: CredentialInput,
   formats: PackageFormat[] = ["qr-png", "qr-svg", "pdf", "json"],
   options?: PackagingOptions,
 ): Promise<PackagingResult> {
-  const { displayCredential, qrPayload, compactToken } = normalizeInput(credential);
+  const { displayCredential, compactToken } = normalizeInput(input);
   const baseName = suggestedBaseName(displayCredential);
   const outputs: PackagedOutput[] = [];
   const errors: Array<{ format: PackageFormat; error: string }> = [];
 
+  // The QR generator takes the same discriminated `CredentialInput` —
+  // for `kind: "compact-token"` it embeds the raw token verbatim (no
+  // PixelPass), for `kind: "vc"` it PixelPass-compresses the VC JSON.
+  // Pass `input` through directly so the discriminator does the
+  // right-thing routing on the QR side too.
   for (const format of formats) {
     try {
       switch (format) {
         case "qr-png": {
-          const dataUrl = await generateQrPng(qrPayload);
+          const dataUrl = await generateQrPng(input);
           outputs.push({
             format: "qr-png",
             data: dataUrl,
@@ -159,7 +184,7 @@ export async function packageCredential(
           break;
         }
         case "qr-svg": {
-          const svg = await generateQrSvg(qrPayload);
+          const svg = await generateQrSvg(input);
           outputs.push({
             format: "qr-svg",
             data: svg,

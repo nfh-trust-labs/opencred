@@ -19,6 +19,7 @@ import { createRequire } from "node:module";
 import QRCode from "qrcode";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import { ValidationError } from "@opencred/shared";
+import type { CredentialInput } from "./types.js";
 
 // PixelPass is a CJS module — use createRequire for ESM compatibility
 const require = createRequire(import.meta.url);
@@ -72,11 +73,13 @@ export function decodeQrData(qrData: string): string {
  *      and runs a real cryptographic check. Wrapping the JWT in another
  *      envelope would break that path.
  */
-function resolveQrPayload(credential: VerifiableCredential | string): string {
-  if (typeof credential === "string") {
-    return credential;
+function resolveQrPayload(input: CredentialInput): string {
+  switch (input.kind) {
+    case "compact-token":
+      return input.token;
+    case "vc":
+      return compressCredentialForQr(input.credential);
   }
-  return compressCredentialForQr(credential);
 }
 
 /**
@@ -85,9 +88,9 @@ function resolveQrPayload(credential: VerifiableCredential | string): string {
  * caller their compact token was rejected "even after compression"
  * misleads them — no compression ran.
  */
-function qrCapacityError(credential: VerifiableCredential | string, err: unknown): string {
+function qrCapacityError(input: CredentialInput, err: unknown): string {
   const detail =
-    typeof credential === "string"
+    input.kind === "compact-token"
       ? "Compact token exceeds QR data capacity."
       : "Credential too large for QR code even after compression.";
   const cause = err instanceof Error ? err.message : "unknown error";
@@ -97,14 +100,16 @@ function qrCapacityError(credential: VerifiableCredential | string, err: unknown
 /**
  * Generate a QR code from a credential as a PNG data URL.
  *
- * Accepts either a JSON-LD VerifiableCredential (compressed via
- * PixelPass) or a compact JWT/SD-JWT token (embedded verbatim).
+ * Accepts a discriminated `CredentialInput` — `{ kind: "vc", credential }`
+ * for a JSON-LD VerifiableCredential (compressed via PixelPass) or
+ * `{ kind: "compact-token", token }` for a compact JWT/SD-JWT token
+ * (embedded verbatim).
  *
  * @returns A PNG data URL (base64-encoded).
  * @throws {ValidationError} if the data still exceeds QR capacity.
  */
-export async function generateQrPng(credential: VerifiableCredential | string): Promise<string> {
-  const payload = resolveQrPayload(credential);
+export async function generateQrPng(input: CredentialInput): Promise<string> {
+  const payload = resolveQrPayload(input);
 
   try {
     return await QRCode.toDataURL(payload, {
@@ -114,21 +119,23 @@ export async function generateQrPng(credential: VerifiableCredential | string): 
       width: 400,
     });
   } catch (err) {
-    throw new ValidationError(qrCapacityError(credential, err));
+    throw new ValidationError(qrCapacityError(input, err));
   }
 }
 
 /**
  * Generate a QR code from a credential as an SVG string.
  *
- * Accepts either a JSON-LD VerifiableCredential (compressed via
- * PixelPass) or a compact JWT/SD-JWT token (embedded verbatim).
+ * Accepts a discriminated `CredentialInput` — `{ kind: "vc", credential }`
+ * for a JSON-LD VerifiableCredential (compressed via PixelPass) or
+ * `{ kind: "compact-token", token }` for a compact JWT/SD-JWT token
+ * (embedded verbatim).
  *
  * @returns An SVG string.
  * @throws {ValidationError} if the data still exceeds QR capacity.
  */
-export async function generateQrSvg(credential: VerifiableCredential | string): Promise<string> {
-  const payload = resolveQrPayload(credential);
+export async function generateQrSvg(input: CredentialInput): Promise<string> {
+  const payload = resolveQrPayload(input);
 
   try {
     return await QRCode.toString(payload, {
@@ -138,21 +145,23 @@ export async function generateQrSvg(credential: VerifiableCredential | string): 
       width: 400,
     });
   } catch (err) {
-    throw new ValidationError(qrCapacityError(credential, err));
+    throw new ValidationError(qrCapacityError(input, err));
   }
 }
 
 /**
  * Generate a QR code from a credential as a PNG Buffer.
  *
- * Accepts either a JSON-LD VerifiableCredential (compressed via
- * PixelPass) or a compact JWT/SD-JWT token (embedded verbatim).
+ * Accepts a discriminated `CredentialInput` — `{ kind: "vc", credential }`
+ * for a JSON-LD VerifiableCredential (compressed via PixelPass) or
+ * `{ kind: "compact-token", token }` for a compact JWT/SD-JWT token
+ * (embedded verbatim).
  *
  * @returns A PNG Buffer.
  * @throws {ValidationError} if the data still exceeds QR capacity.
  */
-export async function generateQrBuffer(credential: VerifiableCredential | string): Promise<Buffer> {
-  const payload = resolveQrPayload(credential);
+export async function generateQrBuffer(input: CredentialInput): Promise<Buffer> {
+  const payload = resolveQrPayload(input);
 
   try {
     return await QRCode.toBuffer(payload, {
@@ -162,6 +171,6 @@ export async function generateQrBuffer(credential: VerifiableCredential | string
       width: 400,
     });
   } catch (err) {
-    throw new ValidationError(qrCapacityError(credential, err));
+    throw new ValidationError(qrCapacityError(input, err));
   }
 }
