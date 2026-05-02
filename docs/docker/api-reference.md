@@ -287,6 +287,56 @@ The underlying DeDi adapter (`packages/dedi-client/src/adapter/client.ts`) retur
 
 ---
 
+### `POST /v1/dedi/namespace/ensure`
+
+Idempotently bootstrap a DeDi namespace and the four registries OpenCred reads and writes (`vc-revocation-registry`, `public_key_registry`, `schema_registry`, `context_registry`). Wraps the same `dediClient.ensureRegistries(...)` helper that runs once at server startup, so operators can spin up additional namespaces at runtime without restarting the container.
+
+**Auth:** required.
+**Content-Type:** `application/json`.
+
+**Request body**
+
+```ts
+{
+  namespace: string;  // 1–200 characters
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `namespace` | `string` | Yes | The DeDi namespace to ensure. Created if missing; the four registries are then created (or left alone — `ensureRegistries` ignores 409 conflicts). |
+
+**Security.** `rejectKeyMaterial()` runs over the body first, so a payload that smuggles a `privateKey` field or a PEM private-key block returns `400 VALIDATION_ERROR` before any DeDi call is made.
+
+**Response: `200 OK`**
+
+```json
+{
+  "namespace": "bootcamp-2026-04-29",
+  "registries": [
+    "vc-revocation-registry",
+    "public_key_registry",
+    "schema_registry",
+    "context_registry"
+  ]
+}
+```
+
+The `registries` array lists the registry names that now exist on the namespace — whether they were freshly created or already present.
+
+**Error responses**
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Body failed Zod parsing, missing `namespace`, empty string, or contained a forbidden key / PEM string. |
+| `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
+| `502` | `DEDI_CLIENT_ERROR` | Underlying DeDi call failed (auth, network, malformed response). The original DeDi error is surfaced via the `OpenCredError` envelope — never re-wrapped to leak auth tokens or internal paths. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
+
+Source: `apps/server/src/routes/dedi.ts`. Wraps `DeDiClient.ensureRegistries()` in `packages/dedi-client/src/adapter/client.ts`.
+
+---
+
 ### `POST /v1/credentials/issue`
 
 Builds, validates, and signs a Verifiable Credential. The server holds the issuer's private key in memory (loaded once at startup); the request body provides only the public credential payload.
@@ -931,7 +981,7 @@ Zod parse failures from request body validation use the same envelope and add a 
 | `DEDI_CLIENT_ERROR` | 502 | `DeDiClientError` | DeDi registry call failed. |
 | `INTERNAL_ERROR` | 500 | unhandled fallback | Any error not in the `OpenCredError` hierarchy. The original error is logged but not echoed. |
 | `NOT_IMPLEMENTED` | 501 | `NotImplementedError` | Endpoint stubbed out (e.g. Cloud HSM provider not yet wired). |
-| `DEDI_NOT_CONFIGURED` | 503 | inline (revocation routes) | DeDi client not configured. Returned by `POST /v1/credentials/revoke` and `POST /v1/credentials/revocation-status` when `OPENCRED_DEDI_BASE_URL` is not set. |
+| `DEDI_NOT_CONFIGURED` | 503 | inline (DeDi-backed routes) | DeDi client not configured. Returned by `POST /v1/credentials/revoke`, `POST /v1/credentials/revocation-status`, `POST /v1/keys/publish`, `POST /v1/keys/resolve`, and `POST /v1/dedi/namespace/ensure` when `OPENCRED_DEDI_BASE_URL` is not set. |
 | `CONFIG_ERROR` | 500 | `ConfigError` | Surfaced at startup, not from a request. The server exits before serving traffic. |
 
 Unknown errors fall through to a `500 INTERNAL_ERROR` response with the generic message `"An internal error occurred"`. The original `err.message` is logged via pino at `error` level for operators, but never returned to the client. This is enforced by `apps/server/src/middleware/error-handler.ts`.
