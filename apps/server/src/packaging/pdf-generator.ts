@@ -19,6 +19,7 @@ import PDFDocument from "pdfkit";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import type { TemplateCustomization } from "@opencred/templates";
 import { generateQrBuffer } from "./qr-generator.js";
+import type { CredentialInput, PartialVerifiableCredential } from "./types.js";
 import { getLogger } from "../logger.js";
 
 /**
@@ -80,7 +81,7 @@ function formatLabel(key: string): string {
   return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
 }
 
-function getCredentialTitle(credential: VerifiableCredential): string {
+function getCredentialTitle(credential: PartialVerifiableCredential): string {
   const types = Array.isArray(credential.type) ? credential.type : [String(credential.type)];
   const meaningful = types.filter((t) => t !== "VerifiableCredential");
   if (meaningful.length > 0) {
@@ -97,7 +98,7 @@ function getCredentialTitle(credential: VerifiableCredential): string {
  *    a compact JWT that had no `iss` claim) — returns a placeholder
  *    rather than crashing.
  */
-function getIssuerDisplay(credential: VerifiableCredential): string {
+function getIssuerDisplay(credential: PartialVerifiableCredential): string {
   const issuer = (credential as { issuer?: unknown }).issuer;
   if (typeof issuer === "string") return issuer;
   if (issuer && typeof issuer === "object" && "id" in issuer) {
@@ -169,17 +170,17 @@ function drawLabelValue(
  * failure mode that wouldn't otherwise be reachable from the response.
  */
 async function generateQrPngBuffer(
-  credentialOrToken: VerifiableCredential | string,
+  qrInput: CredentialInput,
   credentialId: string | undefined,
 ): Promise<Buffer | null> {
   try {
-    return await generateQrBuffer(credentialOrToken);
+    return await generateQrBuffer(qrInput);
   } catch (err) {
     getLogger().warn(
       {
         credentialId,
         err: err instanceof Error ? err.message : String(err),
-        inputKind: typeof credentialOrToken === "string" ? "compact-token" : "vc-object",
+        inputKind: qrInput.kind,
       },
       "QR omitted from PDF certificate",
     );
@@ -202,16 +203,29 @@ async function generateQrPngBuffer(
  * @returns A Buffer containing the PDF document.
  */
 export async function generatePdf(
-  credential: VerifiableCredential,
+  credential: PartialVerifiableCredential,
   options?: PdfOptions,
 ): Promise<Buffer> {
   // Generate QR code first (async), then build PDF. If the caller passed
   // a `qrPayloadOverride` (i.e. the original compact JWT/SD-JWT token),
   // embed it verbatim — see PdfOptions.qrPayloadOverride for the
   // rationale. Otherwise PixelPass-compress the full VC JSON.
-  const qrSource: VerifiableCredential | string = options?.qrPayloadOverride ?? credential;
+  //
+  // The QR generator takes a discriminated `CredentialInput`. For the
+  // `vc` branch its internal `compressCredentialForQr` is typed against
+  // `VerifiableCredential` (it only does `JSON.stringify`, but the
+  // contract is the contract). The renderer-facing input type is
+  // `PartialVerifiableCredential`, which is structurally narrower —
+  // `validFrom`, `proof`, and `@context` are optional here vs. required
+  // on the full type. The widening cast is safe because the `vc` QR
+  // path is only reached when the packager's caller passed
+  // `kind: "vc"` (the compact-token branch sets `qrPayloadOverride`
+  // and short-circuits via the `compact-token` arm of the union).
+  const qrInput: CredentialInput = options?.qrPayloadOverride
+    ? { kind: "compact-token", token: options.qrPayloadOverride }
+    : { kind: "vc", credential: credential as unknown as VerifiableCredential };
   const qrBuffer = await generateQrPngBuffer(
-    qrSource,
+    qrInput,
     typeof credential.id === "string" ? credential.id : undefined,
   );
   const customization = options?.customization;

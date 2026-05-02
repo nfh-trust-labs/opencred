@@ -34,7 +34,7 @@ import { CryptoError, ValidationError, detectCredentialInputFormat } from "@open
 import type { TemplateCustomization } from "@opencred/templates";
 import { requireSigner } from "../signing/key-manager.js";
 import { packageCredential } from "../packaging/packager.js";
-import type { PackageFormat } from "../packaging/packager.js";
+import type { CredentialInput, PackageFormat } from "../packaging/packager.js";
 import { credentialsIssuedTotal, credentialsVerifiedTotal } from "../metrics.js";
 import { getLogger } from "../logger.js";
 
@@ -490,9 +490,16 @@ credentials.post("/credentials/issue", async (c) => {
     // (vc-jwt / sd-jwt-vc) the packager accepts the raw token string
     // directly: it decodes the payload for the PDF layout and embeds
     // the original token verbatim into the QR.
-    const credentialForPackaging: Parameters<typeof packageCredential>[0] = isCompactToken
-      ? signedOutput
-      : (JSON.parse(signedOutput) as Parameters<typeof packageCredential>[0]);
+    // Build the discriminated `CredentialInput` based on which signing
+    // path produced `signedOutput`. The `!isCompactToken` guard wrapping
+    // the inline-package call site (see the `if (parsed.packageFormats
+    // && parsed.packageFormats.length > 0)` block above) means the
+    // `compact-token` arm is currently unreachable from this route, but
+    // tagging both branches keeps the discrimination explicit and
+    // ready for the day that guard is lifted.
+    const credentialForPackaging: CredentialInput = isCompactToken
+      ? { kind: "compact-token", token: signedOutput }
+      : { kind: "vc", credential: JSON.parse(signedOutput) as VerifiableCredential };
     const customization = parsed.customization as TemplateCustomization | undefined;
     const result = await packageCredential(
       credentialForPackaging,
