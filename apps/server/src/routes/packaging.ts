@@ -28,6 +28,7 @@ import type { TemplateCustomization } from "@opencred/templates";
 import { packageCredential } from "../packaging/packager.js";
 import type { CredentialInput, PackageFormat } from "../packaging/packager.js";
 import { rejectKeyMaterial, customizationSchema } from "./credentials.js";
+import { parseJsonBody } from "../middleware/parse-json.js";
 
 const packaging = new Hono();
 
@@ -43,7 +44,7 @@ const packageRequestSchema = z.object({
 });
 
 packaging.post("/credentials/package", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   // SECURITY: defense-in-depth — no route accepts key material. See CLAUDE.md rule 1.
   // The recursive walk inspects both object trees and any string field
   // values. A compact JWT is base64url segments separated by `.` — no

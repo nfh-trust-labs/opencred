@@ -24,6 +24,7 @@ import type { WebhookPayload } from "../batch/webhook.js";
 import { getLogger } from "../logger.js";
 import { rejectKeyMaterial, customizationSchema } from "./credentials.js";
 import { batchJobsTotal } from "../metrics.js";
+import { parseJsonBody } from "../middleware/parse-json.js";
 
 const batch = new Hono();
 
@@ -74,7 +75,7 @@ const batchRequestSchema = z.object({
 // --- Start batch ---
 
 batch.post("/credentials/batch", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   // SECURITY: reject any request that contains private key material before
   // we do any other work. CSV rows can carry per-field data that embeds a
   // PEM block — the scanner walks recursively so every string in every row

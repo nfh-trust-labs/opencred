@@ -17,6 +17,7 @@ import { resolveRevocationHash } from "@opencred/crypto";
 import { rejectKeyMaterial } from "./credentials.js";
 import { getDeDiClient } from "../dedi-singleton.js";
 import { revocationsPublishedTotal } from "../metrics.js";
+import { parseJsonBody } from "../middleware/parse-json.js";
 
 const revocation = new Hono();
 
@@ -29,7 +30,7 @@ const batchHashSchema = z.object({
 });
 
 revocation.post("/credentials/revocation-hash", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   // SECURITY: defense-in-depth — no route accepts key material. See CLAUDE.md rule 1.
   rejectKeyMaterial(body);
   const parsed = singleHashSchema.parse(body);
@@ -41,7 +42,7 @@ revocation.post("/credentials/revocation-hash", async (c) => {
 });
 
 revocation.post("/credentials/revocation-hash/batch", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   // SECURITY: defense-in-depth — no route accepts key material. See CLAUDE.md rule 1.
   rejectKeyMaterial(body);
   const parsed = batchHashSchema.parse(body);
@@ -87,7 +88,7 @@ const revokeSchema = z
   });
 
 revocation.post("/credentials/revoke", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   // SECURITY: defense-in-depth — no route accepts key material. See CLAUDE.md rule 1.
   rejectKeyMaterial(body);
   const parsed = revokeSchema.parse(body);
@@ -118,7 +119,7 @@ const querySchema = z.object({
 });
 
 revocation.post("/credentials/revocation-status", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   rejectKeyMaterial(body);
   const parsed = querySchema.parse(body);
 

@@ -24,6 +24,7 @@ import { getActiveSigner } from "../signing/key-manager.js";
 import { getConfig } from "../config.js";
 import { getDeDiClient } from "../dedi-singleton.js";
 import { rejectKeyMaterial } from "./credentials.js";
+import { parseJsonBody } from "../middleware/parse-json.js";
 
 const keys = new Hono();
 
@@ -131,7 +132,7 @@ const resolveKeySchema = z.object({
  * Response (503): DeDi not configured.
  */
 keys.post("/keys/publish", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   // SECURITY: defense-in-depth — recursively reject any nested PEM block or
   // forbidden key field before the document leaves the server. See
   // CLAUDE.md rule 1.
@@ -174,7 +175,7 @@ keys.post("/keys/publish", async (c) => {
  * `POST /credentials/revocation-status` shape.
  */
 keys.post("/keys/resolve", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   rejectKeyMaterial(body);
   const parsed = resolveKeySchema.parse(body);
 
