@@ -11,6 +11,7 @@ Pick the path that matches your role.
 | You are... | Start here |
 |---|---|
 | New to verifiable credentials | [Concepts](concepts/README.md) — what VCs, DIDs, and trust chains are |
+| Running a workshop or evaluating end-to-end | [Bootcamp Guide](bootcamp/README.md) — guided 3-hour path through the Docker image |
 | Installing the desktop app | [Desktop User Guide](desktop/README.md) |
 | Deploying the Docker image | [Docker Operator Guide](docker/README.md) |
 | Reviewing OpenCred's security posture | [Security Model](security/README.md) |
@@ -51,6 +52,14 @@ Headless deployment for cloud, on-prem, and CI/CD pipelines. The Docker image ru
 * [Cloud HSM](docker/cloud-hsm.md) — AWS KMS, Azure Key Vault, GCP Cloud KMS
 * [Observability](docker/observability.md) — logging, health checks, metrics
 * [OID4VCI](docker/oid4vci.md) — OpenID for Verifiable Credential Issuance (planned)
+
+### Bootcamp
+
+A guided, hands-on 3-hour path attendees follow at workshops or that you can use to evaluate the project end-to-end. Two parallel tracks: laptops only, or one shared cloud VM.
+
+* [Bootcamp overview](bootcamp/README.md)
+* [Local Docker track](bootcamp/local-docker.md) — every attendee runs the container on their own laptop
+* [GCP VM track](bootcamp/gcp-vm.md) — one shared GCP VM, IAP-tunnelled SSH, optional Cloud KMS
 
 ### Security Model
 
