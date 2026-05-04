@@ -12,7 +12,9 @@ OpenCred Desktop runs on macOS, Windows, and Linux. Release builds bundle Node.j
 
 ## Installing from a Release
 
-Download the installer for your platform from the [GitHub Releases](https://github.com/nfh-trust-labs/opencred/releases) page.
+Download the installer for your platform from the **public release page**: <https://github.com/nfh-trust-labs/opencred-releases/releases>.
+
+> Why a separate repo? OpenCred's source code is private, but binaries are distributed publicly via `nfh-trust-labs/opencred-releases`. Bug reports and feature requests should still be raised via the contact channels on <https://docs.opencred.global>.
 
 | Platform | File | How to install |
 |---|---|---|
@@ -20,6 +22,8 @@ Download the installer for your platform from the [GitHub Releases](https://gith
 | Windows | `OpenCred-Setup-<version>.exe` | Run the installer. The wizard lets you choose the installation directory. |
 | Linux | `OpenCred-<version>.AppImage` | Make the file executable (`chmod +x OpenCred-<version>.AppImage`) and run it. |
 | Linux (Debian/Ubuntu) | `opencred-desktop_<version>_amd64.deb` | `sudo dpkg -i opencred-desktop_<version>_amd64.deb` |
+
+Each release also publishes a `SHA256SUMS` file. Verify integrity with `sha256sum -c SHA256SUMS --ignore-missing` (or `shasum -a 256 -c` on macOS) before running the installer.
 
 ### macOS first launch (unsigned build)
 
@@ -45,7 +49,7 @@ open /Applications/OpenCred.app
 
 Auto-updates are **disabled** on unsigned builds — macOS will not install an
 update whose signing identity differs from the installed version's. Check
-[the releases page](https://github.com/nfh-trust-labs/opencred/releases)
+[the releases page](https://github.com/nfh-trust-labs/opencred-releases/releases)
 manually for new versions until signed releases ship.
 
 ### Windows first launch (unsigned build)

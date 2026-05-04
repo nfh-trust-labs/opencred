@@ -4,6 +4,15 @@ OpenCred is a local-first platform for issuing and verifying W3C Verifiable Cred
 
 OpenCred is published by [NFH Trust Labs](https://github.com/nfh-trust-labs).
 
+## Get OpenCred
+
+| | Where | How |
+|---|---|---|
+| **Desktop** (macOS / Linux) | <https://github.com/nfh-trust-labs/opencred-releases/releases> | Download the `.dmg` / `.AppImage` / `.deb` for your platform |
+| **Docker server** | `ghcr.io/nfh-trust-labs/opencred/opencred-server:latest` | `docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest` |
+
+Both are public — no authentication required. The source code is private; bug reports and contact channels are listed in this documentation.
+
 ## Start Here
 
 Pick the path that matches your role.

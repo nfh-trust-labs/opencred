@@ -253,10 +253,11 @@ The OpenCred container's startup hook will create your namespace and
 the five registries inside it on first boot — no pre-provisioning
 required.
 
-Build the OpenCred image. This is the longest step, ~5–10 minutes on the VM:
+Pull the public OpenCred image. ~30 seconds on a GCP VM:
 
 ```
-VM$ docker build -f apps/server/Dockerfile -t opencred:bootcamp .
+VM$ docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+VM$ docker tag  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest opencred:bootcamp
 ```
 
 When it finishes:
@@ -264,6 +265,13 @@ When it finishes:
 ```
 VM$ docker images opencred:bootcamp        # should show one row
 ```
+
+> **Building from source instead?** If your facilitator gave you a clone of
+> the (private) source repo, you can build with
+> `docker build -f apps/server/Dockerfile -t opencred:bootcamp .` — that's
+> ~5–10 minutes on an `e2-small`. Most attendees should pull the public
+> image; the only reason to build is if you want to inspect or patch the
+> server before issuing.
 
 ### 5. Run the container, tunnel from your laptop
 
@@ -696,7 +704,8 @@ The Postman collection has this under **DeDi runtime → POST
 |---|---|---|
 | `gcloud compute ssh ... --tunnel-through-iap` returns `Permission denied` | IAP API not enabled, or no IAM permission on the VM | `gcloud services enable iap.googleapis.com` and grant your user `roles/iap.tunnelResourceAccessor` on the project |
 | `gcloud compute instances create` fails with `Quota 'CPUS' exceeded` | New project quota | Request a quota bump (5 min) or pick a smaller machine type — `e2-micro` works |
-| `docker build` runs out of memory on the VM | `e2-micro` is too small | Recreate the VM as `e2-small` (or larger) — pnpm + tsc want ~1.5 GB |
+| `docker build` runs out of memory on the VM | `e2-micro` is too small | If you're building from source, recreate the VM as `e2-small` (or larger) — pnpm + tsc want ~1.5 GB. Or skip the build and `docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest` instead, which works on `e2-micro`. |
+| `docker pull ghcr.io/...` returns `unauthorized` | Stale GHCR creds in `~/.docker/config.json` | The image is public — `docker logout ghcr.io` and retry the pull |
 | Tunnel works but `/v1/health` hangs | Container not listening on 3100, or `-p 3100:3100` was forgotten | `docker ps` to confirm port mapping; `docker logs opencred` to see startup errors |
 | `/v1/health` returns `503 signingKeyLoaded: false` | Key path wrong, or `node` user can't read the file inside the container | Confirm `~/keys/issuer-key.pem` exists with `0600`; the `-v` source path must be absolute |
 | `401 AUTHENTICATION_ERROR` from your laptop | The token on the laptop side doesn't match the token in the container's env | Re-export `OPENCRED_API_KEY` on both sides from the same source-of-truth |
@@ -777,15 +786,13 @@ sudo apt-get update && curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker $USER && exit          # reconnect
 sudo apt-get install -y git openssl jq
 
-git clone https://github.com/nfh-trust-labs/opencred.git
-cd opencred && git checkout new-opencred-dev
+docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+docker tag  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest opencred:bootcamp
 
 mkdir -p ~/keys
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out ~/keys/issuer-key.pem
 chmod 600 ~/keys/issuer-key.pem
 export OPENCRED_API_KEY="$(openssl rand -base64 32)"
-
-docker build -f apps/server/Dockerfile -t opencred:bootcamp .
 
 # Optional: DeDi — skip if you don't have access. Uncomment to use:
 # export OPENCRED_DEDI_BASE_URL=https://your-dedi.example.org
