@@ -30,6 +30,12 @@
 * [Observability](docker/observability.md)
 * [OID4VCI](docker/oid4vci.md)
 
+## Bootcamp
+
+* [Bootcamp overview](bootcamp/README.md)
+* [Local Docker track](bootcamp/local-docker.md)
+* [GCP VM track](bootcamp/gcp-vm.md)
+
 ## Security
 
 * [Security overview](security/README.md)
