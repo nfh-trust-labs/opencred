@@ -15,7 +15,7 @@
 
 - **OpenCred is not a hosted service.** Every attendee runs their own server, generates their own key, and signs in their own container. Lead with this — it's the single most common misconception.
 - **Use the `new-opencred-dev` branch.** That is the integration branch with the Docker image, CLI, and current `/v1` API surface. `main` does not have any of this yet.
-- **Build images before the live session if at all possible.** A clean `docker build -f apps/server/Dockerfile -t opencred:latest .` is ~5 min on a fast connection but can be 20+ min over conference Wi-Fi. Either pre-pull `node:20-alpine` and the workspace deps, or distribute a pre-built image (`docker save | docker load`) on a USB stick.
+- **Pre-built image is available.** `docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest` is the fastest path and what the run sheet defaults to. Build-from-source (`docker build -f apps/server/Dockerfile -t opencred:bootcamp .`) is offered as a stretch path in §2b for attendees who want to inspect or modify the image. Pre-pulling on conference Wi-Fi is still wise — `docker pull` is ~150 MB and re-saves a tarball with `docker save` cleanly.
 - **Pick EC P-256 keys, not RSA.** The `data-integrity` proof format is unsupported on RSA — using P-256 lets you demo all three proof formats (`vc-jwt`, `data-integrity`, `sd-jwt-vc`) without surprises.
 - **Use `functional-identity/v1` as the demo schema.** It is in the built-in registry (`packages/schema-engine/src/generated-registry.ts`), required fields are minimal (`name`, `role`, `validFrom`), and it produces a satisfying-looking VC. Avoid `education/v1` — it is **not** registered in the current build, despite a few stale doc examples; the schema engine will reject it.
 - **Don't enable `OPENCRED_DEV_MODE_NO_AUTH`.** It works, but the whole point of a bootcamp is to teach attendees to think of the server as a signing oracle. Spend the 15 seconds it takes to generate an API key. The server now refuses to start if you set this together with `NODE_ENV=production`.
@@ -71,7 +71,23 @@ If `docker run hello-world` works, you are ready.
 > a "no matching manifest" error, you are mixing platforms; force one with
 > `--platform=linux/amd64` on `docker build` and `docker run`.
 
-### 2. Get the code and build the image
+### 2. Get the image
+
+The fastest path is to pull the public prebuilt image:
+
+```bash
+docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+
+# Tag it locally so the rest of this guide reads naturally
+docker tag ghcr.io/nfh-trust-labs/opencred/opencred-server:latest opencred:bootcamp
+```
+
+This is a public image — no GHCR auth required. ~150 MB. Skip ahead to §3.
+
+#### 2b. (Optional) Build from source
+
+If you want to inspect the Dockerfile, modify the schema engine, or work
+offline, build it yourself instead of pulling:
 
 ```bash
 git clone https://github.com/nfh-trust-labs/opencred.git
@@ -81,6 +97,10 @@ git checkout new-opencred-dev
 # Build from the repo root — the Dockerfile path is relative.
 docker build -f apps/server/Dockerfile -t opencred:bootcamp .
 ```
+
+> The source repo is private. If `git clone` returns 404, pull the prebuilt
+> image instead — the bootcamp does not depend on you having read access to
+> the source.
 
 The build is multi-stage: it installs pnpm, builds every `@opencred/*` workspace
 package the server depends on, prunes dev deps, and copies the result into a
@@ -812,10 +832,9 @@ shred -u ~/opencred-bootcamp/keys/issuer-key.pem 2>/dev/null \
 ## Appendix A — One-screen quick-reference card (print this)
 
 ```
-# Build (once)
-git clone https://github.com/nfh-trust-labs/opencred.git && cd opencred
-git checkout new-opencred-dev
-docker build -f apps/server/Dockerfile -t opencred:bootcamp .
+# Pull the image (once)
+docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+docker tag  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest opencred:bootcamp
 
 # Key + token
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out keys/issuer-key.pem

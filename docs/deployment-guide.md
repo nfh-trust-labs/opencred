@@ -9,9 +9,18 @@ This guide covers deploying the OpenCred Docker image in production. The image i
 - A signing key in PEM, JWK, PKCS#8, or PFX format (or a Cloud HSM provider)
 - (Optional) A DeDi instance for revocation and directory services
 
-## Build
+## Pull the prebuilt image (recommended)
 
-Build the image from the repo root:
+```bash
+docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+# or pin to a version tag, e.g. :1.0.0
+```
+
+The image is public — no GHCR auth required. Trivy-scanned by CI.
+
+## Build from source
+
+If you'd rather build the image yourself, build from the repo root:
 
 ```bash
 docker build -f apps/server/Dockerfile -t opencred:latest .
@@ -48,8 +57,10 @@ docker run -d \
   --cap-drop ALL \
   --cap-add NET_BIND_SERVICE \
   --security-opt no-new-privileges:true \
-  opencred:latest
+  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
 ```
+
+> Use `opencred:latest` instead if you built the image locally.
 
 ### Docker Compose
 

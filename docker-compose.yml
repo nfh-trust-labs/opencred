@@ -15,9 +15,13 @@
 
 services:
   server:
-    build:
-      context: .
-      dockerfile: apps/server/Dockerfile
+    # Default to the public prebuilt image. To build locally instead
+    # (e.g. for development or custom CA certs), comment `image:` and
+    # uncomment the `build:` block below.
+    image: ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+    # build:
+    #   context: .
+    #   dockerfile: apps/server/Dockerfile
     env_file: .env
     ports:
       - "${OPENCRED_PORT:-3100}:${OPENCRED_PORT:-3100}"

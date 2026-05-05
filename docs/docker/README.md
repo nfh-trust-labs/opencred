@@ -18,8 +18,8 @@ OpenCred is **not** a SaaS. There is no `api.opencred.com` to call. You deploy t
 ## Quick start
 
 ```bash
-# 1. Build the image (from the repo root)
-docker build -f apps/server/Dockerfile -t opencred:latest .
+# 1. Pull the public image (no auth required)
+docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
 
 # 2. Run with a mounted signing key
 docker run -p 3100:3100 \
@@ -27,11 +27,13 @@ docker run -p 3100:3100 \
   -e OPENCRED_API_KEY=your-secret-token \
   -e OPENCRED_KEY_PATH=/secrets/issuer-key.pem \
   -v /path/to/your/key.pem:/secrets/issuer-key.pem:ro \
-  opencred:latest
+  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
 
 # 3. Verify it's running
 curl http://localhost:3100/v1/health
 ```
+
+> **Building from source instead?** See [Deployment → Build from source](deployment.md#build-from-source).
 
 A successful health check returns `200 OK`:
 

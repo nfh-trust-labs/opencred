@@ -119,7 +119,7 @@
     "publish": {
       "provider": "github",
       "owner": "nfh-trust-labs",
-      "repo": "opencred"
+      "repo": "opencred-releases"
     },
     "linux": {
       "target": [

@@ -8,9 +8,23 @@ This guide covers how to run the OpenCred Docker image in production. The image 
 * (Optional) Docker Compose v2 if you want to use the bundled `docker-compose.yml`
 * A signing key (see [Key sources](#key-sources) below)
 
-## Build
+## Pull the prebuilt image (recommended)
 
-The image is multi-stage and uses pinned base image digests. Build from the repo root:
+Tagged releases are published to **GitHub Container Registry** as a public image — no authentication required:
+
+```bash
+# Latest stable
+docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+
+# Or pin to a specific version
+docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:1.0.0
+```
+
+Each version tag is built by CI from a signed git tag and scanned with Trivy (CRITICAL/HIGH vulnerabilities fail the build). Image labels include `org.opencontainers.image.source`, `revision`, and `version` for provenance.
+
+## Build from source
+
+If you'd rather build the image yourself (e.g. to add custom CA certs or run a forked build), the image is multi-stage and uses pinned base image digests. Build from the repo root:
 
 ```bash
 docker build -f apps/server/Dockerfile -t opencred:latest .
@@ -43,8 +57,10 @@ docker run -d \
   --tmpfs /tmp:noexec,nosuid,size=64m \
   --cap-drop ALL \
   --security-opt no-new-privileges:true \
-  opencred:latest
+  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
 ```
+
+> **Tip:** Pin a specific version (`:1.0.0`) in production. `:latest` floats and can change underneath you on the next release.
 
 ### Docker Compose
 
