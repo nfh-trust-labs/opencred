@@ -6,6 +6,44 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-05
+
+### Added
+
+- **Public release distribution** — Docker image now published to `ghcr.io/nfh-trust-labs/opencred/opencred-server` (public, no auth). Desktop installers mirrored to `nfh-trust-labs/opencred-releases` with SHA256SUMS for integrity verification. Source repo stays private; binaries are public so end users can install without GHCR / repo authentication. (#514)
+- **`POST /v1/dedi/namespace/ensure`** — server endpoint to create a DeDi namespace and its four registries (`vc-revocation-registry`, `public_key_registry`, `schema_registry`, `context_registry`) on demand. Bootcamp attendees no longer need to pre-provision the namespace before booting the container. (#509)
+- **Inline custom JSON Schema in issue requests** — `POST /v1/credentials/issue` now accepts a `credentialSchema.schema` field with an inline JSON Schema, validated by Ajv at request time. Previously schemas had to be pre-registered in the schema engine. (#506)
+- **DeDi public-key registry routes** — `POST /v1/dedi/keys/publish` and resolution endpoints for self-published `did:web` keys. (#506)
+- **JWT-aware credential packager** — PDF + QR packaging now decodes `vc-jwt` and `sd-jwt-vc` compact tokens for display while preserving the byte-exact token in the QR payload. (#508)
+- **Bootcamp guide** — `docs/bootcamp/local-docker.md` and `docs/bootcamp/gcp-vm.md` ship a 3-hour, hands-on facilitator-led path through the Docker image. Includes a Postman collection covering every API endpoint. (#512)
+
+### Changed
+
+- **`docker-compose.yml` defaults to the public GHCR image.** Build-from-source remains available by uncommenting the `build:` block. (#514)
+- **electron-updater polls `opencred-releases` for auto-updates** instead of the private source repo, so installed Desktop clients can fetch updates without authenticating. (#514)
+- **400 INVALID_JSON for malformed bodies** — server now parses JSON at the route layer and returns a clean error response instead of letting Hono's default handler 500. (#511)
+- **Discriminated `CredentialInput` union** for the packager and QR generator, replacing the previous `T | string` overload. Type system now reflects the JSON-LD-vs-compact-token split honestly. (#510)
+
+### Fixed
+
+- **Friendlier error messages** — issuance and verification surfaces now return actionable messages instead of internal stack traces for common failure modes (missing signing key, malformed VC, schema mismatch). (#508)
+- **Bitstring revocation fetch timeout + KMS keepAlive/retry** — verification was hanging indefinitely on slow `credentialStatus` URLs and dropping under KMS connection pressure. (#486)
+- **Five independent `validatorInstance` singletons collapsed to one.** Previously each surface (server routes, desktop preload, etc.) constructed its own Ajv instance, doubling-counting cache misses and burning startup memory. (#485)
+- **Revocation hash unified with `credentialStatus.id`** — verification was computing the hash from a different field than issuance was writing it to, so DeDi-published revocations weren't being detected. (#467, #484)
+- **`computeChecksum` made canonical** — JSON-LD context checksums now use a stable serialization, so cache lookups don't churn on whitespace differences. (#488)
+- **Atomic `DeDiTokenManager.setTokens`** — partial writes during token refresh could leave the manager with an access token but no refresh token, requiring a server restart to recover. (#487)
+- **`CORS_ORIGIN` required in production** — the server was silently allowing all origins when the var was unset, which is fine for local dev but unsafe in deployment. Production now refuses to start without it. (#495)
+
+### Infrastructure
+
+- **Audit remediation** — 2026-04-16 security audit findings closed: 3 HIGH, 5 MED, 4 LOW, 4 INFO. Highlights include credential-payload TTL purge, structured logger sanitization, error-handler PEM stripping. (#426)
+- **CSV parsing extracted to `@opencred/batch-core`** — desktop bulk-issuance and server CLI now share one streaming parser. (#496)
+- **PKCS#11 warnings routed through structured logger** — was previously console.log noise. (#494)
+- **DeDi DNS cache** — 30s TTL cache to avoid repeated SSRF protection lookups on hot paths. (#490)
+- **`bulkUpload` routed through shared `doFetch`** — uniform retry / SSRF / timeout behavior for all DeDi traffic. (#493)
+- **Empty `CSC_*` env vars unset before electron-builder** — was causing CSC_LINK="" to resolve to cwd and fail with "apps/desktop not a file". (#503)
+- **Windows temporarily dropped from the desktop release matrix** — `@electron/rebuild` hangs for 20+ min on the pnpm symlinked tree on NTFS. Native compile itself works (~48s); only the Electron-ABI rebuild step hangs. (#502)
+
 ## [1.0.2] - 2026-04-21
 
 ### Fixed
