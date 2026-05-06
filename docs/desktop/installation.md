@@ -1,14 +1,18 @@
 # Installing OpenCred Desktop
 
-OpenCred Desktop runs on macOS, Windows, and Linux. Release builds bundle Node.js and Electron — there are no additional runtime dependencies.
+OpenCred Desktop runs on macOS and Linux. Release builds bundle Node.js and Electron — there are no additional runtime dependencies.
+
+> **🧪 Beta release.** This is an early-access build. On macOS, the first launch requires a one-time approval — see [macOS first launch](#macos-first-launch) below. Linux installs run without prompts. Windows installers are not yet published.
+>
+> **Support:** [open an issue](https://github.com/nfh-trust-labs/opencred-releases/issues) for bugs, feature requests, or questions.
 
 ## System Requirements
 
-| Platform | Minimum version | Architecture |
-|---|---|---|
-| macOS | 12 Monterey or later | Universal (Intel x64 + Apple Silicon arm64) |
-| Windows | Windows 10 or later | x64 |
-| Linux | Ubuntu 20.04 or equivalent | x64 |
+| Platform | Minimum version | Architecture | Status |
+|---|---|---|---|
+| macOS | 12 Monterey or later | Universal (Intel x64 + Apple Silicon arm64) | Supported |
+| Linux | Ubuntu 20.04 or equivalent | x64 | Supported |
+| Windows | Windows 10 or later | x64 | Coming in a later beta |
 
 ## Installing from a Release
 
@@ -19,50 +23,32 @@ Download the installer for your platform from the **public release page**: <http
 | Platform | File | How to install |
 |---|---|---|
 | macOS | `OpenCred-<version>.dmg` | Open the DMG and drag OpenCred.app to Applications. |
-| Windows | `OpenCred-Setup-<version>.exe` | Run the installer. The wizard lets you choose the installation directory. |
 | Linux | `OpenCred-<version>.AppImage` | Make the file executable (`chmod +x OpenCred-<version>.AppImage`) and run it. |
 | Linux (Debian/Ubuntu) | `opencred-desktop_<version>_amd64.deb` | `sudo dpkg -i opencred-desktop_<version>_amd64.deb` |
 
 Each release also publishes a `SHA256SUMS` file. Verify integrity with `sha256sum -c SHA256SUMS --ignore-missing` (or `shasum -a 256 -c` on macOS) before running the installer.
 
-### macOS first launch (unsigned build)
+### macOS first launch
 
-> **Current releases are unsigned.** We are working toward signed + notarised
-> macOS releases; see [`release-signing.md`](release-signing.md) for the
-> roadmap. Until then, the first launch requires a one-time trust step.
+The first time you open OpenCred on macOS, you'll see a one-time security prompt: *"OpenCred cannot be opened because the developer cannot be verified."* This is expected during the beta — to allow the app to launch:
 
-macOS will show *"OpenCred cannot be opened because the developer cannot be
-verified"* on the first launch. To approve the app:
+1. Open **Finder → Applications**.
+2. **Right-click** (or Ctrl-click) on `OpenCred.app` and choose **Open**.
+3. In the confirmation dialog, click **Open** again.
+4. macOS remembers the approval. Every subsequent launch is normal — you can use the Dock icon, Spotlight, etc.
 
-1. **Right-click** (or Ctrl-click) `OpenCred.app` in Finder → choose **Open**.
-2. In the confirmation dialog, click **Open** again.
-3. macOS remembers the approval. All subsequent launches work normally.
+> If you instead see *"OpenCred is damaged and can't be opened"*, the download picked up an extra quarantine attribute. Clear it from Terminal and retry:
+>
+> ```bash
+> xattr -cr /Applications/OpenCred.app
+> open /Applications/OpenCred.app
+> ```
 
-If you instead see *"OpenCred is damaged and can't be opened"*, the download
-has been tagged with Apple's quarantine attribute in a way macOS can't
-reconcile with the unsigned bundle. Clear it from Terminal:
+**During the beta, OpenCred does not auto-update on macOS.** Check the [releases page](https://github.com/nfh-trust-labs/opencred-releases/releases) periodically for new versions and reinstall using the same approval step above.
 
-```bash
-xattr -cr /Applications/OpenCred.app
-open /Applications/OpenCred.app
-```
+### Windows first launch
 
-Auto-updates are **disabled** on unsigned builds — macOS will not install an
-update whose signing identity differs from the installed version's. Check
-[the releases page](https://github.com/nfh-trust-labs/opencred-releases/releases)
-manually for new versions until signed releases ship.
-
-### Windows first launch (unsigned build)
-
-> **Current releases are unsigned.** Microsoft Defender SmartScreen will
-> block the installer on first run.
-
-When you run `OpenCred-Setup-<version>.exe`, SmartScreen shows *"Microsoft
-Defender SmartScreen prevented an unrecognised app from starting"*. To
-proceed:
-
-1. Click **More info**.
-2. Click **Run anyway**.
+> **Beta:** Windows installers are not currently published. Subscribe to releases on the [public releases repo](https://github.com/nfh-trust-labs/opencred-releases/releases) to be notified when Windows builds ship.
 
 ### Linux signature
 

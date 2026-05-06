@@ -391,14 +391,14 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"namespace\": \"bootcamp-2026-04-29\"\n}"
+              "raw": "{\n  \"namespace\": \"your-namespace-id\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/v1/dedi/namespace/ensure",
               "host": ["{{baseUrl}}"],
               "path": ["v1", "dedi", "namespace", "ensure"]
             },
-            "description": "Idempotently bootstrap a DeDi namespace and the four registries OpenCred needs (`vc-revocation-registry`, `public_key_registry`, `schema_registry`, `context_registry`).\n\nWraps the same `dediClient.ensureRegistries(...)` helper that runs once at server startup, so you can spin up additional namespaces at runtime without restarting the container — useful for per-tenant or per-bootcamp-attendee setups.\n\nReturns `{ namespace, registries }` listing the registry names that now exist on the namespace (whether freshly created or already present).\n\nReturns `503 DEDI_NOT_CONFIGURED` until `OPENCRED_DEDI_*` env vars are set. The same `rejectKeyMaterial` defense-in-depth guard runs on the body."
+            "description": "Idempotently bootstrap a DeDi namespace and the four registries OpenCred needs (`vc-revocation-registry`, `public_key_registry`, `schema_registry`, `context_registry`).\n\nWraps the same `dediClient.ensureRegistries(...)` helper that runs once at server startup, so you can spin up additional namespaces at runtime without restarting the container — useful for per-tenant setups.\n\nReplace `your-namespace-id` in the body with the namespace ID issued by your DeDi operator. Unverified namespaces look like `did:web:did.cord.network:xyz`; verified ones look like `xyz.org`.\n\nReturns `{ namespace, registries }` listing the registry names that now exist on the namespace (whether freshly created or already present).\n\nReturns `503 DEDI_NOT_CONFIGURED` until `OPENCRED_DEDI_*` env vars are set. The same `rejectKeyMaterial` defense-in-depth guard runs on the body."
           }
         }
       ]

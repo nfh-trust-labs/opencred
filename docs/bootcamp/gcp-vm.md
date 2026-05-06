@@ -1,71 +1,23 @@
-# OpenCred Bootcamp on GCP — Facilitator Guide (VM track)
+# OpenCred Bootcamp — GCP VM track
 
-> **Goal**: by the end of the session, every attendee has an OpenCred Docker
-> container running on a Google Compute Engine VM **they own**, has issued a
-> signed Verifiable Credential against it from their own laptop over an SSH
-> tunnel, and has verified it. Then everyone tears their VM down.
+> **Goal**: have an OpenCred Docker container running on a Google Compute Engine VM **you own**, issue a signed Verifiable Credential against it from your laptop over an SSH tunnel, verify it, then tear the VM down.
 >
-> **Time budget**: ~2.5 hours. 30 min GCP setup buffer + 90 min hands-on +
-> 15 min Q&A + **15 min mandatory teardown**.
+> **Time**: ~90 minutes hands-on + ~30 min GCP setup + **15 min mandatory teardown** when you're done.
 >
-> **Audience prereqs**: same Unix-shell comfort as the local bootcamp,
-> **plus** a Google Cloud account with billing enabled. No prior GCE / IAM
-> experience required, but a few attendees will need IAM hand-holding.
+> **Prereqs**: same Unix-shell comfort as the local bootcamp, **plus** a Google Cloud account with billing enabled. No prior GCE / IAM experience required.
+
+A few notes before you start:
+
+- **Same OpenCred story, different host.** This is the local-bootcamp curriculum with a GCE VM swapped in for the laptop. You still own the key and the container. NFH Trust Labs still sees nothing.
+- **Tunnel, don't expose.** OpenCred is a signing oracle. Do not open port 3100 to the internet, even with an API key set. The whole guide assumes you `gcloud compute ssh` with a port forward and `curl localhost:3100` from your laptop. §7d shows the production-shape alternative (reverse proxy + TLS + IP allowlist), but that is opt-in.
+- **Cost is real but small.** An `e2-small` VM is roughly $0.02/hour. A full bootcamp + a forgotten VM weekend is still under a dollar. But **don't forget the teardown step** — Section 9 is the most important section in this guide.
+- **Use `us-central1` (or your nearest cheap region)** unless you have a reason to pick differently. Cheaper, lower latency from most places, and the docs assume that region for naming examples.
+
+The convention in the commands below: `LOCAL$` is your laptop, `VM$` is the GCE VM (after you SSH into it).
 
 ---
 
-## Facilitator notes (read first)
-
-- **Same OpenCred story, different host.** This is the local-bootcamp curriculum
-  with a GCE VM swapped in for the laptop. The attendee still owns the key and
-  the container. NFH Trust Labs still sees nothing. Lead with this.
-- **Why deploy to a VM at all?** Three honest reasons: (a) some attendees can't
-  install Docker on a corporate-locked laptop, (b) it shows them what an
-  almost-production deployment actually looks like, (c) it lets them play with
-  GCP Cloud KMS for signing, which is impossible on a laptop. Pick the framing
-  that fits your audience.
-- **Tunnel, don't expose.** OpenCred is a signing oracle. Do not open port
-  3100 to the internet, even with an API key set. The whole guide assumes
-  attendees `gcloud compute ssh` with a port forward and `curl localhost:3100`
-  from their laptop. There is one section (§7d) that walks through a real
-  reverse proxy + TLS + IP allowlist, but that is opt-in.
-- **Cost is real but small.** An `e2-small` VM is roughly $0.02/hour. Two
-  hours of bootcamp + a forgotten VM weekend is still under a dollar per
-  attendee. But: **make teardown a graded step**, not optional homework.
-  Section 9 is the most important section in this guide.
-- **Have an emergency lab project.** If an attendee's personal GCP account is
-  in a state you can't fix in 5 minutes (no billing, hit project quota, MFA
-  loop), drop them onto a shared project where you've pre-created a VM per
-  attendee. Do not spend 30 minutes of room time on one person's billing
-  console.
-- **Pick `us-central1` (or your nearest cheap region).** Don't let attendees
-  pick regions independently — it spreads issues across zones you don't have
-  open in your console, and makes troubleshooting harder.
-
-### Run sheet
-
-| Time | Block | Section |
-|---|---|---|
-| 0:00 | Welcome, framing (your VM, your key, your bill) | — |
-| 0:10 | gcloud auth, project picked, billing confirmed | §1 |
-| 0:25 | Create the VM | §2 |
-| 0:35 | SSH in, install Docker | §3 |
-| 0:50 | Generate key + API token, build the image on the VM | §4 |
-| 1:15 | Run the container; SSH-tunnel from laptop; hit `/v1/health` | §5 |
-| 1:30 | Issue and verify a credential | §6 |
-| 1:50 | Stretch: GCP Cloud KMS, TLS reverse proxy, DeDi | §7 |
-| 2:15 | Troubleshooting clinic | §8 |
-| 2:25 | **Mandatory teardown** | §9 |
-
----
-
-## Attendee handout
-
-Everything below is meant to be copy-pasted by the attendee. The convention
-in the commands: `LOCAL$` is your laptop, `VM$` is the GCE VM (after you SSH
-into it).
-
-### 1. Pre-flight (do the day before)
+### 1. Pre-flight
 
 #### 1a. Tools on your laptop
 
@@ -236,18 +188,21 @@ VM$ export OPENCRED_API_KEY="paste-the-token-here"
 
 #### 4a. (Optional) DeDi credentials on the VM
 
-If your facilitator gave you DeDi access details and you want to use the
-revocation + public-key registry features later in §7b / §7c, export
-them on the VM. **Skip this entire block if you don't have DeDi
-access** — every other section works without DeDi, and `/v1/health`
-will simply report `dediConfigured: false`.
+If you have DeDi access and want to use the revocation + public-key registry features later in §7b / §7c, export the access details on the VM. **Skip this entire block if you don't have DeDi access** — every other section works without DeDi, and `/v1/health` will simply report `dediConfigured: false`.
 
 ```
 VM$ export OPENCRED_DEDI_BASE_URL="https://your-dedi-instance.example.org"
 VM$ export OPENCRED_DEDI_AUTH_TYPE="api-key"
 VM$ export OPENCRED_DEDI_API_KEY="paste-your-token-here"
-VM$ export OPENCRED_DEDI_NAMESPACE="bootcamp-$(whoami)"
+VM$ export OPENCRED_DEDI_NAMESPACE="your-namespace-id"
 ```
+
+> **What goes in `OPENCRED_DEDI_NAMESPACE`?** Use the namespace ID issued to you by your DeDi operator. The format depends on whether your namespace is verified:
+>
+> - **Unverified namespace** → looks like `did:web:did.cord.network:xyz` — the DeDi instance's own did:web with your ID appended. This is the default when the operator provisions a new namespace without a domain-ownership challenge.
+> - **Verified namespace** → looks like `xyz.org` — your own domain, used directly as the namespace ID after you've proved ownership to the DeDi operator.
+>
+> Use whichever value the operator gave you. Both work identically with OpenCred; only the DID resolution path that verifiers walk differs.
 
 The OpenCred container's startup hook will create your namespace and
 the five registries inside it on first boot — no pre-provisioning
@@ -266,12 +221,7 @@ When it finishes:
 VM$ docker images opencred:bootcamp        # should show one row
 ```
 
-> **Building from source instead?** If your facilitator gave you a clone of
-> the (private) source repo, you can build with
-> `docker build -f apps/server/Dockerfile -t opencred:bootcamp .` — that's
-> ~5–10 minutes on an `e2-small`. Most attendees should pull the public
-> image; the only reason to build is if you want to inspect or patch the
-> server before issuing.
+> **Building from source instead?** If you have access to the (private) source repo, you can build with `docker build -f apps/server/Dockerfile -t opencred:bootcamp .` — that's ~5–10 minutes on an `e2-small`. Pulling the public image is faster; the only reason to build is if you want to inspect or patch the server before issuing.
 
 ### 5. Run the container, tunnel from your laptop
 
@@ -606,7 +556,7 @@ If `dediConfigured` is `false`, you skipped §4a. To enable now:
 VM$ export OPENCRED_DEDI_BASE_URL="https://your-dedi-instance.example.org"
 VM$ export OPENCRED_DEDI_AUTH_TYPE="api-key"
 VM$ export OPENCRED_DEDI_API_KEY="paste-your-token-here"
-VM$ export OPENCRED_DEDI_NAMESPACE="bootcamp-$(whoami)"
+VM$ export OPENCRED_DEDI_NAMESPACE="your-namespace-id"   # see §4a for format
 VM$ docker rm -f opencred
 VM$ # Re-run §5 — the same docker run command picks up the new env vars.
 ```
@@ -657,13 +607,10 @@ DeDi.
 
 #### 7d. Public TLS endpoint (only do this if you actually need one)
 
-For demos where attendees want a real `https://...` URL — for instance,
-hooking OpenCred up to a wallet — add a reverse proxy with TLS and an IP
-allowlist. Outline only:
+If you need a real `https://...` URL — for instance, to hook OpenCred up to a wallet — add a reverse proxy with TLS and an IP allowlist. Outline only:
 
 1. Reserve a static external IP and assign it to the VM.
-2. Open ports 80/443 with a firewall rule restricted to your bootcamp room's
-   public IP (`curl ifconfig.me` on the facilitator's laptop).
+2. Open ports 80/443 with a firewall rule restricted to your own public IP (`curl ifconfig.me` on your laptop).
 3. Point a DNS A record at the IP. Cloud DNS works; so does any registrar.
 4. Run the bundled `nginx` block in `docker-compose.yml` (already includes
    `proxy_pass http://server:3100`, security headers, and a TLS template),
@@ -671,8 +618,7 @@ allowlist. Outline only:
 5. **Keep `OPENCRED_API_KEY` set.** TLS authenticates the channel; the API
    key still authenticates the caller.
 
-Most bootcamps don't need this. The IAP tunnel is enough for everything in
-§5–§6.
+Most bootcamp runs don't need this. The IAP tunnel is enough for everything in §5–§6.
 
 #### 7e. Mid-session DeDi: ensure a namespace at runtime
 
@@ -716,9 +662,7 @@ The Postman collection has this under **DeDi runtime → POST
 
 ### 9. Mandatory teardown
 
-Every attendee runs these before they leave the room. The facilitator
-verifies. **No exceptions** — a forgotten VM is not a teaching moment, it's
-a billing surprise.
+Run these before you close out the bootcamp. **A forgotten VM is a billing surprise** — don't skip this section.
 
 ```
 LOCAL$ gcloud compute instances delete opencred-bootcamp \
@@ -798,7 +742,7 @@ export OPENCRED_API_KEY="$(openssl rand -base64 32)"
 # export OPENCRED_DEDI_BASE_URL=https://your-dedi.example.org
 # export OPENCRED_DEDI_AUTH_TYPE=api-key
 # export OPENCRED_DEDI_API_KEY=paste-your-token
-# export OPENCRED_DEDI_NAMESPACE=bootcamp-${USER:-attendee}
+# export OPENCRED_DEDI_NAMESPACE=your-namespace-id   # e.g. did:web:did.cord.network:xyz (unverified) or xyz.org (verified)
 
 # Build DEDI_ENV (empty if no DeDi exports above)
 DEDI_ENV=()
@@ -831,7 +775,7 @@ ISSUER_DID="$(curl -s http://localhost:3100/v1/keys \
   -H "Authorization: Bearer $OPENCRED_API_KEY" | jq -r '.keys[0].id')"
 # Issue/verify exactly as in the local bootcamp
 
-# Teardown — every attendee
+# Teardown — don't forget
 gcloud compute instances delete opencred-bootcamp --zone=us-central1-a --quiet
 gcloud compute firewall-rules delete opencred-allow-iap-ssh --quiet
 ```
@@ -842,11 +786,11 @@ gcloud compute firewall-rules delete opencred-allow-iap-ssh --quiet
 
 | Situation | Track |
 |---|---|
-| Attendee can run Docker locally | **Local** — fewer moving parts |
-| Attendee's laptop is corporate-locked or low-spec | **GCP** |
-| You want to demo GCP Cloud KMS as the signer | **GCP** |
-| You want every attendee to have a real `https://` URL by the end | **GCP** + §7d |
-| Audience is wary of cloud bills | **Local** |
+| You can run Docker locally | **Local** — fewer moving parts |
+| Your laptop is corporate-locked or low-spec | **GCP** |
+| You want to try GCP Cloud KMS as the signer | **GCP** |
+| You need a real `https://` URL by the end (e.g., for a wallet) | **GCP** + §7d |
+| You want to avoid any cloud bill | **Local** |
 | You only have 90 minutes | **Local** |
 
 ---

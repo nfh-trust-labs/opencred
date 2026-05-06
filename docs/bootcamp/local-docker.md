@@ -1,47 +1,21 @@
-# OpenCred Docker Bootcamp — Facilitator Guide
+# OpenCred Docker Bootcamp
 
-> **Goal**: by the end of the session, every attendee has the OpenCred Docker
-> image running on their laptop, has issued a real signed Verifiable Credential
-> with their own key, and has verified it.
+> **Goal**: have the OpenCred Docker image running on your laptop, issue a real signed Verifiable Credential with your own key, and verify it.
 >
-> **Time budget**: ~2 hours. 30 min setup buffer + 75 min hands-on + 15 min Q&A.
+> **Time**: ~90 minutes hands-on. Add ~30 min if you've never run a Docker image before.
 >
-> **Audience prereqs**: comfortable on a Unix shell, has used `curl`, has
-> Docker installed. No prior VC / DID knowledge required.
+> **Prereqs**: comfortable on a Unix shell, have used `curl`, have Docker installed. No prior VC / DID knowledge required.
+
+A few notes before you start:
+
+- **OpenCred is not a hosted service.** You run your own server, generate your own key, and sign in your own container. NFH Trust Labs sees nothing.
+- **Use EC P-256 keys, not RSA.** The `data-integrity` proof format is unsupported on RSA — P-256 lets you demo all three proof formats (`vc-jwt`, `data-integrity`, `sd-jwt-vc`) without surprises.
+- **Use `functional-identity/v1` as the demo schema.** It's in the built-in registry, required fields are minimal (`name`, `role`, `validFrom`), and produces a satisfying-looking VC.
+- **Don't enable `OPENCRED_DEV_MODE_NO_AUTH`.** Generate an API key — it's 15 seconds and keeps the right mental model that the server is a signing oracle. The server refuses to start with this flag if `NODE_ENV=production`.
 
 ---
 
-## Facilitator notes (read first)
-
-- **OpenCred is not a hosted service.** Every attendee runs their own server, generates their own key, and signs in their own container. Lead with this — it's the single most common misconception.
-- **Use the `new-opencred-dev` branch.** That is the integration branch with the Docker image, CLI, and current `/v1` API surface. `main` does not have any of this yet.
-- **Pre-built image is available.** `docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest` is the fastest path and what the run sheet defaults to. Build-from-source (`docker build -f apps/server/Dockerfile -t opencred:bootcamp .`) is offered as a stretch path in §2b for attendees who want to inspect or modify the image. Pre-pulling on conference Wi-Fi is still wise — `docker pull` is ~150 MB and re-saves a tarball with `docker save` cleanly.
-- **Pick EC P-256 keys, not RSA.** The `data-integrity` proof format is unsupported on RSA — using P-256 lets you demo all three proof formats (`vc-jwt`, `data-integrity`, `sd-jwt-vc`) without surprises.
-- **Use `functional-identity/v1` as the demo schema.** It is in the built-in registry (`packages/schema-engine/src/generated-registry.ts`), required fields are minimal (`name`, `role`, `validFrom`), and it produces a satisfying-looking VC. Avoid `education/v1` — it is **not** registered in the current build, despite a few stale doc examples; the schema engine will reject it.
-- **Don't enable `OPENCRED_DEV_MODE_NO_AUTH`.** It works, but the whole point of a bootcamp is to teach attendees to think of the server as a signing oracle. Spend the 15 seconds it takes to generate an API key. The server now refuses to start if you set this together with `NODE_ENV=production`.
-- **Have a fallback.** Two attendees will have a Docker Desktop install that needs reauth; one will have only Docker Engine and no Compose v2. Keep the `docker run` form (Section 3) as the official path and treat Compose (Section 5) as a stretch.
-
-### Run sheet
-
-| Time | Block | Section |
-|---|---|---|
-| 0:00 | Welcome, framing (issuer = you, key = yours, no SaaS) | — |
-| 0:10 | Verify pre-flight on every laptop | §1 |
-| 0:20 | Clone, checkout `new-opencred-dev`, build image | §2 |
-| 0:40 | Generate signing key + API token | §3 |
-| 0:50 | Run the container, hit `/v1/health` | §4 |
-| 1:05 | Issue first credential, verify it | §5 |
-| 1:30 | Compose, hardening, what's next | §6, §7 |
-| 1:50 | Q&A, troubleshooting clinic | §8 |
-
----
-
-## Attendee handout
-
-This is the part to email/print and hand out. Everything below is meant to be
-copy-pasted by the attendee.
-
-### 1. Pre-flight (do the day before)
+### 1. Pre-flight
 
 | Tool | Why | Check |
 |---|---|---|
@@ -140,11 +114,7 @@ echo "Save this somewhere — you'll paste it into curl: $OPENCRED_API_KEY"
 
 #### 3a. (Optional) Set up DeDi for revocation + public-key registry
 
-If your facilitator gave you DeDi access details (URL, API key or
-bearer creds, namespace name), export them now so they're picked up by
-the §4 `docker run`. **Skip this entire block if you don't have DeDi
-access** — every other section of the bootcamp works without DeDi, and
-`/v1/health` will simply report `dediConfigured: false`.
+If you have DeDi access (URL, API key or bearer creds, namespace name), export them now so they're picked up by the §4 `docker run`. **Skip this entire block if you don't have DeDi access** — every other section of the bootcamp works without DeDi, and `/v1/health` will simply report `dediConfigured: false`.
 
 > **Note for zsh users**: zsh doesn't treat `#` as a comment by default
 > in interactive shells. If you copy-paste the block below and see
@@ -157,12 +127,17 @@ access** — every other section of the bootcamp works without DeDi, and
 export OPENCRED_DEDI_BASE_URL="https://your-dedi-instance.example.org"
 export OPENCRED_DEDI_AUTH_TYPE="api-key"
 export OPENCRED_DEDI_API_KEY="paste-your-token-here"
-export OPENCRED_DEDI_NAMESPACE="bootcamp-$(whoami)"
+export OPENCRED_DEDI_NAMESPACE="your-namespace-id"
 ```
 
-For **bearer auth** instead of api-key, set
-`OPENCRED_DEDI_AUTH_TYPE=bearer` and use `OPENCRED_DEDI_EMAIL` +
-`OPENCRED_DEDI_PASSWORD` instead of `OPENCRED_DEDI_API_KEY`.
+> **What goes in `OPENCRED_DEDI_NAMESPACE`?** Use the namespace ID issued to you by your DeDi operator. The format depends on whether your namespace is verified:
+>
+> - **Unverified namespace** → looks like `did:web:did.cord.network:xyz` — the DeDi instance's own did:web with your ID appended. This is the default when the operator provisions a new namespace without a domain-ownership challenge.
+> - **Verified namespace** → looks like `xyz.org` — your own domain, used directly as the namespace ID after you've proved ownership to the DeDi operator.
+>
+> Use whichever value the operator gave you. Both work identically with OpenCred; only the DID resolution path that verifiers walk differs.
+
+For **bearer auth** instead of api-key, set `OPENCRED_DEDI_AUTH_TYPE=bearer` and use `OPENCRED_DEDI_EMAIL` + `OPENCRED_DEDI_PASSWORD` instead of `OPENCRED_DEDI_API_KEY`.
 
 The OpenCred container's startup hook calls `ensureRegistries()` on
 first boot — your namespace and the five registries inside it
@@ -340,10 +315,7 @@ also tamper-evident without phoning home to anyone.
 
 ### 6a. Issue a credential against your own pasted schema
 
-The 34 bundled schemas cover common cases, but most attendees will leave the
-bootcamp wanting to issue something tailored to their own use case. The
-server accepts a custom JSON Schema directly in the request body — no need
-to fork the repo or publish to a registry first.
+The 34 bundled schemas cover common cases, but most users want to issue something tailored to their own use case. The server accepts a custom JSON Schema directly in the request body — no need to fork the repo or publish to a registry first.
 
 Use `inlineSchema` instead of (or alongside) `schemaId`:
 
@@ -580,7 +552,7 @@ order:
    `POST /v1/credentials/revocation-status` actually talk to DeDi. Both return
    `503 DEDI_NOT_CONFIGURED` until you wire it up.
 
-Show step 1 first — every attendee can run it on their own container.
+Step 1 runs on your own container without any external setup — start there.
 
 ```bash
 curl -s http://localhost:3100/v1/credentials/revocation-hash \
@@ -726,15 +698,11 @@ success. `/v1/keys/resolve` returns `{ did, document, resolvedAt }`. Both
 endpoints return `503 DEDI_NOT_CONFIGURED` if the DeDi env vars from §7c
 aren't set.
 
-> **Demo punchline**: an attendee who runs §7d on their own VM can stop
-> serving a `did:web` document from a webserver entirely — DeDi becomes the
-> resolution endpoint. The signature on every issued VC is the same as
-> before; only how verifiers find the public key changes.
+> **The takeaway**: once you've run §7d on a VM you control, you can stop serving a `did:web` document from a webserver entirely — DeDi becomes the resolution endpoint. The signature on every issued VC is the same as before; only how verifiers find the public key changes.
 
-#### 7e. Cloud HSM (talk-through, do not demo live)
+#### 7e. Cloud HSM (read-through, not a live exercise)
 
-For production, file-based keys are usually the wrong answer. Show the env
-shape and stop:
+For production, file-based keys are usually the wrong answer. Here's the env shape so you know what to reach for:
 
 ```bash
 # AWS KMS (uses default credential chain)
@@ -812,12 +780,12 @@ The Postman collection has this under **DeDi runtime → POST
 | Build hangs at "fetching pnpm" | Conference Wi-Fi blocking npmjs.org | Use a phone hotspot, or distribute a pre-built image via `docker save`/`docker load` |
 | `port is already allocated` | Something is on 3100 already | Pick a different host port: `-p 3200:3100`, then point curl at `:3200`. The server still listens on 3100 inside the container. |
 
-### 9. What to leave attendees with
+### 9. What you should have
 
-- A working `opencred:bootcamp` image and a key file they own.
-- `docs/docker/` in the repo — bookmark the `api-reference.md`, `deployment.md`, and `cloud-hsm.md` pages.
-- The framing: **OpenCred runs in your infrastructure, with your keys, signing your credentials. There is no `api.opencred.com` to call. NFH Trust Labs operates no hosted endpoints.**
-- A homework prompt — pick a credential type for their own use case (employment letter, training certificate, role assertion) and design the `credentialSubject`. Bring it to the next session.
+- A working `opencred:bootcamp` image and a signing key you own.
+- The Docker operator guide at <https://opencred.gitbook.io/docs> bookmarked — the `api-reference`, `deployment`, and `cloud-hsm` pages cover everything beyond what this bootcamp shows.
+- The mental model: **OpenCred runs in your infrastructure, with your keys, signing your credentials.** There is no `api.opencred.com` to call. NFH Trust Labs operates no hosted endpoints.
+- A next-step idea: pick a credential type that matches your own use case (employment letter, training certificate, role assertion) and design the `credentialSubject`. The custom-schema flow in §6 is exactly for this.
 
 ### 10. Cleanup
 
@@ -847,7 +815,7 @@ export OPENCRED_API_KEY="$(openssl rand -base64 32)"
 # export OPENCRED_DEDI_BASE_URL=https://your-dedi.example.org
 # export OPENCRED_DEDI_AUTH_TYPE=api-key
 # export OPENCRED_DEDI_API_KEY=paste-your-token
-# export OPENCRED_DEDI_NAMESPACE=bootcamp-${USER:-attendee}
+# export OPENCRED_DEDI_NAMESPACE=your-namespace-id   # e.g. did:web:did.cord.network:xyz (unverified) or xyz.org (verified)
 
 # Build DEDI_ENV (empty if no DeDi exports above)
 DEDI_ENV=()
@@ -902,9 +870,7 @@ jq '{credential: (.credential | tostring)}' credential.json \
 
 ## Appendix B — Endpoint cheat sheet
 
-All under `/v1/*`. Auth: `Authorization: Bearer $OPENCRED_API_KEY` except where
-noted. The legacy unprefixed routes (`/health`, `/credentials/issue`, …) also
-exist for backwards compatibility, but **point attendees at `/v1`**.
+All under `/v1/*`. Auth: `Authorization: Bearer $OPENCRED_API_KEY` except where noted. The legacy unprefixed routes (`/health`, `/credentials/issue`, …) also exist for backwards compatibility, but **always use `/v1` in new code**.
 
 | Method + path | Auth | What it does |
 |---|---|---|

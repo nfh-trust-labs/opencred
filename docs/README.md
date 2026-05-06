@@ -4,6 +4,10 @@ OpenCred is a local-first platform for issuing and verifying W3C Verifiable Cred
 
 OpenCred is published by [NFH Trust Labs](https://github.com/nfh-trust-labs).
 
+> **🧪 Beta release.** OpenCred is in early-access beta. Functionality is feature-complete and the protocols are stable, but desktop installer polish is still in progress — on first launch macOS shows a one-time approval prompt (see the [installation guide](desktop/installation.md#macos-first-launch)). Windows installers will follow.
+>
+> **Support:** for bug reports, feature requests, or questions, [open an issue](https://github.com/nfh-trust-labs/opencred-releases/issues).
+
 ## Get OpenCred
 
 | | Where | How |

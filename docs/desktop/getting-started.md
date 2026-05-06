@@ -1,5 +1,7 @@
 # Getting Started with OpenCred Desktop
 
+> **🧪 Beta release.** OpenCred Desktop is in early-access beta. macOS users see a one-time security prompt on first launch — [Installation → macOS first launch](installation.md#macos-first-launch) has the steps. **Support:** [open an issue](https://github.com/nfh-trust-labs/opencred-releases/issues).
+
 ## System Requirements
 
 | Platform | Minimum Version |

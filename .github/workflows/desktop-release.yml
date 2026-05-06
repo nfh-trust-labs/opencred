@@ -488,7 +488,7 @@ jobs:
             gh release create "$RELEASE_TAG" \
               --repo "$MIRROR_REPO" \
               --title "$RELEASE_TAG" \
-              --notes "Public release artefacts for $RELEASE_TAG. Source code, issues, and release notes live in the private nfh-trust-labs/opencred repo. Verify downloads with the included SHA256SUMS file."
+              --notes "Public release artefacts for $RELEASE_TAG. Verify downloads with the included SHA256SUMS file. Bug reports and feature requests: https://github.com/nfh-trust-labs/opencred-releases/issues."
           fi
           gh release upload "$RELEASE_TAG" "${actual[@]}" --clobber --repo "$MIRROR_REPO"
           echo "Mirrored ${#actual[@]} artefacts to $MIRROR_REPO release $RELEASE_TAG"
