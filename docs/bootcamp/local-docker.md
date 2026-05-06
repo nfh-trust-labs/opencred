@@ -66,10 +66,12 @@ Storage: ~2 GB free for the image. RAM: 1 GB is fine.
 
 If `docker run hello-world` works, you are ready.
 
-> **Note for Apple Silicon (M-series)**: Docker Desktop builds linux/arm64
-> images by default — that is fine, the OpenCred image runs on both. If you see
-> a "no matching manifest" error, you are mixing platforms; force one with
-> `--platform=linux/amd64` on `docker build` and `docker run`.
+> **Architecture support**: starting with **v1.2.0**, the published image is a
+> multi-arch manifest (linux/amd64 + linux/arm64). Docker auto-selects the
+> right variant for your CPU — Apple Silicon Macs, AWS Graviton, Raspberry Pi,
+> and amd64 cloud VMs all `docker pull` without flags. If you're pulling an
+> older tag (`:1.0.x` or `:1.1.x`), those are amd64-only; on arm64 hosts add
+> `--platform=linux/amd64` to `docker pull` / `docker run`.
 
 ### 2. Get the image
 

@@ -46,7 +46,7 @@ This information is submitted to a Google Form for the development team. No priv
 
 ## Auto-Updater
 
-The app checks for updates on launch via GitHub Releases.
+The app checks for updates on launch via the public releases repo at [`nfh-trust-labs/opencred-releases`](https://github.com/nfh-trust-labs/opencred-releases/releases). No GitHub authentication is required.
 
 | State | What You See |
 |-------|-------------|

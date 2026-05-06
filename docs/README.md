@@ -99,4 +99,12 @@ Standalone reference documents for quick access:
 
 ## Source of Truth
 
-Requirements live in [`OpenCred_PRD.md`](../OpenCred_PRD.md). The implementation plan is in [`implementation-plan.md`](../implementation-plan.md). Per-issue work is tracked on [GitHub Issues](https://github.com/nfh-trust-labs/opencred/issues). The contributor protocol is in [`CLAUDE.md`](../CLAUDE.md).
+OpenCred's source code is maintained in a private repository at NFH Trust Labs. Distributed binaries (Desktop installers, the Docker image) are public; source, issues, and per-PR review history are not.
+
+For end users:
+
+* **Download a release**: <https://github.com/nfh-trust-labs/opencred-releases/releases>
+* **Pull the Docker image**: `docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest`
+* **Bug reports / feature requests**: contact channels listed at <https://docs.opencred.global>
+
+For internal contributors with source access: requirements live in `OpenCred_PRD.md`, the implementation plan in `implementation-plan.md`, per-issue work on the private repo's GitHub Issues, and the contributor protocol in `CLAUDE.md`.

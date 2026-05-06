@@ -52,6 +52,8 @@ You also need:
 
 ## First-time setup
 
+> **Source repo access:** OpenCred's source code is in a private NFH Trust Labs repository. The clone below requires read access — request it via the contact channels at <https://docs.opencred.global> if you need it.
+
 ```bash
 git clone https://github.com/nfh-trust-labs/opencred.git
 cd opencred

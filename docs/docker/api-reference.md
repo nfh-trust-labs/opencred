@@ -1005,6 +1005,3 @@ For the full model, see [`docs/security/README.md`](../security/README.md).
 * [Security invariants](../security/invariants.md) — the seven mandatory rules and where each is enforced in code
 * [Concepts: Verifiable Credentials](../concepts/verifiable-credentials.md)
 * [Concepts: Trust chains](../concepts/trust-chains.md) — CSCA / DSC trust path that backs `OPENCRED_CSCA_TRUST_STORE_PATH`
-* [Issue #301](https://github.com/nfh-trust-labs/opencred/issues/301) — Phase 6 + 7 Docker server work
-* [Issue #312](https://github.com/nfh-trust-labs/opencred/issues/312) — auth fail-closed (CRITICAL-2)
-* [Issue #316](https://github.com/nfh-trust-labs/opencred/issues/316) — verification trust path for DSC-backed credentials
