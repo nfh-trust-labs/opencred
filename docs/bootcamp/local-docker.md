@@ -127,12 +127,17 @@ If you have DeDi access (URL, API key or bearer creds, namespace name), export t
 export OPENCRED_DEDI_BASE_URL="https://your-dedi-instance.example.org"
 export OPENCRED_DEDI_AUTH_TYPE="api-key"
 export OPENCRED_DEDI_API_KEY="paste-your-token-here"
-export OPENCRED_DEDI_NAMESPACE="bootcamp-$(whoami)"
+export OPENCRED_DEDI_NAMESPACE="your-namespace-id"
 ```
 
-For **bearer auth** instead of api-key, set
-`OPENCRED_DEDI_AUTH_TYPE=bearer` and use `OPENCRED_DEDI_EMAIL` +
-`OPENCRED_DEDI_PASSWORD` instead of `OPENCRED_DEDI_API_KEY`.
+> **What goes in `OPENCRED_DEDI_NAMESPACE`?** Use the namespace ID issued to you by your DeDi operator. The format depends on whether your namespace is verified:
+>
+> - **Unverified namespace** → looks like `did:web:did.cord.network:xyz` — the DeDi instance's own did:web with your ID appended. This is the default when the operator provisions a new namespace without a domain-ownership challenge.
+> - **Verified namespace** → looks like `xyz.org` — your own domain, used directly as the namespace ID after you've proved ownership to the DeDi operator.
+>
+> Use whichever value the operator gave you. Both work identically with OpenCred; only the DID resolution path that verifiers walk differs.
+
+For **bearer auth** instead of api-key, set `OPENCRED_DEDI_AUTH_TYPE=bearer` and use `OPENCRED_DEDI_EMAIL` + `OPENCRED_DEDI_PASSWORD` instead of `OPENCRED_DEDI_API_KEY`.
 
 The OpenCred container's startup hook calls `ensureRegistries()` on
 first boot — your namespace and the five registries inside it
@@ -810,7 +815,7 @@ export OPENCRED_API_KEY="$(openssl rand -base64 32)"
 # export OPENCRED_DEDI_BASE_URL=https://your-dedi.example.org
 # export OPENCRED_DEDI_AUTH_TYPE=api-key
 # export OPENCRED_DEDI_API_KEY=paste-your-token
-# export OPENCRED_DEDI_NAMESPACE=bootcamp-${USER:-attendee}
+# export OPENCRED_DEDI_NAMESPACE=your-namespace-id   # e.g. did:web:did.cord.network:xyz (unverified) or xyz.org (verified)
 
 # Build DEDI_ENV (empty if no DeDi exports above)
 DEDI_ENV=()
