@@ -13,7 +13,7 @@ This guide covers deploying the OpenCred Docker image in production. The image i
 
 ```bash
 docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
-# or pin to a version tag, e.g. :1.0.0
+# or pin to a version tag, e.g. :1.2.0
 ```
 
 The image is public — no GHCR auth required. Trivy-scanned by CI.

@@ -72,6 +72,8 @@ AppImages and `.deb` packages are not currently signed. Verify checksums against
 
 Building from source is supported for development and air-gapped deployments.
 
+> **Note:** OpenCred's source repository is private. The instructions below assume you have read access. For most users the prebuilt installers above are the right path; reach out via the contact channels at <https://docs.opencred.global> if you need source access for a regulated or air-gapped deployment.
+
 ### Prerequisites
 
 * Node.js **20 or later** (`.nvmrc` pins the version used in CI)

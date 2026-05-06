@@ -17,10 +17,16 @@ Tagged releases are published to **GitHub Container Registry** as a public image
 docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
 
 # Or pin to a specific version
-docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:1.0.0
+docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:1.2.0
 ```
 
 Each version tag is built by CI from a signed git tag and scanned with Trivy (CRITICAL/HIGH vulnerabilities fail the build). Image labels include `org.opencontainers.image.source`, `revision`, and `version` for provenance.
+
+### Architecture support
+
+From **v1.2.0** the image is published as a **multi-arch manifest** covering `linux/amd64` and `linux/arm64`. Docker pulls the variant matching your host CPU automatically — no `--platform` flag needed on Apple Silicon Macs, AWS Graviton, Ampere Altra, Raspberry Pi 4/5, or amd64 cloud VMs.
+
+`v1.0.x` and `v1.1.x` were `linux/amd64`-only; on arm64 hosts those tags require `--platform linux/amd64` and run via QEMU emulation (functional, ~2× slower).
 
 ## Build from source
 
@@ -60,7 +66,7 @@ docker run -d \
   ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
 ```
 
-> **Tip:** Pin a specific version (`:1.0.0`) in production. `:latest` floats and can change underneath you on the next release.
+> **Tip:** Pin a specific version (e.g. `:1.2.0`) in production. `:latest` floats and can change underneath you on the next release.
 
 ### Docker Compose
 
