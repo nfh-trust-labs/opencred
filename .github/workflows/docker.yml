@@ -196,7 +196,10 @@ jobs:
           openssl genpkey -algorithm EC \
             -pkeyopt ec_paramgen_curve:P-256 \
             -out smoke-keys/key.pem
-          chmod 600 smoke-keys/key.pem
+          # Mode 0644 — bind mount preserves host ownership (runner uid),
+          # container runs as `node` (uid 1000); 0600 reads with EACCES
+          # inside the container. Runner is ephemeral; throwaway file.
+          chmod 644 smoke-keys/key.pem
           # Random API key — never echoed, never committed.
           API_KEY=$(openssl rand -base64 32)
 
