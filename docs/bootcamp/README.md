@@ -1,35 +1,18 @@
 # OpenCred Bootcamp Guide
 
-A facilitator-led, hands-on path through the OpenCred Docker image. Each
-attendee builds the image locally (or runs it on a cloud VM), wires in a
-signing key, issues their first verifiable credential, verifies it,
-packages it as a printable PDF + QR code, and optionally publishes
-revocation hashes and DID documents to a DeDi instance.
+A self-service, hands-on path through the OpenCred Docker image. You'll run the image locally (or on a cloud VM), wire in a signing key, issue your first verifiable credential, verify it, package it as a printable PDF + QR code, and optionally publish revocation hashes and DID documents to a DeDi instance.
 
-The bootcamp targets **the Docker variant** of OpenCred — not the
-Desktop app. Same packages underneath, same APIs, but the headless
-container is the easier shared distribution surface for a workshop.
+The bootcamp targets **the Docker variant** of OpenCred — not the Desktop app. Same packages underneath, same APIs, but the headless container is the easier surface to drive end-to-end from a shell.
 
 ## Pages in this section
 
-* **[Local Docker track](local-docker.md)** — the default path. Every
-  attendee runs the container on their own laptop. Works on macOS,
-  Windows (WSL2 or Docker Desktop), and Linux. ~3-hour run sheet, no
-  cloud bill.
-* **[GCP VM track](gcp-vm.md)** — for facilitators who want a single
-  shared VM with per-attendee containers, IAP-tunnelled SSH, and
-  optional Cloud KMS for the signing key. ~3-hour run sheet plus
-  ~30 minutes of GCP setup.
-* **[Postman collection](postman-collection.json)** — pre-built
-  collection of every request the bootcamp hits, with pre-/post-request
-  scripts that thread `issuerDid`, `lastCredential`, and
-  `lastRevocationHash` between requests. Import into Postman, set the
-  `apiKey` collection variable, and you can drive the whole flow
-  without leaving the GUI.
+* **[Local Docker track](local-docker.md)** — the default path. Run the container on your own laptop. Works on macOS, Windows (WSL2 or Docker Desktop), and Linux. ~90 minutes hands-on, no cloud bill.
+* **[GCP VM track](gcp-vm.md)** — alternative path on a Google Compute Engine VM with IAP-tunnelled SSH and optional Cloud KMS for the signing key. ~90 minutes hands-on plus ~30 minutes of GCP setup.
+* **[Postman collection](postman-collection.json)** — pre-built collection of every request the bootcamp hits, with pre-/post-request scripts that thread `issuerDid`, `lastCredential`, and `lastRevocationHash` between requests. Import into Postman, set the `apiKey` collection variable, and you can drive the whole flow without leaving the GUI.
 
-## What attendees learn
+## What you'll learn
 
-By the end of either track, every attendee can:
+By the end of either track, you'll be able to:
 
 1. Run a hardened OpenCred container locally (read-only rootfs, no caps,
    non-root user).
@@ -58,21 +41,10 @@ By the end of either track, every attendee can:
   simplicity. For DSC chains, did:web with TLS-anchored trust, and the
   three issuer types, see [Concepts → Trust chains](../concepts/trust-chains.md).
 
-## Facilitator notes
+## DeDi access (optional)
 
-If you're delivering the bootcamp:
+The DeDi sections (§3a and the §7 stretch sections in both tracks) require an OpenCred DeDi instance you can write to. There is no public DeDi endpoint to point at — if you don't have one set up, skip those sections; everything else still runs end-to-end.
 
-- The **Run sheet** at the top of each track (§1 in both files) is a
-  3-hour timing template. Adjust by trimming the §7 "Stretch" sections
-  if you're tight on time — §1–§6 are the load-bearing 90 minutes.
-- Pre-flight email content lives in the §1 Pre-flight section of each
-  track — copy it to attendees ~24 hours before the session so they
-  arrive with Docker installed and a key file ready.
-- The Postman collection's `baseUrl` is `http://localhost:3100` for both
-  tracks (the GCP track surfaces the VM via SSH port-forward to the
-  same port). The `apiKey` variable is the only thing each attendee
-  needs to set per-laptop.
-- DeDi access (URL + auth) is something you provide as facilitator —
-  there is no public DeDi endpoint to point attendees at. If you don't
-  have a DeDi instance to share, attendees skip §3a and the §7 DeDi
-  stretch sections; everything else still runs.
+## Support
+
+For bug reports, feature requests, or questions while working through the bootcamp, [open an issue](https://github.com/nfh-trust-labs/opencred-releases/issues).
