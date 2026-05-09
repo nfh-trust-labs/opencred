@@ -33,19 +33,20 @@ Pick the path that matches your role.
 
 ## Verifying a credential
 
-Anyone holding an OpenCred-issued credential has three supported ways to verify it. All three run the same `@opencred/verification` engine — you pick the surface that matches your environment.
+Anyone holding an OpenCred-issued credential has four supported ways to verify it. All four run the same `@opencred/verification` engine — pick the surface that matches your environment.
 
 | Path | Best for | Inputs accepted |
 |---|---|---|
-| **Desktop app — Verify tab** | Casual / one-off verification by humans | Pasted JSON · drag-dropped `.json` / `.jsonld` · QR-code image upload (PNG/JPG) · live camera QR scan · pasted compact tokens (vc-jwt, sd-jwt-vc, `OPENCRED1:` PixelPass) |
-| **Docker server — `POST /v1/credentials/verify`** | Programmatic / server-to-server / CI/CD | Single string body — auto-detected as JSON-LD VC, vc-jwt, sd-jwt-vc, or `OPENCRED1:` PixelPass-encoded QR data |
-| **`@opencred/verification` library** | Embedding verification inside another Node.js app | Same formats as above, via the typed JS API |
+| **Desktop app — Verify tab** | Casual / one-off verification by humans | Pasted JSON · drag-dropped `.json` / `.jsonld` · QR-code image upload (PNG/JPG) · `.pdf` upload · live camera QR scan · pasted compact tokens (vc-jwt, sd-jwt-vc, `OPENCRED1:` PixelPass) |
+| **Docker server — `POST /v1/credentials/verify`** | Programmatic / server-to-server / CI/CD | JSON body for text-shaped formats (auto-detected: JSON-LD VC, vc-jwt, sd-jwt-vc, `OPENCRED1:` QR data) **or** raw PDF body with `Content-Type: application/pdf` |
+| **`opencred verify` CLI** | One-shot verification from a shell, no HTTP server needed | File path or stdin. Auto-detects JSON-LD, vc-jwt, sd-jwt-vc, `OPENCRED1:`, or PDF. `--json` flag for scripted consumers. Ships inside the public Docker image. |
+| **`@opencred/verification` library** | Embedding verification inside another Node.js app | Same formats as above, via `verifyCredential` and `verifyPdf` |
 
 In every case the result has the same shape: a top-level `valid: true|false`, an enum `code` (`VALID`, `REVOKED`, `EXPIRED`, `INVALID`, `UNRESOLVABLE`, `CONTEXT_MISSING`), and a per-check breakdown — signature, expiry, key resolution, x5c chain (where applicable), revocation, schema, context.
 
 **`did:key`-issued credentials verify fully offline.** `did:web` credentials need network access to fetch the issuer's DID document. DSC-backed credentials carrying an `x5c` chain need a CSCA trust store on disk — see [Trust chains](concepts/trust-chains.md) and [Docker → API reference → Verify](docker/api-reference.md#post-v1credentialsverify).
 
-> **PDF caveat.** OpenCred packages credentials as printable PDF certificates with a scannable QR embedded — but the PDF itself is not a verification input today. To verify a printed PDF, scan the QR with the desktop app or extract the embedded JSON. Native PDF-as-input is on the roadmap.
+**PDF certificates.** OpenCred packages credentials as printable PDFs with a scannable QR embedded **and** a copy of the credential payload tucked into the PDF's info dictionary. Either path works: drop the PDF into the desktop Verify tab, POST it to `/v1/credentials/verify`, or pipe it into `opencred verify --input -`. Older PDFs issued before the info-dict embedding shipped (no payload in metadata) surface as a clear "scan the QR or extract the embedded JSON" message rather than a generic failure.
 
 For full step-by-step, see [Desktop → Verifying credentials](desktop/verifying-credentials.md) or [Docker → API reference](docker/api-reference.md#post-v1credentialsverify).
 

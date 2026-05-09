@@ -65,10 +65,9 @@ DSC-backed credentials (carrying an `x5c` chain) need a CSCA trust store on disk
 
 ## PDF certificates
 
-OpenCred-issued PDF certificates carry the credential as a scannable QR printed on the page. **The PDF file itself is not a verification input today.** To verify one:
+OpenCred-issued PDF certificates carry the credential in two places: as a scannable QR printed on the page, **and** as a copy tucked into the PDF's info-dictionary metadata. The Verify tab reads the metadata directly, so to verify a freshly issued OpenCred PDF you just drop the `.pdf` into **Upload File** and you're done — no QR scan, no manual JSON extraction.
 
-* **If you have the printed paper**: use **Scan QR** with your camera.
-* **If you have the PDF as a file**: open it, screenshot or export the QR section as a `.png`, then drop the image into **Upload File**.
-* **If you have the credential JSON separately** (e.g. from the issuer's API response): paste it into **Paste JSON** directly.
-
-Native PDF-as-input is on the roadmap — uploading a `.pdf` file and getting a verified result without an intermediate QR step.
+* **Freshly issued OpenCred PDF** (info-dict embedding present): drop the `.pdf` into **Upload File**. The credential is read from the embedded metadata and verified end-to-end.
+* **Older OpenCred PDF** (issued before the info-dict embedding shipped): the file falls through to a clear "scan the printed QR" message. Use **Scan QR** with your camera, or screenshot the QR section as a `.png` and drop that into **Upload File**.
+* **Encrypted PDF**: the Verify tab tells you the file is encrypted and asks you to decrypt it first (or scan the printed QR if you only have the printout).
+* **Non-OpenCred PDF**: surfaces as "PDF does not contain an embedded OpenCred credential" with a pointer to the QR-scan path.
