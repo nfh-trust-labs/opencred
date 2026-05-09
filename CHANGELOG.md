@@ -4,6 +4,20 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0](https://github.com/nfh-trust-labs/opencred/compare/v1.2.0...v1.3.0) (2026-05-09)
+
+
+### Features
+
+* **verification:** accept PDF as a verification input ([#526](https://github.com/nfh-trust-labs/opencred/issues/526)) ([2a90150](https://github.com/nfh-trust-labs/opencred/commit/2a90150cffdd26d8cefea561c2ad4c44b92d3663))
+
+
+### Bug Fixes
+
+* **ci:** smoke-test bind-mount UID mismatch (chmod 600 -&gt; 644) ([#521](https://github.com/nfh-trust-labs/opencred/issues/521)) ([6daa27f](https://github.com/nfh-trust-labs/opencred/commit/6daa27f74f9152f707b3b144bf73c7f40c2a7673))
+* **desktop:** include .deb in linux release artefacts ([#523](https://github.com/nfh-trust-labs/opencred/issues/523)) ([35709fb](https://github.com/nfh-trust-labs/opencred/commit/35709fb3a6a14619eeb1a66cab32029064801e59))
+* **release:** drop component prefix from release-please tags ([#519](https://github.com/nfh-trust-labs/opencred/issues/519)) ([9f506f9](https://github.com/nfh-trust-labs/opencred/commit/9f506f92d02991e39e78508c8aa6c7d0a912550c))
+
 ## [1.2.0](https://github.com/nfh-trust-labs/opencred/compare/opencred-v1.1.0...opencred-v1.2.0) (2026-05-05)
 
 
