@@ -52,3 +52,24 @@ export function detectCredentialInputFormat(input: string): CredentialInputForma
 
   return "unknown";
 }
+
+/** Magic-byte signature for the PDF format (`%PDF-` per ISO 32000-1 §7.5.2). */
+const PDF_MAGIC = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]); // "%PDF-"
+
+/**
+ * Detect whether the given bytes are a PDF document.
+ *
+ * Checks the file's leading magic bytes (`%PDF-`). Only used to distinguish
+ * PDF uploads from other binary inputs at the verification surface — does
+ * not validate the rest of the PDF structure; that is the parser's job.
+ *
+ * @param bytes - The candidate file bytes (typically the start of a request body).
+ * @returns true if the bytes begin with the PDF magic signature.
+ */
+export function isPdfBytes(bytes: Uint8Array): boolean {
+  if (bytes.length < PDF_MAGIC.length) return false;
+  for (let i = 0; i < PDF_MAGIC.length; i++) {
+    if (bytes[i] !== PDF_MAGIC[i]) return false;
+  }
+  return true;
+}

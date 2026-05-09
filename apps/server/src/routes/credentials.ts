@@ -584,6 +584,78 @@ export function buildVerifyResponseBody(result: {
 }
 
 credentials.post("/credentials/verify", async (c) => {
+  // Two supported request shapes:
+  //
+  //   1. `Content-Type: application/json` with `{ "credential": "<string>" }`
+  //      — accepts JSON-LD VC, vc-jwt, sd-jwt-vc, or `OPENCRED1:` PixelPass
+  //      strings.
+  //   2. `Content-Type: application/pdf` with a binary PDF body — the body
+  //      is the raw PDF bytes of an OpenCred-issued PDF certificate. The
+  //      embedded credential is read from the `OpenCredCredential` PDF info-
+  //      dictionary key by `verifyPdf()`. PDFs issued before this metadata
+  //      embedding (v1.2.0 and earlier) return a structured failure
+  //      pointing the caller at the QR-scan path.
+  //
+  // We dispatch on Content-Type rather than sniffing the body to keep
+  // routing predictable for clients and to short-circuit `parseJsonBody(c)`
+  // for binary uploads, which would otherwise throw.
+  const contentType = c.req.header("content-type") ?? "";
+
+  // Verifier dependencies — both branches need them.
+  const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
+    await import("@opencred/did");
+  const { verifyCredential, verifyPdf } = await import("@opencred/verification");
+  const { getTrustStore } = await import("../trust-store.js");
+  const { getDeDiClient } = await import("../dedi-singleton.js");
+
+  const compositeResolver = new CompositeDIDResolver(
+    new Map([
+      ["key", new DIDKeyResolver()],
+      ["jwk", new DIDJwkResolver()],
+      ["web", new DIDWebResolver()],
+    ]),
+  );
+
+  // Use the CSCA trust store loaded at server startup. The trust store is
+  // loaded once from OPENCRED_CSCA_TRUST_STORE_PATH during bootstrap and
+  // shared across all verification requests. Required for DSC-backed
+  // credentials per nfh-trust-labs/opencred#316.
+  const trustStore = getTrustStore();
+  const trustAnchors = trustStore ? trustStore.toPemArray() : undefined;
+  const dediClient = getDeDiClient();
+  const verifierConfig = {
+    didResolver: compositeResolver,
+    trustAnchors,
+    dediClient: dediClient ?? undefined,
+  } as const;
+
+  // ----------------------------------------------------------------- //
+  // Branch 2: PDF upload (`Content-Type: application/pdf`)              //
+  // ----------------------------------------------------------------- //
+  if (contentType.toLowerCase().startsWith("application/pdf")) {
+    const arrayBuffer = await c.req.arrayBuffer();
+    const pdfBytes = new Uint8Array(arrayBuffer);
+    const { isPdfBytes } = await import("@opencred/shared");
+    if (!isPdfBytes(pdfBytes)) {
+      return c.json(
+        {
+          error: {
+            code: "BAD_REQUEST",
+            message:
+              "Request body is not a PDF. Send a binary PDF body with Content-Type: application/pdf, or send JSON with Content-Type: application/json.",
+          },
+        },
+        400,
+      );
+    }
+    const pdfResult = await verifyPdf(pdfBytes, verifierConfig);
+    credentialsVerifiedTotal.inc({ result: pdfResult.verified ? "valid" : "invalid" });
+    return c.json(buildVerifyResponseBody(pdfResult));
+  }
+
+  // ----------------------------------------------------------------- //
+  // Branch 1: JSON body (the original surface)                          //
+  // ----------------------------------------------------------------- //
   const body = await parseJsonBody(c);
   // SECURITY: even verify requests must not contain private key material.
   rejectKeyMaterial(body);
@@ -614,34 +686,7 @@ credentials.post("/credentials/verify", async (c) => {
       );
   }
 
-  // Verify using composite DID resolver (supports did:key, did:jwk, did:web)
-  const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
-    await import("@opencred/did");
-  const { verifyCredential } = await import("@opencred/verification");
-  const { getTrustStore } = await import("../trust-store.js");
-  const { getDeDiClient } = await import("../dedi-singleton.js");
-
-  const compositeResolver = new CompositeDIDResolver(
-    new Map([
-      ["key", new DIDKeyResolver()],
-      ["jwk", new DIDJwkResolver()],
-      ["web", new DIDWebResolver()],
-    ]),
-  );
-
-  // Use the CSCA trust store loaded at server startup. The trust store is
-  // loaded once from OPENCRED_CSCA_TRUST_STORE_PATH during bootstrap and
-  // shared across all verification requests. Required for DSC-backed
-  // credentials per nfh-trust-labs/opencred#316.
-  const trustStore = getTrustStore();
-  const trustAnchors = trustStore ? trustStore.toPemArray() : undefined;
-
-  const dediClient = getDeDiClient();
-  const verificationResult = await verifyCredential(credential, {
-    didResolver: compositeResolver,
-    trustAnchors,
-    dediClient: dediClient ?? undefined,
-  });
+  const verificationResult = await verifyCredential(credential, verifierConfig);
 
   // SECURITY: Do not leak `detail` strings or the name of the first failed
   // check in the response message — those can include operator config (e.g.

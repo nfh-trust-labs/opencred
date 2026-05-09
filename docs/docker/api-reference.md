@@ -508,24 +508,39 @@ Example `400 SCHEMA_VALIDATION_ERROR` body when required fields are missing:
 
 ### `POST /v1/credentials/verify`
 
-Verifies a signed Verifiable Credential. Accepts JSON-LD credentials (Data Integrity), compact JWTs (`vc-jwt`), and compact SD-JWT VC tokens — the format is auto-detected.
+Verifies a signed Verifiable Credential. Accepts JSON-LD credentials (Data Integrity), compact JWTs (`vc-jwt`), compact SD-JWT VC tokens, PixelPass-encoded QR data (`OPENCRED1:...`), and **OpenCred-issued PDF certificates** — the input format is selected by `Content-Type`, with auto-detection on the string-shaped formats inside the JSON branch.
 
 **Auth:** required.
-**Content-Type:** `application/json`.
+**Content-Type:** `application/json` _or_ `application/pdf` — see the two branches below.
 
-**Request body**
+**Branch 1 — JSON body (`Content-Type: application/json`)**
 
 ```ts
 {
-  credential: string;  // a JSON-stringified VC, a compact JWT, or a compact SD-JWT VC
+  credential: string;  // a JSON-stringified VC, compact JWT, compact SD-JWT VC, or `OPENCRED1:` QR string
 }
 ```
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `credential` | `string` | Yes | The credential to verify. For Data Integrity credentials, JSON-stringify the credential object before sending. For compact tokens (`vc-jwt`, `sd-jwt-vc`), pass the token directly. |
+| `credential` | `string` | Yes | The credential to verify. For Data Integrity credentials, JSON-stringify the credential object before sending. For compact tokens (`vc-jwt`, `sd-jwt-vc`), pass the token directly. For PixelPass QR data, pass the `OPENCRED1:`-prefixed string verbatim. |
 
-The same `rejectKeyMaterial()` defense-in-depth guard runs on this endpoint too. Even verify requests must not contain a private key field or PEM string.
+The same `rejectKeyMaterial()` defense-in-depth guard runs on this branch. Even verify requests must not contain a private key field or PEM string.
+
+**Branch 2 — PDF upload (`Content-Type: application/pdf`)**
+
+POST the raw PDF bytes as the request body. The server reads the embedded credential from the PDF's `OpenCredCredential` info-dictionary key (set at issuance time when the credential is packaged as a PDF) and runs the standard verifier on the recovered credential.
+
+```bash
+curl -s -X POST http://localhost:3100/v1/credentials/verify \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/pdf" \
+  --data-binary @certificate.pdf
+```
+
+The response shape is identical to Branch 1 — `valid`, `code`, `message`, `checks`. PDFs that don't carry the `OpenCredCredential` key (legacy / non-OpenCred PDFs) return a clean `200 OK` with `valid: false`, `code: "INVALID"`, and a single failed `pdf-embedded-credential` check whose detail points the user at the QR-scan path; the request never returns a 5xx.
+
+> **Backwards compatibility.** PDFs issued before the `OpenCredCredential` info-dict embedding (released alongside this Branch 2 surface) do not carry the embedded payload. To verify a legacy PDF, scan its printed QR code with the desktop app or extract the embedded JSON manually, then POST through Branch 1.
 
 **X.509 trust anchors**
 

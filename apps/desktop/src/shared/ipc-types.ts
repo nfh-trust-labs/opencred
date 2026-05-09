@@ -177,8 +177,25 @@ export interface BuildAndSignResponse {
 // ---------------------------------------------------------------------------
 
 export interface VerifyCredentialRequest {
-  /** JSON-serialised Verifiable Credential to verify. */
-  credential: string;
+  /**
+   * The credential to verify. Mutually exclusive with `pdfBase64`.
+   *
+   * Accepted forms (auto-detected by the IPC handler):
+   *   - JSON-serialised Verifiable Credential (object as JSON string)
+   *   - vc-jwt compact serialization (`eyJ...`)
+   *   - sd-jwt-vc compact serialization (with `~`-separated disclosures)
+   *   - PixelPass-compressed QR data (`OPENCRED1:...`)
+   */
+  credential?: string;
+  /**
+   * Base64-encoded bytes of an OpenCred-issued PDF certificate. Mutually
+   * exclusive with `credential`. The handler reads the embedded
+   * `OpenCredCredential` info-dictionary key from the PDF and verifies
+   * it. PDFs issued before this metadata embedding (v1.2.0 and earlier)
+   * return a structured failure pointing the caller at the QR-scan
+   * path.
+   */
+  pdfBase64?: string;
 }
 
 export interface VerifyCredentialResponse {
