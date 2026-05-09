@@ -130,7 +130,8 @@
       "executableName": "opencred"
     },
     "deb": {
-      "packageName": "opencred-desktop"
+      "packageName": "opencred-desktop",
+      "artifactName": "${productName}-${version}-${arch}.deb"
     },
     "nsis": {
       "oneClick": false,
