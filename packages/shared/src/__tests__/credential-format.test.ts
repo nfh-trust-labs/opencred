@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectCredentialInputFormat } from "../credential-format.js";
+import { detectCredentialInputFormat, isPdfBytes } from "../credential-format.js";
 
 describe("detectCredentialInputFormat", () => {
   describe("pixelpass", () => {
@@ -82,5 +82,46 @@ describe("detectCredentialInputFormat", () => {
     it("tilde detection takes priority over dot-based JWT check", () => {
       expect(detectCredentialInputFormat("a.b.c~d")).toBe("jwt-compact");
     });
+  });
+});
+
+describe("isPdfBytes", () => {
+  // Boundary guard for the `Content-Type: application/pdf` branch of
+  // `POST /v1/credentials/verify`. Edge cases matter: false negatives
+  // here turn legitimate PDF uploads into 400 BAD_REQUEST, and false
+  // positives let non-PDF bytes through to pdf-lib's parser, where they
+  // fail late with a less actionable message.
+
+  it("returns true for the 5-byte PDF magic exactly", () => {
+    expect(isPdfBytes(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]))).toBe(true);
+  });
+
+  it("returns true for the magic followed by a version (real-world prefix)", () => {
+    // `%PDF-1.7\n` — what an actual PDF starts with.
+    expect(isPdfBytes(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a]))).toBe(
+      true,
+    );
+  });
+
+  it("returns false for an empty buffer", () => {
+    expect(isPdfBytes(new Uint8Array(0))).toBe(false);
+  });
+
+  it("returns false for a buffer shorter than the magic", () => {
+    // `%PDF` (4 bytes) — one byte short of the magic.
+    expect(isPdfBytes(new Uint8Array([0x25, 0x50, 0x44, 0x46]))).toBe(false);
+  });
+
+  it("returns false when only the first byte differs", () => {
+    // Drop the leading `%`. Same length, almost the magic.
+    expect(isPdfBytes(new Uint8Array([0x00, 0x50, 0x44, 0x46, 0x2d]))).toBe(false);
+  });
+
+  it("returns false for arbitrary text beginning with letters", () => {
+    expect(isPdfBytes(new TextEncoder().encode("not a pdf at all"))).toBe(false);
+  });
+
+  it("returns false for JSON bytes", () => {
+    expect(isPdfBytes(new TextEncoder().encode('{"@context":[]}'))).toBe(false);
   });
 });

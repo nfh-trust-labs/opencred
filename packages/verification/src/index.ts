@@ -37,3 +37,5 @@ export type { LoadCscaTrustStoreOptions, X509ChainCheckOptions } from "./x509-ch
 export { CscaTrustStore } from "./csca-trust-store.js";
 export type { CscaTrustStoreOptions, TrustStoreWarningCallback } from "./csca-trust-store.js";
 export { publicKeyFromMultibase } from "./key-utils.js";
+export { verifyPdf, PDF_CREDENTIAL_INFO_KEY } from "./pdf-verifier.js";
+export { decodePixelPass, OPENCRED_PIXELPASS_HEADER } from "./pixelpass.js";

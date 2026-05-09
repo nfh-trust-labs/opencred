@@ -33,10 +33,8 @@ import {
   completeEdDsaProof,
   prepareSdJwtVcProof,
   completeSdJwtVcProof,
-  verifyProof,
   sha256Hex,
 } from "@opencred/crypto";
-import { publicKeyFromMultibase } from "@opencred/verification";
 import { createSoftwareSigner } from "@opencred/signing";
 import type { Signer } from "@opencred/signing";
 import type { TemplateCustomization } from "@opencred/templates";
@@ -207,6 +205,147 @@ async function signCredential(
 }
 
 // ---------------------------------------------------------------------------
+// Verify command — supports JSON-LD VC, vc-jwt, sd-jwt-vc, OPENCRED1: QR,
+// and PDF input. The implementation lives here (not inline in the action
+// handler) so tests can exercise it without going through commander.
+// ---------------------------------------------------------------------------
+
+export interface VerifyCliResult {
+  /** Top-level outcome — drives the CLI exit code. */
+  verified: boolean;
+  /** Stable enum from `@opencred/verification`. */
+  code: string;
+  /** Per-check breakdown straight from the verifier (no sanitization). */
+  checks: Array<{ name: string; passed: boolean; detail?: string }>;
+  /** Detected input shape. Useful for `--json` consumers. */
+  inputFormat: "pdf" | "pixelpass" | "json" | "jwt-compact" | "unknown";
+  /** Resolved input path, or `<stdin>`. */
+  source: string;
+}
+
+export async function runVerify(opts: {
+  input: string;
+  cscaTrustStorePath?: string;
+}): Promise<VerifyCliResult> {
+  const { input, cscaTrustStorePath } = opts;
+  // Read-from-stdin convention: `--input -` means "read all of stdin".
+  // Stdin is buffered as bytes so we don't lose binary PDFs piped in via
+  // process substitution. The buffer is then either treated as a PDF (if
+  // it has the `%PDF-` magic) or decoded as UTF-8 for the text-shaped
+  // formats — same dispatch the file-path branch uses, so the behavior
+  // is symmetric.
+  const { isPdfBytes, detectCredentialInputFormat } = await import("@opencred/shared");
+
+  const sourceLabel = input === "-" ? "<stdin>" : resolve(input);
+  const bytes: Buffer = input === "-" ? await readAllStdinBytes() : readFileSync(resolve(input));
+
+  const { CompositeDIDResolver, DIDKeyResolver, DIDJwkResolver, DIDWebResolver } =
+    await import("@opencred/did");
+  const { verifyCredential, verifyPdf, loadCscaTrustStore } =
+    await import("@opencred/verification");
+  const compositeResolver = new CompositeDIDResolver(
+    new Map([
+      ["key", new DIDKeyResolver()],
+      ["jwk", new DIDJwkResolver()],
+      ["web", new DIDWebResolver()],
+    ]),
+  );
+  const trustAnchors = cscaTrustStorePath
+    ? await loadCscaTrustStore(resolve(cscaTrustStorePath))
+    : undefined;
+  const config = { didResolver: compositeResolver, trustAnchors };
+
+  // PDF branch: magic-byte check up front. We do this before any UTF-8
+  // decode so a binary PDF whose bytes happen to include invalid UTF-8
+  // sequences doesn't fall into the "unknown format" path.
+  if (isPdfBytes(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength))) {
+    const result = await verifyPdf(bytes, config);
+    return {
+      verified: result.verified,
+      code: result.code,
+      checks: [...result.checks],
+      inputFormat: "pdf",
+      source: sourceLabel,
+    };
+  }
+
+  // Text-shaped branches: classify and dispatch the same way the
+  // `/v1/credentials/verify` JSON branch does.
+  const text = bytes.toString("utf-8").trim();
+  const format = detectCredentialInputFormat(text);
+
+  if (format === "unknown") {
+    return {
+      verified: false,
+      code: "INVALID",
+      checks: [
+        {
+          name: "cli-input",
+          passed: false,
+          detail: "Could not classify input as JSON-LD, vc-jwt, sd-jwt-vc, OPENCRED1:, or PDF.",
+        },
+      ],
+      inputFormat: "unknown",
+      source: sourceLabel,
+    };
+  }
+
+  let credentialForVerify: Record<string, unknown> | string;
+  if (format === "pixelpass") {
+    const { decodePixelPass } = await import("@opencred/verification");
+    credentialForVerify = JSON.parse(decodePixelPass(text));
+  } else if (format === "json") {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    // VC-JWT envelope unwrap: the issuance side (server's
+    // `/credentials/issue` and the desktop sign flow) wraps a vc-jwt
+    // signed token in `{ ..., proof: { type: "JsonWebSignature2020",
+    // jwt: "eyJ..." } }`. The verification engine expects the bare
+    // compact token, not the envelope. Detect and unwrap, mirroring the
+    // desktop IPC handler at `apps/desktop/src/main/ipc-handlers.ts`.
+    const proof = parsed.proof as Record<string, unknown> | undefined;
+    if (proof && typeof proof.jwt === "string") {
+      credentialForVerify = proof.jwt;
+    } else {
+      credentialForVerify = parsed;
+    }
+  } else {
+    // jwt-compact — pass through unchanged.
+    credentialForVerify = text;
+  }
+
+  const result = await verifyCredential(credentialForVerify, config);
+  return {
+    verified: result.verified,
+    code: result.code,
+    checks: [...result.checks],
+    inputFormat: format,
+    source: sourceLabel,
+  };
+}
+
+async function readAllStdinBytes(): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks);
+}
+
+function printVerifyResultHuman(result: VerifyCliResult): void {
+  const banner = result.verified
+    ? `VALID — credential verified (${result.code}, format: ${result.inputFormat})`
+    : `INVALID — ${result.code} (format: ${result.inputFormat})`;
+  console.log(banner);
+  console.log(`source: ${result.source}`);
+  console.log("checks:");
+  for (const check of result.checks) {
+    const status = check.passed ? "PASS" : "FAIL";
+    const detail = check.detail ? ` — ${check.detail}` : "";
+    console.log(`  [${status}] ${check.name}${detail}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Program factory — exported for testing
 // ---------------------------------------------------------------------------
 
@@ -293,39 +432,37 @@ export function createProgram(): Command {
     .command("verify")
     .description(
       "Verify a signed Verifiable Credential\n\n" +
-        "  Example:\n" +
-        "    $ opencred verify --input cred.json",
+        "  Accepts any of the formats produced by `opencred issue` and the\n" +
+        "  Docker server's /v1/credentials/issue endpoint:\n" +
+        "    - JSON-LD VC (.json / .jsonld)\n" +
+        "    - vc-jwt or sd-jwt-vc compact token (text file)\n" +
+        "    - PixelPass-compressed QR data (`OPENCRED1:` text)\n" +
+        "    - OpenCred-issued PDF certificate (.pdf)\n\n" +
+        "  Reads from --input, or from stdin when --input is `-`.\n\n" +
+        "  Examples:\n" +
+        "    $ opencred verify --input cred.json\n" +
+        "    $ opencred verify --input certificate.pdf\n" +
+        "    $ cat token.jwt | opencred verify --input -\n" +
+        "    $ opencred verify --input cred.json --json",
     )
-    .requiredOption("--input <file>", "Path to the signed credential JSON file")
+    .requiredOption("--input <file>", "Path to the credential file (or `-` for stdin)")
+    .option("--json", "Emit the full verification result as JSON")
+    .option(
+      "--csca-trust-store <dir>",
+      "Path to a directory of PEM CSCA roots (required for x5c-bearing credentials)",
+    )
     .action(async (opts) => {
-      const content = readFileSync(resolve(opts.input), "utf-8");
-      const credential = JSON.parse(content);
+      const result = await runVerify({
+        input: opts.input as string,
+        cscaTrustStorePath: opts.cscaTrustStore as string | undefined,
+      });
 
-      const proof = credential.proof;
-      if (!proof || !proof.verificationMethod) {
-        console.error("Credential is missing proof.verificationMethod");
-        process.exit(1);
-      }
-
-      const vm: string = proof.verificationMethod;
-      const fragment = vm.includes("#") ? vm.split("#")[1] : undefined;
-      const publicKey = fragment ? (publicKeyFromMultibase(fragment) ?? undefined) : undefined;
-
-      if (!publicKey) {
-        console.error(
-          "Unable to resolve public key from verificationMethod. Only did:key is supported.",
-        );
-        process.exit(1);
-      }
-
-      const result = await verifyProof(credential, { publicKey });
-
-      if (result.verified) {
-        console.log("VALID — Credential signature verified successfully.");
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
       } else {
-        console.error(`INVALID — ${result.error ?? "Verification failed."}`);
-        process.exit(1);
+        printVerifyResultHuman(result);
       }
+      process.exit(result.verified ? 0 : 1);
     });
 
   // -------------------------------------------------------------------------

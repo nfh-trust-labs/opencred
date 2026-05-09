@@ -552,10 +552,42 @@ credentials.post("/credentials/issue", async (c) => {
  * Exported only for unit testing — do not import from elsewhere in the
  * server. The contract is "strip detail", not "reformat checks".
  */
+/**
+ * Names of verification checks whose `detail` field is safe to forward to
+ * remote callers. The default sanitization rule is "strip every detail"
+ * because most checks (signature, x5c chain, schema, context) can leak
+ * operator config (CSCA subject DNs, on-disk paths, parser internals).
+ *
+ * The `pdf-*` checks added by the PDF-as-input branch of the verifier are
+ * different: their `detail` strings are static, author-controlled literals
+ * defined in `packages/verification/src/pdf-verifier.ts` that tell the
+ * caller exactly what to do next ("PDF is encrypted; decrypt or scan the
+ * QR", "PDF carries no embedded credential; scan the printed QR"). These
+ * are user-facing instructions, not internal state, and stripping them
+ * leaves callers with an opaque "Verification failed." that can't be
+ * acted on.
+ *
+ * Add a name to this set only when its `detail` is a known-safe literal
+ * authored inside this codebase. Anything that interpolates external
+ * input (filesystem paths, certificate DNs, parser error chains) must
+ * stay sanitized.
+ */
+const SAFE_DETAIL_CHECK_NAMES: ReadonlySet<string> = new Set([
+  "pdf-parse",
+  "pdf-encrypted",
+  "pdf-embedded-credential",
+  "pdf-credential-decode",
+]);
+
 export function sanitizeChecksForServerResponse(
   checks: ReadonlyArray<{ name: string; passed: boolean; detail?: string }>,
-): Array<{ name: string; passed: boolean }> {
-  return checks.map(({ name, passed }) => ({ name, passed }));
+): Array<{ name: string; passed: boolean; detail?: string }> {
+  return checks.map(({ name, passed, detail }) => {
+    if (detail !== undefined && SAFE_DETAIL_CHECK_NAMES.has(name)) {
+      return { name, passed, detail };
+    }
+    return { name, passed };
+  });
 }
 
 /**
@@ -573,17 +605,98 @@ export function buildVerifyResponseBody(result: {
   valid: boolean;
   code: string;
   message: string;
-  checks: Array<{ name: string; passed: boolean }>;
+  checks: Array<{ name: string; passed: boolean; detail?: string }>;
 } {
+  const sanitizedChecks = sanitizeChecksForServerResponse(result.checks);
+  // For PDF-shaped failures we already pass the helpful `detail` string
+  // through (see `SAFE_DETAIL_CHECK_NAMES`). Promote the first such
+  // detail into the top-level `message` so a remote caller with a dumb
+  // client (curl printing the body verbatim) sees an actionable error
+  // instead of "Verification failed."
+  const firstSafeDetail = result.verified
+    ? undefined
+    : sanitizedChecks.find((c) => !c.passed && typeof c.detail === "string")?.detail;
   return {
     valid: result.verified,
     code: result.code,
-    message: result.verified ? "Credential is valid." : "Verification failed.",
-    checks: sanitizeChecksForServerResponse(result.checks),
+    message: result.verified ? "Credential is valid." : (firstSafeDetail ?? "Verification failed."),
+    checks: sanitizedChecks,
   };
 }
 
 credentials.post("/credentials/verify", async (c) => {
+  // Two supported request shapes:
+  //
+  //   1. `Content-Type: application/json` with `{ "credential": "<string>" }`
+  //      — accepts JSON-LD VC, vc-jwt, sd-jwt-vc, or `OPENCRED1:` PixelPass
+  //      strings.
+  //   2. `Content-Type: application/pdf` with a binary PDF body — the body
+  //      is the raw PDF bytes of an OpenCred-issued PDF certificate. The
+  //      embedded credential is read from the `OpenCredCredential` PDF info-
+  //      dictionary key by `verifyPdf()`. PDFs issued before the info-dict
+  //      embedding shipped return a structured failure pointing the caller
+  //      at the QR-scan path.
+  //
+  // We dispatch on Content-Type rather than sniffing the body to keep
+  // routing predictable for clients and to short-circuit `parseJsonBody(c)`
+  // for binary uploads, which would otherwise throw.
+  const contentType = c.req.header("content-type") ?? "";
+
+  // Verifier dependencies — both branches need them.
+  const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
+    await import("@opencred/did");
+  const { verifyCredential, verifyPdf } = await import("@opencred/verification");
+  const { getTrustStore } = await import("../trust-store.js");
+  const { getDeDiClient } = await import("../dedi-singleton.js");
+
+  const compositeResolver = new CompositeDIDResolver(
+    new Map([
+      ["key", new DIDKeyResolver()],
+      ["jwk", new DIDJwkResolver()],
+      ["web", new DIDWebResolver()],
+    ]),
+  );
+
+  // Use the CSCA trust store loaded at server startup. The trust store is
+  // loaded once from OPENCRED_CSCA_TRUST_STORE_PATH during bootstrap and
+  // shared across all verification requests. Required for DSC-backed
+  // credentials per nfh-trust-labs/opencred#316.
+  const trustStore = getTrustStore();
+  const trustAnchors = trustStore ? trustStore.toPemArray() : undefined;
+  const dediClient = getDeDiClient();
+  const verifierConfig = {
+    didResolver: compositeResolver,
+    trustAnchors,
+    dediClient: dediClient ?? undefined,
+  } as const;
+
+  // ----------------------------------------------------------------- //
+  // Branch 2: PDF upload (`Content-Type: application/pdf`)              //
+  // ----------------------------------------------------------------- //
+  if (contentType.toLowerCase().startsWith("application/pdf")) {
+    const arrayBuffer = await c.req.arrayBuffer();
+    const pdfBytes = new Uint8Array(arrayBuffer);
+    const { isPdfBytes } = await import("@opencred/shared");
+    if (!isPdfBytes(pdfBytes)) {
+      return c.json(
+        {
+          error: {
+            code: "BAD_REQUEST",
+            message:
+              "Request body is not a PDF. Send a binary PDF body with Content-Type: application/pdf, or send JSON with Content-Type: application/json.",
+          },
+        },
+        400,
+      );
+    }
+    const pdfResult = await verifyPdf(pdfBytes, verifierConfig);
+    credentialsVerifiedTotal.inc({ result: pdfResult.verified ? "valid" : "invalid" });
+    return c.json(buildVerifyResponseBody(pdfResult));
+  }
+
+  // ----------------------------------------------------------------- //
+  // Branch 1: JSON body (the original surface)                          //
+  // ----------------------------------------------------------------- //
   const body = await parseJsonBody(c);
   // SECURITY: even verify requests must not contain private key material.
   rejectKeyMaterial(body);
@@ -614,34 +727,7 @@ credentials.post("/credentials/verify", async (c) => {
       );
   }
 
-  // Verify using composite DID resolver (supports did:key, did:jwk, did:web)
-  const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
-    await import("@opencred/did");
-  const { verifyCredential } = await import("@opencred/verification");
-  const { getTrustStore } = await import("../trust-store.js");
-  const { getDeDiClient } = await import("../dedi-singleton.js");
-
-  const compositeResolver = new CompositeDIDResolver(
-    new Map([
-      ["key", new DIDKeyResolver()],
-      ["jwk", new DIDJwkResolver()],
-      ["web", new DIDWebResolver()],
-    ]),
-  );
-
-  // Use the CSCA trust store loaded at server startup. The trust store is
-  // loaded once from OPENCRED_CSCA_TRUST_STORE_PATH during bootstrap and
-  // shared across all verification requests. Required for DSC-backed
-  // credentials per nfh-trust-labs/opencred#316.
-  const trustStore = getTrustStore();
-  const trustAnchors = trustStore ? trustStore.toPemArray() : undefined;
-
-  const dediClient = getDeDiClient();
-  const verificationResult = await verifyCredential(credential, {
-    didResolver: compositeResolver,
-    trustAnchors,
-    dediClient: dediClient ?? undefined,
-  });
+  const verificationResult = await verifyCredential(credential, verifierConfig);
 
   // SECURITY: Do not leak `detail` strings or the name of the first failed
   // check in the response message — those can include operator config (e.g.

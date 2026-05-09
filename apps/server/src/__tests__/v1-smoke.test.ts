@@ -287,6 +287,137 @@ describe("POST /v1/credentials/verify", () => {
     );
   });
 
+  // ----- PDF-as-input branch ------------------------------------------ //
+  // Round-trip: issue with `packageFormats: ["pdf"]`, take the produced
+  // PDF bytes, post them straight back to /v1/credentials/verify with
+  // Content-Type: application/pdf, expect VALID. The point is to pin the
+  // contract between the issuance side (which writes the embedded
+  // `OpenCredCredential` info-dict key) and the verification side (which
+  // reads it). Breaks if either end stops honoring the key.
+  it("verifies a PDF certificate posted with Content-Type: application/pdf", async () => {
+    const issueRes = await app.request("/v1/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        schemaId: "functional-identity/v1",
+        issuerDid: testKey.signer.id.split("#")[0],
+        credentialSubject: EDUCATION_SUBJECT,
+        validFrom: "2025-06-15T00:00:00Z",
+        proofFormat: "data-integrity",
+        packageFormats: ["pdf"],
+      }),
+    });
+    expect(issueRes.status).toBe(200);
+    const issued = (await issueRes.json()) as {
+      packagedOutputs?: Array<{ format: string; data: string; encoding: string }>;
+    };
+    const pdfOutput = issued.packagedOutputs?.find((o) => o.format === "pdf");
+    expect(pdfOutput, "issue response did not include a packaged PDF").toBeDefined();
+    expect(pdfOutput!.encoding).toBe("base64");
+    const pdfBytes = Buffer.from(pdfOutput!.data, "base64");
+    expect(pdfBytes.subarray(0, 5).toString("ascii")).toBe("%PDF-");
+
+    const verifyRes = await app.request("/v1/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/pdf" },
+      body: pdfBytes,
+    });
+
+    expect(verifyRes.status).toBe(200);
+    const result = (await verifyRes.json()) as Record<string, unknown>;
+    expect(result.valid).toBe(true);
+    expect(result.code).toBe("VALID");
+  });
+
+  it("returns valid=false with a structured check for a PDF without an embedded credential", async () => {
+    // A PDF that's syntactically valid but carries no `OpenCredCredential`
+    // info-dict key — the legacy / non-OpenCred case. The route must
+    // surface this as a clean 200 INVALID with the
+    // `pdf-embedded-credential` check failed, not a 500 or generic error.
+    // Built with pdfkit (already a dep here) rather than pulling pdf-lib
+    // into apps/server just for this fixture.
+    const { default: PDFDocument } = await import("pdfkit");
+    const blankBytes: Buffer = await new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: "A4" });
+      const chunks: Buffer[] = [];
+      doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+      doc.text("a plain pdf, not produced by OpenCred");
+      doc.end();
+    });
+
+    const verifyRes = await app.request("/v1/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/pdf" },
+      body: blankBytes,
+    });
+
+    expect(verifyRes.status).toBe(200);
+    const result = (await verifyRes.json()) as {
+      valid: boolean;
+      code: string;
+      checks: Array<{ name: string; passed: boolean }>;
+    };
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe("INVALID");
+    expect(result.checks.some((c) => c.name === "pdf-embedded-credential" && !c.passed)).toBe(true);
+  });
+
+  it("verifies a PDF that wraps an sd-jwt-vc compact token", async () => {
+    // Round-trip parity check for the compact-token path of the issuance
+    // PDF generator. The server's pdf-generator embeds either the
+    // PixelPass-compressed VC (data-integrity) or the raw compact token
+    // (vc-jwt / sd-jwt-vc) under the `OpenCredCredential` info-dict key.
+    // The format dispatcher in `verifyPdf` routes these through
+    // `detectCredentialInputFormat`'s `jwt-compact` branch — this test
+    // pins that path end-to-end so a regression in the detection rules
+    // or the embedding switch in `pdf-generator.ts` is caught.
+    const issueRes = await app.request("/v1/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        schemaId: "functional-identity/v1",
+        issuerDid: testKey.signer.id.split("#")[0],
+        credentialSubject: EDUCATION_SUBJECT,
+        validFrom: "2025-06-15T00:00:00Z",
+        proofFormat: "sd-jwt-vc",
+        selectiveDisclosureClaims: ["/credentialSubject/role"],
+        packageFormats: ["pdf"],
+      }),
+    });
+    expect(issueRes.status).toBe(200);
+    const issued = (await issueRes.json()) as {
+      packagedOutputs?: Array<{ format: string; data: string; encoding: string }>;
+    };
+    const pdfOutput = issued.packagedOutputs?.find((o) => o.format === "pdf");
+    expect(pdfOutput, "sd-jwt-vc issue did not include a packaged PDF").toBeDefined();
+    const pdfBytes = Buffer.from(pdfOutput!.data, "base64");
+
+    const verifyRes = await app.request("/v1/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/pdf" },
+      body: pdfBytes,
+    });
+
+    expect(verifyRes.status).toBe(200);
+    const result = (await verifyRes.json()) as Record<string, unknown>;
+    expect(result.valid).toBe(true);
+    expect(result.code).toBe("VALID");
+  });
+
+  it("returns 400 BAD_REQUEST when application/pdf body is not actually a PDF", async () => {
+    const verifyRes = await app.request("/v1/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/pdf" },
+      body: Buffer.from("not a pdf at all"),
+    });
+
+    expect(verifyRes.status).toBe(400);
+    const body = (await verifyRes.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("BAD_REQUEST");
+  });
+
   it("returns valid=false for a tampered credential", async () => {
     const issueRes = await app.request("/v1/credentials/issue", {
       method: "POST",

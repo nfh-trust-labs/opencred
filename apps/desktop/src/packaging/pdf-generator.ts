@@ -17,7 +17,28 @@
 
 import PDFDocument from "pdfkit";
 import type { VerifiableCredential } from "@opencred/vc-core";
-import { generateQrBuffer } from "./qr-generator.js";
+import { compressCredentialForQr, generateQrBuffer } from "./qr-generator.js";
+
+/**
+ * PDF info-dictionary key that holds the embedded credential.
+ *
+ * Read by `verifyPdf()` in `@opencred/verification`. The value is the same
+ * PixelPass-compressed `OPENCRED1:...` string that's printed into the QR
+ * on the certificate page.
+ *
+ * **What's load-bearing.** The PDF spec (ISO 32000-1) allows arbitrary
+ * keys in the info dictionary, but the round-trip here actually relies on
+ * a *runtime* property of PDFKit: `PDFDocument.end()` iterates own
+ * enumerable string properties of `doc.info` and writes each one into the
+ * output info dict. That is not a documented public API, so a future
+ * pdfkit upgrade could in principle drop arbitrary keys silently. The
+ * verification-side round-trip tests exist to catch exactly that
+ * regression.
+ *
+ * Changing this key name is a backwards-incompatible change; coordinate
+ * with the verification side.
+ */
+const PDF_CREDENTIAL_INFO_KEY = "OpenCredCredential";
 
 // TODO: Import from @opencred/templates once TemplateCustomization is expanded
 // with the new fields (backgroundColor, secondaryColor, textColor, etc.)
@@ -178,6 +199,12 @@ export async function generatePdf(
   // Generate QR code first (async), then build PDF
   const qrBuffer = await generateQrPngBuffer(credential);
 
+  // Same payload the QR encodes, embedded into the PDF info dictionary so
+  // verifiers can recover the credential from the file directly without
+  // having to render the page or scan the QR. Read by `verifyPdf()` in
+  // `@opencred/verification`.
+  const embeddedCredential = compressCredentialForQr(credential);
+
   const customization = options?.customization;
   const accentColor = customization?.primaryColor ?? COLOR_ACCENT;
   const primaryHeadingColor = customization?.primaryColor ?? COLOR_PRIMARY;
@@ -207,6 +234,14 @@ export async function generatePdf(
           Creator: "OpenCred",
         },
       });
+
+      // Custom info-dict key carrying the credential payload. PDFKit's
+      // `DocumentInfo` type only enumerates standard PDF keys (Title /
+      // Author / Subject / etc.) but the runtime preserves arbitrary
+      // string keys on `doc.info` and writes them through to the PDF info
+      // dictionary verbatim. Read at verification time by `verifyPdf()`
+      // in `@opencred/verification`.
+      (doc.info as unknown as Record<string, string>)[PDF_CREDENTIAL_INFO_KEY] = embeddedCredential;
 
       const buffers: Buffer[] = [];
       doc.on("data", (chunk: Buffer) => buffers.push(chunk));

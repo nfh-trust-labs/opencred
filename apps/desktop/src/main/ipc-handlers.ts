@@ -810,6 +810,71 @@ async function handleVerifyCredential(
   request: VerifyCredentialRequest,
 ): Promise<VerifyCredentialResponse> {
   try {
+    // Eagerly load the dependencies common to both branches so error paths
+    // below have the same shape and so the dynamic-import cost is paid once.
+    const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
+      await import("@opencred/did");
+    const { verifyCredential, verifyPdf, loadCscaTrustStore } =
+      await import("@opencred/verification");
+
+    const compositeResolver = new CompositeDIDResolver(
+      new Map([
+        ["key", new DIDKeyResolver()],
+        ["jwk", new DIDJwkResolver()],
+        ["web", new DIDWebResolver()],
+      ]),
+    );
+
+    // ----- PDF branch ---------------------------------------------------- //
+    // The renderer routes a `.pdf` file through this branch by setting
+    // `pdfBase64`. The handler reads the embedded `OpenCredCredential`
+    // info-dict key from the PDF and runs the standard verifier on the
+    // recovered credential. PDFs without this key (legacy / non-OpenCred)
+    // surface as a structured INVALID with a check pointing the user at
+    // the QR-scan path.
+    if (request.pdfBase64) {
+      const pdfBytes = Buffer.from(request.pdfBase64, "base64");
+      const verifyStorePdf = getStore();
+      const verifyPrefsPdf =
+        (verifyStorePdf.get("preferences" as keyof typeof verifyStorePdf.store) as
+          | Record<string, unknown>
+          | undefined) ?? {};
+      const cscaTrustStorePathPdf =
+        process.env.OPENCRED_CSCA_TRUST_STORE_PATH ??
+        (verifyPrefsPdf["cscaTrustStorePath"] as string | undefined);
+      const trustAnchorsPdf = cscaTrustStorePathPdf
+        ? await loadCscaTrustStore(cscaTrustStorePathPdf, {
+            onSkipped: ({ path: skippedPath, reason }) => {
+              logger.warn("CSCA trust store entry skipped", { path: skippedPath, reason });
+            },
+          })
+        : undefined;
+
+      const pdfResult = await verifyPdf(pdfBytes, {
+        didResolver: compositeResolver,
+        trustAnchors: trustAnchorsPdf,
+      });
+      logger.info("PDF credential verified", {
+        valid: pdfResult.verified,
+        code: pdfResult.code,
+      });
+      return {
+        success: true,
+        valid: pdfResult.verified,
+        message: pdfResult.verified
+          ? "Credential signature is valid."
+          : (pdfResult.checks.find((c) => !c.passed)?.detail ?? "Verification failed."),
+        checks: pdfResult.checks,
+      };
+    }
+
+    // ----- String branch (the original surface) -------------------------- //
+    if (typeof request.credential !== "string" || request.credential.length === 0) {
+      return {
+        success: false,
+        error: "Provide either `credential` (string) or `pdfBase64` (base64 PDF bytes).",
+      };
+    }
     const trimmed = request.credential.trim();
 
     // Format detection: determine the input format and parse accordingly.
@@ -851,19 +916,6 @@ async function handleVerifyCredential(
         error: "Unrecognized credential format. Expected JSON, OPENCRED1: QR data, JWT, or SD-JWT.",
       };
     }
-
-    // Resolve using composite DID resolver    // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
-    const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
-      await import("@opencred/did");
-    const { verifyCredential, loadCscaTrustStore } = await import("@opencred/verification");
-
-    const compositeResolver = new CompositeDIDResolver(
-      new Map([
-        ["key", new DIDKeyResolver()],
-        ["jwk", new DIDJwkResolver()],
-        ["web", new DIDWebResolver()],
-      ]),
-    );
 
     // Custom JSON-LD contexts are served by the shared document loader
     // from a per-URL cache populated at schema-save time. Conflicts on the
@@ -1097,10 +1149,13 @@ async function handleFileOpen(
   }
 
   const filePath = result.filePaths[0];
-  const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"];
-  const isImage = IMAGE_EXTENSIONS.some((ext) => filePath.toLowerCase().endsWith(ext));
+  // Binary file types — return base64 so the renderer can decode the
+  // bytes losslessly. Text-y files (json, jsonld, txt) take the utf-8
+  // path so paste / drop / textarea callers don't have to base64-decode.
+  const BINARY_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".pdf"];
+  const isBinary = BINARY_EXTENSIONS.some((ext) => filePath.toLowerCase().endsWith(ext));
 
-  if (isImage) {
+  if (isBinary) {
     const content = (await fs.readFile(filePath)).toString("base64");
     return { content, filePath, encoding: "base64" };
   }

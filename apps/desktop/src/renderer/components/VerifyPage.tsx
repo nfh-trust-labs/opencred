@@ -489,10 +489,13 @@ export function VerifyPage() {
     try {
       const isImageMode = inputMode === "upload-file";
       const result = await window.opencred.openFile({
-        title: isImageMode ? "Load Credential or QR Code Image" : "Load Verifiable Credential",
+        title: isImageMode
+          ? "Load Credential, PDF, or QR Code Image"
+          : "Load Verifiable Credential",
         filters: isImageMode
           ? [
               { name: "JSON", extensions: ["json", "jsonld"] },
+              { name: "PDF certificate", extensions: ["pdf"] },
               { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "bmp", "webp"] },
               { name: "All Files", extensions: ["*"] },
             ]
@@ -504,9 +507,19 @@ export function VerifyPage() {
 
       if (result.filePath && result.content) {
         const ext = result.filePath.toLowerCase();
+        const isPdf = ext.endsWith(".pdf");
         const isImage = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"].some((e) =>
           ext.endsWith(e),
         );
+        // PDF: route through verifyCredential's `pdfBase64` branch. The
+        // base64 payload travels as-is over IPC; the main process decodes
+        // and runs `verifyPdf`. We immediately call handleVerifyPdf rather
+        // than stashing the bytes into `credential`, since the textarea
+        // is for text-shaped formats only.
+        if (isPdf && result.encoding === "base64") {
+          await handleVerifyPdf(result.content);
+          return;
+        }
         if (isImage && result.encoding === "base64") {
           const binary = Uint8Array.from(atob(result.content), (c) => c.charCodeAt(0));
           const file = new File([binary], result.filePath.split("/").pop() ?? "image.png");
@@ -525,6 +538,51 @@ export function VerifyPage() {
       }
     } catch {
       // User cancelled
+    }
+  }
+
+  /**
+   * Verify a PDF certificate by sending its base64-encoded bytes to the
+   * main process. Mirrors `handleVerify` for state side-effects so the
+   * result panel renders the same way regardless of input form.
+   *
+   * @internal
+   */
+  async function handleVerifyPdf(pdfBase64: string) {
+    setLoading(true);
+    setValid(null);
+    setMessage(null);
+    setChecks([]);
+    setCredential("");
+
+    const now = new Date();
+    setVerifiedAt(now);
+
+    try {
+      try {
+        const offline = await window.opencred.getOfflineStatus();
+        setIsOffline(offline);
+      } catch {
+        setIsOffline(true);
+      }
+
+      const response = await window.opencred.verifyCredential({ pdfBase64 });
+      if (response.success) {
+        const isValid = response.valid ?? false;
+        const msg = response.message ?? (isValid ? "Valid." : "PDF verification did not succeed.");
+        const responseChecks = response.checks ?? [];
+        setValid(isValid);
+        setMessage(msg);
+        setChecks(responseChecks);
+      } else {
+        setValid(false);
+        setMessage(response.error ?? "PDF verification failed.");
+      }
+    } catch (err) {
+      setValid(false);
+      setMessage(err instanceof Error ? err.message : "PDF verification failed.");
+    } finally {
+      setLoading(false);
     }
   }
 
