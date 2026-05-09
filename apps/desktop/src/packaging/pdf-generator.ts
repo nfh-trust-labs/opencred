@@ -241,8 +241,7 @@ export async function generatePdf(
       // string keys on `doc.info` and writes them through to the PDF info
       // dictionary verbatim. Read at verification time by `verifyPdf()`
       // in `@opencred/verification`.
-      (doc.info as unknown as Record<string, string>)[PDF_CREDENTIAL_INFO_KEY] =
-        embeddedCredential;
+      (doc.info as unknown as Record<string, string>)[PDF_CREDENTIAL_INFO_KEY] = embeddedCredential;
 
       const buffers: Buffer[] = [];
       doc.on("data", (chunk: Buffer) => buffers.push(chunk));

@@ -98,9 +98,9 @@ describe("isPdfBytes", () => {
 
   it("returns true for the magic followed by a version (real-world prefix)", () => {
     // `%PDF-1.7\n` — what an actual PDF starts with.
-    expect(
-      isPdfBytes(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a])),
-    ).toBe(true);
+    expect(isPdfBytes(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a]))).toBe(
+      true,
+    );
   });
 
   it("returns false for an empty buffer", () => {

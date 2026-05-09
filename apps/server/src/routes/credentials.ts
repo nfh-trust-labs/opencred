@@ -619,9 +619,7 @@ export function buildVerifyResponseBody(result: {
   return {
     valid: result.verified,
     code: result.code,
-    message: result.verified
-      ? "Credential is valid."
-      : (firstSafeDetail ?? "Verification failed."),
+    message: result.verified ? "Credential is valid." : (firstSafeDetail ?? "Verification failed."),
     checks: sanitizedChecks,
   };
 }

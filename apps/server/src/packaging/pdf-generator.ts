@@ -259,9 +259,7 @@ export async function generatePdf(
   // verification side dispatches by format on read — see
   // `verifyPdf` → `detectCredentialInputFormat`.
   const embeddedCredential =
-    qrInput.kind === "compact-token"
-      ? qrInput.token
-      : compressCredentialForQr(qrInput.credential);
+    qrInput.kind === "compact-token" ? qrInput.token : compressCredentialForQr(qrInput.credential);
   const customization = options?.customization;
   const accentColor = customization?.primaryColor ?? COLOR_ACCENT;
   const primaryHeadingColor = customization?.primaryColor ?? COLOR_PRIMARY;
@@ -302,8 +300,7 @@ export async function generatePdf(
       // string keys on `doc.info` and writes them through to the PDF info
       // dictionary verbatim. Read at verification time by `verifyPdf()`
       // in `@opencred/verification`.
-      (doc.info as unknown as Record<string, string>)[PDF_CREDENTIAL_INFO_KEY] =
-        embeddedCredential;
+      (doc.info as unknown as Record<string, string>)[PDF_CREDENTIAL_INFO_KEY] = embeddedCredential;
 
       const buffers: Buffer[] = [];
       doc.on("data", (chunk: Buffer) => buffers.push(chunk));

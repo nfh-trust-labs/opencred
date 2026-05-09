@@ -569,8 +569,7 @@ export function VerifyPage() {
       const response = await window.opencred.verifyCredential({ pdfBase64 });
       if (response.success) {
         const isValid = response.valid ?? false;
-        const msg =
-          response.message ?? (isValid ? "Valid." : "PDF verification did not succeed.");
+        const msg = response.message ?? (isValid ? "Valid." : "PDF verification did not succeed.");
         const responseChecks = response.checks ?? [];
         setValid(isValid);
         setMessage(msg);

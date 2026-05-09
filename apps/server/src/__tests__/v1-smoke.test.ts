@@ -361,9 +361,7 @@ describe("POST /v1/credentials/verify", () => {
     };
     expect(result.valid).toBe(false);
     expect(result.code).toBe("INVALID");
-    expect(result.checks.some((c) => c.name === "pdf-embedded-credential" && !c.passed)).toBe(
-      true,
-    );
+    expect(result.checks.some((c) => c.name === "pdf-embedded-credential" && !c.passed)).toBe(true);
   });
 
   it("verifies a PDF that wraps an sd-jwt-vc compact token", async () => {

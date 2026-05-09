@@ -814,9 +814,8 @@ async function handleVerifyCredential(
     // below have the same shape and so the dynamic-import cost is paid once.
     const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
       await import("@opencred/did");
-    const { verifyCredential, verifyPdf, loadCscaTrustStore } = await import(
-      "@opencred/verification"
-    );
+    const { verifyCredential, verifyPdf, loadCscaTrustStore } =
+      await import("@opencred/verification");
 
     const compositeResolver = new CompositeDIDResolver(
       new Map([

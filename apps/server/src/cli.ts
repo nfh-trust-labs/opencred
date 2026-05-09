@@ -237,14 +237,12 @@ export async function runVerify(opts: {
   const { isPdfBytes, detectCredentialInputFormat } = await import("@opencred/shared");
 
   const sourceLabel = input === "-" ? "<stdin>" : resolve(input);
-  const bytes: Buffer =
-    input === "-" ? await readAllStdinBytes() : readFileSync(resolve(input));
+  const bytes: Buffer = input === "-" ? await readAllStdinBytes() : readFileSync(resolve(input));
 
   const { CompositeDIDResolver, DIDKeyResolver, DIDJwkResolver, DIDWebResolver } =
     await import("@opencred/did");
-  const { verifyCredential, verifyPdf, loadCscaTrustStore } = await import(
-    "@opencred/verification"
-  );
+  const { verifyCredential, verifyPdf, loadCscaTrustStore } =
+    await import("@opencred/verification");
   const compositeResolver = new CompositeDIDResolver(
     new Map([
       ["key", new DIDKeyResolver()],
