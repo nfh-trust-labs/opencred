@@ -96,46 +96,52 @@ describe("CLI issue logic", () => {
 // ---------------------------------------------------------------------------
 
 describe("CLI verify logic", () => {
-  it("verifies a signed credential successfully", async () => {
+  it("verifies a vc-jwt credential round-tripped through the file system", async () => {
+    // Issue a vc-jwt credential with the test key, write it to disk, then
+    // run the actual `runVerify` helper that backs `opencred verify`.
+    // Pins the CLI verify path end-to-end through the format detector and
+    // `verifyCredential`. Without this, the CLI can silently regress
+    // independently of the server route and library tests.
     const signer = testKey.signer;
-    const subject = {
-      name: "Bob Jones",
-      role: "Registered Nurse",
-      validFrom: "2025-01-01T00:00:00Z",
-      affiliation: { name: "Acme Hospital" },
-    };
-
-    // Issue
     const builder = new CredentialBuilder()
       .setIssuer(signer.id.split("#")[0])
       .setValidFrom("2025-01-01T00:00:00Z")
-      .setCredentialSubject(subject);
-
+      .setCredentialSubject({ name: "Bob Jones", role: "Registered Nurse" });
     const unsigned = builder.build();
-    const vcAsRecord = unsigned as unknown as Record<string, unknown>;
-    const { signingInput } = prepareVcJwtProof(vcAsRecord, signer.algorithm, {
-      verificationMethod: signer.id,
-    });
-    const dataToSign = new TextEncoder().encode(signingInput);
-    const signatureBytes = await signer.sign(dataToSign);
+    const { signingInput } = prepareVcJwtProof(
+      unsigned as unknown as Record<string, unknown>,
+      signer.algorithm,
+      { verificationMethod: signer.id },
+    );
+    const signatureBytes = await signer.sign(new TextEncoder().encode(signingInput));
     const jwt = completeVcJwtProof(signingInput, signatureBytes);
     const credential = { ...unsigned, proof: { type: "JsonWebSignature2020", jwt } };
 
-    // Write and read back (same as CLI flow)
     const credPath = join(TEST_DIR, "verify-cred.json");
     writeFileSync(credPath, JSON.stringify(credential), "utf-8");
-    const readBack = JSON.parse(readFileSync(credPath, "utf-8"));
 
-    // Verify (same logic as CLI verify command)
-    const proof = readBack.proof;
-    expect(proof).toBeTruthy();
-    expect(proof.verificationMethod).toBeUndefined(); // vc-jwt stores VM in JWT header
+    const { runVerify } = await import("../cli.js");
+    const result = await runVerify({ input: credPath });
 
-    // For vc-jwt, verifyProof extracts the key from the JWT header
-    // The CLI verify command uses publicKeyFromMultibase on the proof.verificationMethod
-    // For data-integrity proofs, this works directly; for vc-jwt, the VM is in the JWT
-    // Let's test with the low-level verifyProof directly
-    // This is what the server endpoint also falls back to
+    expect(result.verified).toBe(true);
+    expect(result.code).toBe("VALID");
+    expect(result.inputFormat).toBe("json");
+    expect(result.checks.some((c) => c.passed === false)).toBe(false);
+  });
+
+  it("returns INVALID with cli-input check for an unrecognized text input", async () => {
+    // Anything that's not OPENCRED1: / JSON / JWT / PDF should fall into
+    // the explicit cli-input failure rather than crash or pass through.
+    const { runVerify } = await import("../cli.js");
+    const garbagePath = join(TEST_DIR, "garbage.txt");
+    writeFileSync(garbagePath, "this is not a credential", "utf-8");
+
+    const result = await runVerify({ input: garbagePath });
+
+    expect(result.verified).toBe(false);
+    expect(result.code).toBe("INVALID");
+    expect(result.inputFormat).toBe("unknown");
+    expect(result.checks[0].name).toBe("cli-input");
   });
 });
 

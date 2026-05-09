@@ -124,6 +124,59 @@ describe("verifyPdf", () => {
     expect(result.checks[0].passed).toBe(false);
   });
 
+  it("returns missing-key failure even when the PDF has a populated info dict", async () => {
+    // A real legacy OpenCred PDF carries Title / Author / Subject /
+    // Producer in its info dict — only `OpenCredCredential` is absent.
+    // Pin that the verifier correctly distinguishes "info dict exists
+    // but key missing" from "no info dict at all", since they take
+    // separate code paths in `extractEmbeddedCredential`.
+    const doc = await PDFDocument.create();
+    doc.addPage([400, 400]);
+    doc.setTitle("Some Other Certificate");
+    doc.setAuthor("OpenCred (legacy)");
+    doc.setSubject("Credential: urn:test:legacy");
+    doc.setProducer("PDFKit");
+    const bytes = await doc.save();
+
+    const result = await verifyPdf(bytes);
+
+    expect(result.verified).toBe(false);
+    expect(result.code).toBe("INVALID");
+    expect(result.checks[0].name).toBe("pdf-embedded-credential");
+    expect(result.checks[0].passed).toBe(false);
+  });
+
+  it("returns a distinct `pdf-encrypted` check for encrypted PDFs", async () => {
+    // pdf-lib does not write encryption itself, so we hand-craft the
+    // minimal cue that triggers its `isEncrypted` getter: an /Encrypt
+    // entry in the trailer. The point is to confirm `verifyPdf`
+    // surfaces encryption distinctly rather than falling through to the
+    // legacy-PDF message; the encryption itself doesn't have to be
+    // valid for that contract test.
+    const doc = await PDFDocument.create();
+    doc.addPage([400, 400]);
+    // Inject a synthetic /Encrypt indirect reference so `doc.isEncrypted`
+    // returns true on the next load.
+    const encryptDict = doc.context.obj({
+      Filter: PDFName.of("Standard"),
+      V: 1,
+      R: 2,
+      O: PDFString.of(""),
+      U: PDFString.of(""),
+      P: -1,
+    });
+    const encryptRef = doc.context.register(encryptDict);
+    doc.context.trailerInfo.Encrypt = encryptRef;
+    const bytes = await doc.save({ updateFieldAppearances: false });
+
+    const result = await verifyPdf(bytes);
+
+    expect(result.verified).toBe(false);
+    expect(result.code).toBe("INVALID");
+    expect(result.checks[0].name).toBe("pdf-encrypted");
+    expect(result.checks[0].detail).toMatch(/encrypted/i);
+  });
+
   it("rejects an unrecognized embedded value with `pdf-embedded-credential` failure", async () => {
     // Not OPENCRED1:, not JSON, not a JWT — verifier can't classify it.
     const pdf = await buildPdf("this is not a credential format");

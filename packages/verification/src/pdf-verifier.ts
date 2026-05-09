@@ -22,16 +22,20 @@
  * `apps/desktop/src/packaging/pdf-generator.ts`, both of which set the same
  * info-dict key when generating PDFs.
  *
- * **Backward compatibility.** PDFs issued before this metadata embedding
- * was added (v1.2.0 and earlier) do **not** carry the `OpenCredCredential`
- * key. `verifyPdf` returns a `CredentialVerificationResult` with
- * `code: "INVALID"` and a single failed `pdf-embedded-credential` check
- * pointing the user at the QR-scan path on the desktop app. We deliberately
- * do not fall through to PDF rendering and QR-image decoding here — that
- * would require either pulling in a heavy PDF rasteriser or a server-side
- * JS QR decoder, both of which carry meaningful dependency and attack-
- * surface cost. If a user holds a legacy PDF, scanning its visible QR is
- * the supported path.
+ * **Backward compatibility.** PDFs issued before the `OpenCredCredential`
+ * info-dict embedding shipped do **not** carry the key. `verifyPdf`
+ * returns a `CredentialVerificationResult` with `code: "INVALID"` and a
+ * single failed `pdf-embedded-credential` check pointing the user at the
+ * QR-scan path on the desktop app. We deliberately do not fall through
+ * to PDF rendering and QR-image decoding here — that would require either
+ * pulling in a heavy PDF rasteriser or a server-side JS QR decoder, both
+ * of which carry meaningful dependency and attack-surface cost. If a user
+ * holds a legacy PDF, scanning its visible QR is the supported path.
+ *
+ * **Encrypted PDFs** are detected explicitly via pdf-lib's `isEncrypted`
+ * getter and surfaced with a distinct `pdf-encrypted` check, so users
+ * uploading a fresh-but-encrypted OpenCred PDF don't get the misleading
+ * "looks like a legacy PDF" message.
  */
 
 import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from "pdf-lib";
@@ -61,9 +65,9 @@ export async function verifyPdf(
   pdfBytes: Uint8Array,
   config: VerifierConfig = {},
 ): Promise<CredentialVerificationResult> {
-  let embedded: string | undefined;
+  let extracted: ExtractResult;
   try {
-    embedded = await extractEmbeddedCredential(pdfBytes);
+    extracted = await extractEmbeddedCredential(pdfBytes);
   } catch (err) {
     return {
       verified: false,
@@ -78,7 +82,23 @@ export async function verifyPdf(
     };
   }
 
-  if (!embedded) {
+  if (extracted.kind === "encrypted") {
+    return {
+      verified: false,
+      code: "INVALID",
+      checks: [
+        {
+          name: "pdf-encrypted",
+          passed: false,
+          detail:
+            "PDF is encrypted; OpenCred cannot read its info dictionary. " +
+            "Decrypt the file first, or scan the printed QR code on the certificate page.",
+        },
+      ],
+    };
+  }
+
+  if (extracted.kind === "missing") {
     return {
       verified: false,
       code: "INVALID",
@@ -88,12 +108,15 @@ export async function verifyPdf(
           passed: false,
           detail:
             "PDF does not contain an embedded OpenCred credential. " +
-            "This may be a legacy PDF (pre-v1.2.1) or a PDF not produced by OpenCred. " +
-            "To verify a legacy PDF, scan its printed QR code with the desktop app or extract the embedded JSON manually.",
+            "This may be a PDF issued before the OpenCredCredential info-dict embedding shipped, " +
+            "or a PDF not produced by OpenCred at all. " +
+            "To verify it, scan its printed QR code with the desktop app or extract the embedded JSON manually.",
         },
       ],
     };
   }
+
+  const embedded = extracted.value;
 
   // The embedded value mirrors what the visible QR encodes — see the
   // issuance side at `apps/server/src/packaging/pdf-generator.ts` and the
@@ -149,35 +172,63 @@ export async function verifyPdf(
 }
 
 /**
- * Extract the embedded `OpenCredCredential` value from a PDF's info dictionary.
+ * Discriminated result from `extractEmbeddedCredential`.
  *
- * Returns `undefined` if the PDF parses successfully but does not contain
- * the key. Throws if the PDF itself is unparseable.
+ * - `present`: the info dict carries an `OpenCredCredential` string value.
+ * - `encrypted`: the PDF is encrypted, so we treat its metadata as opaque
+ *   and report this distinctly. Without this branch, encrypted OpenCred
+ *   PDFs would fall through to `missing`, which is misleading.
+ * - `missing`: the PDF parsed cleanly but does not carry the key. Could
+ *   be a legacy OpenCred PDF or a non-OpenCred PDF; we don't try to
+ *   distinguish.
  *
  * @internal
  */
-async function extractEmbeddedCredential(pdfBytes: Uint8Array): Promise<string | undefined> {
+type ExtractResult =
+  | { kind: "present"; value: string }
+  | { kind: "encrypted" }
+  | { kind: "missing" };
+
+/**
+ * Extract the embedded `OpenCredCredential` value from a PDF's info dictionary.
+ *
+ * Throws only if the PDF itself is unparseable; encryption and missing-key
+ * are reported as discriminated values so the caller can give the user a
+ * targeted error message.
+ *
+ * @internal
+ */
+async function extractEmbeddedCredential(pdfBytes: Uint8Array): Promise<ExtractResult> {
+  // We never sign, edit, or re-emit the PDF — read-only is fine. Pass
+  // `ignoreEncryption: true` so the load itself doesn't throw on encrypted
+  // PDFs; we'll detect encryption explicitly via `isEncrypted` and route
+  // it through the `encrypted` arm so users get a precise error.
   const doc = await PDFDocument.load(pdfBytes, {
-    // We never sign, edit, or re-emit the PDF — read-only is fine.
     updateMetadata: false,
-    // Don't throw on encrypted PDFs; we just won't be able to read their
-    // info dict, which surfaces as "key not found" anyway.
     ignoreEncryption: true,
   });
 
+  if (doc.isEncrypted) {
+    return { kind: "encrypted" };
+  }
+
   const infoRef = doc.context.trailerInfo.Info;
-  if (!infoRef) return undefined;
+  if (!infoRef) return { kind: "missing" };
 
   const infoDict = doc.context.lookup(infoRef, PDFDict);
-  if (!infoDict) return undefined;
+  if (!infoDict) return { kind: "missing" };
 
   const raw = infoDict.lookup(PDFName.of(PDF_CREDENTIAL_INFO_KEY));
-  if (!raw) return undefined;
+  if (!raw) return { kind: "missing" };
 
-  if (raw instanceof PDFString) return raw.asString();
-  if (raw instanceof PDFHexString) return raw.decodeText();
-
-  // Unrecognized PDF object type for the value — treat as absent rather
-  // than crashing. Issuance-side writes via PDFKit produce PDFString.
-  return undefined;
+  // PDF strings reach pdf-lib as either PDFString (literal `(...)` form)
+  // or PDFHexString (hex `<...>` form). The issuance side writes via
+  // PDFKit's literal-string serializer, so PDFString is the common path,
+  // but PDFs produced by other tools (LibreOffice, Word, anything that
+  // hex-encodes non-ASCII info values) emit PDFHexString — we accept
+  // both. Other PDF object types under this key are treated as absent
+  // rather than crashing.
+  if (raw instanceof PDFString) return { kind: "present", value: raw.asString() };
+  if (raw instanceof PDFHexString) return { kind: "present", value: raw.decodeText() };
+  return { kind: "missing" };
 }

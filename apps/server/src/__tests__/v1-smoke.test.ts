@@ -366,6 +366,48 @@ describe("POST /v1/credentials/verify", () => {
     );
   });
 
+  it("verifies a PDF that wraps an sd-jwt-vc compact token", async () => {
+    // Round-trip parity check for the compact-token path of the issuance
+    // PDF generator. The server's pdf-generator embeds either the
+    // PixelPass-compressed VC (data-integrity) or the raw compact token
+    // (vc-jwt / sd-jwt-vc) under the `OpenCredCredential` info-dict key.
+    // The format dispatcher in `verifyPdf` routes these through
+    // `detectCredentialInputFormat`'s `jwt-compact` branch — this test
+    // pins that path end-to-end so a regression in the detection rules
+    // or the embedding switch in `pdf-generator.ts` is caught.
+    const issueRes = await app.request("/v1/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        schemaId: "functional-identity/v1",
+        issuerDid: testKey.signer.id.split("#")[0],
+        credentialSubject: EDUCATION_SUBJECT,
+        validFrom: "2025-06-15T00:00:00Z",
+        proofFormat: "sd-jwt-vc",
+        selectiveDisclosureClaims: ["/credentialSubject/role"],
+        packageFormats: ["pdf"],
+      }),
+    });
+    expect(issueRes.status).toBe(200);
+    const issued = (await issueRes.json()) as {
+      packagedOutputs?: Array<{ format: string; data: string; encoding: string }>;
+    };
+    const pdfOutput = issued.packagedOutputs?.find((o) => o.format === "pdf");
+    expect(pdfOutput, "sd-jwt-vc issue did not include a packaged PDF").toBeDefined();
+    const pdfBytes = Buffer.from(pdfOutput!.data, "base64");
+
+    const verifyRes = await app.request("/v1/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/pdf" },
+      body: pdfBytes,
+    });
+
+    expect(verifyRes.status).toBe(200);
+    const result = (await verifyRes.json()) as Record<string, unknown>;
+    expect(result.valid).toBe(true);
+    expect(result.code).toBe("VALID");
+  });
+
   it("returns 400 BAD_REQUEST when application/pdf body is not actually a PDF", async () => {
     const verifyRes = await app.request("/v1/credentials/verify", {
       method: "POST",

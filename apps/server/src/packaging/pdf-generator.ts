@@ -24,10 +24,22 @@ import { compressCredentialForQr, generateQrBuffer } from "./qr-generator.js";
  * PDF info-dictionary key that holds the embedded credential.
  *
  * Read by `verifyPdf()` in `@opencred/verification`. The value is the same
- * PixelPass-compressed `OPENCRED1:...` string that's printed into the QR on
- * the certificate page — it round-trips losslessly because PDF info-dict
- * values preserve arbitrary strings. Changing this key name is a
- * backwards-incompatible change; coordinate with the verification side.
+ * PixelPass-compressed `OPENCRED1:...` string that's printed into the QR
+ * on the certificate page (or, for compact-token issuance, the raw
+ * vc-jwt / sd-jwt-vc token).
+ *
+ * **What's load-bearing.** The PDF spec (ISO 32000-1) allows arbitrary
+ * keys in the info dictionary, but the round-trip here actually relies on
+ * a *runtime* property of PDFKit: `PDFDocument.end()` iterates own
+ * enumerable string properties of `doc.info` and writes each one into the
+ * output info dict. That is not a documented public API, so a future
+ * pdfkit upgrade could in principle drop arbitrary keys silently —
+ * which would make verification fail on freshly issued PDFs. The
+ * `v1-smoke.test.ts` round-trip test exists to catch exactly that
+ * regression.
+ *
+ * Changing this key name is a backwards-incompatible change; coordinate
+ * with the verification side.
  */
 const PDF_CREDENTIAL_INFO_KEY = "OpenCredCredential";
 import type { CredentialInput, PartialVerifiableCredential } from "./types.js";

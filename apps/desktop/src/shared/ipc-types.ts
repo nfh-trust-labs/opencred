@@ -191,9 +191,8 @@ export interface VerifyCredentialRequest {
    * Base64-encoded bytes of an OpenCred-issued PDF certificate. Mutually
    * exclusive with `credential`. The handler reads the embedded
    * `OpenCredCredential` info-dictionary key from the PDF and verifies
-   * it. PDFs issued before this metadata embedding (v1.2.0 and earlier)
-   * return a structured failure pointing the caller at the QR-scan
-   * path.
+   * it. PDFs issued before the info-dict embedding shipped return a
+   * structured failure pointing the caller at the QR-scan path.
    */
   pdfBase64?: string;
 }
