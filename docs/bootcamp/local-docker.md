@@ -145,6 +145,21 @@ first boot — your namespace and the four registries inside it
 `context_registry`) get created if missing and reused if they already
 exist. No pre-provisioning required.
 
+> **Schema-collision caveat.** "Reused if they already exist" is only safe when
+> the pre-existing registry was created by OpenCred (or with a schema-shape
+> identical to what OpenCred publishes). DeDi backends ship built-in JSON
+> Schemas for some registry names — notably `public_key.json` with shape
+> `{public_key_id, publicKey, keyType, ...}`, which is **not** the shape
+> OpenCred writes (`{did, document, resolvedAt}`). If a DeDi operator
+> pre-creates a `public_key_registry` using the built-in catalogue schema
+> before OpenCred boots, every `/v1/keys/publish` call will fail with a
+> `400 "Record data does not match the registry schema"` from DeDi's AJV
+> check. The same applies to any other registry name DeDi has a built-in
+> schema for. Easiest mitigation: let OpenCred create the registries on
+> first boot, and if you do pre-provision, make sure the schema you attach
+> matches what OpenCred writes (look at
+> `packages/dedi-client/src/adapter/client.ts` for the canonical shapes).
+
 ### 4. Run the container
 
 The command below threads through any DeDi env vars you exported in
@@ -599,10 +614,21 @@ If `dediConfigured` is `false`, you skipped §3a. Either:
 
 Now issue a credential with a `credentialStatus` block — pass
 `revocationRegistryUrl` in the issue body so the server attaches a `dedi`-typed
-status entry. The server generates a `urn:uuid:...` credential id and a
-matching SHA-256 revocation hash:
+status entry. **The URL should be the canonical DeDi lookup endpoint for your
+revocation registry, not the bare base URL** — it gets stamped directly into
+the credential's `credentialStatus.statusListCredential` so a third-party
+verifier (or anyone reading the VC) can resolve it. The lookup shape DeDi
+serves is `https://<host>/dedi/lookup/<namespace>/<revocation-registry-name>`.
+
+The server generates a `urn:uuid:...` credential id and a matching SHA-256
+revocation hash:
 
 ```bash
+# Substitute your DeDi host and the namespace you set in §3a.
+# The revocation registry name is the OpenCred default unless you've
+# changed it; see `OPENCRED_DEDI_REVOCATION_REGISTRY_NAME`.
+REVOCATION_REGISTRY_URL="https://your-dedi-instance.example.org/dedi/lookup/${OPENCRED_DEDI_NAMESPACE}/vc-revocation-registry"
+
 curl -s http://localhost:3100/v1/credentials/issue \
   -H "Authorization: Bearer $OPENCRED_API_KEY" \
   -H "Content-Type: application/json" \
@@ -616,9 +642,16 @@ curl -s http://localhost:3100/v1/credentials/issue \
     },
     \"validFrom\": \"2026-04-26T00:00:00Z\",
     \"proofFormat\": \"data-integrity\",
-    \"revocationRegistryUrl\": \"https://your-dedi-instance.example.org\"
+    \"revocationRegistryUrl\": \"$REVOCATION_REGISTRY_URL\"
   }" | tee revokable.json | jq '.credential.credentialStatus'
 ```
+
+> **Why the canonical lookup URL matters.** Verification still works end-to-end
+> even if you pass a bare base URL — OpenCred's own verifier recomputes the
+> hash and queries DeDi via the SDK, not by following the
+> `credentialStatus.id` link. But that link gets serialized into the issued
+> credential and is what a W3C-compliant third-party verifier will dereference.
+> Pass the canonical URL so the credential is self-describing.
 
 Compute the hash, revoke it via DeDi, then query the status — that round trip
 is the whole point of the demo:
