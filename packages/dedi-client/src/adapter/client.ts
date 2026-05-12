@@ -5,7 +5,6 @@ import { noopLogger } from "../logger.js";
 import type {
   DeDiClientConfig,
   RevocationHashRecord,
-  DelegationRecord,
   DIDRecord,
   SchemaRecord,
   ContextRecord,
@@ -13,125 +12,12 @@ import type {
 } from "./types.js";
 import {
   REVOCATION_REGISTRY,
-  DELEGATION_REGISTRY,
   PUBLIC_KEY_REGISTRY,
   SCHEMA_REGISTRY,
   CONTEXT_REGISTRY,
   schemaToRecordName,
   contextToRecordName,
 } from "./registry-names.js";
-
-const DELEGATION_DETAIL_KEYS = [
-  "id",
-  "issuerDid",
-  "delegateDid",
-  "scope",
-  "validFrom",
-  "validUntil",
-] as const;
-
-function validateDelegation(delegation: DelegationRecord): void {
-  if (delegation.scope.credentialTypes.length === 0 && delegation.scope.namespaces.length === 0) {
-    throw new DeDiClientError("Delegation scope must not be empty", 400);
-  }
-  const from = new Date(delegation.validFrom);
-  const until = new Date(delegation.validUntil);
-  if (isNaN(from.getTime())) {
-    throw new DeDiClientError("validFrom is not a valid date", 400);
-  }
-  if (isNaN(until.getTime())) {
-    throw new DeDiClientError("validUntil is not a valid date", 400);
-  }
-  if (from >= until) {
-    throw new DeDiClientError("validFrom must precede validUntil", 400);
-  }
-}
-
-function assertDelegationShape(detail: unknown): asserts detail is DelegationRecord {
-  if (detail == null || typeof detail !== "object") {
-    throw new DeDiClientError("Delegation detail is missing or not an object", 502);
-  }
-  const rec = detail as Record<string, unknown>;
-  for (const key of DELEGATION_DETAIL_KEYS) {
-    if (!(key in rec)) {
-      throw new DeDiClientError(`Delegation detail missing required field: ${key}`, 502);
-    }
-  }
-  if (rec["scope"] == null || typeof rec["scope"] !== "object" || Array.isArray(rec["scope"])) {
-    throw new DeDiClientError(
-      "Delegation detail field 'scope' must be an object with credentialTypes and namespaces",
-      502,
-    );
-  }
-  const scope = rec["scope"] as Record<string, unknown>;
-  if (!Array.isArray(scope["credentialTypes"])) {
-    throw new DeDiClientError("Delegation scope field 'credentialTypes' must be an array", 502);
-  }
-  if (!scope["credentialTypes"].every((v: unknown) => typeof v === "string")) {
-    throw new DeDiClientError(
-      "Delegation scope field 'credentialTypes' must contain only strings",
-      502,
-    );
-  }
-  if (!Array.isArray(scope["namespaces"])) {
-    throw new DeDiClientError("Delegation scope field 'namespaces' must be an array", 502);
-  }
-  if (!scope["namespaces"].every((v: unknown) => typeof v === "string")) {
-    throw new DeDiClientError("Delegation scope field 'namespaces' must contain only strings", 502);
-  }
-
-  // Validate certificate field — must be a non-null object
-  if (!("certificate" in rec)) {
-    throw new DeDiClientError("Delegation detail missing required field: certificate", 502);
-  }
-  if (
-    rec["certificate"] == null ||
-    typeof rec["certificate"] !== "object" ||
-    Array.isArray(rec["certificate"])
-  ) {
-    throw new DeDiClientError(
-      "Delegation detail field 'certificate' must be a non-null object",
-      502,
-    );
-  }
-  const cert = rec["certificate"] as Record<string, unknown>;
-  // Validate the certificate type field — per W3C VC spec, type must be an
-  // array that includes "VerifiableCredential".
-  if ("type" in cert) {
-    const certType = cert["type"];
-    if (!Array.isArray(certType)) {
-      throw new DeDiClientError(
-        "Delegation certificate field 'type' must be an array (per W3C VC spec)",
-        502,
-      );
-    }
-    if (!certType.includes("VerifiableCredential")) {
-      throw new DeDiClientError(
-        "Delegation certificate type array must include 'VerifiableCredential'",
-        502,
-      );
-    }
-  }
-  // If the certificate has a proof field, validate its structure
-  if ("proof" in cert) {
-    if (
-      cert["proof"] == null ||
-      typeof cert["proof"] !== "object" ||
-      Array.isArray(cert["proof"])
-    ) {
-      throw new DeDiClientError("Delegation certificate field 'proof' must be an object", 502);
-    }
-    const proof = cert["proof"] as Record<string, unknown>;
-    if ("proofValue" in proof) {
-      if (typeof proof["proofValue"] !== "string" || proof["proofValue"].length === 0) {
-        throw new DeDiClientError(
-          "Delegation certificate field 'proof.proofValue' must be a non-empty string",
-          502,
-        );
-      }
-    }
-  }
-}
 
 function assertRevocationHashShape(detail: unknown): asserts detail is RevocationHashRecord {
   if (detail == null || typeof detail !== "object") {
@@ -348,26 +234,6 @@ export class DeDiClient {
     const record = await this.api.lookupRecord(ns, CONTEXT_REGISTRY, recordName);
     assertDeDiRecordShape(record, "lookupRecord");
     assertContextRecordShape(record.detail);
-    return record.detail;
-  }
-
-  async registerDelegation(
-    delegation: DelegationRecord,
-    namespace?: string,
-  ): Promise<DelegationRecord> {
-    validateDelegation(delegation);
-    const ns = this.resolveNamespace(namespace);
-    const record = await this.api.publishRecord(ns, DELEGATION_REGISTRY, delegation.id, delegation);
-    assertDeDiRecordShape(record, "publishRecord");
-    assertDelegationShape(record.detail);
-    return record.detail;
-  }
-
-  async resolveDelegation(delegationId: string, namespace?: string): Promise<DelegationRecord> {
-    const ns = this.resolveNamespace(namespace);
-    const record = await this.api.lookupRecord(ns, DELEGATION_REGISTRY, delegationId);
-    assertDeDiRecordShape(record, "lookupRecord");
-    assertDelegationShape(record.detail);
     return record.detail;
   }
 

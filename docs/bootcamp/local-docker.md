@@ -140,10 +140,10 @@ export OPENCRED_DEDI_NAMESPACE="your-namespace-id"
 For **bearer auth** instead of api-key, set `OPENCRED_DEDI_AUTH_TYPE=bearer` and use `OPENCRED_DEDI_EMAIL` + `OPENCRED_DEDI_PASSWORD` instead of `OPENCRED_DEDI_API_KEY`.
 
 The OpenCred container's startup hook calls `ensureRegistries()` on
-first boot — your namespace and the five registries inside it
+first boot — your namespace and the four registries inside it
 (`vc-revocation-registry`, `public_key_registry`, `schema_registry`,
-`context_registry`, `delegation_registry`) get created if missing and
-reused if they already exist. No pre-provisioning required.
+`context_registry`) get created if missing and reused if they already
+exist. No pre-provisioning required.
 
 ### 4. Run the container
 

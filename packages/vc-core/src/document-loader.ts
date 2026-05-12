@@ -15,7 +15,6 @@ import { ContextNotFoundError } from "./context-errors.js";
 import {
   W3C_CREDENTIALS_V2_CONTEXT,
   DATA_INTEGRITY_V1_CONTEXT,
-  OPENCRED_DELEGATION_V1_CONTEXT,
   TRACEABILITY_V1_CONTEXT,
   OPEN_BADGES_V3_CONTEXT,
   OPENCRED_ELECTRICITY_V1_CONTEXT,
@@ -30,7 +29,6 @@ import {
 import {
   credentialsV2,
   dataIntegrityV1,
-  delegationV1,
   traceabilityV1,
   openBadgesV3,
   electricityV1,
@@ -60,7 +58,6 @@ const BUNDLED_CONTEXTS: ReadonlyMap<string, Record<string, unknown>> = new Map([
   // W3C + OpenCred base contexts
   [W3C_CREDENTIALS_V2_CONTEXT, credentialsV2],
   [DATA_INTEGRITY_V1_CONTEXT, dataIntegrityV1],
-  [OPENCRED_DELEGATION_V1_CONTEXT, delegationV1],
   // Referenced upstream contexts bundled at build time
   [TRACEABILITY_V1_CONTEXT, traceabilityV1],
   [OPEN_BADGES_V3_CONTEXT, openBadgesV3],
