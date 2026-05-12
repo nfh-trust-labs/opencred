@@ -20,6 +20,20 @@ export class DeDiPublishManager {
   }
 
   /**
+   * The underlying DeDi client.
+   *
+   * Read-only access for consumers that need to perform DeDi operations
+   * outside the publish-manager's lazy-publish workflow — primarily
+   * verification paths that need `resolveDID()` for did:web fallback
+   * (see `createDeDiDIDWebFallback`). Reusing the manager's client
+   * preserves the shared circuit breaker, retry state, and auth token
+   * cache rather than spinning up a parallel client.
+   */
+  get rawClient(): DeDiClient {
+    return this.client;
+  }
+
+  /**
    * Lazily publish a schema to DeDi if not already published.
    * Fire-and-forget: errors are logged, never thrown.
    */

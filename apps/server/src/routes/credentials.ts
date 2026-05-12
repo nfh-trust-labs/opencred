@@ -649,11 +649,27 @@ credentials.post("/credentials/verify", async (c) => {
   const { getTrustStore } = await import("../trust-store.js");
   const { getDeDiClient } = await import("../dedi-singleton.js");
 
+  // When a DeDi client is configured, wire it in as the did:web fallback.
+  // The resolver tries canonical HTTPS resolution first; on failure (any
+  // non-SSRF error), it consults DeDi's public_key_registry for a record
+  // matching the input DID. This lets an issuer publish their DID document
+  // to DeDi instead of (or in addition to) serving it from
+  // `.well-known/did.json`. See `createDeDiDIDWebFallback` for the exact
+  // contract and SSRF-safety guarantees.
+  const dediClient = getDeDiClient();
+  let didWebResolver: InstanceType<typeof DIDWebResolver>;
+  if (dediClient) {
+    const { createDeDiDIDWebFallback } = await import("@opencred/dedi-client");
+    didWebResolver = new DIDWebResolver(createDeDiDIDWebFallback(dediClient));
+  } else {
+    didWebResolver = new DIDWebResolver();
+  }
+
   const compositeResolver = new CompositeDIDResolver(
     new Map([
       ["key", new DIDKeyResolver()],
       ["jwk", new DIDJwkResolver()],
-      ["web", new DIDWebResolver()],
+      ["web", didWebResolver],
     ]),
   );
 
@@ -663,7 +679,6 @@ credentials.post("/credentials/verify", async (c) => {
   // credentials per nfh-trust-labs/opencred#316.
   const trustStore = getTrustStore();
   const trustAnchors = trustStore ? trustStore.toPemArray() : undefined;
-  const dediClient = getDeDiClient();
   const verifierConfig = {
     didResolver: compositeResolver,
     trustAnchors,

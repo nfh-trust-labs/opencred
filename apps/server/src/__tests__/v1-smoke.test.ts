@@ -406,6 +406,96 @@ describe("POST /v1/credentials/verify", () => {
     expect(result.code).toBe("VALID");
   });
 
+  it("falls back to DeDi for did:web resolution when the canonical HTTPS endpoint is unreachable", async () => {
+    // End-to-end pin of the #527 contract: a credential whose issuer is a
+    // did:web at a deliberately bad domain still verifies VALID when DeDi
+    // has the matching DID document. The HTTPS resolution path will fail
+    // DNS lookup on a `.invalid` host (RFC 2606), so the DIDWebResolver's
+    // fallback is the only way the verify can succeed — proving the verify
+    // route correctly threads `createDeDiDIDWebFallback` into the resolver
+    // when `getDeDiClient()` is non-null.
+    const { generateKeyPairSync } = await import("node:crypto");
+    const { signCredential } = await import("@opencred/crypto");
+    const { setDeDiClient, resetDeDiClient } = await import("../dedi-singleton.js");
+
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const did = "did:web:nonexistent-host-for-smoke-test-12345.invalid";
+    const vmId = `${did}#key-0`;
+    const publicJwk = publicKey.export({ format: "jwk" }) as Record<string, unknown>;
+
+    const didDocument = {
+      "@context": ["https://www.w3.org/ns/did/v1"],
+      id: did,
+      verificationMethod: [
+        {
+          id: vmId,
+          type: "JsonWebKey",
+          controller: did,
+          publicKeyJwk: publicJwk,
+        },
+      ],
+      assertionMethod: [vmId],
+    };
+
+    const unsigned = {
+      "@context": ["https://www.w3.org/ns/credentials/v2"],
+      id: "urn:uuid:dedi-fallback-smoke-test",
+      type: ["VerifiableCredential"],
+      issuer: did,
+      validFrom: "2026-01-01T00:00:00Z",
+      credentialSubject: { id: "did:example:holder", name: "Smoke Test Subject" },
+    };
+    const signedVC = await signCredential(
+      unsigned,
+      { id: vmId, privateKey, publicKey, algorithm: "P-256" },
+      { verificationMethod: vmId, proofPurpose: "assertionMethod" },
+    );
+
+    // Stub DeDi client: `resolveDID` powers the fallback we're testing.
+    // `queryRevocationHash` is also stubbed because the verifier runs a
+    // revocation check whenever DeDi is configured — without it the
+    // overall result code becomes UNRESOLVABLE even though the signature
+    // verifies. The "not revoked" branch is the realistic happy path
+    // (record absent → credential not in the revocation registry).
+    let resolveDidCalls = 0;
+    const stubDeDiClient = {
+      resolveDID: async (inputDid: string) => {
+        resolveDidCalls += 1;
+        if (inputDid !== did) {
+          throw new Error("record not found");
+        }
+        return {
+          did: inputDid,
+          document: didDocument,
+          resolvedAt: new Date().toISOString(),
+        };
+      },
+      queryRevocationHash: async (hash: string) => ({ hash, revoked: false }),
+    } as unknown as Parameters<typeof setDeDiClient>[0];
+
+    try {
+      setDeDiClient(stubDeDiClient);
+
+      const verifyRes = await app.request("/v1/credentials/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential: JSON.stringify(signedVC) }),
+      });
+
+      expect(verifyRes.status).toBe(200);
+      const result = (await verifyRes.json()) as Record<string, unknown>;
+      expect(result.valid).toBe(true);
+      expect(result.code).toBe("VALID");
+      // Pin that the fallback actually got called — without this, an
+      // accidental change that wires `new DIDWebResolver()` (no fallback)
+      // would still pass the test for the wrong reason (DNS failure
+      // dropped, document magically resolved somehow).
+      expect(resolveDidCalls).toBeGreaterThanOrEqual(1);
+    } finally {
+      resetDeDiClient();
+    }
+  });
+
   it("returns 400 BAD_REQUEST when application/pdf body is not actually a PDF", async () => {
     const verifyRes = await app.request("/v1/credentials/verify", {
       method: "POST",

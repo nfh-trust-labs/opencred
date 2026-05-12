@@ -817,11 +817,28 @@ async function handleVerifyCredential(
     const { verifyCredential, verifyPdf, loadCscaTrustStore } =
       await import("@opencred/verification");
 
+    // When DeDi is configured, wire it in as the did:web fallback. The
+    // resolver tries canonical HTTPS resolution first; on failure (any
+    // non-SSRF error), it consults DeDi's public_key_registry for the
+    // input DID via `createDeDiDIDWebFallback`. This lets verifiers
+    // recover the issuer's DID document from DeDi when the canonical
+    // `.well-known/did.json` endpoint is unavailable. Reuses the
+    // publish-manager's underlying DeDi client so verify and publish
+    // share circuit breaker / retry state.
+    const verifyPublishManager = getDeDiPublishManager();
+    let didWebResolver: InstanceType<typeof DIDWebResolver>;
+    if (verifyPublishManager) {
+      const { createDeDiDIDWebFallback } = await import("@opencred/dedi-client");
+      didWebResolver = new DIDWebResolver(createDeDiDIDWebFallback(verifyPublishManager.rawClient));
+    } else {
+      didWebResolver = new DIDWebResolver();
+    }
+
     const compositeResolver = new CompositeDIDResolver(
       new Map([
         ["key", new DIDKeyResolver()],
         ["jwk", new DIDJwkResolver()],
-        ["web", new DIDWebResolver()],
+        ["web", didWebResolver],
       ]),
     );
 

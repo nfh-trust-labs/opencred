@@ -17,6 +17,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@opencred/did": "workspace:*",
     "@opencred/shared": "workspace:*"
   },
   "devDependencies": {
