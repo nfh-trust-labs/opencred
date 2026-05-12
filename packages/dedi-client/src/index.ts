@@ -3,7 +3,6 @@ export { DeDiClient } from "./adapter/client.js";
 export type {
   DeDiClientConfig,
   RevocationHashRecord,
-  DelegationRecord,
   DIDRecord,
   SchemaRecord,
   ContextRecord,
@@ -11,7 +10,6 @@ export type {
 } from "./adapter/types.js";
 export {
   REVOCATION_REGISTRY,
-  DELEGATION_REGISTRY,
   PUBLIC_KEY_REGISTRY,
   SCHEMA_REGISTRY,
   CONTEXT_REGISTRY,

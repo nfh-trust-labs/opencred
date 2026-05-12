@@ -205,8 +205,9 @@ VM$ export OPENCRED_DEDI_NAMESPACE="your-namespace-id"
 > Use whichever value the operator gave you. Both work identically with OpenCred; only the DID resolution path that verifiers walk differs.
 
 The OpenCred container's startup hook will create your namespace and
-the five registries inside it on first boot — no pre-provisioning
-required.
+the four registries inside it (`vc-revocation-registry`,
+`public_key_registry`, `schema_registry`, `context_registry`) on first
+boot — no pre-provisioning required.
 
 Pull the public OpenCred image. ~30 seconds on a GCP VM:
 

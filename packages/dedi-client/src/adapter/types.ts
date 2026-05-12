@@ -8,16 +8,6 @@ export type RevocationHashRecord =
   | { hash: string; revoked: false }
   | { hash: string; revoked: true; revokedAt: string };
 
-export interface DelegationRecord {
-  id: string;
-  issuerDid: string;
-  delegateDid: string;
-  scope: { credentialTypes: string[]; namespaces: string[] };
-  validFrom: string;
-  validUntil: string;
-  certificate: unknown;
-}
-
 export interface DIDRecord {
   did: string;
   document: unknown;
