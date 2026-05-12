@@ -23,9 +23,24 @@ jobs:
           manifest-file: .release-please-manifest.json
           target-branch: new-opencred-dev
 
-  # Trigger desktop release builds when a release is created
+  # Trigger desktop release builds when a release is created.
+  # The `tag` input is passed explicitly: github.ref_name resolves to
+  # `new-opencred-dev` in a workflow_call context, not the new v* tag.
   desktop-release:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     uses: ./.github/workflows/desktop-release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets: inherit
+
+  # Trigger the Docker build/push pipeline when a release is created.
+  # GitHub's anti-loop rule suppresses tag-push triggers on refs created
+  # by GITHUB_TOKEN (which release-please uses), so we chain explicitly.
+  docker:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    uses: ./.github/workflows/docker.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
     secrets: inherit
