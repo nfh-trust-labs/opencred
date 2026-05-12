@@ -11,7 +11,11 @@ import {
 } from "./helpers.js";
 import { setActiveSigner } from "../signing/key-manager.js";
 import { setDeDiClient, resetDeDiClient } from "../dedi-singleton.js";
-import { sanitizeChecksForServerResponse, buildVerifyResponseBody } from "../routes/credentials.js";
+import {
+  sanitizeChecksForServerResponse,
+  buildVerifyResponseBody,
+  resolveCanonicalRevocationRegistryUrl,
+} from "../routes/credentials.js";
 import type { Hono } from "hono";
 import type { TestKeyPair } from "./helpers.js";
 
@@ -648,6 +652,121 @@ describe("POST /credentials/verify", () => {
         }
       }
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveCanonicalRevocationRegistryUrl — issue #528
+// ---------------------------------------------------------------------------
+
+describe("resolveCanonicalRevocationRegistryUrl (#528)", () => {
+  // The canonical DeDi lookup URL is what gets serialized into every issued
+  // credential's `credentialStatus.id` + `statusListCredential`. A third-party
+  // W3C-compliant verifier dereferences that URL, so it MUST resolve. The
+  // resolver accepts three input shapes (bare base, canonical query, canonical
+  // lookup) and the tests below pin each shape to a well-formed output.
+  const NS = "issuer-default";
+  const REG = "vc-revocation-registry";
+
+  it("derives the canonical lookup URL from a bare-base input + configured namespace", () => {
+    const out = resolveCanonicalRevocationRegistryUrl("https://my-dedi.example.org", {
+      OPENCRED_DEDI_NAMESPACE: NS,
+    });
+    expect(out).toBe(`https://my-dedi.example.org/dedi/lookup/${NS}/${REG}`);
+  });
+
+  it("strips a single trailing slash on the bare-base input (no double slash in the output)", () => {
+    const out = resolveCanonicalRevocationRegistryUrl("https://my-dedi.example.org/", {
+      OPENCRED_DEDI_NAMESPACE: NS,
+    });
+    expect(out).toBe(`https://my-dedi.example.org/dedi/lookup/${NS}/${REG}`);
+    expect(out.includes("//dedi/")).toBe(false);
+  });
+
+  it("strips multiple trailing slashes on the bare-base input", () => {
+    const out = resolveCanonicalRevocationRegistryUrl("https://my-dedi.example.org///", {
+      OPENCRED_DEDI_NAMESPACE: NS,
+    });
+    expect(out).toBe(`https://my-dedi.example.org/dedi/lookup/${NS}/${REG}`);
+  });
+
+  it("preserves an API-gateway path prefix on a bare-base URL (and appends /dedi/lookup/...)", () => {
+    // Some operators front DeDi behind a gateway mount such as `/api/v1`.
+    // We respect that prefix rather than overwriting it.
+    const out = resolveCanonicalRevocationRegistryUrl("https://my-dedi.example.org/api/v1", {
+      OPENCRED_DEDI_NAMESPACE: NS,
+    });
+    expect(out).toBe(`https://my-dedi.example.org/api/v1/dedi/lookup/${NS}/${REG}`);
+  });
+
+  it("returns a canonical /dedi/lookup/ URL unchanged", () => {
+    const canonical = `https://my-dedi.example.org/dedi/lookup/${NS}/${REG}`;
+    const out = resolveCanonicalRevocationRegistryUrl(canonical, {
+      OPENCRED_DEDI_NAMESPACE: NS,
+    });
+    expect(out).toBe(canonical);
+  });
+
+  it("strips a trailing slash on a canonical /dedi/lookup/ URL", () => {
+    const canonical = `https://my-dedi.example.org/dedi/lookup/${NS}/${REG}`;
+    const out = resolveCanonicalRevocationRegistryUrl(`${canonical}/`, {
+      OPENCRED_DEDI_NAMESPACE: NS,
+    });
+    expect(out).toBe(canonical);
+  });
+
+  it("rewrites legacy /dedi/query/ → /dedi/lookup/ (back-compat with pre-v1.3.0 bootcamp wording)", () => {
+    const queryUrl = `https://my-dedi.example.org/dedi/query/${NS}/${REG}`;
+    const out = resolveCanonicalRevocationRegistryUrl(queryUrl, {
+      OPENCRED_DEDI_NAMESPACE: NS,
+    });
+    expect(out).toBe(`https://my-dedi.example.org/dedi/lookup/${NS}/${REG}`);
+  });
+
+  it("rewrites /dedi/query/ even when the caller's namespace differs from configured (caller's URL wins)", () => {
+    // The canonical-shape URL already encodes a namespace; we don't second-
+    // guess it with the configured default. This matters when a single
+    // server issues against multiple namespaces.
+    const queryUrl =
+      "https://my-dedi.example.org/dedi/query/other-namespace/vc-revocation-registry";
+    const out = resolveCanonicalRevocationRegistryUrl(queryUrl, {
+      OPENCRED_DEDI_NAMESPACE: NS,
+    });
+    expect(out).toBe(
+      "https://my-dedi.example.org/dedi/lookup/other-namespace/vc-revocation-registry",
+    );
+  });
+
+  it("throws ValidationError on a bare-base input when OPENCRED_DEDI_NAMESPACE is unset", () => {
+    expect(() => resolveCanonicalRevocationRegistryUrl("https://my-dedi.example.org", {})).toThrow(
+      /OPENCRED_DEDI_NAMESPACE/,
+    );
+  });
+
+  it("throws ValidationError on a bare-base input when OPENCRED_DEDI_NAMESPACE is the empty string", () => {
+    expect(() =>
+      resolveCanonicalRevocationRegistryUrl("https://my-dedi.example.org", {
+        OPENCRED_DEDI_NAMESPACE: "",
+      }),
+    ).toThrow(/OPENCRED_DEDI_NAMESPACE/);
+  });
+
+  it("does NOT throw on a canonical-shape input when namespace is unset (URL is self-contained)", () => {
+    const canonical = `https://my-dedi.example.org/dedi/lookup/${NS}/${REG}`;
+    expect(() => resolveCanonicalRevocationRegistryUrl(canonical, {})).not.toThrow();
+  });
+
+  it("the canonical id and statusListCredential round-trip through path components a W3C verifier expects", () => {
+    // Sanity: when the helper feeds `credentialStatus.id = <out>/<hash>` and
+    // `statusListCredential = <out>`, both URLs share the same `/dedi/lookup/`
+    // prefix and the namespace and registry name appear in path-position 4/5
+    // (the shape `gh issue #528` asks for).
+    const out = resolveCanonicalRevocationRegistryUrl("https://my-dedi.example.org", {
+      OPENCRED_DEDI_NAMESPACE: NS,
+    });
+    const url = new URL(out);
+    const segments = url.pathname.split("/").filter(Boolean);
+    expect(segments).toEqual(["dedi", "lookup", NS, REG]);
   });
 });
 

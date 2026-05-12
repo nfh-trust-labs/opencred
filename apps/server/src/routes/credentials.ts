@@ -31,12 +31,14 @@ import {
   completeSdJwtVcProof,
 } from "@opencred/crypto";
 import { CryptoError, ValidationError, detectCredentialInputFormat } from "@opencred/shared";
+import { REVOCATION_REGISTRY } from "@opencred/dedi-client";
 import type { TemplateCustomization } from "@opencred/templates";
 import { requireSigner } from "../signing/key-manager.js";
 import { packageCredential } from "../packaging/packager.js";
 import type { CredentialInput, PackageFormat } from "../packaging/packager.js";
 import { credentialsIssuedTotal, credentialsVerifiedTotal } from "../metrics.js";
 import { getLogger } from "../logger.js";
+import { getConfig } from "../config.js";
 import { parseJsonBody } from "../middleware/parse-json.js";
 
 const credentials = new Hono();
@@ -183,6 +185,73 @@ function getRegistry(): SchemaRegistry {
   return getSchemaRegistry();
 }
 
+/**
+ * Resolve the canonical DeDi lookup URL for the revocation registry from the
+ * caller-supplied `revocationRegistryUrl`. Three input shapes are accepted:
+ *
+ *   1. Canonical lookup URL — already contains `/dedi/lookup/`. Returned
+ *      verbatim (no trailing slash) so existing well-formed inputs round-trip
+ *      unchanged. We don't second-guess a caller who knows the canonical
+ *      shape; if they appended a registry name, we leave it alone.
+ *   2. Canonical query URL — contains `/dedi/query/`. Rewritten to
+ *      `/dedi/lookup/` (back-compat: the older bootcamp example used the
+ *      query-shape URL; the lookup-shape is what DeDi actually serves for
+ *      dereferencing `credentialStatus.id`).
+ *   3. Bare base URL — anything else (e.g. `https://my-dedi.example.org`
+ *      or `https://my-dedi.example.org/some/path`). The canonical lookup URL
+ *      is derived as `<base>/dedi/lookup/<namespace>/<REVOCATION_REGISTRY>`
+ *      using `OPENCRED_DEDI_NAMESPACE` from config. Any trailing slashes or
+ *      path segments on the bare base are stripped so the suffix is never
+ *      double-slashed. If the namespace is unset, a {@link ValidationError}
+ *      is thrown — silently producing an unresolvable URL would corrupt the
+ *      issued credential, so we fail fast and tell the caller how to fix it.
+ *
+ * The return value is used for both `credentialStatus.statusListCredential`
+ * (the W3C-standard pointer at the revocation registry) and the prefix of
+ * `credentialStatus.id` (`<canonical>/<hash>`). Per W3C VCDM 2.0 §4.10 both
+ * should resolve, and centralizing the derivation here is what makes that
+ * true regardless of which input shape the caller passes.
+ *
+ * Exported for unit testing — do not import from elsewhere in the server.
+ */
+export function resolveCanonicalRevocationRegistryUrl(
+  revocationRegistryUrl: string,
+  config: { OPENCRED_DEDI_NAMESPACE?: string },
+): string {
+  if (revocationRegistryUrl.includes("/dedi/lookup/")) {
+    // Already canonical; strip a single trailing slash for consistency but
+    // otherwise leave the path alone (the caller may have appended a
+    // registry name we shouldn't second-guess).
+    return revocationRegistryUrl.replace(/\/+$/, "");
+  }
+  if (revocationRegistryUrl.includes("/dedi/query/")) {
+    // Existing back-compat behavior: rewrite query→lookup. Strip trailing
+    // slash for the same reason as above.
+    return revocationRegistryUrl.replace("/dedi/query/", "/dedi/lookup/").replace(/\/+$/, "");
+  }
+  // Bare base. Need the namespace to derive the canonical URL.
+  const namespace = config.OPENCRED_DEDI_NAMESPACE;
+  if (!namespace) {
+    throw new ValidationError(
+      "Cannot derive a canonical DeDi lookup URL from a bare-base revocationRegistryUrl " +
+        "because OPENCRED_DEDI_NAMESPACE is not configured. Either set OPENCRED_DEDI_NAMESPACE " +
+        "on the server, or pass a canonical-shape revocationRegistryUrl of the form " +
+        "https://<host>/dedi/lookup/<namespace>/" +
+        REVOCATION_REGISTRY +
+        ".",
+    );
+  }
+  // Strip any trailing slashes (and any path the caller might have included)
+  // is NOT done — we only strip trailing slashes. A caller passing
+  // `https://my-dedi.example.org/something` gets
+  // `https://my-dedi.example.org/something/dedi/lookup/<ns>/<reg>` — the
+  // most common bare-base form is a host root, but if they include a path
+  // prefix (e.g. an API gateway mount), we respect it. Document this in the
+  // route comment so the contract is explicit.
+  const trimmedBase = revocationRegistryUrl.replace(/\/+$/, "");
+  return `${trimmedBase}/dedi/lookup/${namespace}/${REVOCATION_REGISTRY}`;
+}
+
 // --- Request schemas ---
 
 const issueRequestSchema = z
@@ -313,13 +382,26 @@ credentials.post("/credentials/issue", async (c) => {
     const credentialUuid = randomUUID();
     builder.setId(`urn:uuid:${credentialUuid}`);
     const revocationHash = createHash("sha256").update(credentialUuid).digest("hex");
-    const statusListCredential = parsed.revocationRegistryUrl;
-    const lookupUrl = statusListCredential.replace("/dedi/query/", "/dedi/lookup/");
+    // Issue #528: derive the canonical DeDi lookup URL once, then use it for
+    // BOTH `credentialStatus.id` (with `/<hash>` suffix) AND
+    // `statusListCredential`. The previous code copied the bare-base
+    // `revocationRegistryUrl` verbatim into `statusListCredential` and
+    // glued the hash onto a `/dedi/query/`→`/dedi/lookup/`-rewritten copy
+    // for `id`. When the caller passed a bare base like
+    // `https://my-dedi.example.org`, both serialized URLs were
+    // unresolvable. The helper centralizes the three accepted input shapes
+    // (canonical lookup, canonical query, bare base) so every issued VC
+    // carries a `credentialStatus.id` a W3C-compliant verifier can
+    // dereference.
+    const canonicalLookupUrl = resolveCanonicalRevocationRegistryUrl(
+      parsed.revocationRegistryUrl,
+      getConfig(),
+    );
     builder.setCredentialStatus({
-      id: `${lookupUrl}/${revocationHash}`,
+      id: `${canonicalLookupUrl}/${revocationHash}`,
       type: "dedi",
       statusPurpose: "revocation",
-      statusListCredential,
+      statusListCredential: canonicalLookupUrl,
     });
   }
   // Set credentialSchema link. Per W3C VCDM 2.0 §4.10, every issued
