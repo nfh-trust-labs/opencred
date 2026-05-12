@@ -46,3 +46,13 @@ CVE-2026-24842
 CVE-2026-26960
 CVE-2026-29786
 CVE-2026-31802
+
+# Additional Go stdlib CVEs (same class as the suppressions at the top of
+# this file — prebuilt Go binary in the image, not from our Node.js
+# application code). Will resolve when the upstream binary is rebuilt
+# with a newer Go toolchain.
+CVE-2026-33811
+CVE-2026-33814
+CVE-2026-39820
+CVE-2026-39836
+CVE-2026-42499
