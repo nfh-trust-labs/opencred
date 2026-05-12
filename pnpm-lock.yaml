@@ -365,6 +365,9 @@ importers:
 
   packages/dedi-client:
     dependencies:
+      '@opencred/did':
+        specifier: workspace:*
+        version: link:../did
       '@opencred/shared':
         specifier: workspace:*
         version: link:../shared

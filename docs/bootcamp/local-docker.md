@@ -657,10 +657,12 @@ is part of the point — revocation is a separate trust check, intentionally).
 
 #### 7d. Publish a public key (DID document) to DeDi
 
-Same DeDi instance, same namespace, different registry. The public-key
-registry lets verifiers resolve an issuer's DID document from DeDi instead
-of relying on `did:web` HTTPS lookups or trusting a third-party DID
-registrar.
+Same DeDi instance, same namespace, different registry. The
+`public_key_registry` lets verifiers **discover an issuer's DID document
+via DeDi** — OpenCred's verifier tries the canonical `did:web` HTTPS
+endpoint first, and falls back to DeDi when the well-known URL is
+unreachable. This means an issuer can stop hosting their own
+`.well-known/did.json` and let DeDi serve as the discovery layer.
 
 ```bash
 # Publish — body is { did, document, namespace? }. The "document" is a
@@ -698,7 +700,7 @@ success. `/v1/keys/resolve` returns `{ did, document, resolvedAt }`. Both
 endpoints return `503 DEDI_NOT_CONFIGURED` if the DeDi env vars from §7c
 aren't set.
 
-> **The takeaway**: once you've run §7d on a VM you control, you can stop serving a `did:web` document from a webserver entirely — DeDi becomes the resolution endpoint. The signature on every issued VC is the same as before; only how verifiers find the public key changes.
+> **The takeaway**: once you've run §7d, you can stop serving a `did:web` document from a webserver entirely — OpenCred's verifier falls back to DeDi automatically whenever the canonical endpoint is unreachable. The signature on every issued VC is the same as before; only the discovery path for the public key changes. To make this work for verifiers you don't control, they need to be running OpenCred (or any verifier that wires `createDeDiDIDWebFallback` into its resolver) and have the same `OPENCRED_DEDI_*` env vars set. Pure off-the-shelf did:web resolvers without DeDi awareness will still need the canonical HTTPS endpoint.
 
 #### 7e. Cloud HSM (read-through, not a live exercise)
 

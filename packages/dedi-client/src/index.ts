@@ -1,5 +1,6 @@
 // Primary — consumer-facing
 export { DeDiClient } from "./adapter/client.js";
+export { createDeDiDIDWebFallback } from "./adapter/did-web-fallback.js";
 export type {
   DeDiClientConfig,
   RevocationHashRecord,

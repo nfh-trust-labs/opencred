@@ -243,11 +243,47 @@ export async function runVerify(opts: {
     await import("@opencred/did");
   const { verifyCredential, verifyPdf, loadCscaTrustStore } =
     await import("@opencred/verification");
+
+  // DeDi-backed did:web fallback. When OPENCRED_DEDI_* env vars are set,
+  // build a DeDi client and use it as the resolver fallback so the CLI
+  // can verify credentials whose issuer's `.well-known/did.json` is
+  // unreachable but whose DID document has been published to DeDi via
+  // `POST /v1/keys/publish`. The server route and the desktop IPC do
+  // the equivalent wiring.
+  const dediBaseUrl = process.env.OPENCRED_DEDI_BASE_URL;
+  let didWebResolver: InstanceType<typeof DIDWebResolver>;
+  if (dediBaseUrl) {
+    const { DeDiClient, createDeDiDIDWebFallback } = await import("@opencred/dedi-client");
+    const authType = process.env.OPENCRED_DEDI_AUTH_TYPE ?? "api-key";
+    const auth =
+      authType === "bearer"
+        ? ({
+            type: "bearer" as const,
+            email: process.env.OPENCRED_DEDI_EMAIL ?? "",
+            password: process.env.OPENCRED_DEDI_PASSWORD ?? "",
+          } as const)
+        : ({
+            type: "api-key" as const,
+            apiKey: process.env.OPENCRED_DEDI_API_KEY ?? "",
+          } as const);
+    const dediClient = new DeDiClient({
+      baseUrl: dediBaseUrl,
+      auth,
+      defaultNamespace: process.env.OPENCRED_DEDI_NAMESPACE ?? "",
+      timeoutMs: 10_000,
+      circuitBreakerThreshold: 5,
+      maxRetries: 2,
+    });
+    didWebResolver = new DIDWebResolver(createDeDiDIDWebFallback(dediClient));
+  } else {
+    didWebResolver = new DIDWebResolver();
+  }
+
   const compositeResolver = new CompositeDIDResolver(
     new Map([
       ["key", new DIDKeyResolver()],
       ["jwk", new DIDJwkResolver()],
-      ["web", new DIDWebResolver()],
+      ["web", didWebResolver],
     ]),
   );
   const trustAnchors = cscaTrustStorePath

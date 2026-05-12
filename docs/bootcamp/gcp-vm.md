@@ -568,10 +568,12 @@ on your laptop reaches the VM through the SSH tunnel.
 
 #### 7c. DeDi public-key registry — publish your DID document
 
-With DeDi configured (§7b), you can also push a DID document to the
-`public_key_registry` and resolve it back. Useful when you don't want to
-serve a `did:web` document from a webserver — DeDi becomes the resolution
-endpoint instead.
+With DeDi configured (§7b), you can push a DID document to the
+`public_key_registry` and resolve it back. OpenCred's verifier tries the
+canonical `did:web` HTTPS endpoint first and falls back to DeDi when the
+well-known URL is unreachable, so this lets you stop hosting your own
+`.well-known/did.json` and let DeDi serve as the discovery layer for
+DeDi-aware verifiers.
 
 ```bash
 # Publish (POST body: { did, document, namespace? })
