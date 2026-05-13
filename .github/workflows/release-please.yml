@@ -7,6 +7,12 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # Needed because we chain into docker.yml via workflow_call, which
+  # declares `packages: write` to push to GHCR. A called workflow's
+  # permissions cannot exceed the caller's — without `packages: write`
+  # here the chained reusable workflow fails GitHub's parse-time
+  # validation with `startup_failure`.
+  packages: write
 
 jobs:
   release-please:
