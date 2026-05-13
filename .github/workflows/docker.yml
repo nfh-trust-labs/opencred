@@ -27,6 +27,18 @@ on:
     tags: ['v*']
     # Note: no paths filter on push — tags don't carry a changed-files diff,
     # so paths would prevent tag pushes from triggering. PRs still use paths.
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag to build and publish (e.g. v1.0.0). Must already exist.'
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and publish (e.g. v1.0.0). Must already exist.'
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -105,11 +117,16 @@ jobs:
   docker-push:
     name: Push to GHCR
     needs: [docker-build, test]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.tag != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # When called via workflow_call/dispatch with a `tag` input, build
+          # at that tag rather than the caller's SHA (release-please runs on
+          # new-opencred-dev but creates a v* tag we want to build from).
+          ref: ${{ inputs.tag || github.ref }}
 
       # Required for cross-arch builds — emulates arm64 on the amd64 runner.
       # Adds ~3-4 min to the build vs single-arch, but means Apple Silicon
@@ -132,10 +149,13 @@ jobs:
       - name: Extract version from tag
         id: version
         env:
+          INPUT_TAG: ${{ inputs.tag }}
           GIT_REF: ${{ github.ref_name }}
         run: |
-          # Strip leading 'v' from tag (v1.2.3 -> 1.2.3)
-          VERSION="${GIT_REF#v}"
+          # Prefer the input tag (workflow_call / workflow_dispatch) over
+          # github.ref_name (tag push). Strip leading 'v' (v1.2.3 -> 1.2.3).
+          TAG_RAW="${INPUT_TAG:-$GIT_REF}"
+          VERSION="${TAG_RAW#v}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push (multi-arch)
@@ -171,9 +191,11 @@ jobs:
       - name: Extract version
         id: version
         env:
+          INPUT_TAG: ${{ inputs.tag }}
           GIT_REF: ${{ github.ref_name }}
         run: |
-          VERSION="${GIT_REF#v}"
+          TAG_RAW="${INPUT_TAG:-$GIT_REF}"
+          VERSION="${TAG_RAW#v}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
