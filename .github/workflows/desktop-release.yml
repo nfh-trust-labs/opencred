@@ -4,6 +4,15 @@ on:
   push:
     tags: ['v*']
   workflow_call:
+    inputs:
+      tag:
+        # Optional in workflow_call so release-please can pass an empty
+        # string when release_created is false (the `if:` guard in the
+        # caller still gates execution, but GitHub validates inputs at
+        # parse time — declaring `tag` here is what makes that pass).
+        description: 'Tag to build and publish (e.g. v1.0.0). Must already exist.'
+        required: false
+        type: string
   workflow_dispatch:
     inputs:
       tag:
