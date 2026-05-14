@@ -4,6 +4,24 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.0](https://github.com/nfh-trust-labs/opencred/compare/v1.3.0...v1.4.0) (2026-05-14)
+
+
+### Features
+
+* **verification:** DeDi as a did:web discovery layer ([#530](https://github.com/nfh-trust-labs/opencred/issues/530)) ([7f6ce2f](https://github.com/nfh-trust-labs/opencred/commit/7f6ce2fc3aa0503ff676ec35f5dd25b79d71ca91))
+
+
+### Bug Fixes
+
+* **ci:** declare tag input on desktop-release workflow_call ([#535](https://github.com/nfh-trust-labs/opencred/issues/535)) ([795ff19](https://github.com/nfh-trust-labs/opencred/commit/795ff1971aab06d608de49bc07d86ba942deb840))
+* **server:** derive canonical credentialStatus.id from configured DeDi namespace ([#528](https://github.com/nfh-trust-labs/opencred/issues/528)) ([#534](https://github.com/nfh-trust-labs/opencred/issues/534)) ([366c67a](https://github.com/nfh-trust-labs/opencred/commit/366c67a53d4a5256841427acd51bc4518f2071f9))
+
+
+### Reverts
+
+* **ci:** roll back release-please chaining into desktop-release/docker ([#537](https://github.com/nfh-trust-labs/opencred/issues/537)) ([a4995cc](https://github.com/nfh-trust-labs/opencred/commit/a4995cce40b27f88e3ef2bc9dd3b5688bc8fee47))
+
 ## [1.3.0](https://github.com/nfh-trust-labs/opencred/compare/v1.2.0...v1.3.0) (2026-05-09)
 
 
