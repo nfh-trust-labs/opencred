@@ -228,6 +228,14 @@ VM$ docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
 VM$ docker tag  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest opencred:bootcamp
 ```
 
+> **About the image URL.** The `nfh-trust-labs/opencred` segment is the source
+> repo's GHCR namespace, not a visibility hint — GHCR namespaces every
+> container under the repo that publishes it, so the image inherits the source
+> repo's name even though the image itself is **public** and anonymously
+> pullable. You do not need access to the source repo to pull. If `docker
+> pull` is asking for credentials, run `docker logout ghcr.io` first to clear
+> any stale tokens in `~/.docker/config.json` and retry.
+
 When it finishes:
 
 ```
