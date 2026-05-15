@@ -12,6 +12,89 @@ The Docker image's HTTP API and CLI both expose the same verification engine tha
 
 All three return the same shape: a top-level `code`, a boolean `valid`, and a `checks` array breaking down which steps passed.
 
+## "I only want to verify, not issue"
+
+Verification is a *consumer-side* concern — anyone receiving a credential needs it, but they don't need the issuer's key, the issuer's API token, or even a network connection to the issuer. The Docker image supports four distinct verifier-only setups, none of which require any issuer infrastructure:
+
+### Verifier path 1 — CLI in a one-shot container (zero setup)
+
+The simplest. No long-running server, no signing key, nothing to configure:
+
+```bash
+# Pipe a JWT to the verify subcommand.
+echo "$JWT" | docker run --rm -i \
+  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest verify -
+
+# Or verify a credential from a file.
+docker run --rm -v "$PWD/credential.json:/in.json:ro" \
+  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest verify /in.json
+```
+
+Exit code is `0` on `valid: true`, non-zero otherwise. Works fully offline for `did:key` / `did:jwk` credentials (those are the common cases for issuers using OpenCred's defaults). `did:web` credentials need outbound HTTPS to the issuer's domain; DSC-signed credentials need a CSCA bundle mounted in.
+
+### Verifier path 2 — Library, embedded in your own service
+
+Add `@opencred/verification` to your Node service and call it directly — no OpenCred container required at all:
+
+```ts
+import { verifyCredential } from "@opencred/verification";
+import { DIDKeyResolver, CompositeDIDResolver } from "@opencred/did";
+
+const resolver = new CompositeDIDResolver(new Map([
+  ["key", new DIDKeyResolver()],
+]));
+
+const result = await verifyCredential(jwt, { didResolver: resolver });
+if (result.verified) {
+  // proceed
+}
+```
+
+This is what production verifier services should generally use — it bypasses the HTTP/auth overhead and runs in your own process boundary.
+
+### Verifier path 3 — HTTP server in verify-only mode
+
+Run the same Docker image but **omit `OPENCRED_KEY_PATH`** — the server starts without a signing key and the issue endpoint is automatically disabled, but the verify endpoint works normally:
+
+```bash
+docker run -d --name opencred-verifier \
+  -p 3100:3100 \
+  -e OPENCRED_PORT=3100 \
+  -e OPENCRED_API_KEY="$(openssl rand -base64 32)" \
+  --read-only --tmpfs /tmp:noexec,nosuid,size=64m \
+  --cap-drop ALL --security-opt no-new-privileges:true \
+  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+```
+
+Notes:
+
+* The `OPENCRED_API_KEY` is still required — it's the bearer token callers need to hit `/v1/credentials/verify`. Generate any random secret; this isn't an "issuer" identity, just an access token for the verify endpoint.
+* No `OPENCRED_KEY_PATH`, no `-v` mount for a signing key.
+* `POST /v1/credentials/issue` returns HTTP 500 (`requireSigner` correctly fails) — call sites that try to issue will surface as errors, which is the desired behaviour for a pure-verifier deployment.
+* **Health-probe gotcha:** `GET /v1/health` returns HTTP 503 with `ready: false, signingKeyLoaded: false`. The server is in fact functional, but the health endpoint considers "no signing key" not-ready by design. For orchestrators (Kubernetes, Docker Swarm, Cloud Run), configure a custom liveness probe — e.g. a successful `POST /v1/credentials/verify` against a known-good test credential — instead of relying on `/v1/health`.
+
+Layer DeDi on top with the same `OPENCRED_DEDI_*` env vars if you need revocation checks or did:web fallback — see [Using DeDi for verification](#using-dedi-for-verification).
+
+### Verifier path 4 — Any conformant W3C VC verifier
+
+OpenCred-issued credentials follow the W3C VC Data Model 2.0 with standard proof formats (`vc-jwt` / `data-integrity` / `sd-jwt-vc`). Any conformant verifier should accept them — the MOSIP Inji wallet, generic JOSE libraries (`jose`, `jsonwebtoken`, `python-jose`), and other VC verification toolkits.
+
+The receiver needs:
+
+1. **The credential** (compact JWT, JSON-LD VC, sd-jwt-vc, or PixelPass string from a QR).
+2. **The issuer's public key**, which a conformant `did:key` / `did:jwk` / `did:web` resolver derives offline from the DID string itself. No OpenCred-specific code required.
+
+This is the demonstration of W3C VC portability: the credential is verifiable by anyone with stock crypto libraries — see the worked Python recipe in [`samples/electricity-v1/VERIFY.md` Path C](https://github.com/nfh-trust-labs/opencred/blob/new-opencred-dev/docs/bootcamp/local-docker.md#5-issue-and-verify-your-first-credential) (or the equivalent in your own bootcamp checkout).
+
+### Pick-the-path-quickly cheat sheet
+
+| Scenario | Best path |
+|---|---|
+| One-off "does this credential check out?" from a shell | Path 1 (CLI one-shot) |
+| Production verifier service in Node | Path 2 (library) |
+| Production verifier exposed via HTTP for non-Node clients | Path 3 (verify-only server) |
+| Demonstrating that credentials are truly portable | Path 4 (any verifier) |
+
 ## Accepted input formats
 
 The verifier auto-detects the credential format. Same set of formats across all three surfaces:
