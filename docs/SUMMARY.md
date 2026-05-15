@@ -26,6 +26,7 @@
 * [Deployment](docker/deployment.md)
 * [API reference](docker/api-reference.md)
 * [CLI reference](docker/cli-reference.md)
+* [Verifying credentials](docker/verifying-credentials.md)
 * [Cloud HSM](docker/cloud-hsm.md)
 * [Observability](docker/observability.md)
 * [OID4VCI](docker/oid4vci.md)

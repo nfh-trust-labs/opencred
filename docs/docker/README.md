@@ -11,6 +11,7 @@ OpenCred is **not** a SaaS. There is no `api.opencred.com` to call. You deploy t
 * [Deployment](deployment.md) — `docker run`, `docker compose`, environment variables, volumes, persistent state
 * [API reference](api-reference.md) — HTTP endpoints exposed by your deployment
 * [CLI reference](cli-reference.md) — `opencred` command-line tool for offline operations
+* [Verifying credentials](verifying-credentials.md) — HTTP, CLI, library, and DeDi-backed verification surfaces
 * [Cloud HSM](cloud-hsm.md) — AWS KMS, Azure Key Vault, GCP Cloud KMS setup
 * [Observability](observability.md) — logging, metrics, health checks, structured output
 * [OID4VCI](oid4vci.md) — OpenID for Verifiable Credential Issuance (planned)
