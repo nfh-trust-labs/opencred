@@ -62,11 +62,7 @@ import {
   type DIDResolver,
 } from "@opencred/did";
 
-import {
-  DeDiClient,
-  createDeDiDIDWebFallback,
-  type DeDiClientConfig,
-} from "@opencred/dedi-client";
+import { DeDiClient, createDeDiDIDWebFallback, type DeDiClientConfig } from "@opencred/dedi-client";
 
 // -----------------------------------------------------------------------------
 // Re-exports — types
@@ -194,9 +190,7 @@ export function createVerifier(options: VerifySdkOptions = {}): Verifier {
 
   // Build the DeDi client first (if configured) — needed both for
   // revocation checks and for did:web resolution fallback.
-  const dediClient = options.dedi
-    ? new DeDiClient({ ...options.dedi, logger })
-    : null;
+  const dediClient = options.dedi ? new DeDiClient({ ...options.dedi, logger }) : null;
 
   // Build the DID resolver. Default: did:key + did:jwk + did:web (with
   // DeDi fallback if available). Consumer can override entirely.
@@ -206,12 +200,7 @@ export function createVerifier(options: VerifySdkOptions = {}): Verifier {
       new Map<string, DIDResolver>([
         ["key", new DIDKeyResolver()],
         ["jwk", new DIDJwkResolver()],
-        [
-          "web",
-          new DIDWebResolver(
-            dediClient ? createDeDiDIDWebFallback(dediClient) : undefined,
-          ),
-        ],
+        ["web", new DIDWebResolver(dediClient ? createDeDiDIDWebFallback(dediClient) : undefined)],
       ]),
     );
 
@@ -221,12 +210,10 @@ export function createVerifier(options: VerifySdkOptions = {}): Verifier {
     dediClient: dediClient ?? undefined,
   };
 
-  const fn = async (
-    input: VerificationInput,
-  ): Promise<CredentialVerificationResult> => _verifyCredential(input, verifierConfig);
+  const fn = async (input: VerificationInput): Promise<CredentialVerificationResult> =>
+    _verifyCredential(input, verifierConfig);
 
-  (fn as Verifier).pdf = async (pdfBytes: Uint8Array) =>
-    _verifyPdf(pdfBytes, verifierConfig);
+  (fn as Verifier).pdf = async (pdfBytes: Uint8Array) => _verifyPdf(pdfBytes, verifierConfig);
 
   return fn as Verifier;
 }
