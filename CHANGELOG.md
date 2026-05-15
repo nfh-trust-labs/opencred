@@ -4,6 +4,13 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.1](https://github.com/nfh-trust-labs/opencred/compare/v1.4.0...v1.4.1) (2026-05-15)
+
+
+### Bug Fixes
+
+* **deps:** bump protobufjs override to ^7.5.6 for CVE-2026-44289..44293 ([#539](https://github.com/nfh-trust-labs/opencred/issues/539)) ([9a97d7e](https://github.com/nfh-trust-labs/opencred/commit/9a97d7e42633a76d01fc167acba00c7007472b40))
+
 ## [1.4.0](https://github.com/nfh-trust-labs/opencred/compare/v1.3.0...v1.4.0) (2026-05-14)
 
 
