@@ -1,5 +1,15 @@
 export * from "./errors.js";
-export * from "./config.js";
+// NOTE: `./config.js` is intentionally NOT re-exported from the package
+// index. It defines a process-environment zod schema with server-only
+// configuration fields (signing-key paths, JWT_SECRET, CORS_ORIGIN,
+// MAX_BATCH_SIZE, etc.) and is currently consumed by nothing in the
+// workspace — the server has its own `apps/server/src/config.ts`. Leaving
+// the re-export in place caused this module to be pulled into every
+// consumer that imports anything from `@opencred/shared` (e.g. the verify
+// SDK bundle), leaking server config schema definitions and internal
+// review comments into the published artefact. If a future consumer
+// genuinely needs the schema, import it from `@opencred/shared/dist/config.js`
+// or move it into its own subpath export.
 export { isPrivateIP, resolveDnsForSsrf } from "./ssrf.js";
 export { canonicalJsonSha256 } from "./hash.js";
 export { detectCredentialInputFormat, isPdfBytes } from "./credential-format.js";

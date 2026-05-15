@@ -10,13 +10,16 @@ import { defineConfig } from "tsup";
  *  - Emits both ESM (`dist/index.js`) and CJS (`dist/index.cjs`) so the
  *    SDK works in modern ESM-first projects and legacy CJS projects alike.
  *  - Emits `.d.ts` types via tsup's built-in dts generation.
- *  - Source maps inlined for easier debugging downstream.
+ *  - Source maps are intentionally NOT emitted in release builds — they
+ *    would ship the full text of every inlined workspace module to
+ *    consumers, which both inflates bundle size and amplifies any
+ *    over-inclusion bug into a public source leak.
  */
 export default defineConfig({
   entry: ["src/index.ts"],
   format: ["esm", "cjs"],
   dts: true,
-  sourcemap: true,
+  sourcemap: false,
   clean: true,
   splitting: false,
   treeshake: true,

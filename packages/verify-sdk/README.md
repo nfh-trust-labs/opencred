@@ -136,7 +136,7 @@ One-shot helpers — equivalent to `createVerifier(options)(...)` but discard th
 
 ### `detectFormat(input)` → `CredentialFormat`
 
-Returns the detected wire format (`"vc-jwt"`, `"sd-jwt-vc"`, `"pixelpass"`, `"json"`, or `"unknown"`) without verifying. Useful for routing.
+Returns the detected wire format without verifying. Useful for routing. The `CredentialFormat` union is `"data-integrity" | "vc-jwt" | "sd-jwt-vc" | "jws"`. For PDF inputs and OPENCRED1 PixelPass strings, the SDK decodes them before reaching `detectFormat` — call `verifyPdf` directly for PDFs, and pass the OPENCRED1 string straight to `verify(input)` to let the SDK route internally.
 
 ## Result shape
 
