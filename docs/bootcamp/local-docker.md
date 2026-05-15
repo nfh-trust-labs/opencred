@@ -60,6 +60,15 @@ docker tag ghcr.io/nfh-trust-labs/opencred/opencred-server:latest opencred:bootc
 
 This is a public image — no GHCR auth required. ~150 MB. Skip ahead to §3.
 
+> **About the image URL.** The `nfh-trust-labs/opencred` segment in the GHCR
+> path is the *source repo's* namespace, not a visibility hint. GHCR namespaces
+> every container under the repo that publishes it, so the image inherits the
+> source repo's name even though the image itself is **public** and
+> anonymously pullable. You do not need a token or read access to
+> `nfh-trust-labs/opencred` to `docker pull` it; if your `docker pull` is
+> asking for credentials, run `docker logout ghcr.io` first to clear any
+> stale tokens in `~/.docker/config.json` and retry.
+
 #### 2b. (Optional) Build from source
 
 If you want to inspect the Dockerfile, modify the schema engine, or work
