@@ -21,13 +21,13 @@ Verification is a *consumer-side* concern — anyone receiving a credential need
 The simplest. No long-running server, no signing key, nothing to configure:
 
 ```bash
-# Pipe a JWT to the verify subcommand.
+# Pipe a JWT to the verify subcommand (use `--input -` to read from stdin).
 echo "$JWT" | docker run --rm -i \
-  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest verify -
+  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest verify --input -
 
 # Or verify a credential from a file.
 docker run --rm -v "$PWD/credential.json:/in.json:ro" \
-  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest verify /in.json
+  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest verify --input /in.json
 ```
 
 Exit code is `0` on `valid: true`, non-zero otherwise. Works fully offline for `did:key` / `did:jwk` credentials (those are the common cases for issuers using OpenCred's defaults). `did:web` credentials need outbound HTTPS to the issuer's domain; DSC-signed credentials need a CSCA bundle mounted in.
@@ -84,7 +84,13 @@ The receiver needs:
 1. **The credential** (compact JWT, JSON-LD VC, sd-jwt-vc, or PixelPass string from a QR).
 2. **The issuer's public key**, which a conformant `did:key` / `did:jwk` / `did:web` resolver derives offline from the DID string itself. No OpenCred-specific code required.
 
-This is the demonstration of W3C VC portability: the credential is verifiable by anyone with stock crypto libraries — see the worked Python recipe in [`samples/electricity-v1/VERIFY.md` Path C](https://github.com/nfh-trust-labs/opencred/blob/new-opencred-dev/docs/bootcamp/local-docker.md#5-issue-and-verify-your-first-credential) (or the equivalent in your own bootcamp checkout).
+This is the demonstration of W3C VC portability: an OpenCred-issued vc-jwt is just an ES256-signed JOSE token whose `iss` is a self-describing `did:key`. Any stock JOSE library can:
+
+1. Split the JWT, base64url-decode the payload, read `iss`.
+2. Resolve the `did:key` locally (the suffix encodes the public key directly — no network call).
+3. Verify the ES256 signature over `header.payload`.
+
+A complete worked Python example using only `cryptography` is generated as part of the bootcamp (see [Bootcamp → Local Docker track](../bootcamp/local-docker.md)).
 
 ### Pick-the-path-quickly cheat sheet
 
@@ -156,16 +162,19 @@ On failure, `valid: false`, a stable `code` enum, and a generic `message`. The `
 The Docker image ships an `opencred` CLI for offline verification — no long-running server needed.
 
 ```bash
-# JWT compact from stdin:
-echo "$JWT" | docker run --rm -i opencred:bootcamp verify -
+# JWT compact from stdin (use `--input -`):
+echo "$JWT" | docker run --rm -i opencred:bootcamp verify --input -
 
 # JSON-LD VC from a file:
 docker run --rm -v "$PWD/my-credential.json:/in.json:ro" \
-  opencred:bootcamp verify /in.json
+  opencred:bootcamp verify --input /in.json
 
 # PDF from a file:
 docker run --rm -v "$PWD/my-credential.pdf:/in.pdf:ro" \
-  opencred:bootcamp verify /in.pdf
+  opencred:bootcamp verify --input /in.pdf
+
+# Pass `--json` for machine-readable output, or `--csca-trust-store <dir>`
+# for DSC chain validation.
 ```
 
 Exit code is `0` on `valid: true`, non-zero otherwise. Result JSON goes to stdout. Format detection is automatic. To wire up DeDi or a CSCA trust store, pass the same `OPENCRED_*` env vars via `-e`. See [`CLI reference`](cli-reference.md) for the full command surface.
@@ -199,16 +208,19 @@ For PDFs, call `verifyPdf(uint8array, config)`. The `config` object accepts `tru
 
 ## What gets checked
 
-| Check | Validates | Always runs? |
+These are the `name` literals that appear in `result.checks[].name`:
+
+| Check `name` | Validates | When it runs |
 |---|---|---|
-| `signature` | Cryptographic signature against the issuer's public key (resolved from the DID) | Yes |
-| `vc-jwt-claims` / `data-integrity-proof-config` | Proof envelope is well-formed and consistent with the credential it carries | Yes (in proof-format-appropriate form) |
-| `date` | The credential is currently within `validFrom`…`validUntil` | Yes |
-| `x509-chain` | DSC chains to a configured CSCA trust anchor | When the proof carries an `x5c` chain |
-| `revocation` | The credential's hash is not in the issuer's revocation registry | When `credentialStatus` is present AND a DeDi client is configured |
-| `schema` | The credential subject matches the bundled JSON Schema referenced by `credentialSchema` | When `credentialSchema` is set |
-| `context` | Every `@context` URL resolves to a bundled context | When the credential carries a Data Integrity proof (RDFC-1.0 canonicalization) |
-| `pdf-*` | The embedded credential extracted from the PDF info-dictionary is intact | When the input is a PDF |
+| `signature` | Cryptographic signature against the issuer's public key (resolved from the DID). Also detects tampering of the credential body or of the JSON-LD `@context` / schema references (those changes invalidate the signed canonical form). | Always |
+| `vc-jwt-claims` | The JWT envelope claims (`iss`, `jti`, `nbf`, `exp`, `iat`, `vc`) are well-formed and consistent with the embedded credential. | When the credential is a vc-jwt |
+| `vct` | The sd-jwt-vc `vct` (credential type) matches the expected type when one is asserted by the caller. | When the credential is sd-jwt-vc |
+| `date` | The credential is currently within `validFrom`…`validUntil`. | Always |
+| `x509-chain` | DSC chains to a configured CSCA trust anchor. | When the proof carries an `x5c` chain |
+| `revocation` | The credential's hash is not in the issuer's revocation registry. | When `credentialStatus` is present AND a DeDi client is configured |
+| `pdf-parse`, `pdf-encrypted`, `pdf-embedded-credential`, `pdf-credential-decode` | The PDF parses, isn't encrypted, has an `OpenCredCredential` info-dict entry, and that entry decodes to a valid credential. | When the input is a PDF |
+
+JSON-LD context resolution and JSON Schema validation are enforced at credential **construction time** (issuer-side) — verification surfaces a context-loader failure as `code: "CONTEXT_MISSING"` and never makes a remote fetch; schema conformance is implied by the credential being a faithful copy of what the issuer signed.
 
 ## Result codes
 
