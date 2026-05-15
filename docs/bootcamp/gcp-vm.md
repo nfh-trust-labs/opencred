@@ -154,15 +154,15 @@ Also install the small set of tools we'll need on the VM:
 VM$ sudo apt-get install -y git openssl jq
 ```
 
-### 4. Get the code, generate the key, build the image
+### 4. Generate the key and pull the image
 
 All of this happens **on the VM**, not on your laptop.
 
-```
-VM$ git clone https://github.com/nfh-trust-labs/opencred.git
-VM$ cd opencred
-VM$ git checkout new-opencred-dev
-```
+> **No source-repo clone required.** The main flow pulls the public OpenCred
+> image from GHCR (a few subsections down). The `nfh-trust-labs/opencred`
+> source repo is private; `git clone` returns 404 for most readers. If you
+> want to inspect or modify the server before issuing, see the optional
+> "Building from source" callout right after the `docker pull` step.
 
 Generate a signing key. EC P-256 supports all three proof formats:
 
@@ -234,7 +234,15 @@ When it finishes:
 VM$ docker images opencred:bootcamp        # should show one row
 ```
 
-> **Building from source instead?** If you have access to the (private) source repo, you can build with `docker build -f apps/server/Dockerfile -t opencred:bootcamp .` — that's ~5–10 minutes on an `e2-small`. Pulling the public image is faster; the only reason to build is if you want to inspect or patch the server before issuing.
+> **Building from source instead?** Optional — only do this if you want to inspect or patch the server before issuing. The source repo `nfh-trust-labs/opencred` is private; `git clone` returns 404 unless you have read access. If you do:
+>
+> ```
+> VM$ git clone https://github.com/nfh-trust-labs/opencred.git
+> VM$ cd opencred && git checkout new-opencred-dev
+> VM$ docker build -f apps/server/Dockerfile -t opencred:bootcamp .
+> ```
+>
+> That's ~5–10 minutes on an `e2-small` (don't try on `e2-micro` — see the troubleshooting matrix). Pulling the public image is faster; for the bootcamp it's strictly better.
 
 ### 5. Run the container, tunnel from your laptop
 
