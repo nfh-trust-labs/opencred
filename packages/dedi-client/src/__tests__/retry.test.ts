@@ -182,4 +182,56 @@ describe("withRetry", () => {
     );
     expect(fn).toHaveBeenCalledTimes(1);
   });
+
+  describe("retryable: false (issue #546)", () => {
+    it("does NOT retry a 5xx when retryable is false", async () => {
+      // 500 would normally be retried (it's a transient error), but the
+      // explicit retryable:false flag short-circuits the loop. This is
+      // the protection against non-idempotent POSTs creating duplicates
+      // on transient upstream failures.
+      const fn = vi.fn().mockRejectedValue(new DeDiClientError("upstream blip", 502));
+
+      await expect(
+        withRetry(fn, { maxRetries: 3, baseDelayMs: 100, retryable: false }),
+      ).rejects.toThrow("upstream blip");
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it("does NOT retry a network error when retryable is false", async () => {
+      const fn = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+
+      await expect(
+        withRetry(fn, { maxRetries: 3, baseDelayMs: 100, retryable: false }),
+      ).rejects.toThrow("fetch failed");
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it("still returns the result on success with retryable false", async () => {
+      const fn = vi.fn().mockResolvedValue("ok");
+
+      const result = await withRetry(fn, {
+        maxRetries: 3,
+        baseDelayMs: 100,
+        retryable: false,
+      });
+
+      expect(result).toBe("ok");
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it("defaults to retryable true (preserves historical behaviour)", async () => {
+      // Sanity check that omitting the flag retries like before.
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new DeDiClientError("upstream blip", 502))
+        .mockResolvedValueOnce("ok");
+
+      const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+      await vi.advanceTimersByTimeAsync(100);
+      const result = await promise;
+
+      expect(result).toBe("ok");
+      expect(fn).toHaveBeenCalledTimes(2);
+    });
+  });
 });

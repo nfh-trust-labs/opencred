@@ -238,20 +238,57 @@ export class DeDiClient {
   }
 
   async ensureRegistries(namespace: string): Promise<void> {
+    // Lookup-first dedupe (see #546). createNamespace is non-idempotent and
+    // has no `Idempotency-Key` support on the DeDi server; if we naively
+    // POST every time we'd risk duplicating the row whenever the lookup
+    // path is unreliable (transient 5xx, partial response, etc.). Checking
+    // lookupNamespace first means a re-run of `ensureRegistries` against
+    // an existing namespace is a single idempotent GET, not a POST.
+    let namespaceExists = false;
     try {
-      const nsResult = await this.api.createNamespace(namespace, "OpenCred namespace");
-      this.logger.debug("Namespace created", {
-        namespace,
-        result: JSON.stringify(nsResult).slice(0, 200),
-      });
-    } catch (nsErr) {
-      const code = nsErr instanceof DeDiClientError ? nsErr.statusCode : 0;
-      this.logger.error("Namespace creation failed", {
-        namespace,
-        code,
-        error: nsErr instanceof Error ? nsErr.message : String(nsErr),
-      });
-      if (code !== 409) throw nsErr; // Only ignore "already exists"
+      await this.api.lookupNamespace(namespace);
+      namespaceExists = true;
+      this.logger.debug("Namespace already exists, skipping create", { namespace });
+    } catch (lookupErr) {
+      const code = lookupErr instanceof DeDiClientError ? lookupErr.statusCode : 0;
+      // 404 (not found) is the expected "needs create" path. Any other
+      // error is unexpected and should propagate — we don't want to fall
+      // back to create on a transient lookup failure because that's exactly
+      // how duplicates were getting created before.
+      if (code !== 404) {
+        this.logger.error("Namespace lookup failed unexpectedly", {
+          namespace,
+          code,
+          error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
+        });
+        throw lookupErr;
+      }
+    }
+
+    if (!namespaceExists) {
+      try {
+        const nsResult = await this.api.createNamespace(namespace, "OpenCred namespace");
+        this.logger.debug("Namespace created", {
+          namespace,
+          result: JSON.stringify(nsResult).slice(0, 200),
+        });
+      } catch (nsErr) {
+        const code = nsErr instanceof DeDiClientError ? nsErr.statusCode : 0;
+        // Belt-and-braces: even after lookup-first, a concurrent create from
+        // another client could race in. Accept both HTTP 409 and a body code
+        // matching "NAMESPACE_EXISTS" / "ALREADY_EXISTS" as "someone else
+        // got there first" — same outcome as if we'd seen the lookup hit.
+        if (code === 409 || isAlreadyExistsBody(nsErr)) {
+          this.logger.debug("Namespace already existed (race after lookup)", { namespace });
+        } else {
+          this.logger.error("Namespace creation failed", {
+            namespace,
+            code,
+            error: nsErr instanceof Error ? nsErr.message : String(nsErr),
+          });
+          throw nsErr;
+        }
+      }
     }
 
     await Promise.all([
@@ -323,6 +360,36 @@ async function ignoreConflict(fn: () => Promise<unknown>): Promise<void> {
     if (error instanceof DeDiClientError && error.statusCode === 409) {
       return; // Already exists — idempotent success
     }
+    if (isAlreadyExistsBody(error)) {
+      // DeDi sometimes returns 400 with a body code like `NAMESPACE_EXISTS`
+      // or `REGISTRY_EXISTS` rather than the more conventional 409. Treat
+      // those as benign "already exists" the same way. See #546.
+      return;
+    }
     throw error;
   }
+}
+
+const ALREADY_EXISTS_BODY_CODE_PATTERN = /^(.*_)?(ALREADY_EXISTS|EXISTS)$/i;
+
+/**
+ * Returns `true` if the error's response body advertises an "already exists"
+ * condition via a stable code field. Matches both top-level `code` and
+ * `error.code` patterns and the common substring forms (`NAMESPACE_EXISTS`,
+ * `REGISTRY_ALREADY_EXISTS`, `RESOURCE_EXISTS`, etc.).
+ */
+function isAlreadyExistsBody(error: unknown): boolean {
+  if (!(error instanceof DeDiClientError) || error.responseBody == null) {
+    return false;
+  }
+  const body = error.responseBody;
+  if (typeof body !== "object") return false;
+  const rec = body as Record<string, unknown>;
+  const candidates: unknown[] = [
+    rec["code"],
+    rec["error_code"],
+    rec["errorCode"],
+    (rec["error"] as { code?: unknown } | undefined)?.code,
+  ];
+  return candidates.some((c) => typeof c === "string" && ALREADY_EXISTS_BODY_CODE_PATTERN.test(c));
 }

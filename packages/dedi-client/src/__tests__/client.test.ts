@@ -18,6 +18,7 @@ vi.mock("../api/api-client.js", () => {
   MockDeDiApiClient.prototype.search = vi.fn();
   MockDeDiApiClient.prototype.createNamespace = vi.fn();
   MockDeDiApiClient.prototype.createRegistry = vi.fn();
+  MockDeDiApiClient.prototype.lookupNamespace = vi.fn();
   return { DeDiApiClient: MockDeDiApiClient };
 });
 
@@ -292,6 +293,11 @@ describe("DeDiClient (adapter)", () => {
     it("creates namespace and all three registries", async () => {
       const client = createClient("example.com");
       const api = mockApi();
+      // Lookup returns 404 first time, then create succeeds (the fresh-
+      // install path — namespace doesn't exist yet, so create runs once).
+      vi.mocked(api.lookupNamespace).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 404", 404),
+      );
       vi.mocked(api.createNamespace).mockResolvedValue({
         name: "example.com",
         description: "OpenCred namespace",
@@ -313,6 +319,7 @@ describe("DeDiClient (adapter)", () => {
 
       await client.ensureRegistries("example.com");
 
+      expect(api.lookupNamespace).toHaveBeenCalledWith("example.com");
       expect(api.createNamespace).toHaveBeenCalledWith("example.com", expect.any(String));
       expect(api.createRegistry).toHaveBeenCalledTimes(4);
       expect(api.createRegistry).toHaveBeenCalledWith(
@@ -344,9 +351,46 @@ describe("DeDiClient (adapter)", () => {
       );
     });
 
-    it("treats 409 Conflict as success (idempotent)", async () => {
+    it("skips createNamespace when lookupNamespace finds an existing namespace", async () => {
+      // Issue #546 regression test: pre-existing namespace must not be
+      // re-created. lookupNamespace returns 200, so createNamespace should
+      // never be called.
       const client = createClient("example.com");
       const api = mockApi();
+      vi.mocked(api.lookupNamespace).mockResolvedValue({
+        name: "example.com",
+        description: "OpenCred namespace",
+        state: "active",
+        verified: false,
+        created_at: "",
+        updated_at: "",
+      });
+      vi.mocked(api.createRegistry).mockResolvedValue({
+        name: "test",
+        namespace: "example.com",
+        schema: {},
+        tag: "Revoke",
+        state: "active",
+        record_count: 0,
+        created_at: "",
+        updated_at: "",
+      });
+
+      await expect(client.ensureRegistries("example.com")).resolves.toBeUndefined();
+
+      expect(api.lookupNamespace).toHaveBeenCalledWith("example.com");
+      expect(api.createNamespace).not.toHaveBeenCalled();
+    });
+
+    it("treats 409 Conflict on create as success (race after lookup)", async () => {
+      // If the lookup returns 404 but a concurrent client creates the
+      // namespace before our POST lands, the POST returns 409 — treat as
+      // benign.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupNamespace).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 404", 404),
+      );
       vi.mocked(api.createNamespace).mockRejectedValue(
         new DeDiClientError("DeDi API error: 409", 409),
       );
@@ -354,13 +398,53 @@ describe("DeDiClient (adapter)", () => {
         new DeDiClientError("DeDi API error: 409", 409),
       );
 
-      // Should not throw
       await expect(client.ensureRegistries("example.com")).resolves.toBeUndefined();
     });
 
-    it("re-throws non-409 errors", async () => {
+    it("treats body code NAMESPACE_EXISTS on create as success", async () => {
+      // DeDi sometimes returns 400 with body code rather than 409.
       const client = createClient("example.com");
       const api = mockApi();
+      vi.mocked(api.lookupNamespace).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 404", 404),
+      );
+      vi.mocked(api.createNamespace).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 400", 400, { code: "NAMESPACE_EXISTS" }),
+      );
+      vi.mocked(api.createRegistry).mockResolvedValue({
+        name: "test",
+        namespace: "example.com",
+        schema: {},
+        tag: "Revoke",
+        state: "active",
+        record_count: 0,
+        created_at: "",
+        updated_at: "",
+      });
+
+      await expect(client.ensureRegistries("example.com")).resolves.toBeUndefined();
+    });
+
+    it("re-throws non-404 errors from lookupNamespace", async () => {
+      // A transient 5xx on lookup must NOT fall through to create — that
+      // is exactly how duplicate namespaces were created before. Surface
+      // the error so the user knows the operation failed.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupNamespace).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 500", 502),
+      );
+
+      await expect(client.ensureRegistries("example.com")).rejects.toThrow("DeDi API error: 500");
+      expect(api.createNamespace).not.toHaveBeenCalled();
+    });
+
+    it("re-throws non-409 errors on create when lookup said 404", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupNamespace).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 404", 404),
+      );
       vi.mocked(api.createNamespace).mockRejectedValue(
         new DeDiClientError("DeDi API error: 500", 502),
       );

@@ -461,9 +461,17 @@ export class DelegationError extends OpenCredError {
 }
 
 export class DeDiClientError extends OpenCredError {
-  constructor(message: string, statusCode: number = 502) {
+  /**
+   * The parsed JSON body of the DeDi API response (when one was present and
+   * decodable), or the raw response text. Lets callers branch on
+   * server-specific body codes — e.g. distinguish a 400 with
+   * `{ code: "NAMESPACE_EXISTS" }` from a generic 400.
+   */
+  readonly responseBody?: unknown;
+  constructor(message: string, statusCode: number = 502, responseBody?: unknown) {
     super(message, "DEDI_CLIENT_ERROR", statusCode, { kind: "DeDiClientError" });
     this.name = "DeDiClientError";
+    this.responseBody = responseBody;
   }
 }
 

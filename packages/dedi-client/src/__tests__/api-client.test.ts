@@ -160,6 +160,41 @@ describe("DeDiApiClient", () => {
       });
     });
 
+    it("createNamespace does NOT retry on 5xx (issue #546)", async () => {
+      // Without retryable:false, maxRetries:3 would trigger 4 POSTs and
+      // create up to 4 duplicate namespaces on the user's DeDi account.
+      mockFetch.mockResolvedValue(new Response("upstream error", { status: 500, headers: {} }));
+
+      const client = new DeDiApiClient(createConfig({ maxRetries: 3 }));
+      await expect(client.createNamespace("example.com", "Test")).rejects.toThrow();
+
+      // Exactly one call — no retry loop on this non-idempotent POST.
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("createNamespace surfaces JSON body on error.responseBody", async () => {
+      // The adapter layer needs to read response body codes like
+      // NAMESPACE_EXISTS to dedupe across 4xx variants.
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify({ code: "NAMESPACE_EXISTS" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      const client = new DeDiApiClient(createConfig());
+      let caught: unknown;
+      try {
+        await client.createNamespace("example.com", "Test");
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(DeDiClientError);
+      expect((caught as DeDiClientError).statusCode).toBe(400);
+      expect((caught as DeDiClientError).responseBody).toEqual({ code: "NAMESPACE_EXISTS" });
+    });
+
     it("lookupNamespace GETs /dedi/lookup/{ns}", async () => {
       const ns = {
         name: "example.com",

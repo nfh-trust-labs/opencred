@@ -134,10 +134,18 @@ export class DeDiApiClient {
   // ── Namespace ────────────────────────────────────────────────────
 
   async createNamespace(name: string, description: string): Promise<DeDiNamespace> {
-    return this.request<DeDiNamespace>("/dedi/create-namespace", {
-      method: "POST",
-      body: JSON.stringify({ name, description, meta: {} }),
-    });
+    // Non-idempotent POST — disable retry. The DeDi server does not currently
+    // accept an `Idempotency-Key` header, and blind retry on a transient 5xx
+    // (or a network blip after the row was already written) silently creates
+    // duplicate namespaces on the user's account. See issue #546.
+    return this.request<DeDiNamespace>(
+      "/dedi/create-namespace",
+      {
+        method: "POST",
+        body: JSON.stringify({ name, description, meta: {} }),
+      },
+      { retryable: false },
+    );
   }
 
   async lookupNamespace(ns: string): Promise<DeDiNamespace> {
@@ -152,27 +160,34 @@ export class DeDiApiClient {
     schema: unknown,
     tag?: DeDiRegistryTag,
   ): Promise<DeDiRegistry> {
-    return this.request<DeDiRegistry>(`/dedi/${enc(ns)}/create-registry`, {
-      method: "POST",
-      body: JSON.stringify({
-        registry_name: name,
-        description: `OpenCred ${name} registry`,
-        // DeDi API: either schema OR tag, not both
-        ...(tag
-          ? { tag }
-          : {
-              schema:
-                Object.keys(schema as Record<string, unknown>).length > 0
-                  ? schema
-                  : {
-                      $schema: "http://json-schema.org/draft-07/schema#",
-                      type: "object",
-                      properties: {},
-                    },
-            }),
-        meta: {},
-      }),
-    });
+    // Non-idempotent POST — disable retry. Same rationale as createNamespace:
+    // duplicate registries on transient 5xx are easy to create and hard to
+    // clean up. See issue #546.
+    return this.request<DeDiRegistry>(
+      `/dedi/${enc(ns)}/create-registry`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          registry_name: name,
+          description: `OpenCred ${name} registry`,
+          // DeDi API: either schema OR tag, not both
+          ...(tag
+            ? { tag }
+            : {
+                schema:
+                  Object.keys(schema as Record<string, unknown>).length > 0
+                    ? schema
+                    : {
+                        $schema: "http://json-schema.org/draft-07/schema#",
+                        type: "object",
+                        properties: {},
+                      },
+              }),
+          meta: {},
+        }),
+      },
+      { retryable: false },
+    );
   }
 
   async lookupRegistry(ns: string, reg: string): Promise<DeDiRegistry> {
@@ -384,20 +399,34 @@ export class DeDiApiClient {
 
   // ── Internal HTTP plumbing ───────────────────────────────────────
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+  /**
+   * Per-call request options that the public methods can use to override
+   * the default retry/circuit-breaker behaviour.
+   */
+  private async request<T>(
+    path: string,
+    init?: RequestInit,
+    callOptions?: { retryable?: boolean },
+  ): Promise<T> {
     return this.circuitBreaker.execute(() =>
       withRetry(() => this.fetchJson<T>(path, init), {
         maxRetries: this.config.maxRetries,
         logger: this.logger,
+        retryable: callOptions?.retryable,
       }),
     );
   }
 
-  private async requestVoid(path: string, init?: RequestInit): Promise<void> {
+  private async requestVoid(
+    path: string,
+    init?: RequestInit,
+    callOptions?: { retryable?: boolean },
+  ): Promise<void> {
     await this.circuitBreaker.execute(() =>
       withRetry(() => this.fetchVoid(path, init), {
         maxRetries: this.config.maxRetries,
         logger: this.logger,
+        retryable: callOptions?.retryable,
       }),
     );
   }
@@ -406,16 +435,12 @@ export class DeDiApiClient {
     const response = await this.doFetch(path, init);
 
     if (!response.ok) {
-      let body = "";
-      try {
-        body = await response.text();
-      } catch {
-        /* ignore */
-      }
-      this.logger.error(`DeDi API ${response.status} ${path}`, { body: body.slice(0, 500) });
+      const { text, json } = await readErrorBody(response);
+      this.logger.error(`DeDi API ${response.status} ${path}`, { body: text.slice(0, 500) });
       throw new DeDiClientError(
         `DeDi API error: ${response.status}`,
         response.status >= 500 ? 502 : response.status,
+        json ?? (text ? text : undefined),
       );
     }
 
@@ -430,16 +455,12 @@ export class DeDiApiClient {
     const response = await this.doFetch(path, init);
 
     if (!response.ok) {
-      let body = "";
-      try {
-        body = await response.text();
-      } catch {
-        /* ignore */
-      }
-      this.logger.error(`DeDi API ${response.status} ${path}`, { body: body.slice(0, 500) });
+      const { text, json } = await readErrorBody(response);
+      this.logger.error(`DeDi API ${response.status} ${path}`, { body: text.slice(0, 500) });
       throw new DeDiClientError(
         `DeDi API error: ${response.status}`,
         response.status >= 500 ? 502 : response.status,
+        json ?? (text ? text : undefined),
       );
     }
   }
@@ -593,6 +614,30 @@ function stripIpv6Brackets(hostname: string): string {
 
 function enc(value: string): string {
   return encodeURIComponent(value);
+}
+
+/**
+ * Read a non-2xx Response body once and return both the raw text and a
+ * best-effort JSON parse. Errors are logged with the raw text (truncated)
+ * and the JSON body is surfaced on `DeDiClientError.responseBody` so
+ * adapters can branch on server-specific body codes (e.g.
+ * `{ code: "NAMESPACE_EXISTS" }`).
+ */
+async function readErrorBody(
+  response: Response,
+): Promise<{ text: string; json: unknown | undefined }> {
+  let text = "";
+  try {
+    text = await response.text();
+  } catch {
+    /* ignore — body already consumed or stream broken */
+  }
+  if (!text) return { text: "", json: undefined };
+  try {
+    return { text, json: JSON.parse(text) };
+  } catch {
+    return { text, json: undefined };
+  }
 }
 
 function assertBulkUploadResultShape(value: unknown): asserts value is { job_id: string } {

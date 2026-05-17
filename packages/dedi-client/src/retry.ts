@@ -5,11 +5,22 @@ export interface RetryOptions {
   maxRetries: number;
   baseDelayMs: number;
   logger?: DeDiLogger;
+  /**
+   * When `false`, the retry loop is short-circuited: the underlying `fn`
+   * runs at most once and any error propagates immediately. Use this for
+   * non-idempotent operations (POST creates without an `Idempotency-Key`)
+   * where blind retry can produce duplicate rows on the server.
+   *
+   * Defaults to `true` to preserve historical behaviour for GETs and
+   * other idempotent calls.
+   */
+  retryable?: boolean;
 }
 
 const DEFAULT_OPTIONS: RetryOptions = {
   maxRetries: 3,
   baseDelayMs: 200,
+  retryable: true,
 };
 
 const TRANSIENT_NETWORK_CODES = new Set([
@@ -57,6 +68,15 @@ export async function withRetry<T>(
   options?: Partial<RetryOptions>,
 ): Promise<T> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
+
+  // Non-idempotent path — run once and surface the first error. Skipping
+  // the retry loop entirely is what protects POST creates without an
+  // `Idempotency-Key` from creating duplicate rows when a single user
+  // click sees a transient upstream blip.
+  if (opts.retryable === false) {
+    return fn();
+  }
+
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= opts.maxRetries; attempt++) {
