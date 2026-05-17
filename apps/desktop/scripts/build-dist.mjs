@@ -46,6 +46,46 @@ function restore() {
   }
 }
 
+// Preflight: refuse to start if a stale backup is already on disk. A
+// pre-existing .bak means a previous run was killed hard (SIGKILL, power
+// loss, OOM) after it mutated package.json but before the restore step.
+// Live package.json is almost certainly the stripped version in that case,
+// and the .bak holds the *good* original. Blindly overwriting .bak here
+// would lose the only good copy. Tell the operator what to do, then stop.
+if (fs.existsSync(backupPath)) {
+  console.error(
+    "[build-dist] Refusing to start: a backup file already exists at",
+  );
+  console.error(`           ${backupPath}`);
+  console.error(
+    "           A previous build:dist run was interrupted before it could",
+  );
+  console.error(
+    "           restore package.json. The backup file holds your original",
+  );
+  console.error(
+    "           dependencies; the current package.json is probably the",
+  );
+  console.error("           stripped version. To recover:");
+  console.error("");
+  console.error(
+    "             1. Inspect the diff: diff apps/desktop/package.json apps/desktop/package.json.bak",
+  );
+  console.error(
+    "             2. If the .bak looks like the right file, restore it:",
+  );
+  console.error(
+    "                mv apps/desktop/package.json.bak apps/desktop/package.json",
+  );
+  console.error(
+    "             3. Otherwise (you know the live package.json is current),",
+  );
+  console.error("                delete the stale backup: rm $bak");
+  console.error("");
+  console.error("           Then re-run pnpm build:dist.");
+  process.exit(1);
+}
+
 // Save backup before anything mutates package.json
 fs.copyFileSync(pkgPath, backupPath);
 console.log("[build-dist] Saved package.json backup");
