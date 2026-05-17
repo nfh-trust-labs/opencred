@@ -34,21 +34,35 @@ Exit code is `0` on `valid: true`, non-zero otherwise. Works fully offline for `
 
 ### Verifier path 2 — Library, embedded in your own service
 
-Add `@opencred/verification` to your Node service and call it directly — no OpenCred container required at all:
+Add the curated **[`@opencred/verify`](https://github.com/nfh-trust-labs/opencred-releases/tree/main/sdk/verify)** SDK to your Node service and call it directly — no OpenCred container required at all:
 
 ```ts
-import { verifyCredential } from "@opencred/verification";
-import { DIDKeyResolver, CompositeDIDResolver } from "@opencred/did";
+import { createVerifier } from "@opencred/verify";
 
-const resolver = new CompositeDIDResolver(new Map([
-  ["key", new DIDKeyResolver()],
-]));
+// Offline did:key / did:jwk verification — no network, no setup.
+const verify = createVerifier();
 
-const result = await verifyCredential(jwt, { didResolver: resolver });
+const result = await verify(jwt);
 if (result.verified) {
   // proceed
 }
 ```
+
+Need DeDi-backed revocation or `did:web` discovery fallback? Pass `dedi`:
+
+```ts
+const verify = createVerifier({
+  dedi: {
+    baseUrl: "https://dedi.example.com",
+    namespace: "issuer-namespace",
+    // apiKey is only required for *publishing*; verifiers can omit it.
+  },
+});
+```
+
+The SDK is a single bundled facade over `@opencred/verification`, `@opencred/did`, and `@opencred/dedi-client` — one dependency, dual ESM/CJS, no workspace setup. Today it ships source-available from the [opencred-releases](https://github.com/nfh-trust-labs/opencred-releases) mirror; install via `npm install ../opencred-releases/sdk/verify` or a git URL. npm publication is on the roadmap.
+
+> **Advanced — in-monorepo or fine-grained control:** if you need to wire DID resolvers, trust anchors, or the verification pipeline yourself (e.g. you're inside this monorepo or you want to swap in a custom DID method), drop down to the lower-level `@opencred/verification` library — see [Library](#library) below for the unwrapped API.
 
 This is what production verifier services should generally use — it bypasses the HTTP/auth overhead and runs in your own process boundary.
 
@@ -181,7 +195,9 @@ Exit code is `0` on `valid: true`, non-zero otherwise. Result JSON goes to stdou
 
 ## Library
 
-For embedding in a Node service, install `@opencred/verification` and wire it directly:
+> **Most callers should use [`@opencred/verify`](#verifier-path-2--library-embedded-in-your-own-service) instead.** It bundles `@opencred/verification`, `@opencred/did`, and `@opencred/dedi-client` behind a single `createVerifier()` entry point and ships as one published artefact. The unwrapped API below is what `@opencred/verify` is built on — use it directly when you need to swap out the DID resolver, plug in a custom verification step, or work inside this monorepo where the workspace packages are already available.
+
+For embedding in a Node service without the SDK wrapper, install `@opencred/verification` and wire it directly:
 
 ```ts
 import { verifyCredential, verifyPdf } from "@opencred/verification";
