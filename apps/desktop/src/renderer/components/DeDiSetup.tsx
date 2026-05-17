@@ -36,6 +36,16 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
   const [didPublishFailed, setDidPublishFailed] = useState(false);
   const [registriesFailed, setRegistriesFailed] = useState(false);
   const [retryingRegistries, setRetryingRegistries] = useState(false);
+  // Tracks the (namespace, apiKey) tuple that just failed. Used to gate
+  // Connect-on-error: the IPC handler is *not* idempotent on the DeDi side
+  // (every POST without an Idempotency-Key risks creating a duplicate
+  // namespace), so we disable the button until the user edits a field
+  // and explicitly retries with a different input. See issue #546.
+  const [lastFailedKey, setLastFailedKey] = useState<string | null>(null);
+
+  const currentKey = `${namespace.trim()}::${apiKey}`;
+  const isResubmitOfFailedAttempt =
+    lastFailedKey !== null && lastFailedKey === currentKey && error !== null;
 
   async function handleConnect() {
     if (!namespace.trim()) {
@@ -59,6 +69,7 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
 
       if (!result.success) {
         setError(result.error ?? "Failed to configure DeDi.");
+        setLastFailedKey(currentKey);
         setState("configure");
         return;
       }
@@ -85,6 +96,7 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
       setState("success");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to configure DeDi.");
+      setLastFailedKey(currentKey);
       setState("configure");
     }
   }
@@ -221,6 +233,7 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
                 onChange={(e) => {
                   setNamespace(e.target.value);
                   setError(null);
+                  setLastFailedKey(null);
                 }}
                 placeholder="your-domain.example"
                 disabled={state === "connecting"}
@@ -236,6 +249,7 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
                 onChange={(e) => {
                   setApiKey(e.target.value);
                   setError(null);
+                  setLastFailedKey(null);
                 }}
                 placeholder="Enter your DeDi API key"
                 disabled={state === "connecting"}
@@ -244,10 +258,23 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
             </div>
           </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && (
+            <div className="space-y-1">
+              <p className="text-sm text-red-600">{error}</p>
+              {isResubmitOfFailedAttempt && (
+                <p className="text-[0.72rem] text-txt-muted">
+                  Edit the namespace or API key and try again. Re-submitting the same values
+                  could create a duplicate namespace on DeDi.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="pt-2 flex gap-3">
-            <Button onClick={() => void handleConnect()} disabled={state === "connecting"}>
+            <Button
+              onClick={() => void handleConnect()}
+              disabled={state === "connecting" || isResubmitOfFailedAttempt}
+            >
               {state === "connecting" ? "Connecting..." : "Connect to DeDi"}
             </Button>
             <Button
