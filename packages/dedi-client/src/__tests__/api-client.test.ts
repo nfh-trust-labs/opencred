@@ -163,9 +163,7 @@ describe("DeDiApiClient", () => {
     it("createNamespace does NOT retry on 5xx (issue #546)", async () => {
       // Without retryable:false, maxRetries:3 would trigger 4 POSTs and
       // create up to 4 duplicate namespaces on the user's DeDi account.
-      mockFetch.mockResolvedValue(
-        new Response("upstream error", { status: 500, headers: {} }),
-      );
+      mockFetch.mockResolvedValue(new Response("upstream error", { status: 500, headers: {} }));
 
       const client = new DeDiApiClient(createConfig({ maxRetries: 3 }));
       await expect(client.createNamespace("example.com", "Test")).rejects.toThrow();

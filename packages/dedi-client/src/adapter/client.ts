@@ -391,7 +391,5 @@ function isAlreadyExistsBody(error: unknown): boolean {
     rec["errorCode"],
     (rec["error"] as { code?: unknown } | undefined)?.code,
   ];
-  return candidates.some(
-    (c) => typeof c === "string" && ALREADY_EXISTS_BODY_CODE_PATTERN.test(c),
-  );
+  return candidates.some((c) => typeof c === "string" && ALREADY_EXISTS_BODY_CODE_PATTERN.test(c));
 }

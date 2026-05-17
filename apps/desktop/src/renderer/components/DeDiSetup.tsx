@@ -263,8 +263,8 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
               <p className="text-sm text-red-600">{error}</p>
               {isResubmitOfFailedAttempt && (
                 <p className="text-[0.72rem] text-txt-muted">
-                  Edit the namespace or API key and try again. Re-submitting the same values
-                  could create a duplicate namespace on DeDi.
+                  Edit the namespace or API key and try again. Re-submitting the same values could
+                  create a duplicate namespace on DeDi.
                 </p>
               )}
             </div>
