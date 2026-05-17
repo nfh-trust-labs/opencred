@@ -554,10 +554,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
               <div className="pt-2 flex gap-3">
                 <Button onClick={() => setStep("dedi-setup")}>Continue</Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => setStep(dscSourceStep ?? "dsc-source")}
-                >
+                <Button variant="secondary" onClick={() => setStep(dscSourceStep ?? "dsc-source")}>
                   Back
                 </Button>
               </div>
