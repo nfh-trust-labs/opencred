@@ -80,7 +80,7 @@ if (fs.existsSync(backupPath)) {
   console.error(
     "             3. Otherwise (you know the live package.json is current),",
   );
-  console.error("                delete the stale backup: rm $bak");
+  console.error(`                delete the stale backup: rm ${backupPath}`);
   console.error("");
   console.error("           Then re-run pnpm build:dist.");
   process.exit(1);
