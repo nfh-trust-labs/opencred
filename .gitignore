@@ -21,3 +21,6 @@ blob-report/
 
 # pnpm local store
 .pnpm-store/
+
+# Transient backup written by apps/desktop/scripts/build-dist.mjs
+apps/desktop/package.json.bak
