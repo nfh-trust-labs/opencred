@@ -21,9 +21,24 @@ type SelfPubStep = "generate" | "domain" | "export" | "verify" | "complete";
 
 interface SelfPublishedSetupProps {
   onComplete: (result?: { key: KeyMetadata; domain: string; didDocument?: string }) => void;
+  /**
+   * Optional callback for the very first step's Back button — returns the
+   * user to the prior step in the parent wizard (e.g. choose-path) when
+   * they realise they picked the wrong onboarding path. Issue #547.
+   */
+  onBack?: () => void;
+  /**
+   * Render-suppression for the keep-mounted strategy: when the parent
+   * wizard navigates forward to a later step (e.g. dedi-setup) it sets
+   * `hidden` so the React subtree stays mounted and useState is preserved,
+   * but nothing draws on screen. This lets the user navigate back from
+   * dedi-setup without losing their generated key, domain, or DID
+   * document. Issue #547.
+   */
+  hidden?: boolean;
 }
 
-export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
+export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublishedSetupProps) {
   const [step, setStep] = useState<SelfPubStep>("generate");
   const [generatedKey, setGeneratedKey] = useState<KeyMetadata | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -159,7 +174,7 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
   const didPreview = domain.trim() ? `did:web:${domain.trim().replace(/:/g, "%3A")}` : "";
 
   return (
-    <>
+    <div style={hidden ? { display: "none" } : undefined}>
       {/* ================================================================
           Step: Generate Key
           ================================================================ */}
@@ -181,6 +196,11 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
             <Button onClick={() => void handleGenerate()} disabled={generating}>
               {generating ? "Generating..." : "Generate Key Pair"}
             </Button>
+            {onBack && (
+              <Button variant="secondary" onClick={onBack} disabled={generating}>
+                Back
+              </Button>
+            )}
           </div>
         </Card>
       )}
@@ -455,8 +475,22 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
           )}
 
           {verifyResult?.accessible && (
-            <div className="pt-1">
+            <div className="pt-1 flex gap-3">
               <Button onClick={() => setStep("complete")}>Continue</Button>
+              <Button variant="secondary" onClick={() => setStep("export")}>
+                Back
+              </Button>
+            </div>
+          )}
+
+          {/* When the verify step is reached but the user hasn't run it yet
+              (or it failed), they should still be able to step back to the
+              export screen to inspect the doc or save it again. */}
+          {!verifyResult?.accessible && (
+            <div className="pt-1">
+              <Button variant="secondary" onClick={() => setStep("export")}>
+                Back
+              </Button>
             </div>
           )}
         </Card>
@@ -504,7 +538,7 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
             </dl>
           </div>
 
-          <div className="pt-2">
+          <div className="pt-2 flex gap-3">
             <Button
               onClick={() =>
                 onComplete({
@@ -516,9 +550,12 @@ export function SelfPublishedSetup({ onComplete }: SelfPublishedSetupProps) {
             >
               Start Issuing Credentials
             </Button>
+            <Button variant="secondary" onClick={() => setStep("verify")}>
+              Back
+            </Button>
           </div>
         </Card>
       )}
-    </>
+    </div>
   );
 }

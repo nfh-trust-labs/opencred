@@ -188,6 +188,19 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [importedKey, setImportedKey] = useState<KeyMetadata | null>(null);
   const [selfPubDomain, setSelfPubDomain] = useState<string | null>(null);
   const [selfPubDidDoc, setSelfPubDidDoc] = useState<string | null>(null);
+  // Track which DSC source the user came from so the `profile` Back button
+  // can return to that specific source instead of the generic `dsc-source`
+  // picker. Set in `handleKeyReady`. Issue #547.
+  const [dscSourceStep, setDscSourceStep] = useState<
+    "dsc-upload" | "dsc-hardware" | "dsc-os-cert" | null
+  >(null);
+  // `selfPubFlowEntered` flips the moment the user steps into the self-pub
+  // sub-flow and stays true for the rest of the wizard. It lets us keep
+  // `<SelfPublishedSetup />` mounted (hidden via CSS) once entered, so
+  // navigating back from `dedi-setup` preserves the user's generated key,
+  // domain, exported doc, etc. that would otherwise live only in
+  // SelfPublishedSetup's local useState. Issue #547.
+  const [selfPubFlowEntered, setSelfPubFlowEntered] = useState(false);
 
   // ------------------------------------------------------------------
   // Key connected handler (shared by all DSC sources)
@@ -196,6 +209,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   function handleKeyReady(key: KeyMetadata) {
     setImportedKey(key);
     setStep("profile");
+  }
+
+  function handleDscSourceClick(target: "dsc-upload" | "dsc-hardware" | "dsc-os-cert") {
+    setDscSourceStep(target);
+    setStep(target);
   }
 
   // ------------------------------------------------------------------
@@ -304,7 +322,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
                 {/* Option 3: Self-Published Keys */}
                 <button
-                  onClick={() => setStep("self-pub-setup")}
+                  onClick={() => {
+                    setSelfPubFlowEntered(true);
+                    setStep("self-pub-setup");
+                  }}
                   className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
                   <div className="flex items-start justify-between">
@@ -352,7 +373,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               <div className="space-y-3">
                 {/* Upload file */}
                 <button
-                  onClick={() => setStep("dsc-upload")}
+                  onClick={() => handleDscSourceClick("dsc-upload")}
                   className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
                   <span className="block text-body-sm font-semibold text-txt-primary">
@@ -365,7 +386,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
                 {/* Hardware token */}
                 <button
-                  onClick={() => setStep("dsc-hardware")}
+                  onClick={() => handleDscSourceClick("dsc-hardware")}
                   className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
                   <span className="block text-body-sm font-semibold text-txt-primary">
@@ -378,7 +399,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
                 {/* OS certificate store */}
                 <button
-                  onClick={() => setStep("dsc-os-cert")}
+                  onClick={() => handleDscSourceClick("dsc-os-cert")}
                   className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
                   <span className="block text-body-sm font-semibold text-txt-primary">
@@ -531,8 +552,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 </dl>
               </div>
 
-              <div className="pt-2">
+              <div className="pt-2 flex gap-3">
                 <Button onClick={() => setStep("dedi-setup")}>Continue</Button>
+                <Button variant="secondary" onClick={() => setStep(dscSourceStep ?? "dsc-source")}>
+                  Back
+                </Button>
               </div>
             </Card>
           )}
@@ -571,9 +595,17 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
           {/* ============================================================
               Self-Published Keys Setup
-              ============================================================ */}
-          {step === "self-pub-setup" && (
+              ============================================================
+              Mounted once the user enters the self-pub flow and kept
+              mounted thereafter (visibility toggled via `hidden`) so that
+              navigating back from `dedi-setup` preserves SelfPub's local
+              state (generated key, domain, exported DID document) which
+              otherwise lives entirely in SelfPublishedSetup's useState.
+              Issue #547. */}
+          {selfPubFlowEntered && (
             <SelfPublishedSetup
+              hidden={step !== "self-pub-setup"}
+              onBack={() => setStep("choose-path")}
               onComplete={(result) => {
                 if (result) {
                   setImportedKey(result.key);
@@ -599,6 +631,18 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               did={importedKey.id}
               didDocument={selfPubDidDoc ?? undefined}
               domain={selfPubDomain ?? undefined}
+              onBack={() =>
+                // Key the Back destination off which sub-flow actually
+                // produced `importedKey`, not off `selfPubFlowEntered`.
+                // The latter sticks once true even if the user backs out
+                // of self-pub and picks the DSC path instead, leaving
+                // the hidden SelfPublishedSetup subtree mounted; we
+                // don't want Back from dedi-setup to land them there
+                // when they finished onboarding via DSC. `selfPubDomain`
+                // is only set when SelfPublishedSetup's `onComplete` ran,
+                // so it accurately reflects the completed path.
+                setStep(selfPubDomain ? "self-pub-setup" : "profile")
+              }
               onComplete={onComplete}
             />
           )}

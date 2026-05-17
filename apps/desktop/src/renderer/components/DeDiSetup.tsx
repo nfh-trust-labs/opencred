@@ -24,11 +24,18 @@ interface DeDiSetupProps {
   didDocument?: string;
   domain?: string;
   onComplete: () => void;
+  /**
+   * Optional callback for the initial step's Back button — returns the
+   * user to the prior wizard step (profile for the DSC path, or
+   * self-pub-setup for the self-pub path) when they want to revisit an
+   * earlier decision. Issue #547.
+   */
+  onBack?: () => void;
 }
 
 const DEDI_BASE_URL = "https://api.dedi.global";
 
-export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupProps) {
+export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDiSetupProps) {
   const [state, setState] = useState<DeDiSetupState>("choice");
   const [namespace, setNamespace] = useState(domain ?? "");
   const [apiKey, setApiKey] = useState("");
@@ -168,6 +175,14 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
               </span>
             </button>
           </div>
+
+          {onBack && (
+            <div className="pt-2">
+              <Button variant="secondary" onClick={onBack}>
+                Back
+              </Button>
+            </div>
+          )}
         </Card>
       )}
 
@@ -203,8 +218,11 @@ export function DeDiSetup({ did, didDocument, domain, onComplete }: DeDiSetupPro
             </p>
           </div>
 
-          <div className="pt-2">
+          <div className="pt-2 flex gap-3">
             <Button onClick={onComplete}>Skip for now</Button>
+            <Button variant="secondary" onClick={() => setState("choice")}>
+              Back
+            </Button>
           </div>
         </Card>
       )}
