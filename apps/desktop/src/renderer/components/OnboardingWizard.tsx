@@ -635,10 +635,16 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               didDocument={selfPubDidDoc ?? undefined}
               domain={selfPubDomain ?? undefined}
               onBack={() =>
-                // Self-pub path goes back into the (still-mounted)
-                // SelfPublishedSetup; DSC path goes back to the profile
-                // summary screen.
-                setStep(selfPubFlowEntered ? "self-pub-setup" : "profile")
+                // Key the Back destination off which sub-flow actually
+                // produced `importedKey`, not off `selfPubFlowEntered`.
+                // The latter sticks once true even if the user backs out
+                // of self-pub and picks the DSC path instead, leaving
+                // the hidden SelfPublishedSetup subtree mounted; we
+                // don't want Back from dedi-setup to land them there
+                // when they finished onboarding via DSC. `selfPubDomain`
+                // is only set when SelfPublishedSetup's `onComplete` ran,
+                // so it accurately reflects the completed path.
+                setStep(selfPubDomain ? "self-pub-setup" : "profile")
               }
               onComplete={onComplete}
             />
