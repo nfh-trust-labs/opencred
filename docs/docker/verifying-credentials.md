@@ -1,6 +1,6 @@
 # Verifying Credentials
 
-The Docker image's HTTP API and CLI both expose the same verification engine that powers the Desktop app — the underlying `@opencred/verification` library. Use the HTTP API for service-to-service verification, the CLI for scripts and CI, and the library directly when embedding verification in another Node service.
+The Docker image's HTTP API and CLI both expose the same verification engine that powers the Desktop app. Use the HTTP API for service-to-service verification, the CLI for scripts and CI, and a library directly when embedding verification in another Node service — either the curated [`@opencred/verify`](https://github.com/nfh-trust-labs/opencred-releases/tree/main/sdk/verify) SDK (recommended for external verifiers) or the lower-level `@opencred/verification` package it's built on.
 
 ## The three verification surfaces
 
@@ -8,7 +8,7 @@ The Docker image's HTTP API and CLI both expose the same verification engine tha
 |---|---|---|
 | HTTP API | Service-to-service verification, browser-side flows through a proxy | `POST /v1/credentials/verify` |
 | CLI | Scripts, CI checks, air-gapped batch verification | `opencred verify <input>` |
-| Library | Embedding verification into a TypeScript/Node service | `verifyCredential()` from `@opencred/verification` |
+| Library | Embedding verification into a TypeScript/Node service | `createVerifier()` from [`@opencred/verify`](https://github.com/nfh-trust-labs/opencred-releases/tree/main/sdk/verify) (or the lower-level `verifyCredential()` from `@opencred/verification`) |
 
 All three return the same shape: a top-level `code`, a boolean `valid`, and a `checks` array breaking down which steps passed.
 
