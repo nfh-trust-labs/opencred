@@ -2628,7 +2628,7 @@ async function handleDidKeyExport(
       };
     }
     const did = signer.id.split("#")[0];
-    const didDocument = exportDidKeyDocument(jwk as import("@opencred/did").JWK, did);
+    const didDocument = await exportDidKeyDocument(did);
     return { success: true, did, didDocument };
   } catch (err) {
     return {

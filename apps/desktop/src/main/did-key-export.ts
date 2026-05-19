@@ -3,36 +3,39 @@
  *
  * Sibling to {@link ./did-web-export.ts}. Generates a W3C DID document for
  * a `did:key:z…` identifier so it can be published to DeDi as an
- * attribution record. The DID document we produce here is the same shape
- * as `DIDKeyResolver.resolve()` would synthesise locally — DeDi's public
+ * attribution record. The DID document we produce here is exactly what
+ * `DIDKeyResolver.resolve()` would synthesise locally — DeDi's public
  * mirror simply caches that synthesis so verifiers can also discover
  * `orgName` / contact metadata alongside it.
  *
- * SECURITY NOTE: Only the public key (as JWK) crosses this boundary. The
- * private key stays in the main process and never appears in either
- * input or output.
+ * SECURITY NOTE: No private key material crosses this boundary — the
+ * did:key string itself encodes the public key, and the resolver
+ * unpacks it deterministically with no network I/O.
  */
 
-import { generateDidWebDocument } from "@opencred/did";
-import type { JWK, DIDDocument } from "@opencred/did";
+import { DIDKeyResolver } from "@opencred/did";
+import type { DIDDocument } from "@opencred/did";
 
 /**
  * Build a DID document for a `did:key` identifier.
  *
- * Implementation note: we deliberately re-use {@link generateDidWebDocument}
- * because the document shape for did:key publishing is identical (controller,
- * verificationMethod with publicKeyJwk, the four relationship arrays). The
- * only thing that differs is the DID identifier itself, which the caller
- * already has from the signer. Keeping these in sync via shared code avoids
- * the trap where did:web and did:key documents drift in subtle ways.
+ * Delegates to {@link DIDKeyResolver} so the published document is
+ * byte-for-byte the one verifiers would synthesise locally: a single
+ * `Multikey` verification method whose fragment is the multibase suffix
+ * of the DID itself (matching the `verificationMethod` reference that
+ * every did:key signer in this codebase puts on credential proofs).
  *
- * @param publicKeyJwk - The issuer's public key in JWK format.
  * @param didKey - The full `did:key:z…` identifier (without the
  *   `#fragment` verification-method suffix).
  * @returns The DID document object, ready to be JSON-serialised.
  */
-export function buildDidKeyDocument(publicKeyJwk: JWK, didKey: string): DIDDocument {
-  return generateDidWebDocument(didKey, publicKeyJwk);
+export async function buildDidKeyDocument(didKey: string): Promise<DIDDocument> {
+  const resolver = new DIDKeyResolver();
+  const result = await resolver.resolve(didKey);
+  if (!result.didDocument) {
+    throw new Error(`DIDKeyResolver returned no document for ${didKey}`);
+  }
+  return result.didDocument;
 }
 
 /**
@@ -40,6 +43,7 @@ export function buildDidKeyDocument(publicKeyJwk: JWK, didKey: string): DIDDocum
  * Mirrors the `did-web-export.ts` API shape so callers can swap between
  * the two branches without restructuring.
  */
-export function exportDidKeyDocument(publicKeyJwk: JWK, didKey: string): string {
-  return JSON.stringify(buildDidKeyDocument(publicKeyJwk, didKey), null, 2);
+export async function exportDidKeyDocument(didKey: string): Promise<string> {
+  const doc = await buildDidKeyDocument(didKey);
+  return JSON.stringify(doc, null, 2);
 }
