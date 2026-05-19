@@ -194,6 +194,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   // to publish) and by the Back logic to distinguish "user finished
   // self-pub" from "user completed DSC and selfPubFlowEntered is stale".
   const [selfPubMethod, setSelfPubMethod] = useState<"web" | "key" | null>(null);
+  // The canonical (fragment-less) issuer DID that the user committed to in
+  // the self-pub flow — `did:web:<domain>` for the did:web branch, or
+  // `did:key:z…` (the signer's id minus its `#fragment`) for the did:key
+  // branch. Threaded into DeDiSetup so the DeDi record name matches the
+  // `issuer` field a verifier later resolves; using `importedKey.id` (the
+  // full verification-method ref `did:key:z…#z…`) would publish under the
+  // wrong record name and silently break cross-surface attribution lookup.
+  const [selfPubDid, setSelfPubDid] = useState<string | null>(null);
   // Track which DSC source the user came from so the `profile` Back button
   // can return to that specific source instead of the generic `dsc-source`
   // picker. Set in `handleKeyReady`. Issue #547.
@@ -622,6 +630,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   // the absence and shifts into attribution-only mode.
                   setSelfPubDomain(result.domain ?? null);
                   setSelfPubDidDoc(result.didDocument ?? null);
+                  // Capture the canonical issuer DID — see the field's
+                  // declaration comment for why we must not fall back to
+                  // `importedKey.id` (full VM ref with #fragment) here.
+                  setSelfPubDid(result.did);
                 }
                 setStep("dedi-setup");
               }}
@@ -639,7 +651,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           )}
           {step === "dedi-setup" && importedKey && (
             <DeDiSetup
-              did={importedKey.id}
+              // Prefer the canonical issuer DID computed by the self-pub
+              // wizard (`did:web:<domain>` or fragment-less `did:key:z…`).
+              // Falls back to `importedKey.id` only on the DSC paths,
+              // where the wizard never sets `selfPubDid` — those keys are
+              // DSC-backed signers, not self-published, and DeDi publish
+              // there is meaningful as a "this DSC is associated with our
+              // namespace" attribution rather than a did-document mirror.
+              did={selfPubDid ?? importedKey.id}
               didDocument={selfPubDidDoc ?? undefined}
               domain={selfPubDomain ?? undefined}
               onBack={() =>
