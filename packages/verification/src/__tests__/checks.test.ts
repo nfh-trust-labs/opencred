@@ -833,9 +833,7 @@ describe("checkIssuerAttribution", () => {
   });
 
   it("did:web → also passes for the object-form issuer", async () => {
-    const result = await checkIssuerAttribution(
-      makeCredential({ id: "did:web:gov.example" }),
-    );
+    const result = await checkIssuerAttribution(makeCredential({ id: "did:web:gov.example" }));
     expect(result.passed).toBe(true);
   });
 

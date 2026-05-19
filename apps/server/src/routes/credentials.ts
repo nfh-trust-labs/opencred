@@ -397,9 +397,7 @@ credentials.post("/credentials/issue", async (c) => {
   // schemaId / inlineSchema is set, so an `else` branch is unreachable.
 
   // Build unsigned credential
-  const builder = new CredentialBuilder()
-    .setIssuer(issuerDid)
-    .setValidFrom(parsed.validFrom);
+  const builder = new CredentialBuilder().setIssuer(issuerDid).setValidFrom(parsed.validFrom);
 
   const subject: Record<string, unknown> = { ...parsed.credentialSubject };
   if (parsed.subjectDid) {

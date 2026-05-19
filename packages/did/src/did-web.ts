@@ -325,9 +325,7 @@ export async function verifyDidWeb(
     accessible: true,
     keyMatches,
     didDocument,
-    error: keyMatches
-      ? undefined
-      : "DID document does not reference the expected public key",
+    error: keyMatches ? undefined : "DID document does not reference the expected public key",
   };
 }
 

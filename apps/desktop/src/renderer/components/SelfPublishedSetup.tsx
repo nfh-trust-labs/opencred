@@ -364,9 +364,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
                 className="mt-0.5"
               />
               <div className="space-y-1">
-                <p className="text-[0.85rem] font-medium text-txt-primary">
-                  No domain (did:key)
-                </p>
+                <p className="text-[0.85rem] font-medium text-txt-primary">No domain (did:key)</p>
                 <p className="text-[0.72rem] text-txt-secondary">
                   Your DID is derived directly from the public key — no hosting needed. Credentials
                   verify fully offline. Trade-off: this key cannot be rotated; losing it means
@@ -739,9 +737,9 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
               Back up your key
             </h2>
             <p className="text-body-sm text-txt-secondary">
-              did:key has no rotation path. If you lose this key, every credential you have
-              ever issued under this DID becomes unverifiable forever. Take a moment to back it
-              up before continuing.
+              did:key has no rotation path. If you lose this key, every credential you have ever
+              issued under this DID becomes unverifiable forever. Take a moment to back it up before
+              continuing.
             </p>
           </div>
 
@@ -753,8 +751,8 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
                 store.
               </li>
               <li>
-                Keep this device's encrypted backup current — the private key lives in the
-                operating system keystore and is included in standard backups.
+                Keep this device's encrypted backup current — the private key lives in the operating
+                system keystore and is included in standard backups.
               </li>
               <li>
                 Consider setting up DeDi attribution in the next step so verifiers can recognise
@@ -782,10 +780,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
           </label>
 
           <div className="pt-2 flex gap-3">
-            <Button
-              onClick={() => setStep("complete")}
-              disabled={!backupAcknowledged}
-            >
+            <Button onClick={() => setStep("complete")} disabled={!backupAcknowledged}>
               Continue
             </Button>
             <Button variant="secondary" onClick={() => setStep("did-key-confirm")}>
@@ -817,7 +812,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
               <div className="flex gap-2">
                 <dt className="font-medium w-24 flex-shrink-0">DID:</dt>
                 <dd className="font-mono text-[0.72rem] break-all">
-                  {method === "web" ? exportedDid ?? didPreview : didKeyDid}
+                  {method === "web" ? (exportedDid ?? didPreview) : didKeyDid}
                 </dd>
               </div>
               {method === "web" && (
@@ -836,15 +831,15 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
               </div>
               <div className="flex gap-2">
                 <dt className="font-medium w-24 flex-shrink-0">Source:</dt>
-                <dd>{method === "web" ? "Self-Published (did:web)" : "Self-Published (did:key)"}</dd>
+                <dd>
+                  {method === "web" ? "Self-Published (did:web)" : "Self-Published (did:key)"}
+                </dd>
               </div>
             </dl>
           </div>
 
           <div className="pt-2 flex gap-3">
-            <Button onClick={() => void handleCompleteHandoff()}>
-              Start Issuing Credentials
-            </Button>
+            <Button onClick={() => void handleCompleteHandoff()}>Start Issuing Credentials</Button>
             <Button
               variant="secondary"
               onClick={() => setStep(method === "web" ? "verify" : "did-key-backup")}
