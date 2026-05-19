@@ -294,11 +294,7 @@ function sha256Hex(buf: Buffer | string): string {
   return createHash("sha256").update(buf).digest("hex");
 }
 
-function buildYamlManifest(opts: {
-  path: string;
-  content: string;
-  format?: "yaml";
-}) {
+function buildYamlManifest(opts: { path: string; content: string; format?: "yaml" }) {
   const schema: Record<string, unknown> = {
     path: opts.path,
     sha256: sha256Hex(opts.content),
