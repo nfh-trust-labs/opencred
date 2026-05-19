@@ -267,11 +267,17 @@ export async function run(opts) {
       let actualHash;
 
       // Format detection: `format: "yaml"` in the manifest, or a .yml/.yaml
-      // URL, means the authoritative bytes are YAML and the manifest hash is
-      // over the raw UTF-8 bytes (not canonicalized JSON). Otherwise JSON.
+      // URL or path, means the authoritative bytes are YAML and the manifest
+      // hash is over the raw UTF-8 bytes (not canonicalized JSON). Otherwise
+      // JSON.
       const urlLower = (cred.schema.url ?? "").toLowerCase();
+      const pathLower = (cred.schema.path ?? "").toLowerCase();
       const isYaml =
-        cred.schema.format === "yaml" || urlLower.endsWith(".yml") || urlLower.endsWith(".yaml");
+        cred.schema.format === "yaml" ||
+        urlLower.endsWith(".yml") ||
+        urlLower.endsWith(".yaml") ||
+        pathLower.endsWith(".yml") ||
+        pathLower.endsWith(".yaml");
 
       if (sourceKind === "defined") {
         if (!cred.schema.path) {
@@ -281,12 +287,37 @@ export async function run(opts) {
         if (!existsSync(localPath)) {
           throw new Error(`credential ${cred.id}: schema file missing in tarball: ${cred.schema.path}`);
         }
-        const text = await readFile(localPath, "utf8");
-        schemaObj = JSON.parse(text);
         schemaUpstreamUrl =
           cred.schema.upstreamUrl ??
           `https://raw.githubusercontent.com/${sources.repo}/${sources.commit}/${cred.schema.path}`;
-        actualHash = canonicalJsonSha256(schemaObj);
+        if (isYaml) {
+          // YAML path: hash the raw bytes, then parse to JS for bundling.
+          // Raw-bytes hashing (rather than canonicalJsonSha256 of the parsed
+          // result) matches the referenced-YAML convention and preserves
+          // fidelity — YAML features like comments and anchors do not survive
+          // a parse→canonical-JSON round trip, so the bytes are the
+          // authoritative artifact.
+          const buf = await readFile(localPath);
+          actualHash = sha256Bytes(buf);
+          if (actualHash !== cred.schema.sha256) {
+            err(
+              `\nHASH MISMATCH for credential "${cred.id}":\n  expected: ${cred.schema.sha256}\n  actual:   ${actualHash}\n`,
+            );
+            throw new Error(`schema hash mismatch for ${cred.id}`);
+          }
+          try {
+            schemaObj = YAML.parse(buf.toString("utf8"));
+          } catch (e) {
+            throw new Error(`credential ${cred.id}: schema YAML is not parseable: ${e.message}`);
+          }
+          if (!schemaObj || typeof schemaObj !== "object") {
+            throw new Error(`credential ${cred.id}: parsed YAML is not an object`);
+          }
+        } else {
+          const text = await readFile(localPath, "utf8");
+          schemaObj = JSON.parse(text);
+          actualHash = canonicalJsonSha256(schemaObj);
+        }
       } else {
         if (!cred.schema.url) {
           throw new Error(`credential ${cred.id}: referenced schema missing schema.url`);
@@ -327,12 +358,11 @@ export async function run(opts) {
         schemaUpstreamUrl = cred.schema.url;
       }
 
-      // For non-YAML branches actualHash is already canonical-JSON; for YAML
-      // it's literal-bytes. Either way, the manifest entry was generated the
-      // same way, so the comparison is apples-to-apples. The YAML branch
-      // above already compared before parsing; JSON/defined branches compare
-      // here.
-      if (!isYaml || sourceKind === "defined") {
+      // For JSON branches actualHash is canonical-JSON; for YAML it is
+      // literal-bytes. Either way, the manifest entry was generated the same
+      // way, so the comparison is apples-to-apples. Both YAML branches above
+      // already compared inline before parsing; JSON branches compare here.
+      if (!isYaml) {
         if (actualHash !== cred.schema.sha256) {
           err(
             `\nHASH MISMATCH for credential "${cred.id}":\n  expected: ${cred.schema.sha256}\n  actual:   ${actualHash}\n`,
