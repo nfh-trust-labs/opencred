@@ -3,6 +3,7 @@ import { isIP } from "node:net";
 import { promisify } from "node:util";
 import { gunzip as gunzipCb } from "node:zlib";
 import type { DeDiClient } from "@opencred/dedi-client";
+import { DeDiClientError } from "@opencred/dedi-client";
 import { resolveRevocationHash } from "@opencred/crypto";
 import type { DIDResolver } from "@opencred/did";
 import { isPrivateIP } from "@opencred/shared";
@@ -485,12 +486,19 @@ export async function checkIssuerAttribution(
       // from "DeDi unreachable" (operator-visible failure). Both surface as
       // passed:false, but with different details so the UI can render
       // "unattributed" vs "lookup failed" appropriately.
+      //
+      // The DeDi client throws DeDiClientError with a numeric statusCode for
+      // HTTP failures (see packages/dedi-client/src/adapter/client.ts), so we
+      // branch on the structured field rather than substring-sniffing the
+      // message — error messages like "DeDi API error: 404" don't contain
+      // the literal "not found".
+      const is404 = err instanceof DeDiClientError && err.statusCode === 404;
       const message =
         err instanceof Error && err.message ? err.message : "DeDi attribution lookup failed";
       return {
         name: "issuerAttribution",
         passed: false,
-        detail: message.toLowerCase().includes("not found")
+        detail: is404
           ? "Unattributed did:key issuer (no DeDi record)"
           : `Unable to check attribution: ${message}`,
       };
@@ -548,12 +556,20 @@ export async function checkKeySupersession(
     // Same defensive degrade as attribution: don't fail verification just
     // because DeDi is down. The verifier UI can surface "unknown supersession
     // status" if it cares.
-    const message =
-      err instanceof Error && err.message ? err.message : "DeDi supersession lookup failed";
-    if (message.toLowerCase().includes("not found")) {
+    //
+    // Branch on DeDiClientError.statusCode (404 = no record published for
+    // this DID) rather than substring-matching the message. The real client
+    // throws messages like "DeDi API error: 404" with no "not found"
+    // substring, so the old toLowerCase().includes check was silently
+    // mis-routing 404s into the "outage" branch and emitting a misleading
+    // `detail` instead of leaving it undefined per the documented contract.
+    const is404 = err instanceof DeDiClientError && err.statusCode === 404;
+    if (is404) {
       // No record means we have no supersession info; treat as "no successor".
       return { name: "keySupersession", passed: true };
     }
+    const message =
+      err instanceof Error && err.message ? err.message : "DeDi supersession lookup failed";
     return {
       name: "keySupersession",
       passed: true,

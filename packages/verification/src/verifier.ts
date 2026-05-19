@@ -204,9 +204,12 @@ export async function verifyCredential(
   // verified=true; a did:web credential whose domain we resolved is still
   // verified=true. The caller decides what attribution policy to enforce.
   //
-  // We run these BEFORE the revocation check so the order in the UI's
-  // per-check list reads naturally: signature → date → who issued this
-  // (attribution) → has it been revoked → has the key been superseded.
+  // We run these around the revocation check (attribution before,
+  // supersession after) so the per-check list reads naturally:
+  // signature → date → who issued this (attribution) → has it been
+  // revoked → has the key been superseded. Supersession after revocation
+  // also avoids a redundant resolveDID for credentials we've already
+  // rejected as revoked.
   // `credentialForRevocationHash` is the post-decoded claims object for
   // JWT-encoded credentials and the raw VC for Data Integrity ones, so
   // it's the right shape from which to extract the `issuer` field.

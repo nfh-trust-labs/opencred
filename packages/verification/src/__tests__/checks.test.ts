@@ -10,6 +10,7 @@ import {
   MAX_COMPRESSED_SIZE,
 } from "../checks.js";
 import type { DeDiClient } from "@opencred/dedi-client";
+import { DeDiClientError } from "@opencred/dedi-client";
 import type { DIDResolver } from "@opencred/did";
 import { gzipSync } from "node:zlib";
 
@@ -859,8 +860,10 @@ describe("checkIssuerAttribution", () => {
   });
 
   it("did:key with DeDi miss → unattributed", async () => {
+    // Real DeDi client throws DeDiClientError with statusCode=404 for misses
+    // (message looks like "DeDi API error: 404", no "not found" substring).
     const mockClient = {
-      resolveDID: vi.fn().mockRejectedValue(new Error("record not found")),
+      resolveDID: vi.fn().mockRejectedValue(new DeDiClientError("DeDi API error: 404", 404)),
     } as unknown as DeDiClient;
     const result = await checkIssuerAttribution(makeCredential("did:key:z6Mkbar"), mockClient);
     expect(result.passed).toBe(false);
@@ -868,6 +871,8 @@ describe("checkIssuerAttribution", () => {
   });
 
   it("did:key with DeDi outage → degrades to unattributed with descriptive detail", async () => {
+    // Non-404 failure (timeout / 5xx) should fall through to the operator-
+    // debug branch with the original error message in the detail.
     const mockClient = {
       resolveDID: vi.fn().mockRejectedValue(new Error("DeDi service timeout")),
     } as unknown as DeDiClient;
@@ -946,8 +951,11 @@ describe("checkKeySupersession", () => {
   });
 
   it("DeDi outage → passes (don't block on supersession check)", async () => {
+    // Non-404 failure: pass, but surface a descriptive detail so the UI can
+    // render "supersession status unknown". A 502/5xx-shaped DeDiClientError
+    // exercises the same path as a generic timeout Error.
     const mockClient = {
-      resolveDID: vi.fn().mockRejectedValue(new Error("network timeout")),
+      resolveDID: vi.fn().mockRejectedValue(new DeDiClientError("network timeout", 502)),
     } as unknown as DeDiClient;
     const result = await checkKeySupersession(makeCredential("did:key:z6Mkfoo"), mockClient);
     expect(result.passed).toBe(true);
@@ -955,8 +963,10 @@ describe("checkKeySupersession", () => {
   });
 
   it("DeDi record-not-found → passes (no successor known)", async () => {
+    // 404 means no DeDi record was ever published for this DID, so there's
+    // no supersession info — pass with undefined detail (documented contract).
     const mockClient = {
-      resolveDID: vi.fn().mockRejectedValue(new Error("record not found")),
+      resolveDID: vi.fn().mockRejectedValue(new DeDiClientError("DeDi API error: 404", 404)),
     } as unknown as DeDiClient;
     const result = await checkKeySupersession(makeCredential("did:key:z6Mkfoo"), mockClient);
     expect(result.passed).toBe(true);
