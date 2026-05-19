@@ -247,8 +247,24 @@ describe("verifyDidWeb", () => {
 
   const did = "did:web:example.com";
 
-  function mockSuccessfulFetch(doc: ReturnType<typeof generateDidWebDocument>): void {
-    vi.spyOn(require("node:dns").promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
+  /**
+   * Helper that wires DNS + fetch mocks for the happy path. We use
+   * `await import("node:dns")` rather than `require(...)` to stay
+   * compatible with the package's ESM module type — `require` is not
+   * available at runtime here, and is also rejected by
+   * `@typescript-eslint/no-require-imports` in CI.
+   */
+  async function mockSuccessfulFetch(
+    doc: ReturnType<typeof generateDidWebDocument>,
+  ): Promise<void> {
+    const dns = await import("node:dns");
+    // `DIDWebResolver.resolveViaHttps` does `Promise.allSettled([resolve4,
+    // resolve6])`. We need to stub BOTH or the unstubbed call falls through
+    // to real DNS in CI, the SSRF check runs against actual public IPs, and
+    // `fetch` (also unstubbed in that path) hits the real network — making
+    // the test environment-dependent and flaky.
+    vi.spyOn(dns.promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(new Error("no AAAA"));
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue(doc) }),
@@ -256,7 +272,7 @@ describe("verifyDidWeb", () => {
   }
 
   it("returns accessible:true when the DID resolves and no key check is requested", async () => {
-    mockSuccessfulFetch(generateDidWebDocument(did, sampleJwk));
+    await mockSuccessfulFetch(generateDidWebDocument(did, sampleJwk));
 
     const result = await verifyDidWeb(did);
 
@@ -267,7 +283,7 @@ describe("verifyDidWeb", () => {
   });
 
   it("returns accessible:true and keyMatches:true when the published key matches", async () => {
-    mockSuccessfulFetch(generateDidWebDocument(did, sampleJwk));
+    await mockSuccessfulFetch(generateDidWebDocument(did, sampleJwk));
 
     const result = await verifyDidWeb(did, { expectedPublicKey: sampleJwk });
 
@@ -277,7 +293,7 @@ describe("verifyDidWeb", () => {
   });
 
   it("returns keyMatches:false when the published key differs", async () => {
-    mockSuccessfulFetch(generateDidWebDocument(did, sampleJwk));
+    await mockSuccessfulFetch(generateDidWebDocument(did, sampleJwk));
     const otherKey: JWK = { ...sampleJwk, x: "different-x-value" };
 
     const result = await verifyDidWeb(did, { expectedPublicKey: otherKey });
@@ -288,7 +304,11 @@ describe("verifyDidWeb", () => {
   });
 
   it("returns accessible:false with an error message when the fetch fails", async () => {
-    vi.spyOn(require("node:dns").promises, "resolve4").mockRejectedValue(new Error("ENOTFOUND"));
+    const dns = await import("node:dns");
+    // Reject BOTH DNS families so the SSRF guard doesn't fall through to a
+    // real AAAA-only lookup in CI. See note in mockSuccessfulFetch.
+    vi.spyOn(dns.promises, "resolve4").mockRejectedValue(new Error("ENOTFOUND"));
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(new Error("ENOTFOUND"));
 
     const result = await verifyDidWeb(did);
 
@@ -299,7 +319,9 @@ describe("verifyDidWeb", () => {
   });
 
   it("does not crash and reports failure when the document has no verificationMethod", async () => {
-    vi.spyOn(require("node:dns").promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
+    const dns = await import("node:dns");
+    vi.spyOn(dns.promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(new Error("no AAAA"));
     const docWithoutVm = { "@context": "https://www.w3.org/ns/did/v1", id: did };
     vi.stubGlobal(
       "fetch",
