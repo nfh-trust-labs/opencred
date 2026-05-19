@@ -308,3 +308,68 @@ describe("Config — DeDi cross-field validation", () => {
     expect(config.OPENCRED_DEDI_TIMEOUT_MS).toBe(5000);
   });
 });
+
+describe("Config — issuer identity (DID method)", () => {
+  it("defaults to OPENCRED_ISSUER_DID_METHOD=key", () => {
+    const config = loadConfig();
+    expect(config.OPENCRED_ISSUER_DID_METHOD).toBe("key");
+    expect(config.OPENCRED_ISSUER_DOMAIN).toBeUndefined();
+  });
+
+  it("accepts OPENCRED_ISSUER_DID_METHOD=web with a domain", () => {
+    process.env.OPENCRED_ISSUER_DID_METHOD = "web";
+    process.env.OPENCRED_ISSUER_DOMAIN = "issuer.example.com";
+    const config = loadConfig();
+    expect(config.OPENCRED_ISSUER_DID_METHOD).toBe("web");
+    expect(config.OPENCRED_ISSUER_DOMAIN).toBe("issuer.example.com");
+  });
+
+  it("rejects OPENCRED_ISSUER_DID_METHOD=web without a domain", () => {
+    process.env.OPENCRED_ISSUER_DID_METHOD = "web";
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/OPENCRED_ISSUER_DOMAIN is required/);
+  });
+
+  it("rejects unknown DID method values", () => {
+    process.env.OPENCRED_ISSUER_DID_METHOD = "ion";
+    expect(() => loadConfig()).toThrow();
+  });
+
+  it("ignores OPENCRED_ISSUER_DOMAIN when method=key (does not error)", () => {
+    // Operators may flip methods without scrubbing env vars — don't punish them.
+    process.env.OPENCRED_ISSUER_DID_METHOD = "key";
+    process.env.OPENCRED_ISSUER_DOMAIN = "leftover.example.com";
+    const config = loadConfig();
+    expect(config.OPENCRED_ISSUER_DID_METHOD).toBe("key");
+  });
+
+  it("accepts OPENCRED_DEDI_HOST_DID_DOC=true with method=web and DeDi configured", () => {
+    process.env.OPENCRED_ISSUER_DID_METHOD = "web";
+    process.env.OPENCRED_ISSUER_DOMAIN = "issuer.example.com";
+    process.env.OPENCRED_DEDI_HOST_DID_DOC = "true";
+    process.env.OPENCRED_DEDI_BASE_URL = "https://dedi.example.com";
+    process.env.OPENCRED_DEDI_AUTH_TYPE = "api-key";
+    process.env.OPENCRED_DEDI_API_KEY = "test-key";
+    process.env.OPENCRED_DEDI_NAMESPACE = "test-ns";
+    const config = loadConfig();
+    expect(config.OPENCRED_DEDI_HOST_DID_DOC).toBe(true);
+  });
+
+  it("accepts OPENCRED_DEDI_HOST_DID_DOC=true when method=key (flag ignored, no throw)", () => {
+    // Matches the philosophy of the OPENCRED_ISSUER_DOMAIN cross-field rule:
+    // operators may flip methods without scrubbing env vars, so leftover
+    // hosting-related flags are silently ignored under method=key.
+    process.env.OPENCRED_ISSUER_DID_METHOD = "key";
+    process.env.OPENCRED_DEDI_HOST_DID_DOC = "true";
+    const config = loadConfig();
+    expect(config.OPENCRED_ISSUER_DID_METHOD).toBe("key");
+    expect(config.OPENCRED_DEDI_HOST_DID_DOC).toBe(true);
+  });
+
+  it("rejects OPENCRED_DEDI_HOST_DID_DOC=true without DeDi configured", () => {
+    process.env.OPENCRED_ISSUER_DID_METHOD = "web";
+    process.env.OPENCRED_ISSUER_DOMAIN = "issuer.example.com";
+    process.env.OPENCRED_DEDI_HOST_DID_DOC = "true";
+    expect(() => loadConfig()).toThrow(/requires DeDi to be configured/);
+  });
+});

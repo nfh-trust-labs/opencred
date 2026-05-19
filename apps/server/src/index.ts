@@ -21,7 +21,8 @@ import { ConfigError, loadConfig, type ServerConfig } from "./config.js";
 import { createLogger } from "./logger.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/error-handler.js";
-import { loadSigningKey, setActiveSigner } from "./signing/key-manager.js";
+import { getActiveSigner, loadSigningKey, setActiveSigner } from "./signing/key-manager.js";
+import { encodeDidWeb, verifyDidWeb } from "@opencred/did";
 import { createSignerFromConfig } from "./signing/cloud-hsm/factory.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -110,6 +111,86 @@ if (cloudSigner) {
   setActiveSigner(cloudSigner);
 } else {
   loadSigningKey();
+}
+
+// ---------------------------------------------------------------------------
+// Issuer identity validation
+// ---------------------------------------------------------------------------
+// Reconcile the configured DID method with the loaded signer before serving
+// any request. This catches the "config drift" failure mode where someone
+// edits env vars and silently changes which issuer identity the server
+// signs under. The check is fail-closed: a misconfiguration here exits the
+// process rather than starting up under an ambiguous identity.
+//
+// What we validate today:
+//   - method=key: signer.id must be a did:key (its `id` is the VM ref, e.g.
+//     `did:key:z…#z…`). did:jwk-backed signers (RSA keys) are rejected.
+//   - method=web: domain must be set (already enforced in config), and the
+//     `did.json` at that domain must be reachable. We log the configured
+//     did:web and warn (don't fail) if `.well-known` validation reports it
+//     unreachable — the operator may legitimately bring up the server before
+//     the DNS / web host is live.
+//
+// What we do NOT validate yet (follow-up):
+//   - That the public key bytes published at did:web match the loaded
+//     signer's key. This requires extending the Signer interface to expose
+//     publicKeyJwk; tracked separately. For now operators can run
+//     `opencred identity show` to print the configured DID + key fingerprint
+//     and reconcile manually.
+{
+  const activeSigner = getActiveSigner();
+  if (!activeSigner) {
+    // No signer loaded — signing endpoints already return 503; nothing
+    // to reconcile. The earlier "No OPENCRED_KEY_PATH configured" log
+    // covers the operator-visible case.
+    logger.info(
+      { didMethod: config.OPENCRED_ISSUER_DID_METHOD },
+      "No active signer; skipping issuer-identity validation",
+    );
+  } else if (config.OPENCRED_ISSUER_DID_METHOD === "key") {
+    if (!activeSigner.id.startsWith("did:key:")) {
+      const msg =
+        `OPENCRED_ISSUER_DID_METHOD=key but the loaded signer (${activeSigner.id}) ` +
+        "is not a did:key. Software signers using RSA produce did:jwk; either " +
+        "switch to an EC key (P-256/P-384/Ed25519) or set " +
+        "OPENCRED_ISSUER_DID_METHOD=web with OPENCRED_ISSUER_DOMAIN.";
+      logger.fatal(msg);
+      process.stderr.write(`\n[opencred-server] FATAL: ${msg}\n\n`);
+      process.exit(1);
+    }
+    const issuerDid = activeSigner.id.split("#")[0];
+    logger.info({ issuerDid, didMethod: "key" }, "Issuer identity configured");
+  } else {
+    // method === "web"
+    const issuerDid = encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!);
+    if (config.OPENCRED_DEDI_HOST_DID_DOC) {
+      // DeDi will host the DID document — the operator's own domain won't
+      // serve `.well-known/did.json`, so a plain-HTTPS probe here would
+      // always fail. DeDi client init runs later in the bootstrap and will
+      // surface any actual hosting failures at that point.
+      logger.info(
+        { issuerDid, didMethod: "web" },
+        "did:web hosted via DeDi; boot reachability probe skipped — " +
+          "DeDi client will surface hosting failures later",
+      );
+    } else {
+      const result = await verifyDidWeb(issuerDid).catch((err: unknown) => ({
+        accessible: false,
+        error: err instanceof Error ? err.message : "did:web verification crashed",
+      }));
+      if (!result.accessible) {
+        logger.warn(
+          { issuerDid, error: result.error },
+          "did:web DID document not currently reachable — the server will still start, " +
+            "but verifiers cannot resolve this issuer until the document is published",
+        );
+      }
+      logger.info(
+        { issuerDid, didMethod: "web", accessible: result.accessible },
+        "Issuer identity configured",
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

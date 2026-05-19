@@ -49,6 +49,7 @@ const CHANNEL_TO_METHOD: Record<string, string> = {
   [IPC_CHANNELS.OSCERT_CONNECT]: "osCertConnect",
   [IPC_CHANNELS.DID_WEB_EXPORT]: "exportDidDocument",
   [IPC_CHANNELS.DID_WEB_VERIFY]: "verifyDidWeb",
+  [IPC_CHANNELS.DID_KEY_EXPORT]: "exportDidKeyDocument",
   [IPC_CHANNELS.CREDENTIAL_HISTORY_LIST]: "credentialHistoryList",
   [IPC_CHANNELS.CREDENTIAL_HISTORY_ADD]: "credentialHistoryAdd",
   [IPC_CHANNELS.CREDENTIAL_HISTORY_DELETE]: "credentialHistoryDelete",
@@ -167,6 +168,7 @@ describe("Preload API completeness", () => {
       }),
       exportDidDocument: async () => ({ success: true }),
       verifyDidWeb: async () => ({ success: true, accessible: true }),
+      exportDidKeyDocument: async () => ({ success: true }),
       onUpdateStatus: () => () => {},
       credentialHistoryList: async () => ({ entries: [] }),
       credentialHistoryAdd: async (
@@ -262,6 +264,7 @@ describe("Preload API completeness", () => {
       }),
       exportDidDocument: async () => ({ success: true }),
       verifyDidWeb: async () => ({ success: true, accessible: true }),
+      exportDidKeyDocument: async () => ({ success: true }),
       onUpdateStatus: () => () => {},
       credentialHistoryList: async () => ({ entries: [] }),
       credentialHistoryAdd: async (

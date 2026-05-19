@@ -3,6 +3,7 @@ import { isIP } from "node:net";
 import { promisify } from "node:util";
 import { gunzip as gunzipCb } from "node:zlib";
 import type { DeDiClient } from "@opencred/dedi-client";
+import { DeDiClientError } from "@opencred/dedi-client";
 import { resolveRevocationHash } from "@opencred/crypto";
 import type { DIDResolver } from "@opencred/did";
 import { isPrivateIP } from "@opencred/shared";
@@ -384,3 +385,195 @@ export async function checkBitstringStatusList(
 
 // Export for testing
 export { validateStatusListUrl as _validateStatusListUrl, MAX_COMPRESSED_SIZE };
+
+// ---------------------------------------------------------------------------
+// Issuer attribution + key supersession checks (did:key adoption)
+// ---------------------------------------------------------------------------
+//
+// These two checks are advisory — they appear in `checks[]` so verifier UIs
+// can distinguish "cryptographically valid" from "attributed to a trusted
+// issuer", but they do NOT flip the headline `verified` boolean. That
+// invariant is intentional: a did:web credential that resolved successfully
+// is implicitly attributed by its domain, and a did:key credential that
+// hasn't been registered to DeDi still has a valid signature. The verifier
+// caller decides what trust level to require.
+
+/** Extract a string issuer DID from a credential's `issuer` field. */
+function extractIssuerDid(credential: unknown): string | undefined {
+  if (typeof credential !== "object" || credential === null) return undefined;
+  const issuer = (credential as Record<string, unknown>)["issuer"];
+  if (typeof issuer === "string") return issuer;
+  if (typeof issuer === "object" && issuer !== null) {
+    const id = (issuer as Record<string, unknown>)["id"];
+    if (typeof id === "string") return id;
+  }
+  return undefined;
+}
+
+/**
+ * Verify that the credential's issuer is attributed to a known organisation.
+ *
+ * Semantics by DID method:
+ *
+ * - **did:web** — the domain itself is the attribution. We trust that the
+ *   verifier's existing DID resolution succeeded (or it would have failed
+ *   the signature check upstream). The attribution `source` is `"did:web"`
+ *   and the detail carries the domain string.
+ *
+ * - **did:key + DeDi configured** — query the DeDi registry by DID. A hit
+ *   reports `source: "dedi"` with the org name; a miss reports
+ *   `passed: false` with `source: "none"` (non-blocking — the credential is
+ *   still cryptographically valid, just unattributed).
+ *
+ * - **did:key + DeDi not configured** — passes with `passed: false` and
+ *   `source: "none"` so the UI can show "unattributed". The verifier could
+ *   layer a local trust list on top in a future iteration.
+ *
+ * - **Other DID methods or non-DID issuers** — passes with `passed: false`
+ *   so unknown shapes don't get a spurious green checkmark.
+ *
+ * Failure modes (DeDi unreachable / record malformed) degrade to
+ * `passed: false` with a descriptive detail rather than throwing — same
+ * pattern as `checkRevocation`.
+ */
+export async function checkIssuerAttribution(
+  credential: unknown,
+  dediClient?: DeDiClient,
+): Promise<VerificationCheck> {
+  const did = extractIssuerDid(credential);
+  if (!did) {
+    return {
+      name: "issuerAttribution",
+      passed: false,
+      detail: "Credential has no resolvable issuer DID",
+    };
+  }
+
+  if (did.startsWith("did:web:")) {
+    // The domain in the DID is the attribution. No DeDi call required;
+    // resolution success upstream (signature check passed) means the domain
+    // serves the published key.
+    return {
+      name: "issuerAttribution",
+      passed: true,
+      detail: `Attributed via did:web — ${did}`,
+    };
+  }
+
+  if (did.startsWith("did:key:")) {
+    if (!dediClient) {
+      return {
+        name: "issuerAttribution",
+        passed: false,
+        detail: "Unattributed did:key issuer (no DeDi registry configured)",
+      };
+    }
+    try {
+      const record = await dediClient.resolveDID(did);
+      const orgName = record.metadata?.orgName;
+      const verifiedDomain = record.metadata?.verifiedDomain;
+      return {
+        name: "issuerAttribution",
+        passed: true,
+        detail: verifiedDomain
+          ? `Attributed via DeDi to ${orgName ?? did} (verified domain: ${verifiedDomain})`
+          : orgName
+            ? `Attributed via DeDi to ${orgName}`
+            : `Registered in DeDi (no org metadata)`,
+      };
+    } catch (err) {
+      // Distinguish "no record found" (expected for unregistered did:key)
+      // from "DeDi unreachable" (operator-visible failure). Both surface as
+      // passed:false, but with different details so the UI can render
+      // "unattributed" vs "lookup failed" appropriately.
+      //
+      // The DeDi client throws DeDiClientError with a numeric statusCode for
+      // HTTP failures (see packages/dedi-client/src/adapter/client.ts), so we
+      // branch on the structured field rather than substring-sniffing the
+      // message — error messages like "DeDi API error: 404" don't contain
+      // the literal "not found".
+      const is404 = err instanceof DeDiClientError && err.statusCode === 404;
+      const message =
+        err instanceof Error && err.message ? err.message : "DeDi attribution lookup failed";
+      return {
+        name: "issuerAttribution",
+        passed: false,
+        detail: is404
+          ? "Unattributed did:key issuer (no DeDi record)"
+          : `Unable to check attribution: ${message}`,
+      };
+    }
+  }
+
+  return {
+    name: "issuerAttribution",
+    passed: false,
+    detail: `Cannot attribute issuer with unsupported DID method: ${did.split(":")[1] ?? "?"}`,
+  };
+}
+
+/**
+ * Check whether the credential's issuer key has been superseded by a
+ * successor (e.g. the issuer rotated to a new did:key after compromise).
+ *
+ * Only meaningful for did:key issuers with DeDi configured — did:web does
+ * its own rotation natively, and non-DID issuers have no successor concept.
+ * For those cases this check is a no-op pass (so it never blocks a credential
+ * that the supersession concept doesn't apply to).
+ *
+ * When DeDi reports a `supersededBy` record, this check fails with the
+ * successor DID in the detail, letting the verifier UI surface a red
+ * "issuer key superseded" badge. The headline `verified` boolean stays
+ * driven by the signature check — the credential is still cryptographically
+ * valid against the old key — but verifier policy can treat supersession
+ * as a reason to reject.
+ *
+ * Times out fast and degrades to a pass on DeDi unreachability so a DeDi
+ * outage doesn't block verification.
+ */
+export async function checkKeySupersession(
+  credential: unknown,
+  dediClient?: DeDiClient,
+): Promise<VerificationCheck> {
+  const did = extractIssuerDid(credential);
+  if (!did || !did.startsWith("did:key:") || !dediClient) {
+    return { name: "keySupersession", passed: true };
+  }
+  try {
+    const record = await dediClient.resolveDID(did);
+    if (record.supersededBy) {
+      const successor = record.supersededBy;
+      return {
+        name: "keySupersession",
+        passed: false,
+        detail: `Issuer key superseded by ${successor.did} at ${successor.at}${
+          successor.reason ? ` — ${successor.reason}` : ""
+        }`,
+      };
+    }
+    return { name: "keySupersession", passed: true };
+  } catch (err) {
+    // Same defensive degrade as attribution: don't fail verification just
+    // because DeDi is down. The verifier UI can surface "unknown supersession
+    // status" if it cares.
+    //
+    // Branch on DeDiClientError.statusCode (404 = no record published for
+    // this DID) rather than substring-matching the message. The real client
+    // throws messages like "DeDi API error: 404" with no "not found"
+    // substring, so the old toLowerCase().includes check was silently
+    // mis-routing 404s into the "outage" branch and emitting a misleading
+    // `detail` instead of leaving it undefined per the documented contract.
+    const is404 = err instanceof DeDiClientError && err.statusCode === 404;
+    if (is404) {
+      // No record means we have no supersession info; treat as "no successor".
+      return { name: "keySupersession", passed: true };
+    }
+    const message =
+      err instanceof Error && err.message ? err.message : "DeDi supersession lookup failed";
+    return {
+      name: "keySupersession",
+      passed: true,
+      detail: `Supersession status unknown: ${message}`,
+    };
+  }
+}

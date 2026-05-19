@@ -78,7 +78,44 @@ const CHECK_HINTS: Record<string, string> = {
   expiry: "The credential has not expired",
   revocation: "The credential has not been revoked",
   context: "The credential's context is valid and resolvable",
+  issuerattribution: "Whether we can attribute this issuer to a known organisation",
+  keysupersession: "Whether the issuer's signing key has been replaced by a successor",
 };
+
+/**
+ * Per-check advisory list — these checks contribute information to the
+ * verifier UI but do NOT count against the headline VALID/INVALID outcome.
+ * Failed advisory checks render with neutral amber styling instead of red
+ * to communicate "still cryptographically valid, but worth knowing" rather
+ * than "rejected".
+ */
+const ADVISORY_CHECK_NAMES = new Set(["issuerAttribution", "keySupersession"]);
+
+/** Top-level attribution states shown as a distinct badge above the per-check list. */
+type AttributionState = "attributed" | "unattributed" | "superseded" | "unknown";
+
+/**
+ * Derive a single attribution summary from the checks array.
+ *
+ * Priority order:
+ *   1. supersession failure → red "key superseded" badge wins (issuer rotated away)
+ *   2. attribution passed   → green "attributed" badge with the detail message
+ *   3. attribution failed   → amber "unattributed" badge with the reason
+ *   4. neither present      → "unknown" — render no badge
+ */
+function deriveAttributionBadge(checks: VerificationCheck[]): {
+  state: AttributionState;
+  message?: string;
+} {
+  const supersession = checks.find((c) => c.name === "keySupersession");
+  if (supersession && !supersession.passed) {
+    return { state: "superseded", message: supersession.detail };
+  }
+  const attribution = checks.find((c) => c.name === "issuerAttribution");
+  if (!attribution) return { state: "unknown" };
+  if (attribution.passed) return { state: "attributed", message: attribution.detail };
+  return { state: "unattributed", message: attribution.detail };
+}
 
 function getCheckHint(checkName: string): string | undefined {
   const lower = checkName.toLowerCase();
@@ -824,25 +861,77 @@ export function VerifyPage() {
         </Card>
       )}
 
+      {/* Attribution badge — surfaced separately from the per-check list so
+          users can see "who signed this" at a glance without parsing the
+          full check details. For did:key credentials this is the only signal
+          of issuer trust (whereas did:web is implicitly attributed by its
+          domain). The headline VALID/INVALID badge above is unchanged — it
+          reflects crypto correctness only. */}
+      {checks.length > 0 &&
+        (() => {
+          const attribution = deriveAttributionBadge(checks);
+          if (attribution.state === "unknown") return null;
+          const palette = {
+            attributed: { border: "border-green-200", bg: "bg-green-50", text: "text-green-800" },
+            unattributed: {
+              border: "border-amber-200",
+              bg: "bg-amber-50",
+              text: "text-amber-800",
+            },
+            superseded: { border: "border-red-200", bg: "bg-red-50", text: "text-red-800" },
+            unknown: { border: "border-gray-200", bg: "bg-gray-50", text: "text-gray-700" },
+          }[attribution.state];
+          const heading = {
+            attributed: "Issuer attributed",
+            unattributed: "Issuer unattributed",
+            superseded: "Issuer key superseded",
+            unknown: "",
+          }[attribution.state];
+          return (
+            <Card className={`${palette.border} ${palette.bg}`}>
+              <div className="space-y-1">
+                <p className={`text-sm font-medium ${palette.text}`}>{heading}</p>
+                {attribution.message && (
+                  <p className={`text-xs ${palette.text} opacity-80`}>{attribution.message}</p>
+                )}
+                {attribution.state === "unattributed" && (
+                  <p className="text-xs text-amber-700 italic mt-1">
+                    The credential is cryptographically valid, but no organisation has been linked
+                    to this issuer's DID. Verifier policy decides whether to accept.
+                  </p>
+                )}
+              </div>
+            </Card>
+          );
+        })()}
+
       {checks.length > 0 && (
         <Card className="space-y-3">
           <h3 className="oc-card-label">Verification Checks</h3>
           <div className="space-y-2">
             {checks.map((check, i) => {
               const hint = getCheckHint(check.name);
+              const isAdvisory = ADVISORY_CHECK_NAMES.has(check.name);
+              // Advisory check failures render amber, not red — they
+              // surface information but don't reject the credential.
+              const failedPalette = isAdvisory
+                ? "border-amber-200 bg-amber-50"
+                : "border-red-200 bg-red-50";
+              const failedLabel = isAdvisory ? "text-amber-700" : "text-red-600";
+              const failedText = isAdvisory ? "INFO" : "FAIL";
               return (
                 <div
                   key={i}
                   className={`flex items-start gap-3 rounded-md border px-3 py-2.5 ${
-                    check.passed ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
+                    check.passed ? "border-green-200 bg-green-50" : failedPalette
                   }`}
                 >
                   <span
                     className={`flex-shrink-0 mt-0.5 text-xs font-semibold ${
-                      check.passed ? "text-green-600" : "text-red-600"
+                      check.passed ? "text-green-600" : failedLabel
                     }`}
                   >
-                    {check.passed ? "PASS" : "FAIL"}
+                    {check.passed ? "PASS" : failedText}
                   </span>
                   <div className="min-w-0">
                     <span className="text-xs font-medium text-gray-700">{check.name}</span>

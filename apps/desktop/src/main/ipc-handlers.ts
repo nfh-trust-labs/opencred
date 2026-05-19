@@ -2563,12 +2563,15 @@ async function handleLogTail(
 // ---------------------------------------------------------------------------
 
 import { exportDidDocument } from "./did-web-export.js";
+import { exportDidKeyDocument } from "./did-key-export.js";
 import { DIDWebResolver, encodeDidWeb } from "@opencred/did";
 import type {
   DidWebExportRequest,
   DidWebExportResponse,
   DidWebVerifyRequest,
   DidWebVerifyResponse,
+  DidKeyExportRequest,
+  DidKeyExportResponse,
   DeDiConfigSetRequest,
   DeDiConfigSetResponse,
   DeDiStatusResponse,
@@ -2592,6 +2595,45 @@ async function handleDidWebExport(
     return {
       success: false,
       error: ipcErrorMessage(err, "DID document export failed."),
+    };
+  }
+}
+
+/**
+ * Synthesise a DID document for the user's generated did:key.
+ *
+ * Used by the Self-Published Keys (did:key branch) wizard to produce the
+ * payload that DeDi accepts as an attribution record. The DID document is
+ * the same one a verifier would synthesise locally via {@link
+ * @opencred/did#DIDKeyResolver} — DeDi caching it just lets verifiers
+ * attach org metadata on lookup.
+ *
+ * Mirror to {@link handleDidWebExport}; takes only the keyId (no domain).
+ */
+async function handleDidKeyExport(
+  _event: IpcMainInvokeEvent,
+  request: DidKeyExportRequest,
+): Promise<DidKeyExportResponse> {
+  try {
+    const jwk = loadedPublicKeyJwks.get(request.keyId);
+    if (!jwk) return { success: false, error: "Key not found or not a generated key" };
+    // The Signer's `id` is the full verification method ref (did:key:z…#z…).
+    // Strip the fragment to get the DID itself, which is what credentials
+    // and DeDi records use as the identifier.
+    const signer = loadedSigners.get(request.keyId);
+    if (!signer || !signer.id.startsWith("did:key:")) {
+      return {
+        success: false,
+        error: "Cannot export did:key document: signer is not a did:key (RSA keys produce did:jwk)",
+      };
+    }
+    const did = signer.id.split("#")[0];
+    const didDocument = await exportDidKeyDocument(did);
+    return { success: true, did, didDocument };
+  } catch (err) {
+    return {
+      success: false,
+      error: ipcErrorMessage(err, "did:key document export failed."),
     };
   }
 }
@@ -2920,6 +2962,7 @@ export function registerIpcHandlers(): void {
   // Self-Published Keys (did:web)
   ipcMain.handle(IPC_CHANNELS.DID_WEB_EXPORT, handleDidWebExport);
   ipcMain.handle(IPC_CHANNELS.DID_WEB_VERIFY, handleDidWebVerify);
+  ipcMain.handle(IPC_CHANNELS.DID_KEY_EXPORT, handleDidKeyExport);
 
   // DeDi integration
   ipcMain.handle(IPC_CHANNELS.DEDI_SET_CONFIG, handleDeDiSetConfig);

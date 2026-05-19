@@ -670,6 +670,32 @@ export interface DidWebVerifyResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Self-Published Keys (did:key)
+// ---------------------------------------------------------------------------
+
+/**
+ * Request to export a DID document for a `did:key` identifier.
+ *
+ * Symmetric counterpart to {@link DidWebExportRequest}, but takes no
+ * `domain` — the DID is fully derived from the key. Used by the
+ * "Self-Published — did:key" branch of the onboarding wizard to produce
+ * an attribution record for DeDi.
+ */
+export interface DidKeyExportRequest {
+  /** The keyId returned by {@link KeyGenerateResponse}. */
+  keyId: string;
+}
+
+export interface DidKeyExportResponse {
+  success: boolean;
+  /** The full did:key identifier (without `#fragment`). */
+  did?: string;
+  /** Pretty-printed JSON of the synthesised DID document. */
+  didDocument?: string;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
 // DeDi integration
 // ---------------------------------------------------------------------------
 
@@ -992,6 +1018,9 @@ export interface OpenCredDesktopAPI {
   // Self-Published Keys (did:web)
   exportDidDocument: (request: DidWebExportRequest) => Promise<DidWebExportResponse>;
   verifyDidWeb: (request: DidWebVerifyRequest) => Promise<DidWebVerifyResponse>;
+
+  // Self-Published Keys (did:key)
+  exportDidKeyDocument: (request: DidKeyExportRequest) => Promise<DidKeyExportResponse>;
 
   // DeDi integration
   dediSetConfig: (request: DeDiConfigSetRequest) => Promise<DeDiConfigSetResponse>;

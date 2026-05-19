@@ -4,7 +4,13 @@ import { verifyDataIntegrity } from "./data-integrity.js";
 import { verifyJwsProof } from "./jws-proof.js";
 import { verifyVcJwt, extractVcJwtCredentialFields, crossValidateVcJwtClaims } from "./vc-jwt.js";
 import { verifySdJwtVc, extractSdJwtVcCredentialFields } from "./sd-jwt-vc.js";
-import { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
+import {
+  checkDates,
+  checkRevocation,
+  checkBitstringStatusList,
+  checkIssuerAttribution,
+  checkKeySupersession,
+} from "./checks.js";
 import { checkX509Chain } from "./x509-chain-check.js";
 import type {
   CredentialFormat,
@@ -189,6 +195,45 @@ export async function verifyCredential(
     };
   }
 
+  // Issuer attribution + key-supersession (advisory).
+  //
+  // Both checks are advisory: they populate the `checks[]` array so the
+  // verifier UI can distinguish "cryptographically valid" from "attributed
+  // to a trusted issuer", but they do NOT flip the headline `verified`
+  // boolean. A did:key credential with no DeDi attribution is still
+  // verified=true; a did:web credential whose domain we resolved is still
+  // verified=true. The caller decides what attribution policy to enforce.
+  //
+  // We run these around the revocation check (attribution before,
+  // supersession after) so the per-check list reads naturally:
+  // signature → date → who issued this (attribution) → has it been
+  // revoked → has the key been superseded. Supersession after revocation
+  // also avoids a redundant resolveDID for credentials we've already
+  // rejected as revoked.
+  // `credentialForRevocationHash` is the post-decoded claims object for
+  // JWT-encoded credentials and the raw VC for Data Integrity ones, so
+  // it's the right shape from which to extract the `issuer` field.
+  if (credentialForRevocationHash) {
+    // Gate the attribution check so we don't push a noisy `passed: false`
+    // row when there's nothing to check against. Specifically: a did:key
+    // credential verified without a DeDi client is "unattributable by
+    // design", not "we tried and missed". Emitting an INFO advisory there
+    // would mislead consumers (and break smoke tests that assert no
+    // failing checks). did:web is always meaningful (the domain IS the
+    // attribution), and did:key with a DeDi client can hit, miss, or
+    // surface an outage — all worth reporting.
+    const issuer = extractIssuerForGating(credentialForRevocationHash);
+    const issuerIsDidWeb = issuer?.startsWith("did:web:") ?? false;
+    const shouldRunAttribution = issuerIsDidWeb || Boolean(config.dediClient);
+    if (shouldRunAttribution) {
+      const attributionCheck = await checkIssuerAttribution(
+        credentialForRevocationHash,
+        config.dediClient,
+      );
+      checks.push(attributionCheck);
+    }
+  }
+
   // Revocation checks
   if (config.dediClient && credentialForRevocationHash) {
     const revocationCheck = await checkRevocation(credentialForRevocationHash, config.dediClient);
@@ -199,6 +244,18 @@ export async function verifyCredential(
       }
       return { code: "UNRESOLVABLE", verified: false, checks };
     }
+  }
+
+  // Key-supersession check (did:key only, advisory).
+  if (credentialForRevocationHash && config.dediClient) {
+    const supersessionCheck = await checkKeySupersession(
+      credentialForRevocationHash,
+      config.dediClient,
+    );
+    checks.push(supersessionCheck);
+    // Intentionally not propagated to a non-200 code: a superseded key
+    // does not invalidate already-signed credentials cryptographically.
+    // Verifier policy can read the check result and reject if desired.
   }
 
   // BitstringStatusList check
@@ -234,6 +291,25 @@ export async function verifyCredential(
   }
 
   return { code: "VALID", verified: true, checks };
+}
+
+/**
+ * Pull the issuer DID out of a credential-shaped object for the gating
+ * logic that decides whether to run the attribution check. Mirrors the
+ * `extractIssuerDid` helper in `checks.ts` but lives here so verifier.ts
+ * can gate WITHOUT calling the check (which would push a row we don't
+ * want). Returns `undefined` for malformed inputs — the caller treats
+ * that as "don't run".
+ */
+function extractIssuerForGating(credential: unknown): string | undefined {
+  if (typeof credential !== "object" || credential === null) return undefined;
+  const issuer = (credential as Record<string, unknown>)["issuer"];
+  if (typeof issuer === "string") return issuer;
+  if (typeof issuer === "object" && issuer !== null) {
+    const id = (issuer as Record<string, unknown>)["id"];
+    if (typeof id === "string") return id;
+  }
+  return undefined;
 }
 
 function buildResult(

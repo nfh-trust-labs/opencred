@@ -100,6 +100,10 @@ export const IPC_CHANNELS = {
   DID_WEB_EXPORT: "keys:export-did-document",
   DID_WEB_VERIFY: "keys:verify-did-web",
 
+  // --- Self-Published Keys (did:key) ---
+  /** Synthesise a DID document for a did:key. Payload: DidKeyExportRequest. */
+  DID_KEY_EXPORT: "keys:export-did-key-document",
+
   // --- Recent templates ---
   /** List recently used templates. Response: RecentTemplatesListResponse. */
   RECENT_TEMPLATES_LIST: "recent-templates:list",

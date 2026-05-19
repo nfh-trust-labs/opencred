@@ -104,6 +104,49 @@ const configSchema = z.object({
    */
   OPENCRED_WEBHOOK_SECRET: z.string().min(32).optional(),
 
+  // --- Issuer identity (DID method) ---
+
+  /**
+   * Which DID method this server's issuer identity uses.
+   *
+   * - `key` (default): issuer DID is derived from the signer's public key
+   *   as `did:key:z…`. The DID is self-contained — verifiers resolve it
+   *   offline without any network call. Best when the server has no public
+   *   domain, runs air-gapped, or wants offline-verifiable credentials.
+   *   Note: did:key has no key rotation; treat HSM-backed keys as a
+   *   compensating control.
+   *
+   * - `web`: issuer DID is `did:web:<OPENCRED_ISSUER_DOMAIN>`. Verifiers
+   *   resolve the DID over HTTPS from that domain. Best when the issuer
+   *   already operates a public web endpoint, because did:web gives you
+   *   key rotation and a human-readable issuer identity.
+   *
+   * Default is `key` to preserve the implicit behaviour that existed
+   * before this option was introduced (the software signer's `id` is
+   * always a did:key VM identifier).
+   */
+  OPENCRED_ISSUER_DID_METHOD: z.enum(["key", "web"]).default("key"),
+
+  /**
+   * Domain for did:web. REQUIRED when `OPENCRED_ISSUER_DID_METHOD=web`.
+   * The server expects a `did.json` document hosted at
+   * `https://<domain>/.well-known/did.json` (or at a custom path when the
+   * domain string contains colons — see did:web spec). The server does NOT
+   * host the DID document itself; the operator is responsible for serving
+   * it from their own web infrastructure or via DeDi-as-bundled-hosting
+   * (`OPENCRED_DEDI_HOST_DID_DOC=true`).
+   */
+  OPENCRED_ISSUER_DOMAIN: z.string().optional(),
+
+  /**
+   * When true and DeDi is configured, the server will publish its DID
+   * document to DeDi at startup. Used as bundled hosting for did:web
+   * issuers who don't want to run their own web server. Ignored when
+   * `OPENCRED_ISSUER_DID_METHOD=key` (did:key needs no hosted document) —
+   * operators can flip methods without scrubbing this env var.
+   */
+  OPENCRED_DEDI_HOST_DID_DOC: booleanFromString,
+
   // --- Cloud HSM (KMS) configuration ---
 
   /** KMS provider: aws | azure | gcp | none. Default: none (file-based). */
@@ -246,6 +289,33 @@ export function loadConfig(): ServerConfig {
         "OPENCRED_DEV_MODE_NO_AUTH=true to disable authentication; this is REFUSED " +
         "when NODE_ENV=production.",
     );
+  }
+
+  // --- Issuer identity cross-field validation ---
+  // When method=web, the domain is required (the whole point of did:web).
+  // When method=key, the domain is ignored if set (don't make this an
+  // error — operators may flip methods without scrubbing env vars).
+  if (parsed.OPENCRED_ISSUER_DID_METHOD === "web" && !parsed.OPENCRED_ISSUER_DOMAIN) {
+    throw new ConfigError(
+      "OPENCRED_ISSUER_DOMAIN is required when OPENCRED_ISSUER_DID_METHOD=web. " +
+        "Set it to the public domain that hosts your did:web DID document " +
+        "(e.g., 'issuer.example.com'). The server expects to find " +
+        "`https://<domain>/.well-known/did.json` reachable at startup.",
+    );
+  }
+
+  // DeDi-as-bundled-hosting requires DeDi to be configured.
+  // When method=key the flag has no effect; ignore it silently (matching the
+  // OPENCRED_ISSUER_DOMAIN rule above — operators may flip methods without
+  // scrubbing env vars). When DeDi itself is not configured, the flag has no
+  // fallback meaning, so we still throw.
+  if (parsed.OPENCRED_DEDI_HOST_DID_DOC && parsed.OPENCRED_ISSUER_DID_METHOD === "web") {
+    if (!parsed.OPENCRED_DEDI_BASE_URL) {
+      throw new ConfigError(
+        "OPENCRED_DEDI_HOST_DID_DOC=true requires DeDi to be configured. " +
+          "Set OPENCRED_DEDI_BASE_URL, OPENCRED_DEDI_AUTH_TYPE, and OPENCRED_DEDI_NAMESPACE.",
+      );
+    }
   }
 
   // --- DeDi cross-field validation ---

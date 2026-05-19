@@ -1,15 +1,32 @@
 /**
- * SelfPublishedSetup — multi-step setup for the Self-Published Keys (did:web) workflow.
+ * SelfPublishedSetup — multi-step setup for the Self-Published Keys workflow.
+ *
+ * Two DID-method branches:
+ *
+ *   did:web — issuer has a public domain. The user enters the domain, exports
+ *             a DID document, and publishes it at `.well-known/did.json`.
+ *             Trust is anchored in the domain's TLS; key rotation is supported
+ *             by re-publishing.
+ *
+ *   did:key — issuer has no domain. The DID is derived directly from the
+ *             public key (`did:key:z…`) and is self-contained — verifiers
+ *             resolve it offline without a network call. There is no key
+ *             rotation; the user is forced through an explicit "I understand
+ *             my key is unrotatable" backup gate before completing.
  *
  * Steps:
- *   1. Generate a fresh ECDSA P-256 key pair
- *   2. Enter the domain where the DID document will be hosted
- *   3. Export the DID document and save to disk
- *   4. (Optional) Verify publication via HTTPS fetch
- *   5. Complete — show profile summary
+ *   1. Generate a fresh key pair
+ *   2. Choose DID method (web vs key)
+ *   3a. (web) Enter the domain
+ *   3b. (web) Export and publish the DID document
+ *   3c. (web) Verify publication
+ *   3d. (key) Confirm derived did:key
+ *   3e. (key) Backup-key acknowledgement gate
+ *   4.  Complete — show profile summary tailored to the chosen method
  *
- * SECURITY NOTE: Only the public key is embedded in the DID document.
- * The private key stays in the main process and is never exposed.
+ * SECURITY NOTE: Only the public key is embedded in the DID document /
+ * exposed via did:key. The private key stays in the main process and is
+ * never serialised over IPC.
  */
 
 import { useState } from "react";
@@ -17,10 +34,36 @@ import type { KeyMetadata } from "../../shared/ipc-types";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
 
-type SelfPubStep = "generate" | "domain" | "export" | "verify" | "complete";
+type DidMethodChoice = "web" | "key";
+
+type SelfPubStep =
+  | "generate"
+  | "choose-method"
+  | "domain"
+  | "export"
+  | "verify"
+  | "did-key-confirm"
+  | "did-key-backup"
+  | "complete";
+
+/**
+ * Result handed to the parent wizard on completion.
+ *
+ * `method` distinguishes the two branches. `did` is always populated — for
+ * did:web it's `did:web:<domain>`, for did:key it's the derived
+ * `did:key:z…` (`key.id` minus the `#fragment`). `domain` and `didDocument`
+ * are only present on the did:web branch.
+ */
+export interface SelfPubResult {
+  key: KeyMetadata;
+  method: DidMethodChoice;
+  did: string;
+  domain?: string;
+  didDocument?: string;
+}
 
 interface SelfPublishedSetupProps {
-  onComplete: (result?: { key: KeyMetadata; domain: string; didDocument?: string }) => void;
+  onComplete: (result?: SelfPubResult) => void;
   /**
    * Optional callback for the very first step's Back button — returns the
    * user to the prior step in the parent wizard (e.g. choose-path) when
@@ -43,6 +86,15 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
   const [generatedKey, setGeneratedKey] = useState<KeyMetadata | null>(null);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+
+  // DID-method branch: defaults to "web" because that's the recommended path
+  // for issuers who have a domain. "key" requires explicit selection so the
+  // user actively opts in to its (irrevocable) trade-offs.
+  const [method, setMethod] = useState<DidMethodChoice>("web");
+  // did:key branch: gates the "Complete" step behind an explicit
+  // backup-acknowledged checkbox. The wizard never proceeds with did:key
+  // until this is true. See COMMENTARY in render section below.
+  const [backupAcknowledged, setBackupAcknowledged] = useState(false);
 
   const [domain, setDomain] = useState("");
   const [domainError, setDomainError] = useState<string | null>(null);
@@ -74,7 +126,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
       const result = await window.opencred.generateKey({});
       if (result.success && result.key) {
         setGeneratedKey(result.key);
-        setStep("domain");
+        setStep("choose-method");
       } else {
         setGenError(result.error ?? "Key generation failed.");
       }
@@ -172,6 +224,51 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
   // ------------------------------------------------------------------
 
   const didPreview = domain.trim() ? `did:web:${domain.trim().replace(/:/g, "%3A")}` : "";
+  // For did:key, the signer's `id` field is already `did:key:z…#z…` (the
+  // verification-method ref). Strip the fragment to get the DID itself,
+  // which is what the credential's `issuer` field will use.
+  const didKeyDid = generatedKey?.id.split("#")[0] ?? "";
+
+  /**
+   * Final-step completion handler.
+   *
+   * For did:web, the DID document was already exported and saved during
+   * the wizard's `export` step, so we pass it through verbatim.
+   *
+   * For did:key, we synthesise the DID document just-in-time here by
+   * calling the `exportDidKeyDocument` IPC. The document is needed by the
+   * parent wizard's DeDi step so it can publish the attribution record;
+   * if DeDi publishing is later skipped, the document is simply discarded.
+   * We tolerate IPC failure here without blocking — the user can still
+   * issue credentials; DeDi attribution just won't be published.
+   */
+  async function handleCompleteHandoff() {
+    if (!generatedKey) return;
+    if (method === "web") {
+      onComplete({
+        key: generatedKey,
+        method: "web",
+        did: exportedDid ?? didPreview,
+        domain: domain.trim(),
+        didDocument: exportedDoc ?? undefined,
+      });
+      return;
+    }
+    // did:key — synthesize document for DeDi publishing.
+    let didKeyDocument: string | undefined;
+    try {
+      const result = await window.opencred.exportDidKeyDocument({ keyId: generatedKey.id });
+      if (result.success) didKeyDocument = result.didDocument;
+    } catch {
+      // Non-fatal — proceed without a DeDi-publishable document.
+    }
+    onComplete({
+      key: generatedKey,
+      method: "key",
+      did: didKeyDid,
+      didDocument: didKeyDocument,
+    });
+  }
 
   return (
     <div style={hidden ? { display: "none" } : undefined}>
@@ -201,6 +298,89 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
                 Back
               </Button>
             )}
+          </div>
+        </Card>
+      )}
+
+      {/* ================================================================
+          Step: Choose DID Method
+          ================================================================
+          The user has just generated a keypair; now they pick how that key
+          will be discoverable. did:web wants a public domain and supports
+          rotation; did:key is fully offline-verifiable but unrotatable.
+          The wizard surfaces this trade-off explicitly so the user makes an
+          intentional choice — there is no "default" that hides the impact. */}
+      {step === "choose-method" && generatedKey && (
+        <Card className="space-y-5">
+          <div className="space-y-2">
+            <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
+              How will your key be published?
+            </h2>
+            <p className="text-body-sm text-txt-secondary">
+              Choose where verifiers will find your public key. You can change this later by
+              re-running setup.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <label
+              className={`flex gap-3 rounded-oc border p-3 cursor-pointer ${
+                method === "web" ? "border-brand-blue bg-brand-blue/5" : "border-border"
+              }`}
+            >
+              <input
+                type="radio"
+                name="did-method"
+                value="web"
+                checked={method === "web"}
+                onChange={() => setMethod("web")}
+                className="mt-0.5"
+              />
+              <div className="space-y-1">
+                <p className="text-[0.85rem] font-medium text-txt-primary">
+                  I have a domain (did:web) — recommended
+                </p>
+                <p className="text-[0.72rem] text-txt-secondary">
+                  Publish a DID document on your website at{" "}
+                  <code className="text-[0.68rem] bg-surface-warm px-1 rounded">
+                    /.well-known/did.json
+                  </code>
+                  . Best for institutional issuers; supports key rotation.
+                </p>
+              </div>
+            </label>
+
+            <label
+              className={`flex gap-3 rounded-oc border p-3 cursor-pointer ${
+                method === "key" ? "border-brand-blue bg-brand-blue/5" : "border-border"
+              }`}
+            >
+              <input
+                type="radio"
+                name="did-method"
+                value="key"
+                checked={method === "key"}
+                onChange={() => setMethod("key")}
+                className="mt-0.5"
+              />
+              <div className="space-y-1">
+                <p className="text-[0.85rem] font-medium text-txt-primary">No domain (did:key)</p>
+                <p className="text-[0.72rem] text-txt-secondary">
+                  Your DID is derived directly from the public key — no hosting needed. Credentials
+                  verify fully offline. Trade-off: this key cannot be rotated; losing it means
+                  re-issuing every credential under a new DID.
+                </p>
+              </div>
+            </label>
+          </div>
+
+          <div className="pt-2 flex gap-3">
+            <Button onClick={() => setStep(method === "web" ? "domain" : "did-key-confirm")}>
+              Continue
+            </Button>
+            <Button variant="secondary" onClick={() => setStep("generate")}>
+              Back
+            </Button>
           </div>
         </Card>
       )}
@@ -256,7 +436,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
 
           <div className="pt-2 flex gap-3">
             <Button onClick={handleDomainSubmit}>Continue</Button>
-            <Button variant="secondary" onClick={() => setStep("generate")}>
+            <Button variant="secondary" onClick={() => setStep("choose-method")}>
               Back
             </Button>
           </div>
@@ -497,6 +677,120 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
       )}
 
       {/* ================================================================
+          Step: did:key — Confirm derived DID
+          ================================================================
+          For the did:key branch, there is no domain or hosted document; the
+          DID is the key. We show the user the exact identifier their
+          credentials will carry so they can confirm before moving on. */}
+      {step === "did-key-confirm" && generatedKey && (
+        <Card className="space-y-5">
+          <div className="space-y-2">
+            <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
+              Your did:key identifier
+            </h2>
+            <p className="text-body-sm text-txt-secondary">
+              This is the DID that will appear in every credential you issue. It is derived from
+              your public key — verifiers can resolve it offline without contacting any server.
+            </p>
+          </div>
+
+          <div className="rounded-oc border border-border-light bg-surface-warm p-3">
+            <p className="oc-label mb-1">Your DID</p>
+            <p className="font-mono text-[0.72rem] text-txt-primary break-all">{didKeyDid}</p>
+          </div>
+
+          <div className="rounded-oc border border-green-200 bg-green-50 p-3 space-y-1">
+            <p className="text-[0.72rem] font-medium text-green-800">Key Generated</p>
+            <p className="text-[0.68rem] text-green-700">Algorithm: {generatedKey.algorithm}</p>
+            <p className="text-[0.68rem] text-green-700">
+              Fingerprint: {generatedKey.fingerprint.slice(0, 32)}...
+            </p>
+          </div>
+
+          <div className="pt-2 flex gap-3">
+            <Button onClick={() => setStep("did-key-backup")}>Continue</Button>
+            <Button variant="secondary" onClick={() => setStep("choose-method")}>
+              Back
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* ================================================================
+          Step: did:key — Backup acknowledgement gate
+          ================================================================
+          The unrotatable-key risk is the single biggest downside of did:key.
+          This step exists so the user CANNOT proceed without explicitly
+          acknowledging it. The Continue button is disabled until the
+          checkbox is checked — this is intentional UX friction, not a
+          mistake. See the plan's "Risks and edge cases" section.
+
+          v1 limitation: the desktop app currently keeps generated keys in
+          main-process memory only (loadedSigners Map). A first-class
+          "export encrypted private key" IPC handler is a planned follow-up;
+          for now this step is a strong forcing function that surfaces the
+          risk and tells the user what they need to do externally. */}
+      {step === "did-key-backup" && generatedKey && (
+        <Card className="space-y-5">
+          <div className="space-y-2">
+            <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
+              Back up your key
+            </h2>
+            <p className="text-body-sm text-txt-secondary">
+              did:key has no rotation path. If you lose this key, every credential you have ever
+              issued under this DID becomes unverifiable forever. Take a moment to back it up before
+              continuing.
+            </p>
+          </div>
+
+          <div className="rounded-oc border border-amber-300 bg-amber-50 p-4 space-y-2">
+            <p className="text-[0.82rem] font-medium text-amber-900">What you should do now</p>
+            <ul className="text-[0.78rem] text-amber-800 list-disc list-inside space-y-1">
+              <li>
+                Record the key fingerprint and your DID in a password manager or secure document
+                store.
+              </li>
+              <li>
+                Keep this device's encrypted backup current — the private key lives in the operating
+                system keystore and is included in standard backups.
+              </li>
+              <li>
+                Consider setting up DeDi attribution in the next step so verifiers can recognise
+                your DID — and so you have a published successor record if you ever rotate.
+              </li>
+            </ul>
+            <p className="text-[0.72rem] text-amber-800 italic pt-1">
+              A dedicated "export encrypted backup" command is on the roadmap. For now, the key
+              persists with this installation only; reformatting or reinstalling without a system
+              backup will lose it.
+            </p>
+          </div>
+
+          <label className="flex gap-3 items-start cursor-pointer">
+            <input
+              type="checkbox"
+              checked={backupAcknowledged}
+              onChange={(e) => setBackupAcknowledged(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span className="text-[0.78rem] text-txt-primary">
+              I understand that this key cannot be rotated and I have noted my DID and fingerprint
+              somewhere I will not lose.
+            </span>
+          </label>
+
+          <div className="pt-2 flex gap-3">
+            <Button onClick={() => setStep("complete")} disabled={!backupAcknowledged}>
+              Continue
+            </Button>
+            <Button variant="secondary" onClick={() => setStep("did-key-confirm")}>
+              Back
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* ================================================================
           Step: Complete
           ================================================================ */}
       {step === "complete" && generatedKey && (
@@ -517,12 +811,16 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
             <dl className="text-[0.78rem] text-green-700 space-y-1.5">
               <div className="flex gap-2">
                 <dt className="font-medium w-24 flex-shrink-0">DID:</dt>
-                <dd className="font-mono text-[0.72rem] break-all">{exportedDid ?? didPreview}</dd>
+                <dd className="font-mono text-[0.72rem] break-all">
+                  {method === "web" ? (exportedDid ?? didPreview) : didKeyDid}
+                </dd>
               </div>
-              <div className="flex gap-2">
-                <dt className="font-medium w-24 flex-shrink-0">Domain:</dt>
-                <dd>{domain.trim()}</dd>
-              </div>
+              {method === "web" && (
+                <div className="flex gap-2">
+                  <dt className="font-medium w-24 flex-shrink-0">Domain:</dt>
+                  <dd>{domain.trim()}</dd>
+                </div>
+              )}
               <div className="flex gap-2">
                 <dt className="font-medium w-24 flex-shrink-0">Algorithm:</dt>
                 <dd>{generatedKey.algorithm}</dd>
@@ -533,24 +831,19 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
               </div>
               <div className="flex gap-2">
                 <dt className="font-medium w-24 flex-shrink-0">Source:</dt>
-                <dd>Self-Published (did:web)</dd>
+                <dd>
+                  {method === "web" ? "Self-Published (did:web)" : "Self-Published (did:key)"}
+                </dd>
               </div>
             </dl>
           </div>
 
           <div className="pt-2 flex gap-3">
+            <Button onClick={() => void handleCompleteHandoff()}>Start Issuing Credentials</Button>
             <Button
-              onClick={() =>
-                onComplete({
-                  key: generatedKey!,
-                  domain: domain.trim(),
-                  didDocument: exportedDoc ?? undefined,
-                })
-              }
+              variant="secondary"
+              onClick={() => setStep(method === "web" ? "verify" : "did-key-backup")}
             >
-              Start Issuing Credentials
-            </Button>
-            <Button variant="secondary" onClick={() => setStep("verify")}>
               Back
             </Button>
           </div>

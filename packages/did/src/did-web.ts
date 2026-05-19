@@ -250,3 +250,111 @@ export class DIDWebResolver implements DIDResolver {
     };
   }
 }
+
+/**
+ * Structured result from {@link verifyDidWeb}.
+ *
+ * The fields are split so callers can distinguish "the DID couldn't be
+ * resolved at all" from "it resolved but the published key doesn't match
+ * what we expected" — these have different remediation paths.
+ */
+export interface DidWebVerificationResult {
+  /** Whether the DID document was successfully resolved (HTTP fetch + validation). */
+  accessible: boolean;
+  /**
+   * Whether the resolved document references the expected public key.
+   * Only populated when `expectedPublicKey` was supplied; `undefined` otherwise.
+   */
+  keyMatches?: boolean;
+  /** The resolved DID document, if accessible. */
+  didDocument?: DIDDocument;
+  /** Human-readable error message when verification fails. */
+  error?: string;
+}
+
+export interface VerifyDidWebOptions {
+  /**
+   * If provided, the helper additionally checks that one of the DID document's
+   * verification methods publishes this exact public key. Used by:
+   * - Desktop wizard: after the user hosts `did.json`, confirm it references their key
+   * - apps/server boot: ensure the configured `did:web` is consistent with the loaded signer
+   */
+  expectedPublicKey?: JWK;
+  /** Optional DeDi fallback resolver, when the user has chosen DeDi-hosted did:web. */
+  fallback?: DIDWebFallbackResolver;
+}
+
+/**
+ * Verify that a `did:web` is published and (optionally) references the expected public key.
+ *
+ * Wraps {@link DIDWebResolver} to return a structured result instead of throwing,
+ * which is the shape both the desktop wizard verify step and the server boot
+ * validation need. The validation step is intentionally hosting-agnostic — it
+ * doesn't care whether the operator hosts `did.json` themselves or whether DeDi
+ * is serving it via the optional `fallback` resolver.
+ *
+ * @param did - The full did:web DID (e.g., `did:web:example.com`).
+ * @param options - Optional expected key + DeDi fallback.
+ * @returns Structured verification result.
+ */
+export async function verifyDidWeb(
+  did: string,
+  options: VerifyDidWebOptions = {},
+): Promise<DidWebVerificationResult> {
+  const resolver = new DIDWebResolver(options.fallback);
+  let didDocument: DIDDocument;
+  try {
+    const result = await resolver.resolve(did);
+    if (!result.didDocument) {
+      return { accessible: false, error: "DID document was empty" };
+    }
+    didDocument = result.didDocument;
+  } catch (err) {
+    return {
+      accessible: false,
+      error: err instanceof Error ? err.message : "did:web verification failed",
+    };
+  }
+
+  if (!options.expectedPublicKey) {
+    return { accessible: true, didDocument };
+  }
+
+  const keyMatches = documentReferencesKey(didDocument, options.expectedPublicKey);
+  return {
+    accessible: true,
+    keyMatches,
+    didDocument,
+    error: keyMatches ? undefined : "DID document does not reference the expected public key",
+  };
+}
+
+/**
+ * Check whether any verificationMethod in the DID document publishes the expected JWK.
+ *
+ * Comparison is on the public-material fields of the JWK only (kty/crv/x/y/n/e),
+ * not on optional metadata like `kid` or `use`. The private `d` field is
+ * never compared (it shouldn't be present in either side, but be defensive).
+ */
+function documentReferencesKey(doc: DIDDocument, expected: JWK): boolean {
+  if (!doc.verificationMethod) return false;
+  for (const vm of doc.verificationMethod) {
+    if (!vm.publicKeyJwk) continue;
+    if (jwkPublicMaterialEquals(vm.publicKeyJwk, expected)) return true;
+  }
+  return false;
+}
+
+function jwkPublicMaterialEquals(a: JWK, b: JWK): boolean {
+  if (a.kty !== b.kty) return false;
+  switch (a.kty) {
+    case "EC":
+      return a.crv === b.crv && a.x === b.x && a.y === b.y;
+    case "OKP":
+      return a.crv === b.crv && a.x === b.x;
+    case "RSA":
+      return a["n"] === b["n"] && a["e"] === b["e"];
+    default:
+      return false;
+  }
+}

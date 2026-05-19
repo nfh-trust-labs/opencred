@@ -1,6 +1,11 @@
 // Primary — consumer-facing
 export { DeDiClient } from "./adapter/client.js";
 export { createDeDiDIDWebFallback } from "./adapter/did-web-fallback.js";
+// Re-exported so callers (e.g. @opencred/verification) can branch on
+// `err instanceof DeDiClientError && err.statusCode === 404` without
+// reaching into @opencred/shared directly. The class itself is defined
+// in shared/errors.ts.
+export { DeDiClientError } from "@opencred/shared";
 export type {
   DeDiClientConfig,
   RevocationHashRecord,
