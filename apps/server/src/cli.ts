@@ -37,6 +37,7 @@ import {
 } from "@opencred/crypto";
 import { createSoftwareSigner } from "@opencred/signing";
 import type { Signer } from "@opencred/signing";
+import { encodeDidWeb } from "@opencred/did";
 import type { TemplateCustomization } from "@opencred/templates";
 import { loadConfig, resetConfig } from "./config.js";
 import type { ServerConfig } from "./config.js";
@@ -74,6 +75,34 @@ function loadKey(keyPath: string): Signer {
   const absPath = resolve(keyPath);
   const { signer } = createSoftwareSigner(absPath);
   return signer;
+}
+
+/**
+ * Resolve the issuer DID for a CLI invocation.
+ *
+ * Priority:
+ *   1. `OPENCRED_ISSUER_DID_METHOD=web` + `OPENCRED_ISSUER_DOMAIN`
+ *      → `did:web:<domain>` (operator opt-in)
+ *   2. Otherwise → signer-derived DID (`did:key:z…` for EC/Ed25519,
+ *      `did:jwk:…` for RSA), stripped of its `#fragment`
+ *
+ * The CLI deliberately reads `process.env` directly instead of calling
+ * `loadConfig()` — `loadConfig` enforces the server's auth-fail-closed
+ * invariant (requires OPENCRED_API_KEY), which is irrelevant when running
+ * the CLI standalone for one-shot issuance. The two issuer-identity env
+ * vars are safe to read individually because they only affect the DID
+ * shape, not any security boundary.
+ *
+ * Callers may still layer an `input.issuerDid` override on top of this
+ * default (see the `issue` command).
+ */
+function resolveConfiguredIssuerDid(signer: Signer): string {
+  const method = process.env.OPENCRED_ISSUER_DID_METHOD;
+  const domain = process.env.OPENCRED_ISSUER_DOMAIN;
+  if (method === "web" && domain) {
+    return encodeDidWeb(domain);
+  }
+  return signer.id.split("#")[0];
 }
 
 function readJsonInput(inputPath: string): Record<string, unknown> {
@@ -438,7 +467,7 @@ export function createProgram(): Command {
       const subject = (input.credentialSubject ?? input) as Record<string, unknown>;
       validator.validateOrThrow(opts.schema, subject);
 
-      const issuerDid = (input.issuerDid as string) ?? signer.id.split("#")[0];
+      const issuerDid = (input.issuerDid as string) ?? resolveConfiguredIssuerDid(signer);
       const validFrom = (input.validFrom as string) ?? new Date().toISOString();
 
       const builder = new CredentialBuilder()
@@ -572,7 +601,7 @@ export function createProgram(): Command {
 
       const engine = createBatchEngine(signer, parseResult.rows, {
         schemaId: opts.schema,
-        issuerDid: signer.id.split("#")[0],
+        issuerDid: resolveConfiguredIssuerDid(signer),
         validFrom: new Date().toISOString(),
         proofFormat: opts.proofFormat as ProofFormat,
       });
@@ -640,6 +669,66 @@ export function createProgram(): Command {
         console.error(`Configuration error: ${message}`);
         process.exit(1);
       }
+    });
+
+  // -------------------------------------------------------------------------
+  // identity command group
+  // -------------------------------------------------------------------------
+
+  const identityCmd = program
+    .command("identity")
+    .description("Inspect issuer identity (DID method, derived DID, key source)");
+
+  identityCmd
+    .command("show")
+    .description(
+      "Print the configured issuer DID and key source\n\n" +
+        "  Resolves the issuer DID using the same logic as the issue/batch\n" +
+        "  commands and prints it alongside the key file metadata. Useful\n" +
+        "  for verifying that the configured DID matches what verifiers will\n" +
+        "  see in issued credentials.\n\n" +
+        "  Required: --key <path> (or OPENCRED_KEY_PATH).\n\n" +
+        "  Examples:\n" +
+        "    $ opencred identity show --key ./issuer.pem\n" +
+        "    $ OPENCRED_ISSUER_DID_METHOD=web OPENCRED_ISSUER_DOMAIN=issuer.example.com \\\n" +
+        "        opencred identity show --key ./issuer.pem",
+    )
+    .option(
+      "--key <pem-path>",
+      "Path to signing key file (PEM/JWK/PFX). Defaults to $OPENCRED_KEY_PATH.",
+    )
+    .action((opts: { key?: string }) => {
+      const keyPath = opts.key ?? process.env.OPENCRED_KEY_PATH;
+      if (!keyPath) {
+        console.error(
+          "No key specified. Pass --key <path> or set OPENCRED_KEY_PATH in the environment.",
+        );
+        process.exit(1);
+      }
+      const signer = loadKey(keyPath);
+      const method = process.env.OPENCRED_ISSUER_DID_METHOD ?? "key";
+      const domain = process.env.OPENCRED_ISSUER_DOMAIN;
+      const issuerDid = resolveConfiguredIssuerDid(signer);
+      const dediConfigured = !!process.env.OPENCRED_DEDI_BASE_URL;
+      const dediHostsDoc = process.env.OPENCRED_DEDI_HOST_DID_DOC === "true";
+
+      console.log("Issuer identity:");
+      console.log(`  DID method:        ${method}`);
+      if (method === "web") {
+        console.log(`  Domain:            ${domain ?? "(unset — required for did:web)"}`);
+      }
+      console.log(`  Issuer DID:        ${issuerDid}`);
+      console.log(`  Verification ID:   ${signer.id}`);
+      console.log(`  Algorithm:         ${signer.algorithm}`);
+      console.log(`  Key fingerprint:   ${signer.metadata.fingerprint}`);
+      console.log(`  Key source:        ${signer.type}`);
+      console.log(
+        `  DeDi:              ${
+          dediConfigured
+            ? `configured${dediHostsDoc ? " (hosts DID doc)" : " (revocation/attribution only)"}`
+            : "not configured"
+        }`,
+      );
     });
 
   return program;

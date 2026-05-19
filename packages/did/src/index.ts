@@ -8,12 +8,17 @@ export {
   computeKeyFingerprint,
 } from "./did-key.js";
 export { DIDJwkResolver, encodeDidJwk, didJwkVerificationMethodId } from "./did-jwk.js";
-export type { DIDWebFallbackResolver } from "./did-web.js";
+export type {
+  DIDWebFallbackResolver,
+  DidWebVerificationResult,
+  VerifyDidWebOptions,
+} from "./did-web.js";
 export {
   DIDWebResolver,
   encodeDidWeb,
   didWebVerificationMethodId,
   didWebToUrl,
   generateDidWebDocument,
+  verifyDidWeb,
 } from "./did-web.js";
 export { CompositeDIDResolver } from "./composite-resolver.js";

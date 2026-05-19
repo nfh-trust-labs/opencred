@@ -5,6 +5,7 @@ import {
   didWebToUrl,
   generateDidWebDocument,
   DIDWebResolver,
+  verifyDidWeb,
 } from "../did-web.js";
 import { DIDResolutionError } from "@opencred/shared";
 import type { JWK } from "../types.js";
@@ -232,5 +233,82 @@ describe("DIDWebResolver", () => {
     await expect(resolver.resolve("did:web:example.com")).rejects.toThrow(
       "Failed to parse DID document",
     );
+  });
+});
+
+describe("verifyDidWeb", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const did = "did:web:example.com";
+
+  function mockSuccessfulFetch(doc: ReturnType<typeof generateDidWebDocument>): void {
+    vi.spyOn(require("node:dns").promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue(doc) }),
+    );
+  }
+
+  it("returns accessible:true when the DID resolves and no key check is requested", async () => {
+    mockSuccessfulFetch(generateDidWebDocument(did, sampleJwk));
+
+    const result = await verifyDidWeb(did);
+
+    expect(result.accessible).toBe(true);
+    expect(result.keyMatches).toBeUndefined();
+    expect(result.didDocument?.id).toBe(did);
+    expect(result.error).toBeUndefined();
+  });
+
+  it("returns accessible:true and keyMatches:true when the published key matches", async () => {
+    mockSuccessfulFetch(generateDidWebDocument(did, sampleJwk));
+
+    const result = await verifyDidWeb(did, { expectedPublicKey: sampleJwk });
+
+    expect(result.accessible).toBe(true);
+    expect(result.keyMatches).toBe(true);
+    expect(result.error).toBeUndefined();
+  });
+
+  it("returns keyMatches:false when the published key differs", async () => {
+    mockSuccessfulFetch(generateDidWebDocument(did, sampleJwk));
+    const otherKey: JWK = { ...sampleJwk, x: "different-x-value" };
+
+    const result = await verifyDidWeb(did, { expectedPublicKey: otherKey });
+
+    expect(result.accessible).toBe(true);
+    expect(result.keyMatches).toBe(false);
+    expect(result.error).toMatch(/does not reference the expected public key/);
+  });
+
+  it("returns accessible:false with an error message when the fetch fails", async () => {
+    vi.spyOn(require("node:dns").promises, "resolve4").mockRejectedValue(new Error("ENOTFOUND"));
+
+    const result = await verifyDidWeb(did);
+
+    expect(result.accessible).toBe(false);
+    expect(result.error).toMatch(/Failed to resolve hostname/);
+    expect(result.keyMatches).toBeUndefined();
+    expect(result.didDocument).toBeUndefined();
+  });
+
+  it("does not crash and reports failure when the document has no verificationMethod", async () => {
+    vi.spyOn(require("node:dns").promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
+    const docWithoutVm = { "@context": "https://www.w3.org/ns/did/v1", id: did };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue(docWithoutVm) }),
+    );
+
+    const result = await verifyDidWeb(did, { expectedPublicKey: sampleJwk });
+
+    expect(result.accessible).toBe(true);
+    expect(result.keyMatches).toBe(false);
   });
 });
