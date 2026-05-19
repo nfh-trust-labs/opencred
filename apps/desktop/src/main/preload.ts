@@ -68,6 +68,8 @@ import type {
   DidWebExportResponse,
   DidWebVerifyRequest,
   DidWebVerifyResponse,
+  DidKeyExportRequest,
+  DidKeyExportResponse,
   CredentialHistoryListResponse,
   CredentialHistoryAddRequest,
   CredentialHistoryDeleteRequest,
@@ -209,6 +211,11 @@ const api: OpenCredDesktopAPI = {
 
   verifyDidWeb: (request: DidWebVerifyRequest): Promise<DidWebVerifyResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.DID_WEB_VERIFY, request),
+
+  // Self-Published Keys (did:key) — companion to exportDidDocument; produces
+  // an attribution-record DID document for DeDi publishing.
+  exportDidKeyDocument: (request: DidKeyExportRequest): Promise<DidKeyExportResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DID_KEY_EXPORT, request),
 
   // DeDi integration
   dediSetConfig: (request: DeDiConfigSetRequest): Promise<DeDiConfigSetResponse> =>

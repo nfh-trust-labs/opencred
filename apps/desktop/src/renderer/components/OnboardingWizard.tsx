@@ -188,6 +188,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [importedKey, setImportedKey] = useState<KeyMetadata | null>(null);
   const [selfPubDomain, setSelfPubDomain] = useState<string | null>(null);
   const [selfPubDidDoc, setSelfPubDidDoc] = useState<string | null>(null);
+  // Which DID method the user picked in SelfPublishedSetup. `null` means the
+  // self-pub flow hasn't completed (or the user never entered it). Used by
+  // DeDiSetup to render attribution-only mode for did:key (no DID document
+  // to publish) and by the Back logic to distinguish "user finished
+  // self-pub" from "user completed DSC and selfPubFlowEntered is stale".
+  const [selfPubMethod, setSelfPubMethod] = useState<"web" | "key" | null>(null);
   // Track which DSC source the user came from so the `profile` Back button
   // can return to that specific source instead of the generic `dsc-source`
   // picker. Set in `handleKeyReady`. Issue #547.
@@ -609,7 +615,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               onComplete={(result) => {
                 if (result) {
                   setImportedKey(result.key);
-                  setSelfPubDomain(result.domain);
+                  setSelfPubMethod(result.method);
+                  // did:web branch carries domain + DID document for the
+                  // "publish to your web server" instructions in DeDiSetup.
+                  // did:key branch leaves these undefined; DeDiSetup detects
+                  // the absence and shifts into attribution-only mode.
+                  setSelfPubDomain(result.domain ?? null);
                   setSelfPubDidDoc(result.didDocument ?? null);
                 }
                 setStep("dedi-setup");
@@ -638,10 +649,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 // of self-pub and picks the DSC path instead, leaving
                 // the hidden SelfPublishedSetup subtree mounted; we
                 // don't want Back from dedi-setup to land them there
-                // when they finished onboarding via DSC. `selfPubDomain`
+                // when they finished onboarding via DSC. `selfPubMethod`
                 // is only set when SelfPublishedSetup's `onComplete` ran,
-                // so it accurately reflects the completed path.
-                setStep(selfPubDomain ? "self-pub-setup" : "profile")
+                // so it accurately reflects the completed path. It works
+                // for both did:web and did:key (whereas `selfPubDomain`
+                // alone would mis-route did:key users to "profile").
+                setStep(selfPubMethod ? "self-pub-setup" : "profile")
               }
               onComplete={onComplete}
             />
