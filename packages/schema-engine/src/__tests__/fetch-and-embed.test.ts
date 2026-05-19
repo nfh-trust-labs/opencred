@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { canonicalJsonSha256 } from "@opencred/shared";
 
@@ -273,5 +274,171 @@ describe("fetch-and-embed-schemas (run)", () => {
         logger: { log: () => {}, error: () => {} },
       }),
     ).rejects.toThrow(/HTTP 500/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Defined + YAML
+// ---------------------------------------------------------------------------
+
+const yamlSchemaText = `$id: https://example.invalid/test-yaml-defined/v1
+type: object
+required:
+  - greeting
+properties:
+  greeting:
+    type: string
+`;
+
+function sha256Hex(buf: Buffer | string): string {
+  return createHash("sha256").update(buf).digest("hex");
+}
+
+function buildYamlManifest(opts: { path: string; content: string; format?: "yaml" }) {
+  const schema: Record<string, unknown> = {
+    path: opts.path,
+    sha256: sha256Hex(opts.content),
+  };
+  if (opts.format) schema.format = opts.format;
+  return {
+    credentials: [
+      {
+        id: "test-yaml-defined/v1",
+        source: "defined",
+        owner: "OpenCred",
+        license: "Apache-2.0",
+        version: "1.0.0",
+        lastUpdated: "2026-04-08T00:00:00Z",
+        schema,
+      },
+    ],
+  };
+}
+
+async function buildYamlTarball(opts: {
+  manifest: unknown;
+  yamlContent: string;
+  yamlRelPath: string;
+}): Promise<string> {
+  const work = await mkdtemp(join(tmpdir(), "stream-b-yaml-"));
+  const root = join(work, "opencred-vc-schemas-test");
+  const segments = opts.yamlRelPath.split("/");
+  const fileName = segments.pop()!;
+  await mkdir(join(root, ...segments), { recursive: true });
+  await writeFile(join(root, "manifest.json"), JSON.stringify(opts.manifest), "utf8");
+  await writeFile(join(root, ...segments, fileName), opts.yamlContent, "utf8");
+  const tarPath = join(work, "source.tar.gz");
+  execFileSync("tar", ["-czf", tarPath, "-C", work, "opencred-vc-schemas-test"], {
+    stdio: "ignore",
+  });
+  return tarPath;
+}
+
+describe("fetch-and-embed-schemas (defined+YAML)", () => {
+  let pkgRoot: string;
+  let repoRoot: string;
+  const cleanups: string[] = [];
+
+  beforeEach(async () => {
+    const fp = await makeFakePackage();
+    pkgRoot = fp.pkgRoot;
+    repoRoot = fp.repoRoot;
+    cleanups.push(pkgRoot, repoRoot);
+  });
+
+  afterEach(async () => {
+    while (cleanups.length) {
+      await rm(cleanups.pop()!, { recursive: true, force: true });
+    }
+  });
+
+  it("embeds a defined YAML schema detected by .yml suffix", async () => {
+    const yamlRelPath = "schemas/test-yaml-defined/v1/schema.yml";
+    const tarballPath = await buildYamlTarball({
+      manifest: buildYamlManifest({ path: yamlRelPath, content: yamlSchemaText }),
+      yamlContent: yamlSchemaText,
+      yamlRelPath,
+    });
+    const result = await run({
+      packageRoot: pkgRoot,
+      repoRoot,
+      localTarballPath: tarballPath,
+      fetchImpl: makeMockFetch(),
+      logger: { log: () => {}, error: () => {} },
+    });
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0].id).toBe("test-yaml-defined/v1");
+
+    // YAML is parsed and re-emitted as JSON in schema-data.ts.
+    const schemaData = await readFile(join(pkgRoot, "src", "schema-data.ts"), "utf8");
+    expect(schemaData).toContain("testYamlDefinedV1");
+    expect(schemaData).toContain('"greeting"');
+    expect(schemaData).toContain('"type": "string"');
+
+    // Checksum recorded in the registry is the raw-bytes hash of the YAML.
+    const genReg = await readFile(join(pkgRoot, "src", "generated-registry.ts"), "utf8");
+    expect(genReg).toContain(sha256Hex(yamlSchemaText));
+  });
+
+  it("detects YAML via explicit `format: yaml` even without a .yml suffix", async () => {
+    const yamlRelPath = "schemas/test-yaml-defined/v1/schema";
+    const tarballPath = await buildYamlTarball({
+      manifest: buildYamlManifest({
+        path: yamlRelPath,
+        content: yamlSchemaText,
+        format: "yaml",
+      }),
+      yamlContent: yamlSchemaText,
+      yamlRelPath,
+    });
+    const result = await run({
+      packageRoot: pkgRoot,
+      repoRoot,
+      localTarballPath: tarballPath,
+      fetchImpl: makeMockFetch(),
+      logger: { log: () => {}, error: () => {} },
+    });
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0].id).toBe("test-yaml-defined/v1");
+  });
+
+  it("hard-fails on raw-bytes hash mismatch", async () => {
+    const yamlRelPath = "schemas/test-yaml-defined/v1/schema.yml";
+    // Manifest hash is over `yamlSchemaText`, but the tarball ships a
+    // whitespace-mutated version → byte hash diverges.
+    const mutatedYaml = yamlSchemaText + "# tampered\n";
+    const tarballPath = await buildYamlTarball({
+      manifest: buildYamlManifest({ path: yamlRelPath, content: yamlSchemaText }),
+      yamlContent: mutatedYaml,
+      yamlRelPath,
+    });
+    await expect(
+      run({
+        packageRoot: pkgRoot,
+        repoRoot,
+        localTarballPath: tarballPath,
+        fetchImpl: makeMockFetch(),
+        logger: { log: () => {}, error: () => {} },
+      }),
+    ).rejects.toThrow(/hash mismatch.*test-yaml-defined/);
+  });
+
+  it("hard-fails when defined YAML parses to a non-object", async () => {
+    const yamlRelPath = "schemas/test-yaml-defined/v1/schema.yml";
+    const scalarYaml = "42\n";
+    const tarballPath = await buildYamlTarball({
+      manifest: buildYamlManifest({ path: yamlRelPath, content: scalarYaml }),
+      yamlContent: scalarYaml,
+      yamlRelPath,
+    });
+    await expect(
+      run({
+        packageRoot: pkgRoot,
+        repoRoot,
+        localTarballPath: tarballPath,
+        fetchImpl: makeMockFetch(),
+        logger: { log: () => {}, error: () => {} },
+      }),
+    ).rejects.toThrow(/parsed YAML is not an object/);
   });
 });
