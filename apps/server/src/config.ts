@@ -141,8 +141,9 @@ const configSchema = z.object({
   /**
    * When true and DeDi is configured, the server will publish its DID
    * document to DeDi at startup. Used as bundled hosting for did:web
-   * issuers who don't want to run their own web server. Has no effect when
-   * `OPENCRED_ISSUER_DID_METHOD=key` (did:key needs no hosted document).
+   * issuers who don't want to run their own web server. Ignored when
+   * `OPENCRED_ISSUER_DID_METHOD=key` (did:key needs no hosted document) —
+   * operators can flip methods without scrubbing this env var.
    */
   OPENCRED_DEDI_HOST_DID_DOC: booleanFromString,
 
@@ -303,14 +304,12 @@ export function loadConfig(): ServerConfig {
     );
   }
 
-  // DeDi-as-bundled-hosting requires DeDi to be configured and method=web.
-  if (parsed.OPENCRED_DEDI_HOST_DID_DOC) {
-    if (parsed.OPENCRED_ISSUER_DID_METHOD !== "web") {
-      throw new ConfigError(
-        "OPENCRED_DEDI_HOST_DID_DOC=true is only meaningful when " +
-          "OPENCRED_ISSUER_DID_METHOD=web (did:key needs no hosted document).",
-      );
-    }
+  // DeDi-as-bundled-hosting requires DeDi to be configured.
+  // When method=key the flag has no effect; ignore it silently (matching the
+  // OPENCRED_ISSUER_DOMAIN rule above — operators may flip methods without
+  // scrubbing env vars). When DeDi itself is not configured, the flag has no
+  // fallback meaning, so we still throw.
+  if (parsed.OPENCRED_DEDI_HOST_DID_DOC && parsed.OPENCRED_ISSUER_DID_METHOD === "web") {
     if (!parsed.OPENCRED_DEDI_BASE_URL) {
       throw new ConfigError(
         "OPENCRED_DEDI_HOST_DID_DOC=true requires DeDi to be configured. " +

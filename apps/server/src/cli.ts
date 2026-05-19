@@ -98,8 +98,16 @@ function loadKey(keyPath: string): Signer {
  */
 function resolveConfiguredIssuerDid(signer: Signer): string {
   const method = process.env.OPENCRED_ISSUER_DID_METHOD;
-  const domain = process.env.OPENCRED_ISSUER_DOMAIN;
-  if (method === "web" && domain) {
+  const rawDomain = process.env.OPENCRED_ISSUER_DOMAIN;
+  const domain = rawDomain?.trim();
+  if (method === "web") {
+    if (!domain) {
+      throw new Error(
+        "OPENCRED_ISSUER_DOMAIN is required when OPENCRED_ISSUER_DID_METHOD=web. " +
+          "Set it to your did:web domain (e.g. 'issuer.example.com') or unset " +
+          "OPENCRED_ISSUER_DID_METHOD to use the signer-derived did:key.",
+      );
+    }
     return encodeDidWeb(domain);
   }
   return signer.id.split("#")[0];

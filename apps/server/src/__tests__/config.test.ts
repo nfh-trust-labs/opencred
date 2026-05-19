@@ -355,10 +355,15 @@ describe("Config — issuer identity (DID method)", () => {
     expect(config.OPENCRED_DEDI_HOST_DID_DOC).toBe(true);
   });
 
-  it("rejects OPENCRED_DEDI_HOST_DID_DOC=true when method=key", () => {
+  it("accepts OPENCRED_DEDI_HOST_DID_DOC=true when method=key (flag ignored, no throw)", () => {
+    // Matches the philosophy of the OPENCRED_ISSUER_DOMAIN cross-field rule:
+    // operators may flip methods without scrubbing env vars, so leftover
+    // hosting-related flags are silently ignored under method=key.
     process.env.OPENCRED_ISSUER_DID_METHOD = "key";
     process.env.OPENCRED_DEDI_HOST_DID_DOC = "true";
-    expect(() => loadConfig()).toThrow(/only meaningful when OPENCRED_ISSUER_DID_METHOD=web/);
+    const config = loadConfig();
+    expect(config.OPENCRED_ISSUER_DID_METHOD).toBe("key");
+    expect(config.OPENCRED_DEDI_HOST_DID_DOC).toBe(true);
   });
 
   it("rejects OPENCRED_DEDI_HOST_DID_DOC=true without DeDi configured", () => {

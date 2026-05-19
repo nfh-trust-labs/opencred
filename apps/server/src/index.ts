@@ -163,21 +163,33 @@ if (cloudSigner) {
   } else {
     // method === "web"
     const issuerDid = encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!);
-    const result = await verifyDidWeb(issuerDid).catch((err: unknown) => ({
-      accessible: false,
-      error: err instanceof Error ? err.message : "did:web verification crashed",
-    }));
-    if (!result.accessible) {
-      logger.warn(
-        { issuerDid, error: result.error },
-        "did:web DID document not currently reachable — the server will still start, " +
-          "but verifiers cannot resolve this issuer until the document is published",
+    if (config.OPENCRED_DEDI_HOST_DID_DOC) {
+      // DeDi will host the DID document — the operator's own domain won't
+      // serve `.well-known/did.json`, so a plain-HTTPS probe here would
+      // always fail. DeDi client init runs later in the bootstrap and will
+      // surface any actual hosting failures at that point.
+      logger.info(
+        { issuerDid, didMethod: "web" },
+        "did:web hosted via DeDi; boot reachability probe skipped — " +
+          "DeDi client will surface hosting failures later",
+      );
+    } else {
+      const result = await verifyDidWeb(issuerDid).catch((err: unknown) => ({
+        accessible: false,
+        error: err instanceof Error ? err.message : "did:web verification crashed",
+      }));
+      if (!result.accessible) {
+        logger.warn(
+          { issuerDid, error: result.error },
+          "did:web DID document not currently reachable — the server will still start, " +
+            "but verifiers cannot resolve this issuer until the document is published",
+        );
+      }
+      logger.info(
+        { issuerDid, didMethod: "web", accessible: result.accessible },
+        "Issuer identity configured",
       );
     }
-    logger.info(
-      { issuerDid, didMethod: "web", accessible: result.accessible },
-      "Issuer identity configured",
-    );
   }
 }
 
