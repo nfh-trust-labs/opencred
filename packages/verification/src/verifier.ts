@@ -4,7 +4,13 @@ import { verifyDataIntegrity } from "./data-integrity.js";
 import { verifyJwsProof } from "./jws-proof.js";
 import { verifyVcJwt, extractVcJwtCredentialFields, crossValidateVcJwtClaims } from "./vc-jwt.js";
 import { verifySdJwtVc, extractSdJwtVcCredentialFields } from "./sd-jwt-vc.js";
-import { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
+import {
+  checkDates,
+  checkRevocation,
+  checkBitstringStatusList,
+  checkIssuerAttribution,
+  checkKeySupersession,
+} from "./checks.js";
 import { checkX509Chain } from "./x509-chain-check.js";
 import type {
   CredentialFormat,
@@ -189,6 +195,29 @@ export async function verifyCredential(
     };
   }
 
+  // Issuer attribution + key-supersession (advisory).
+  //
+  // Both checks are advisory: they populate the `checks[]` array so the
+  // verifier UI can distinguish "cryptographically valid" from "attributed
+  // to a trusted issuer", but they do NOT flip the headline `verified`
+  // boolean. A did:key credential with no DeDi attribution is still
+  // verified=true; a did:web credential whose domain we resolved is still
+  // verified=true. The caller decides what attribution policy to enforce.
+  //
+  // We run these BEFORE the revocation check so the order in the UI's
+  // per-check list reads naturally: signature → date → who issued this
+  // (attribution) → has it been revoked → has the key been superseded.
+  // `credentialForRevocationHash` is the post-decoded claims object for
+  // JWT-encoded credentials and the raw VC for Data Integrity ones, so
+  // it's the right shape from which to extract the `issuer` field.
+  if (credentialForRevocationHash) {
+    const attributionCheck = await checkIssuerAttribution(
+      credentialForRevocationHash,
+      config.dediClient,
+    );
+    checks.push(attributionCheck);
+  }
+
   // Revocation checks
   if (config.dediClient && credentialForRevocationHash) {
     const revocationCheck = await checkRevocation(credentialForRevocationHash, config.dediClient);
@@ -199,6 +228,18 @@ export async function verifyCredential(
       }
       return { code: "UNRESOLVABLE", verified: false, checks };
     }
+  }
+
+  // Key-supersession check (did:key only, advisory).
+  if (credentialForRevocationHash && config.dediClient) {
+    const supersessionCheck = await checkKeySupersession(
+      credentialForRevocationHash,
+      config.dediClient,
+    );
+    checks.push(supersessionCheck);
+    // Intentionally not propagated to a non-200 code: a superseded key
+    // does not invalidate already-signed credentials cryptographically.
+    // Verifier policy can read the check result and reject if desired.
   }
 
   // BitstringStatusList check

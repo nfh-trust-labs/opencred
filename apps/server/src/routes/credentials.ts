@@ -31,6 +31,7 @@ import {
   completeSdJwtVcProof,
 } from "@opencred/crypto";
 import { CryptoError, ValidationError, detectCredentialInputFormat } from "@opencred/shared";
+import { encodeDidWeb } from "@opencred/did";
 import { REVOCATION_REGISTRY } from "@opencred/dedi-client";
 import type { TemplateCustomization } from "@opencred/templates";
 import { requireSigner } from "../signing/key-manager.js";
@@ -186,6 +187,27 @@ function getRegistry(): SchemaRegistry {
 }
 
 /**
+ * Resolve the server's configured issuer DID for this request.
+ *
+ * Used by `POST /credentials/issue` to default the credential's `issuer`
+ * when the caller doesn't supply one, and as the comparison target when
+ * checking whether a caller-supplied `issuerDid` agrees with the server's
+ * configured identity.
+ *
+ * Logic mirrors `cli.ts`'s `resolveConfiguredIssuerDid` but uses
+ * `getConfig()` here (server is always running with config loaded) and
+ * takes the signer's `id` as a string so callers don't need to import
+ * the `Signer` type.
+ */
+function resolveServerIssuerDid(signerId: string): string {
+  const config = getConfig();
+  if (config.OPENCRED_ISSUER_DID_METHOD === "web" && config.OPENCRED_ISSUER_DOMAIN) {
+    return encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN);
+  }
+  return signerId.split("#")[0];
+}
+
+/**
  * Resolve the canonical DeDi lookup URL for the revocation registry from the
  * caller-supplied `revocationRegistryUrl`. Three input shapes are accepted:
  *
@@ -282,7 +304,17 @@ const issueRequestSchema = z
      * Mirrors the desktop's `inlineContext` flow.
      */
     inlineContext: z.record(z.unknown()).optional(),
-    issuerDid: z.string(),
+    /**
+     * Issuer DID for the credential.
+     *
+     * Optional: when omitted, the server uses its configured identity
+     * (derived from `OPENCRED_ISSUER_DID_METHOD` + `OPENCRED_ISSUER_DOMAIN`,
+     * or falls back to the signer's `did:key`/`did:jwk`). When provided
+     * but disagreeing with the server identity, the server still honours
+     * the request value but logs a warning so integration bugs surface in
+     * logs rather than silently producing credentials under unexpected DIDs.
+     */
+    issuerDid: z.string().optional(),
     credentialSubject: z.record(z.unknown()),
     validFrom: z.string(),
     validUntil: z.string().optional(),
@@ -325,6 +357,30 @@ credentials.post("/credentials/issue", async (c) => {
   const parsed = issueRequestSchema.parse(body);
   const signer = requireSigner();
 
+  // Resolve the effective issuer DID.
+  //
+  // Priority:
+  //   1. `parsed.issuerDid` from the request body (explicit caller override)
+  //   2. Server-configured DID from `OPENCRED_ISSUER_DID_METHOD` +
+  //      `OPENCRED_ISSUER_DOMAIN` (for did:web)
+  //   3. Signer-derived (`did:key:…` / `did:jwk:…` minus the fragment)
+  //
+  // When (1) is present AND disagrees with (2 || 3), we honour the caller
+  // but emit a warning. This surfaces integration bugs (e.g. a tenant
+  // pipeline accidentally signing under a stale DID) in operator logs
+  // without breaking existing callers that pass an explicit issuerDid.
+  const serverConfiguredIssuerDid = resolveServerIssuerDid(signer.id);
+  const issuerDid = parsed.issuerDid ?? serverConfiguredIssuerDid;
+  if (parsed.issuerDid && parsed.issuerDid !== serverConfiguredIssuerDid) {
+    getLogger().warn(
+      {
+        requestedIssuerDid: parsed.issuerDid,
+        serverConfiguredIssuerDid,
+      },
+      "Request issuerDid disagrees with server-configured issuer identity",
+    );
+  }
+
   // Validate credential subject against schema. Two paths:
   //   1. inlineSchema present → compile + validate ad-hoc (no registry lookup)
   //   2. inlineSchema absent  → registry lookup by schemaId (existing behaviour)
@@ -342,7 +398,7 @@ credentials.post("/credentials/issue", async (c) => {
 
   // Build unsigned credential
   const builder = new CredentialBuilder()
-    .setIssuer(parsed.issuerDid)
+    .setIssuer(issuerDid)
     .setValidFrom(parsed.validFrom);
 
   const subject: Record<string, unknown> = { ...parsed.credentialSubject };
@@ -661,12 +717,58 @@ const SAFE_DETAIL_CHECK_NAMES: ReadonlySet<string> = new Set([
   "pdf-credential-decode",
 ]);
 
+/**
+ * Synthesize a generic, public-safe detail for the advisory attribution /
+ * supersession checks. The raw detail from `packages/verification` contains
+ * verbose information (org name, DeDi metadata, the issuer DID itself,
+ * supersession timestamps) that's appropriate for the desktop verifier's
+ * IPC consumer but not for an anonymous HTTP caller.
+ *
+ * Mapping (kept deliberately minimal — see plan §"Server endpoint"):
+ *   issuerAttribution + passed   → `{ source: "did:web" | "dedi" }`
+ *   issuerAttribution + !passed  → `{ source: "none" }`
+ *   keySupersession   + !passed  → `Issuer key superseded`
+ *   keySupersession   + passed   → undefined (no detail needed for the pass)
+ *
+ * Returns `undefined` when no synthetic detail should be emitted (i.e. when
+ * the check name isn't one we recognise, or the pass state has no public
+ * meaning). Callers fall through to dropping the raw detail in that case.
+ */
+function syntheticAdvisoryDetail(
+  name: string,
+  passed: boolean,
+  rawDetail: string | undefined,
+): string | undefined {
+  if (name === "issuerAttribution") {
+    if (!passed) return "Unattributed issuer";
+    // The raw detail mentions "via did:web" or "via DeDi"; collapse to a
+    // generic source string so we don't leak org names / DeDi namespaces.
+    if (rawDetail?.toLowerCase().includes("did:web")) return "Attributed via did:web";
+    if (rawDetail?.toLowerCase().includes("dedi")) return "Attributed via DeDi";
+    return "Attributed";
+  }
+  if (name === "keySupersession") {
+    if (!passed) return "Issuer key superseded";
+    // Passed = no successor known. No detail to emit; the PASS row in the
+    // checks array communicates that fact already.
+    return undefined;
+  }
+  return undefined;
+}
+
 export function sanitizeChecksForServerResponse(
   checks: ReadonlyArray<{ name: string; passed: boolean; detail?: string }>,
 ): Array<{ name: string; passed: boolean; detail?: string }> {
   return checks.map(({ name, passed, detail }) => {
+    // Pass through raw detail for the known-safe author-controlled literals.
     if (detail !== undefined && SAFE_DETAIL_CHECK_NAMES.has(name)) {
       return { name, passed, detail };
+    }
+    // Synthesize a generic detail for the advisory checks so callers see
+    // SOMETHING informative without leaking internal attribution data.
+    const synthetic = syntheticAdvisoryDetail(name, passed, detail);
+    if (synthetic !== undefined) {
+      return { name, passed, detail: synthetic };
     }
     return { name, passed };
   });

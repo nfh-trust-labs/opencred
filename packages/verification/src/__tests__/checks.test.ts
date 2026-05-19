@@ -3,6 +3,8 @@ import {
   checkDates,
   checkRevocation,
   checkBitstringStatusList,
+  checkIssuerAttribution,
+  checkKeySupersession,
   resolveAndValidateIp,
   _validateStatusListUrl,
   MAX_COMPRESSED_SIZE,
@@ -805,5 +807,159 @@ describe("checkBitstringStatusList", () => {
     expect(result.passed).toBe(true);
 
     vi.unstubAllGlobals();
+  });
+});
+
+describe("checkIssuerAttribution", () => {
+  function makeCredential(issuer: string | { id: string }): Record<string, unknown> {
+    return { issuer };
+  }
+
+  it("returns passed=false when the credential has no issuer", async () => {
+    const result = await checkIssuerAttribution({});
+    expect(result.passed).toBe(false);
+    expect(result.detail).toMatch(/no resolvable issuer/i);
+    expect(result.name).toBe("issuerAttribution");
+  });
+
+  it("did:web → attributed via the domain (no DeDi call needed)", async () => {
+    const result = await checkIssuerAttribution(
+      makeCredential("did:web:university.example"),
+      // no DeDi client passed
+    );
+    expect(result.passed).toBe(true);
+    expect(result.detail).toMatch(/did:web/);
+  });
+
+  it("did:web → also passes for the object-form issuer", async () => {
+    const result = await checkIssuerAttribution(
+      makeCredential({ id: "did:web:gov.example" }),
+    );
+    expect(result.passed).toBe(true);
+  });
+
+  it("did:key without DeDi → unattributed (non-blocking)", async () => {
+    const result = await checkIssuerAttribution(makeCredential("did:key:z6Mkfoo"));
+    expect(result.passed).toBe(false);
+    expect(result.detail).toMatch(/no DeDi registry/);
+  });
+
+  it("did:key with DeDi hit → attributed via DeDi (with org name when present)", async () => {
+    const mockClient = {
+      resolveDID: vi.fn().mockResolvedValue({
+        did: "did:key:z6Mkfoo",
+        document: {},
+        resolvedAt: "2026-01-01T00:00:00Z",
+        metadata: { orgName: "Acme University" },
+      }),
+    } as unknown as DeDiClient;
+    const result = await checkIssuerAttribution(makeCredential("did:key:z6Mkfoo"), mockClient);
+    expect(result.passed).toBe(true);
+    expect(result.detail).toContain("Acme University");
+  });
+
+  it("did:key with DeDi miss → unattributed", async () => {
+    const mockClient = {
+      resolveDID: vi.fn().mockRejectedValue(new Error("record not found")),
+    } as unknown as DeDiClient;
+    const result = await checkIssuerAttribution(makeCredential("did:key:z6Mkbar"), mockClient);
+    expect(result.passed).toBe(false);
+    expect(result.detail).toMatch(/no DeDi record/i);
+  });
+
+  it("did:key with DeDi outage → degrades to unattributed with descriptive detail", async () => {
+    const mockClient = {
+      resolveDID: vi.fn().mockRejectedValue(new Error("DeDi service timeout")),
+    } as unknown as DeDiClient;
+    const result = await checkIssuerAttribution(makeCredential("did:key:z6Mkbaz"), mockClient);
+    expect(result.passed).toBe(false);
+    expect(result.detail).toMatch(/Unable to check attribution/i);
+    expect(result.detail).toMatch(/timeout/i);
+  });
+
+  it("returns the verified-domain detail when DeDi metadata includes it", async () => {
+    const mockClient = {
+      resolveDID: vi.fn().mockResolvedValue({
+        did: "did:key:z6Mkfoo",
+        document: {},
+        resolvedAt: "2026-01-01T00:00:00Z",
+        metadata: { orgName: "Acme U", verifiedDomain: "acme.edu" },
+      }),
+    } as unknown as DeDiClient;
+    const result = await checkIssuerAttribution(makeCredential("did:key:z6Mkfoo"), mockClient);
+    expect(result.passed).toBe(true);
+    expect(result.detail).toContain("acme.edu");
+  });
+
+  it("unsupported DID method → passed=false with a clear message", async () => {
+    const result = await checkIssuerAttribution(makeCredential("did:ion:abc"));
+    expect(result.passed).toBe(false);
+    expect(result.detail).toMatch(/unsupported DID method/i);
+  });
+});
+
+describe("checkKeySupersession", () => {
+  function makeCredential(issuer: string): Record<string, unknown> {
+    return { issuer };
+  }
+
+  it("passes silently for did:web credentials (concept doesn't apply)", async () => {
+    const result = await checkKeySupersession(makeCredential("did:web:example.com"));
+    expect(result.passed).toBe(true);
+    expect(result.name).toBe("keySupersession");
+  });
+
+  it("passes silently when no DeDi client is configured", async () => {
+    const result = await checkKeySupersession(makeCredential("did:key:z6Mkfoo"));
+    expect(result.passed).toBe(true);
+  });
+
+  it("did:key with no successor record → pass", async () => {
+    const mockClient = {
+      resolveDID: vi.fn().mockResolvedValue({
+        did: "did:key:z6Mkfoo",
+        document: {},
+        resolvedAt: "2026-01-01T00:00:00Z",
+      }),
+    } as unknown as DeDiClient;
+    const result = await checkKeySupersession(makeCredential("did:key:z6Mkfoo"), mockClient);
+    expect(result.passed).toBe(true);
+  });
+
+  it("did:key with successor record → fails with details", async () => {
+    const mockClient = {
+      resolveDID: vi.fn().mockResolvedValue({
+        did: "did:key:z6Mkold",
+        document: {},
+        resolvedAt: "2026-01-01T00:00:00Z",
+        supersededBy: {
+          did: "did:key:z6Mknew",
+          at: "2026-04-01T00:00:00Z",
+          reason: "annual rotation",
+        },
+      }),
+    } as unknown as DeDiClient;
+    const result = await checkKeySupersession(makeCredential("did:key:z6Mkold"), mockClient);
+    expect(result.passed).toBe(false);
+    expect(result.detail).toContain("did:key:z6Mknew");
+    expect(result.detail).toContain("annual rotation");
+  });
+
+  it("DeDi outage → passes (don't block on supersession check)", async () => {
+    const mockClient = {
+      resolveDID: vi.fn().mockRejectedValue(new Error("network timeout")),
+    } as unknown as DeDiClient;
+    const result = await checkKeySupersession(makeCredential("did:key:z6Mkfoo"), mockClient);
+    expect(result.passed).toBe(true);
+    expect(result.detail).toMatch(/supersession status unknown/i);
+  });
+
+  it("DeDi record-not-found → passes (no successor known)", async () => {
+    const mockClient = {
+      resolveDID: vi.fn().mockRejectedValue(new Error("record not found")),
+    } as unknown as DeDiClient;
+    const result = await checkKeySupersession(makeCredential("did:key:z6Mkfoo"), mockClient);
+    expect(result.passed).toBe(true);
+    expect(result.detail).toBeUndefined();
   });
 });
