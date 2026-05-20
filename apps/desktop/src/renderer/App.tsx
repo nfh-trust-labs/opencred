@@ -19,6 +19,7 @@ import { CredentialBuilderPage } from "./components/CredentialBuilderPage";
 import { VerifyPage } from "./components/VerifyPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { HistoryPage } from "./components/HistoryPage";
+import { RevocationPage } from "./components/RevocationPage";
 import { UpdateNotification } from "./components/UpdateNotification";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
@@ -26,7 +27,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 // Types
 // ---------------------------------------------------------------------------
 
-export type View = "home" | "builder" | "verify" | "history" | "settings";
+export type View = "home" | "builder" | "verify" | "history" | "revocation" | "settings";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -171,13 +172,21 @@ export default function App() {
                 isBlank={builderIsBlank}
                 onBack={handleBackToHome}
                 onNavigate={(view) => {
-                  const validViews: string[] = ["home", "builder", "verify", "history", "settings"];
+                  const validViews: string[] = [
+                    "home",
+                    "builder",
+                    "verify",
+                    "history",
+                    "revocation",
+                    "settings",
+                  ];
                   if (validViews.includes(view)) setActiveView(view as View);
                 }}
               />
             )}
             {activeView === "verify" && <VerifyPage />}
             {activeView === "history" && <HistoryPage onReissue={handleSelectTemplate} />}
+            {activeView === "revocation" && <RevocationPage />}
             {activeView === "settings" && (
               <SettingsPage onRotationDismissed={checkRotationStatus} />
             )}
