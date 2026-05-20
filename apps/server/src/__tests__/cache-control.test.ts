@@ -195,7 +195,11 @@ const SAMPLE_DID_DOCUMENT = {
 };
 
 describe("POST /keys/resolve cache headers", () => {
-  it("emits Cache-Control + ETag when DeDi resolves successfully", async () => {
+  it("emits private Cache-Control + ETag when DeDi resolves successfully", async () => {
+    // Follow-up #586: POST resolve uses the *private* preset to mirror the
+    // POST /credentials/verify reasoning — a shared CDN must not latch onto
+    // one caller's DID resolution and serve it to another. The publicly
+    // cacheable shape lives behind GET /keys/resolve.
     const mockClient = {
       resolveDID: async (did: string) => ({
         did,
@@ -211,7 +215,8 @@ describe("POST /keys/resolve cache headers", () => {
       body: JSON.stringify({ did: "did:web:bootcamp.example.org" }),
     });
     expect(res.status).toBe(200);
-    expect(res.headers.get("Cache-Control")).toBe(CACHE_PRESETS.didDocument);
+    expect(res.headers.get("Cache-Control")).toBe(CACHE_PRESETS.didDocumentPrivate);
+    expect(res.headers.get("Cache-Control")).toContain("private");
     expect(res.headers.get("ETag")).toMatch(/^W\/"[0-9a-f]{64}"$/);
   });
 
@@ -290,6 +295,100 @@ describe("GET /keys/resolve", () => {
       headers: { "If-None-Match": etag },
     });
     expect(r2.status).toBe(304);
+  });
+
+  // -------------------------------------------------------------------------
+  // Multi-colon DID coverage (follow-up #586)
+  //
+  // The W3C DID Core spec lets a `did:web` value carry a path segment encoded
+  // with `:` separators — e.g. `did:web:example.org:users:alice` resolves to
+  // https://example.org/users/alice/did.json. Earlier coverage only exercised
+  // a single-level DID. These tests pin the GET-path query parser against:
+  //
+  //   1. raw colons (`?did=did:web:example.org:users:alice`)
+  //   2. URL-encoded colons in the DID value
+  //      (`?did=did%3Aweb%3Aexample.org%3Auser`)
+  //
+  // In both cases Hono's `c.req.query("did")` must hand the handler back the
+  // fully-decoded canonical DID so the DeDi lookup sees the same string the
+  // caller intended. A regression here would silently surface as 503s or
+  // stale-DID lookups in production.
+  // -------------------------------------------------------------------------
+
+  it("decodes a multi-colon did:web DID passed with raw colons in the query", async () => {
+    const seen: string[] = [];
+    const mockClient = {
+      resolveDID: async (did: string) => {
+        seen.push(did);
+        return { did, document: SAMPLE_DID_DOCUMENT, keyStatus: "current" as const };
+      },
+    } as never;
+    setDeDiClient(mockClient);
+
+    const res = await app.request("/v1/keys/resolve?did=did:web:example.org:users:alice");
+    expect(res.status).toBe(200);
+    expect(seen).toEqual(["did:web:example.org:users:alice"]);
+    const body = (await res.json()) as { did: string };
+    expect(body.did).toBe("did:web:example.org:users:alice");
+    expect(res.headers.get("Cache-Control")).toBe(CACHE_PRESETS.didDocument);
+  });
+
+  it("decodes a multi-colon did:web DID passed with URL-encoded colons", async () => {
+    const seen: string[] = [];
+    const mockClient = {
+      resolveDID: async (did: string) => {
+        seen.push(did);
+        return { did, document: SAMPLE_DID_DOCUMENT, keyStatus: "current" as const };
+      },
+    } as never;
+    setDeDiClient(mockClient);
+
+    // `did:web:example.org:users:alice` → fully percent-encoded form.
+    const encoded = encodeURIComponent("did:web:example.org:users:alice");
+    const res = await app.request(`/v1/keys/resolve?did=${encoded}`);
+    expect(res.status).toBe(200);
+    expect(seen).toEqual(["did:web:example.org:users:alice"]);
+    const body = (await res.json()) as { did: string };
+    expect(body.did).toBe("did:web:example.org:users:alice");
+  });
+
+  it("decodes a single URL-encoded colon in the DID query value", async () => {
+    const seen: string[] = [];
+    const mockClient = {
+      resolveDID: async (did: string) => {
+        seen.push(did);
+        return { did, document: SAMPLE_DID_DOCUMENT, keyStatus: "current" as const };
+      },
+    } as never;
+    setDeDiClient(mockClient);
+
+    // Mixed encoding: only the last colon is `%3A`. The handler must still
+    // see the canonical form.
+    const res = await app.request("/v1/keys/resolve?did=did:web:example.org%3Auser");
+    expect(res.status).toBe(200);
+    expect(seen).toEqual(["did:web:example.org:user"]);
+  });
+
+  it("produces matching ETags for raw vs URL-encoded forms of the same DID", async () => {
+    // Two requests carrying the same logical DID — one raw, one
+    // fully-encoded — must produce the same ETag, because the response
+    // body is keyed by the decoded DID string.
+    const mockClient = {
+      resolveDID: async (did: string) => ({
+        did,
+        document: SAMPLE_DID_DOCUMENT,
+        keyStatus: "current" as const,
+      }),
+    } as never;
+    setDeDiClient(mockClient);
+
+    const raw = await app.request("/v1/keys/resolve?did=did:web:example.org:users:alice");
+    const encoded = await app.request(
+      `/v1/keys/resolve?did=${encodeURIComponent("did:web:example.org:users:alice")}`,
+    );
+    expect(raw.status).toBe(200);
+    expect(encoded.status).toBe(200);
+    expect(raw.headers.get("ETag")).toBe(encoded.headers.get("ETag"));
   });
 });
 

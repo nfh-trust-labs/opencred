@@ -97,11 +97,22 @@ export function isAllowedUnderReadOnly(method: string, path: string): boolean {
   }
   // Fail-closed prefixes. Any non-GET request landing here without an
   // explicit READ_OPERATIONS exemption is treated as a write.
+  //
+  // Every prefix is normalized to the trailing-slash form so:
+  //  - `path.startsWith("/keys/")` cannot accidentally match a future
+  //    `/keysomething` route, and
+  //  - the list is uniform — `/credentials/` and `/v1/keys/` follow the
+  //    same shape, avoiding cosmetic drift (the original list mixed
+  //    trailing-slash and bare forms, flagged in follow-up #586).
+  //
+  // Routes whose path is exactly the bare prefix (e.g. `GET /keys` for the
+  // key-metadata endpoint) are GETs and are short-circuited above as safe
+  // methods, so the trailing-slash normalization does not regress them.
   const WRITE_PREFIXES = [
     "/credentials/",
     "/v1/credentials/",
-    "/keys",
-    "/v1/keys",
+    "/keys/",
+    "/v1/keys/",
     "/batch/",
     "/v1/batch/",
     "/schemas/",
@@ -110,7 +121,7 @@ export function isAllowedUnderReadOnly(method: string, path: string): boolean {
     "/v1/dedi/",
   ];
   for (const prefix of WRITE_PREFIXES) {
-    if (path === prefix || path.startsWith(prefix)) {
+    if (path.startsWith(prefix)) {
       return false;
     }
   }

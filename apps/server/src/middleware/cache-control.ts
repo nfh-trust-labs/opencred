@@ -39,11 +39,28 @@ import type { Context } from "hono";
  */
 export const CACHE_PRESETS = Object.freeze({
   /**
-   * DID resolution responses (`/keys/resolve`). Five-minute fresh window with
-   * a one-minute stale-while-revalidate (RFC 5861) cushion so a CDN keeps
-   * serving the previous value while it refreshes in the background.
+   * DID resolution responses for `GET /keys/resolve?did=...` — genuinely
+   * cacheable per RFC 7234. Five-minute fresh window with a one-minute
+   * stale-while-revalidate (RFC 5861) cushion so a CDN keeps serving the
+   * previous value while it refreshes in the background.
+   *
+   * The GET variant is safe to cache publicly: the DID document is keyed by
+   * a query parameter and the response is identical for every caller, so a
+   * shared cache cannot leak cross-tenant state.
    */
   didDocument: "public, max-age=300, stale-while-revalidate=60",
+  /**
+   * DID resolution responses for `POST /keys/resolve` — mirrors the
+   * `verifyPrivate` reasoning. RFC 7234 §3 lets a proxy cache a POST
+   * response when the origin permits it, but the DID is in the request
+   * body (not the URL) so the cache key would have to be derived
+   * upstream. Marking the response `private` keeps a shared CDN from
+   * latching onto a per-caller answer if it does store POST responses,
+   * while still letting a per-client cache (service-worker, in-process
+   * LRU) dedupe rapid re-reads of the same DID for that one caller.
+   * Cacheable GETs remain on {@link didDocument}.
+   */
+  didDocumentPrivate: "private, max-age=60",
   /**
    * Schema + context responses. Schemas in the bundled catalogue are
    * versioned in the id (`functional-identity/v1`), so a published schema
