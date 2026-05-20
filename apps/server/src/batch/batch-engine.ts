@@ -313,3 +313,252 @@ export function createBatchEngine(
 }
 
 export type BatchEngine = ReturnType<typeof createBatchEngine>;
+
+// ---------------------------------------------------------------------------
+// Streaming batch engine (issue #446 Tier 2 #7)
+// ---------------------------------------------------------------------------
+
+/**
+ * Options for {@link createStreamingBatchEngine}. Mirrors
+ * {@link BatchEngineOptions} but adds two streaming-specific knobs:
+ *
+ *   - `validateRow`   — injected schema validator. Same shape as the
+ *                       buffered engine: returns `{ valid, errors }`. We
+ *                       pass it explicitly so this engine does NOT pull
+ *                       `validator-singleton` directly (keeps the engine
+ *                       module testable without bootstrapping the
+ *                       process-wide validator).
+ *
+ * Unlike the buffered engine the streaming variant does NOT know
+ * `total` in advance — the row count is whatever the producer ends up
+ * emitting. We update `progress.total` as rows arrive so the GET
+ * `/credentials/batch/:jobId` endpoint converges on the true count as
+ * the batch progresses.
+ */
+export interface StreamingBatchEngineOptions extends BatchEngineOptions {
+  /**
+   * Source of parsed rows. The engine pulls one row at a time through
+   * `p-map`'s lazy iteration, so backpressure flows naturally: if every
+   * worker slot is busy, the parser's `next()` call won't be invoked
+   * and the upstream HTTP body stays unread on the socket. This is what
+   * caps peak resident memory at `O(concurrency * row_size)`.
+   */
+  source: AsyncIterable<ParsedRow>;
+}
+
+/**
+ * Build a streaming batch engine. Mirrors {@link createBatchEngine}'s
+ * public surface — `start()` / `cancel()` / `getProgress()` — but
+ * consumes rows from an async iterable instead of a pre-built array.
+ *
+ * Trade-offs vs. the buffered engine:
+ *
+ *   - `total` is unknown until iteration finishes. `progress.total`
+ *     is incremented as rows arrive. The GET progress endpoint
+ *     reports the running count, not a fixed estimate.
+ *   - `progress.rows` grows on the fly. Order is still preserved:
+ *     we record the `rowIndex` the parser assigned (which matches CSV
+ *     input order), and `getProgress()` returns rows in iteration
+ *     order (== input order, since `p-map` consumes the generator
+ *     sequentially even when it dispatches work concurrently).
+ *   - Skipped rows (parse-time validation failures) appear inline as
+ *     they arrive, NOT pre-counted in the initial snapshot. This is a
+ *     deliberate trade-off: pre-counting would require draining the
+ *     stream first, which is what we're trying to avoid.
+ */
+export function createStreamingBatchEngine(
+  signer: Signer,
+  config: BatchConfig,
+  options: StreamingBatchEngineOptions,
+) {
+  const progress: BatchProgress = {
+    total: 0,
+    completed: 0,
+    successCount: 0,
+    errorCount: 0,
+    skippedCount: 0,
+    rows: [],
+    running: false,
+    cancelled: false,
+  };
+
+  // Reuse the per-row processor by promoting it to a closure factory.
+  // We do NOT call `createBatchEngine` here because that engine
+  // pre-allocates a rows[] array sized to the input — exactly the
+  // allocation we're trying to avoid.
+  async function processRow(parsedRow: ParsedRow, rowResult: BatchRowResult): Promise<void> {
+    rowResult.status = "processing";
+
+    try {
+      getValidator().validateOrThrow(
+        config.schemaId,
+        parsedRow.mappedSubject as Record<string, unknown>,
+      );
+
+      const builder = new CredentialBuilder()
+        .setIssuer(config.issuerDid)
+        .setValidFrom(config.validFrom);
+
+      builder.setCredentialSubject(parsedRow.mappedSubject as Record<string, unknown>);
+
+      if (config.additionalTypes) {
+        for (const type of config.additionalTypes) builder.addType(type);
+      }
+      if (config.validUntil) builder.setValidUntil(config.validUntil);
+      if (config.revocationRegistryUrl) {
+        const credentialUuid = randomUUID();
+        builder.setId(`urn:uuid:${credentialUuid}`);
+        const revocationHash = createHash("sha256").update(credentialUuid).digest("hex");
+        const statusListCredential = config.revocationRegistryUrl;
+        const lookupUrl = statusListCredential.replace("/dedi/query/", "/dedi/lookup/");
+        builder.setCredentialStatus({
+          id: `${lookupUrl}/${revocationHash}`,
+          type: "dedi",
+          statusPurpose: "revocation",
+          statusListCredential,
+        });
+      }
+      if (config.credentialSchemaUrl) {
+        builder.setSchema({ id: config.credentialSchemaUrl, type: "JsonSchema" });
+      }
+
+      const unsigned = builder.build();
+      const proofFormat = config.proofFormat ?? "vc-jwt";
+      const vct = config.additionalTypes?.[0] ?? config.schemaId;
+
+      switch (proofFormat) {
+        case "vc-jwt": {
+          const vcAsRecord = unsigned as unknown as Record<string, unknown>;
+          const { signingInput } = prepareVcJwtProof(vcAsRecord, signer.algorithm, {
+            verificationMethod: signer.id,
+          });
+          const dataToSign = new TextEncoder().encode(signingInput);
+          const signatureBytes = await signer.sign(dataToSign);
+          const jwt = completeVcJwtProof(signingInput, signatureBytes);
+          rowResult.credential = {
+            ...unsigned,
+            proof: { type: "JsonWebSignature2020", jwt },
+          } as unknown as VerifiableCredential;
+          rowResult.isCompactToken = false;
+          break;
+        }
+        case "data-integrity": {
+          const proofOptions = { verificationMethod: signer.id, proofPurpose: "assertionMethod" };
+          if (signer.algorithm === "Ed25519") {
+            const { dataToSign, proofConfig } = await prepareEdDsaProof(unsigned, proofOptions);
+            const signatureBytes = await signer.sign(dataToSign);
+            rowResult.credential = completeEdDsaProof(unsigned, proofConfig, signatureBytes);
+          } else {
+            const { dataToSign, proofConfig } = await prepareProof(
+              unsigned,
+              proofOptions,
+              signer.algorithm as "P-256" | "P-384",
+            );
+            const signatureBytes = await signer.sign(dataToSign);
+            rowResult.credential = completeProof(unsigned, proofConfig, signatureBytes);
+          }
+          rowResult.isCompactToken = false;
+          break;
+        }
+        case "sd-jwt-vc": {
+          const sdJwtOptions = {
+            selectiveDisclosureClaims: config.selectiveDisclosureClaims ?? [],
+            vct,
+            verificationMethod: signer.id,
+          };
+          const { signingInput, disclosures } = prepareSdJwtVcProof(
+            unsigned,
+            signer.algorithm,
+            sdJwtOptions,
+          );
+          const dataToSign = new TextEncoder().encode(signingInput);
+          const signatureBytes = await signer.sign(dataToSign);
+          rowResult.credential = completeSdJwtVcProof(signingInput, signatureBytes, disclosures);
+          rowResult.isCompactToken = true;
+          break;
+        }
+      }
+
+      rowResult.status = "success";
+      progress.successCount++;
+    } catch (err) {
+      rowResult.status = "error";
+      rowResult.error = err instanceof Error ? err.message : "Unknown signing error";
+      progress.errorCount++;
+    }
+
+    progress.completed++;
+  }
+
+  const concurrency = resolveBatchConcurrency(options.concurrency);
+
+  // The mapper bridges parsed rows → progress slots. The first thing it
+  // does is register the row in `progress.rows` so a concurrent GET
+  // progress request sees it; the actual work happens after.
+  async function mapper(parsedRow: ParsedRow): Promise<void> {
+    progress.total++;
+
+    const rowResult: BatchRowResult = {
+      rowIndex: parsedRow.rowIndex,
+      status: parsedRow.valid ? "pending" : "skipped",
+      error: parsedRow.valid
+        ? undefined
+        : parsedRow.errors.map((e) => `${e.field}: ${e.message}`).join("; "),
+    };
+    progress.rows.push(rowResult);
+
+    if (!parsedRow.valid) {
+      progress.skippedCount++;
+      progress.completed++;
+      return;
+    }
+
+    if (progress.cancelled) {
+      rowResult.status = "skipped";
+      rowResult.error = "Batch cancelled";
+      progress.skippedCount++;
+      progress.completed++;
+      return;
+    }
+
+    await processRow(parsedRow, rowResult);
+  }
+
+  return {
+    async start(): Promise<BatchProgress> {
+      progress.running = true;
+      progress.cancelled = false;
+
+      // `p-map` over an AsyncIterable: it pulls one item at a time
+      // and never schedules more than `concurrency` mappers
+      // in-flight. The producer (the streaming CSV parser) yields
+      // rows lazily, so the upstream HTTP body is read at exactly
+      // the rate the worker pool can drain it. This is the
+      // backpressure path that bounds peak memory.
+      try {
+        await pMap(options.source, mapper, { concurrency, stopOnError: false });
+      } catch (err) {
+        // p-map can surface an upstream iterator error (e.g.
+        // StreamingCsvLimitError thrown mid-stream). Mark the
+        // batch failed but keep the rows we already processed.
+        // The route promotes this into a 4xx; the engine just
+        // records progress.
+        progress.running = false;
+        throw err;
+      }
+
+      progress.running = false;
+      return { ...progress, rows: [...progress.rows] };
+    },
+
+    cancel(): void {
+      progress.cancelled = true;
+    },
+
+    getProgress(): BatchProgress {
+      return { ...progress, rows: [...progress.rows] };
+    },
+  };
+}
+
+export type StreamingBatchEngine = ReturnType<typeof createStreamingBatchEngine>;

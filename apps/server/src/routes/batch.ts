@@ -15,10 +15,10 @@ import { randomUUID } from "node:crypto";
 import { ValidationError } from "@opencred/shared";
 import { requireSigner } from "../signing/key-manager.js";
 import { getConfig } from "../config.js";
-import { parseCsv } from "../batch/csv-parser.js";
-import type { Delimiter } from "../batch/csv-parser.js";
-import { createBatchEngine } from "../batch/batch-engine.js";
-import type { BatchEngine, BatchProgress, ProofFormat } from "../batch/batch-engine.js";
+import { parseCsvStreaming, StreamingCsvLimitError } from "../batch/csv-parser.js";
+import type { Delimiter, ParsedRow } from "../batch/csv-parser.js";
+import { createStreamingBatchEngine } from "../batch/batch-engine.js";
+import type { StreamingBatchEngine, BatchProgress, ProofFormat } from "../batch/batch-engine.js";
 import { deliverWebhook } from "../batch/webhook.js";
 import type { WebhookPayload } from "../batch/webhook.js";
 import { getLogger } from "../logger.js";
@@ -36,7 +36,7 @@ const batch = new Hono();
 // of this module for the purge loop; `purgeExpiredBatchJobs` is the sync
 // helper tests drive.
 export interface BatchJobEntry {
-  engine: BatchEngine;
+  engine: StreamingBatchEngine;
   progress: BatchProgress | null;
   createdAt: string;
   /**
@@ -102,31 +102,95 @@ batch.post("/credentials/batch", async (c) => {
     );
   }
 
-  // Pre-check row count
-  const lineCount = parsed.csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0).length - 1;
-  if (lineCount > config.OPENCRED_BATCH_ROW_LIMIT) {
-    throw new ValidationError(
-      `Batch exceeds maximum of ${config.OPENCRED_BATCH_ROW_LIMIT} rows (found ~${lineCount}). Split your CSV.`,
-    );
-  }
-
-  const parseResult = parseCsv(parsed.csvContent, {
+  // Streaming CSV parser (issue #446 Tier 2 #7). Replaces the old
+  // `parseCsv(string)` path that materialised THREE in-memory copies
+  // of the input (raw string → `rawRows: string[][]` split on \n →
+  // `parsedRows: ParsedRow[]`) before any signing started. The
+  // streaming parser yields ParsedRow values one at a time, so the
+  // `rawRows[][]` intermediate disappears entirely.
+  //
+  // Row-count cap is now enforced fail-fast inside the parser via
+  // `maxRows`. The old `split(/\r?\n/)` pre-check ran a second full
+  // pass over the body just to count lines — the streaming version
+  // throws on the (N+1)th row and the remainder is never read.
+  //
+  // 202 response back-compat: the existing API contract surfaces
+  // `validCount` / `invalidCount` / `parseErrors` in the POST
+  // response. To preserve that shape we drain the parser into a
+  // pre-allocated `parsedRows` array here on the request thread.
+  // This still saves one full duplicate copy of the input (the
+  // `rawRows[][]` array is gone) and avoids the second `split()` pass.
+  //
+  // The engine consumes the same array via an async-iterable adapter
+  // — the engine's interface is streaming-shaped (`AsyncIterable<ParsedRow>`)
+  // so a future API revision that drops `validCount` from the 202
+  // body can switch to feeding the parser directly to the engine
+  // without further engine changes.
+  const parser = parseCsvStreaming(parsed.csvContent, {
     schemaId: parsed.schemaId,
     columnMapping: parsed.columnMapping,
     delimiter: parsed.delimiter as Delimiter | undefined,
+    maxRows: config.OPENCRED_BATCH_ROW_LIMIT,
   });
 
-  const engine = createBatchEngine(signer, parseResult.rows, {
-    schemaId: parsed.schemaId,
-    issuerDid: parsed.issuerDid,
-    validFrom: parsed.validFrom,
-    validUntil: parsed.validUntil,
-    revocationRegistryUrl: parsed.revocationRegistryUrl,
-    additionalTypes: parsed.additionalTypes,
-    proofFormat: parsed.proofFormat as ProofFormat,
-    selectiveDisclosureClaims: parsed.selectiveDisclosureClaims,
-    credentialSchemaUrl: parsed.credentialSchemaUrl,
-  });
+  // Header parsing happens up-front so we can return `headers` in the
+  // 202 response and so a malformed body surfaces as a 4xx before we
+  // kick off the background engine.
+  let headers: string[];
+  try {
+    headers = (await parser.headers()).headers;
+  } catch (err) {
+    if (err instanceof StreamingCsvLimitError) {
+      throw new ValidationError(`Batch exceeds maximum of ${err.limit} rows. Split your CSV.`);
+    }
+    throw err;
+  }
+
+  // Drain the parser into an array. Memory-shape vs. the buffered
+  // parser: we hold ONE copy of each row in `parsedRows` instead of
+  // TWO (rawRows[][] + parsedRows[]). The cap is enforced inside the
+  // parser, so a request that exceeds OPENCRED_BATCH_ROW_LIMIT throws
+  // before fully reading the body. PII NOTE: per CLAUDE.md no row
+  // content is ever logged from this path.
+  const parsedRows: ParsedRow[] = [];
+  let validCount = 0;
+  let invalidCount = 0;
+  try {
+    for await (const row of parser.rows()) {
+      if (row.valid) validCount++;
+      else invalidCount++;
+      parsedRows.push(row);
+    }
+  } catch (err) {
+    if (err instanceof StreamingCsvLimitError) {
+      throw new ValidationError(`Batch exceeds maximum of ${err.limit} rows. Split your CSV.`);
+    }
+    throw err;
+  }
+
+  // Async-iterable adapter over the array. Yields rows on demand so
+  // the engine's `p-map` pulls one row at a time at the worker pool's
+  // rate. The engine itself doesn't care that the underlying input is
+  // already materialised — same code path as a true byte-stream feed.
+  async function* sourceRows(): AsyncIterable<ParsedRow> {
+    for (const row of parsedRows) yield row;
+  }
+
+  const engine = createStreamingBatchEngine(
+    signer,
+    {
+      schemaId: parsed.schemaId,
+      issuerDid: parsed.issuerDid,
+      validFrom: parsed.validFrom,
+      validUntil: parsed.validUntil,
+      revocationRegistryUrl: parsed.revocationRegistryUrl,
+      additionalTypes: parsed.additionalTypes,
+      proofFormat: parsed.proofFormat as ProofFormat,
+      selectiveDisclosureClaims: parsed.selectiveDisclosureClaims,
+      credentialSchemaUrl: parsed.credentialSchemaUrl,
+    },
+    { source: sourceRows() },
+  );
 
   const jobId = randomUUID();
   const job: BatchJobEntry = {
@@ -175,7 +239,7 @@ batch.post("/credentials/batch", async (c) => {
       batchJobsTotal.inc({ status: "failed" });
     });
 
-  const parseErrors = parseResult.rows
+  const parseErrors = parsedRows
     .filter((r) => !r.valid)
     .map((r) => ({ rowIndex: r.rowIndex, errors: r.errors }));
 
@@ -186,10 +250,10 @@ batch.post("/credentials/batch", async (c) => {
       // emits "queued" — the engine has been started in the background
       // (`void engine.start().then(...)`) but hasn't transitioned yet.
       status: "queued" as const,
-      headers: parseResult.headers,
-      validCount: parseResult.validCount,
-      invalidCount: parseResult.invalidCount,
-      totalCount: parseResult.totalCount,
+      headers,
+      validCount,
+      invalidCount,
+      totalCount: parsedRows.length,
       parseErrors: parseErrors.length > 0 ? parseErrors : undefined,
       webhookUrl: parsed.webhookUrl,
     },
