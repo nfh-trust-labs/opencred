@@ -776,9 +776,7 @@ describe("DeDiClient (adapter)", () => {
         new DeDiClientError("DeDi API error: 404", 404),
       );
 
-      await expect(client.markDIDRotated("did:key:z6Mkmissing")).rejects.toThrow(
-        DeDiClientError,
-      );
+      await expect(client.markDIDRotated("did:key:z6Mkmissing")).rejects.toThrow(DeDiClientError);
       expect(api.updateRecord).not.toHaveBeenCalled();
     });
 
@@ -801,7 +799,11 @@ describe("DeDiClient (adapter)", () => {
       vi.mocked(api.updateRecord).mockResolvedValue({} as never);
 
       await client.markDIDRotated("did:key:z6Mkfoo", "other-ns");
-      expect(api.lookupRecord).toHaveBeenCalledWith("other-ns", PUBLIC_KEY_REGISTRY, expect.any(String));
+      expect(api.lookupRecord).toHaveBeenCalledWith(
+        "other-ns",
+        PUBLIC_KEY_REGISTRY,
+        expect.any(String),
+      );
       expect(api.updateRecord).toHaveBeenCalledWith(
         "other-ns",
         PUBLIC_KEY_REGISTRY,

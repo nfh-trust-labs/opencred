@@ -262,9 +262,9 @@ describe("IPC Handler Integration Tests", () => {
       // the credential JSON — give it a valid api-key envelope so the
       // publish-manager factory doesn't bail.
       storeData["preferences"] = {
-        dediCredentialEncrypted: Buffer.from(
-          JSON.stringify({ apiKey: "dk_test" }),
-        ).toString("base64"),
+        dediCredentialEncrypted: Buffer.from(JSON.stringify({ apiKey: "dk_test" })).toString(
+          "base64",
+        ),
       };
       // ipc-handlers re-uses the cached publishManager, so reset it via the
       // disconnect path before this test exercises the hook. Easiest path:
@@ -279,9 +279,9 @@ describe("IPC Handler Integration Tests", () => {
       };
       storeData["dediPublishedDIDs"] = ["did:key:z6Mkold1", "did:key:z6Mkold2"];
       storeData["preferences"] = {
-        dediCredentialEncrypted: Buffer.from(
-          JSON.stringify({ apiKey: "dk_test" }),
-        ).toString("base64"),
+        dediCredentialEncrypted: Buffer.from(JSON.stringify({ apiKey: "dk_test" })).toString(
+          "base64",
+        ),
       };
 
       mockMarkDIDRotated.mockResolvedValue(true);
@@ -319,9 +319,9 @@ describe("IPC Handler Integration Tests", () => {
       };
       storeData["dediPublishedDIDs"] = ["did:key:z6Mkold"];
       storeData["preferences"] = {
-        dediCredentialEncrypted: Buffer.from(
-          JSON.stringify({ apiKey: "dk_test" }),
-        ).toString("base64"),
+        dediCredentialEncrypted: Buffer.from(JSON.stringify({ apiKey: "dk_test" })).toString(
+          "base64",
+        ),
       };
 
       const disconnect = registeredHandlers[IPC_CHANNELS.DEDI_DISCONNECT];
@@ -333,9 +333,9 @@ describe("IPC Handler Integration Tests", () => {
       };
       storeData["dediPublishedDIDs"] = ["did:key:z6Mkold"];
       storeData["preferences"] = {
-        dediCredentialEncrypted: Buffer.from(
-          JSON.stringify({ apiKey: "dk_test" }),
-        ).toString("base64"),
+        dediCredentialEncrypted: Buffer.from(JSON.stringify({ apiKey: "dk_test" })).toString(
+          "base64",
+        ),
       };
 
       mockMarkDIDRotated.mockRejectedValue(new Error("DeDi unreachable"));

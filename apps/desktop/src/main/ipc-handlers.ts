@@ -415,9 +415,7 @@ async function handleKeyGenerate(
     try {
       const store = getStore();
       if (store.get("dediConfig") != null) {
-        const previousDIDs = (store.get("dediPublishedDIDs") ?? []).filter(
-          (d) => d !== signer.id,
-        );
+        const previousDIDs = (store.get("dediPublishedDIDs") ?? []).filter((d) => d !== signer.id);
         if (previousDIDs.length > 0) {
           const mgr = getDeDiPublishManager();
           if (mgr) {
@@ -427,12 +425,9 @@ async function handleKeyGenerate(
         }
       }
     } catch (rotationErr) {
-      logger.error(
-        "DeDi key-rotation hook failed (non-fatal — new key was still generated)",
-        {
-          error: rotationErr instanceof Error ? rotationErr.message : String(rotationErr),
-        },
-      );
+      logger.error("DeDi key-rotation hook failed (non-fatal — new key was still generated)", {
+        error: rotationErr instanceof Error ? rotationErr.message : String(rotationErr),
+      });
     }
 
     return { success: true, key: meta };

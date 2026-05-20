@@ -283,10 +283,7 @@ export class DeDiClient {
     const isDidWeb = did.startsWith("did:web:");
 
     if (isDidWeb && (document == null || typeof document !== "object")) {
-      throw new DeDiClientError(
-        "publishDID: did:web records require a DID Document",
-        400,
-      );
+      throw new DeDiClientError("publishDID: did:web records require a DID Document", 400);
     }
 
     const detail: { did: string; document?: Record<string, unknown>; keyStatus: "current" } = {
@@ -452,8 +449,7 @@ export class DeDiClient {
             did: { type: "string", pattern: "^did:" },
             document: {
               type: "object",
-              description:
-                "W3C DID Document. Omit for did:key — verifier derives from DID.",
+              description: "W3C DID Document. Omit for did:key — verifier derives from DID.",
             },
             keyStatus: { type: "string", enum: ["current", "rotated"] },
           },

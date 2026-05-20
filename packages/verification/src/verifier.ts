@@ -218,10 +218,7 @@ export async function verifyCredential(
   // cryptographically valid; verifier policy can read the result and
   // reject if desired.
   if (credentialForRevocationHash && config.dediClient) {
-    const rotationCheck = await checkKeyRotation(
-      credentialForRevocationHash,
-      config.dediClient,
-    );
+    const rotationCheck = await checkKeyRotation(credentialForRevocationHash, config.dediClient);
     checks.push(rotationCheck);
   }
 
