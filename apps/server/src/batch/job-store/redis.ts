@@ -32,13 +32,7 @@
  *    `SCAN` with a small `MATCH` pattern and a 100-element page.
  */
 
-import type {
-  JobMutator,
-  JobRecord,
-  JobStatus,
-  JobStore,
-  JobSummary,
-} from "./types.js";
+import type { JobMutator, JobRecord, JobStatus, JobStore, JobSummary } from "./types.js";
 
 /**
  * Subset of ioredis we depend on. Keeping this narrow means tests can
@@ -117,11 +111,7 @@ export class RedisJobStore implements JobStore {
     await this.client.set(this.key(id), serialized, "EX", ttlSeconds);
   }
 
-  async update(
-    id: string,
-    mutator: JobMutator,
-    ttlSeconds: number,
-  ): Promise<JobRecord | null> {
+  async update(id: string, mutator: JobMutator, ttlSeconds: number): Promise<JobRecord | null> {
     if (this.closed) return null;
     // Optimistic concurrency. We don't need a full WATCH/MULTI here:
     //
@@ -238,6 +228,11 @@ function summaryOf(record: JobRecord): JobSummary {
     completed: record.progress?.completed ?? 0,
   };
   if (record.completedAt !== undefined) summary.completedAt = record.completedAt;
+  // Surface `lastSeenAt` + `ownerReplica` on the summary so the
+  // stale-detection helper (Tier 2 #6 of #446) can decide liveness from
+  // a single list() call without a second per-record GET.
+  if (record.lastSeenAt !== undefined) summary.lastSeenAt = record.lastSeenAt;
+  if (record.ownerReplica !== undefined) summary.ownerReplica = record.ownerReplica;
   return summary;
 }
 
