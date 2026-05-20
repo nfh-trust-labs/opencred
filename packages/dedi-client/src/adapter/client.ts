@@ -184,12 +184,7 @@ export class DeDiClient {
     const ns = this.resolveNamespace(namespace);
     const detailsToPublish: { revoked_id: string; reason?: string } = { revoked_id: hash };
     if (reason !== undefined) detailsToPublish.reason = reason;
-    const response = await this.api.publishRecord(
-      ns,
-      REVOCATION_REGISTRY,
-      hash,
-      detailsToPublish,
-    );
+    const response = await this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, detailsToPublish);
     assertDeDiRecordShape(response, "publishRecord");
     // Post-publish, the record exists ⇒ revoked. Use the envelope's
     // `updated_at` as the revocation timestamp (DeDi's canonical answer
@@ -234,9 +229,7 @@ export class DeDiClient {
     };
     const details = record.details as Record<string, unknown> | null | undefined;
     const reason =
-      details && typeof details["reason"] === "string"
-        ? (details["reason"] as string)
-        : undefined;
+      details && typeof details["reason"] === "string" ? (details["reason"] as string) : undefined;
     return {
       revoked: true,
       revokedAt: record.updated_at ?? "",
@@ -367,9 +360,7 @@ export class DeDiClient {
       // https://dedi.global/revoke.json). DeDi enforces the
       // `{ revoked_id, reason? }` shape server-side via the tag, so we
       // pass no custom schema body. Record existence ⇒ revoked.
-      ignoreConflict(() =>
-        this.api.createRegistry(namespace, REVOCATION_REGISTRY, {}, "revoke"),
-      ),
+      ignoreConflict(() => this.api.createRegistry(namespace, REVOCATION_REGISTRY, {}, "revoke")),
       ignoreConflict(() =>
         this.api.createRegistry(namespace, PUBLIC_KEY_REGISTRY, {
           $schema: "http://json-schema.org/draft-07/schema#",
