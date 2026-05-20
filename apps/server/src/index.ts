@@ -44,6 +44,11 @@ import { dedi } from "./routes/dedi.js";
 import { metrics } from "./routes/metrics.js";
 import { initTracing } from "./tracing.js";
 import { metricsMiddleware } from "./middleware/metrics.js";
+import {
+  applyRateLimits,
+  checkRateLimitIpExtraction,
+  mountRateLimitSelfCheckRoute,
+} from "./middleware/rate-limit.js";
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -318,6 +323,24 @@ app.use("*", async (c, next) => {
 
 // Global middleware
 app.use("*", metricsMiddleware);
+
+// Per-route rate limiting (issue #446 Tier 1).
+//
+// Mounted BEFORE auth so unauthenticated traffic burns budget too — a
+// hostile peer hammering /credentials/issue with bogus tokens should hit
+// the 429 path before we ever spend a syscall on the bearer check, and a
+// bug in the auth path shouldn't accidentally make the surface
+// unlimited. The rate limiter middleware short-circuits cleanly when
+// OPENCRED_RATE_LIMIT_ENABLED=false.
+applyRateLimits(app);
+
+// Mount the rate-limit self-check route used by the boot-time probe
+// (see below). It returns the bucket key the limiter would have used
+// for the request — used to confirm we extract a real IP from this
+// runtime's adapter rather than collapsing every anonymous client into
+// `ip:unknown`. Registered BEFORE auth so the probe doesn't need a key.
+mountRateLimitSelfCheckRoute(app);
+
 app.use("*", authMiddleware);
 
 // Mount routes.
@@ -383,6 +406,69 @@ const server = serve({
 });
 
 logger.info({ port: config.OPENCRED_PORT }, "OpenCred Server listening");
+
+// ---------------------------------------------------------------------------
+// Rate-limit IP-extraction self-check
+// ---------------------------------------------------------------------------
+// Catches the failure mode where the Hono context's `c.env.incoming.socket`
+// shape isn't present in the current runtime — that path is the only way
+// the limiter can derive a per-IP bucket for unauthenticated requests, so
+// if it returns `ip:unknown` here every anonymous client collapses into a
+// single global bucket. We log this loudly at startup so an operator who
+// boots the server in an unexpected environment (a non-Node adapter, a
+// proxy that strips peer info) gets a warning they can grep for, rather
+// than discovering the misconfiguration only when a real DoS arrives.
+//
+// We only run the probe when the limiter itself is enabled — if rate
+// limiting is off, the bucket key is irrelevant. We run it asynchronously
+// so the probe never blocks request handling, and we never fail the
+// process on a probe error: an over-zealous fail-closed here would
+// prevent a perfectly functional server from booting just because its
+// loopback fetch failed for unrelated reasons.
+if (config.OPENCRED_RATE_LIMIT_ENABLED) {
+  void (async () => {
+    // Wait for `server.listening`. `@hono/node-server` exposes `listening`
+    // and emits "listening" — both are reliable on Node, but `serve()`
+    // may have already finished by the time we get here, so we test the
+    // current state first.
+    if (!server.listening) {
+      await new Promise<void>((resolve) => server.once("listening", () => resolve()));
+    }
+    const addr = server.address();
+    let port: number | undefined;
+    if (addr && typeof addr === "object") {
+      port = addr.port;
+    }
+    if (port === undefined) {
+      logger.warn("Rate-limit self-check skipped: server.address() did not return a numeric port");
+      return;
+    }
+    const probeUrl = `http://127.0.0.1:${port}`;
+    const result = await checkRateLimitIpExtraction(probeUrl);
+    if (result.ok) {
+      logger.info(
+        { bucket: result.key },
+        "Rate-limit IP extraction OK — remote address detected on the runtime adapter",
+      );
+    } else {
+      logger.warn(
+        { error: result.error, bucket: result.key },
+        "Rate-limit IP extraction returned ip:unknown — every anonymous client will share " +
+          "ONE bucket. Set OPENCRED_TRUST_PROXY=true if your runtime sits behind a trusted " +
+          "L7 proxy, or check that @hono/node-server is the active adapter.",
+      );
+    }
+  })().catch((err: unknown) => {
+    // Defensive — `checkRateLimitIpExtraction` already swallows its
+    // errors and returns `ok: false`. This catch only fires if the IIFE
+    // itself throws (e.g. `server.address()` semantics changed). Logged
+    // and dropped — the server keeps running.
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "Rate-limit self-check crashed",
+    );
+  });
+}
 
 // Start the batch-job purge loop. Jobs in the in-memory Map are evicted
 // once their (completedAt ?? createdAt) + OPENCRED_SESSION_TTL is in the

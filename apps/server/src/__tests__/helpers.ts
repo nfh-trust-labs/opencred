@@ -18,6 +18,7 @@ import { setValidator, resetValidator } from "../validator-singleton.js";
 import { createRegistry, Validator } from "@opencred/schema-engine";
 import { authMiddleware } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error-handler.js";
+import { applyRateLimits } from "../middleware/rate-limit.js";
 import { health } from "../routes/health.js";
 import { schemas } from "../routes/schemas.js";
 import { credentials } from "../routes/credentials.js";
@@ -147,6 +148,15 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
   }
   process.env.OPENCRED_LOG_LEVEL = "fatal";
 
+  // Rate limiters are off by default in tests so existing endpoint tests
+  // that fire dozens of requests at /credentials/issue don't get 429'd.
+  // Tests that exercise the limiter must set OPENCRED_RATE_LIMIT_ENABLED=true
+  // before calling createTestApp() (see rate-limit.test.ts). The default
+  // must be set BEFORE loadConfig() so the Zod schema reads the override.
+  if (!process.env.OPENCRED_RATE_LIMIT_ENABLED) {
+    process.env.OPENCRED_RATE_LIMIT_ENABLED = "false";
+  }
+
   loadConfig();
   createLogger();
 
@@ -192,6 +202,13 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
 
   // Global middleware
   app.use("*", metricsMiddleware);
+
+  // applyRateLimits reads OPENCRED_RATE_LIMIT_ENABLED; it is a no-op
+  // when the flag is false. Default for tests is false (set above), but
+  // rate-limit-specific tests flip the env var on before calling
+  // createTestApp().
+  applyRateLimits(app);
+
   app.use("*", authMiddleware);
 
   // Mount routes — both legacy ("/") and versioned ("/v1") paths.

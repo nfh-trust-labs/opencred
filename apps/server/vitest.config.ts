@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["src/__tests__/**/*.test.ts"],
+    include: ["src/__tests__/**/*.test.ts", "src/**/__tests__/**/*.test.ts"],
     testTimeout: 30000,
     alias: {
       // pkcs11js requires a native binary that may not be available in test env.

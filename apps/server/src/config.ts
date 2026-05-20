@@ -216,6 +216,69 @@ const configSchema = z.object({
 
   /** DeDi request timeout in milliseconds (default: 10000). */
   OPENCRED_DEDI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
+
+  // --- Rate limiting (per-IP / per-token, in-memory buckets) ---
+
+  /**
+   * Master switch for the per-route rate limiter. The limiter is on by
+   * default — every documented public deployment in the README runs behind
+   * either a reverse proxy or directly exposed and benefits from the tail-
+   * latency protection. Set to false to disable (e.g. when an upstream
+   * gateway is already applying its own limits and you want to avoid
+   * double-counting).
+   */
+  OPENCRED_RATE_LIMIT_ENABLED: z
+    .preprocess((value) => {
+      if (value === undefined || value === null || value === "") return true;
+      if (typeof value === "boolean") return value;
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (["true", "1", "yes", "on"].includes(normalized)) return true;
+        if (["false", "0", "no", "off"].includes(normalized)) return false;
+      }
+      return value;
+    }, z.boolean())
+    .default(true),
+
+  /**
+   * When true, the rate limiter trusts the `X-Forwarded-For` header to
+   * derive the client IP. Required when the server runs behind a reverse
+   * proxy / load balancer (Cloud Run, nginx, ALB, etc.) and you want
+   * per-client buckets (not per-proxy buckets). Fail-closed: when unset
+   * the limiter ignores the header — otherwise any internet client could
+   * spoof a unique IP per request and bypass the limit entirely.
+   */
+  OPENCRED_TRUST_PROXY: booleanFromString,
+
+  /**
+   * Rate-limit window in milliseconds. Per-route limits below are scaled
+   * against this window. Default 60s.
+   */
+  OPENCRED_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(60 * 60 * 1000)
+    .default(60_000),
+
+  /**
+   * Max requests per window for `/credentials/issue` and
+   * `/credentials/batch` (the heaviest endpoints — signature path).
+   */
+  OPENCRED_RATE_LIMIT_ISSUE: z.coerce.number().int().min(1).default(60),
+
+  /**
+   * Max requests per window for `/credentials/verify`. Verify is lighter
+   * than issue (no signature, no body buffer), so the cap is doubled.
+   */
+  OPENCRED_RATE_LIMIT_VERIFY: z.coerce.number().int().min(1).default(120),
+
+  /**
+   * Max requests per window for read-only routes (schemas/*, /health,
+   * /metrics). High enough that legitimate dashboards and uptime probes
+   * never hit it; low enough to blunt a trivial DoS.
+   */
+  OPENCRED_RATE_LIMIT_READ: z.coerce.number().int().min(1).default(600),
 });
 
 export type ServerConfig = z.infer<typeof configSchema>;
