@@ -270,7 +270,12 @@ jobs:
             export CSC_IDENTITY_AUTO_DISCOVERY=false
             echo "Building UNSIGNED Windows artefacts (no WIN_CSC_LINK)"
           fi
-          npx electron-builder $EB_ARGS --publish never
+          # --config.npmRebuild=false: native modules were already rebuilt
+          # in the explicit Rebuild step above (rebuild-native.cjs). Without
+          # this, electron-builder invokes its bundled @electron/rebuild
+          # AGAIN — which hangs 60+ min on Windows pnpm symlink trees (the
+          # same root cause as #501).
+          npx electron-builder $EB_ARGS --publish never --config.npmRebuild=false
 
       # Verify Mac artefacts are properly code-signed, Gatekeeper-approved
       # and notarisation-stapled BEFORE publishing. Without this, a broken
