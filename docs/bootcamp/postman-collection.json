@@ -376,7 +376,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["v1", "keys", "resolve"]
             },
-            "description": "Resolve a DID document from the DeDi `public_key_registry`. POST (not GET) so DIDs containing colons or slashes don't have to be URL-encoded.\n\nReturns `{ did, document, resolvedAt }`. 503 if DeDi isn't configured."
+            "description": "Resolve a DID document from the DeDi `public_key_registry`. POST (not GET) so DIDs containing colons or slashes don't have to be URL-encoded.\n\nReturns `{ did, document?, keyStatus }`. `document` is omitted for `did:key` records (the verifier derives it from the DID itself); `keyStatus` is `\"current\"` or `\"rotated\"`. The response may also include a `proof` block (CORD-blockchain anchor metadata) when DeDi anchored the record on-chain.\n\n503 if DeDi isn't configured."
           }
         }
       ]
@@ -462,14 +462,14 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"hash\": \"{{lastRevocationHash}}\"\n}"
+              "raw": "{\n  \"hash\": \"{{lastRevocationHash}}\",\n  \"reason\": \"key-compromised\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/v1/credentials/revoke",
               "host": ["{{baseUrl}}"],
               "path": ["v1", "credentials", "revoke"]
             },
-            "description": "Publish the hash to DeDi as revoked. Returns 503 DEDI_NOT_CONFIGURED unless `OPENCRED_DEDI_BASE_URL` (and friends) are set on the server.\n\nYou can also send `{ \"credential\": {...} }` and the server will hash it for you. Add `\"namespace\": \"...\"` to override the configured default."
+            "description": "Publish the hash to DeDi as revoked. Returns 503 DEDI_NOT_CONFIGURED unless `OPENCRED_DEDI_BASE_URL` (and friends) are set on the server.\n\nYou can also send `{ \"credential\": {...} }` and the server will hash it for you. Add `\"namespace\": \"...\"` to override the configured default.\n\n`reason` is an optional free-text descriptor (per the DeDi canonical revoke.json schema) — typical values are short tags like `\"key-compromised\"`, `\"superseded\"`, or `\"holder-request\"`. When supplied, it is stored on the DeDi record and echoed by `/v1/credentials/revocation-status`."
           }
         },
         {

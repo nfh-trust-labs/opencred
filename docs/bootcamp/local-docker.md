@@ -159,14 +159,15 @@ exist. No pre-provisioning required.
 > identical to what OpenCred publishes). DeDi backends ship built-in JSON
 > Schemas for some registry names — notably `public_key.json` with shape
 > `{public_key_id, publicKey, keyType, ...}`, which is **not** the shape
-> OpenCred writes (`{did, document, resolvedAt}`). If a DeDi operator
-> pre-creates a `public_key_registry` using the built-in catalogue schema
-> before OpenCred boots, every `/v1/keys/publish` call will fail with a
-> `400 "Record data does not match the registry schema"` from DeDi's AJV
-> check. The same applies to any other registry name DeDi has a built-in
-> schema for. Easiest mitigation: let OpenCred create the registries on
-> first boot, and if you do pre-provision, make sure the schema you attach
-> matches what OpenCred writes (look at
+> OpenCred writes (`{did, document?, keyStatus}` — `document` is omitted
+> for `did:key` records, and `keyStatus` is `"current"` or `"rotated"`).
+> If a DeDi operator pre-creates a `public_key_registry` using the
+> built-in catalogue schema before OpenCred boots, every `/v1/keys/publish`
+> call will fail with a `400 "Record data does not match the registry
+> schema"` from DeDi's AJV check. The same applies to any other registry
+> name DeDi has a built-in schema for. Easiest mitigation: let OpenCred
+> create the registries on first boot, and if you do pre-provision, make
+> sure the schema you attach matches what OpenCred writes (look at
 > `packages/dedi-client/src/adapter/client.ts` for the canonical shapes).
 
 ### 4. Run the container
@@ -673,13 +674,18 @@ HASH=$(jq '{credential: .credential}' revokable.json | \
     -H "Content-Type: application/json" -d @- | jq -r .revocationHash)
 echo "Hash: $HASH"
 
-# Publish to DeDi.
+# Publish to DeDi. `reason` is an optional free-text descriptor (per the
+# DeDi canonical revoke.json schema) — typical values are short tags like
+# "key-compromised", "superseded", or "holder-request". When supplied, it
+# is stored alongside the hash on the DeDi record and surfaced verbatim by
+# /v1/credentials/revocation-status.
 curl -s http://localhost:3100/v1/credentials/revoke \
   -H "Authorization: Bearer $OPENCRED_API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"hash\": \"$HASH\"}" | jq
+  -d "{\"hash\": \"$HASH\", \"reason\": \"key-compromised\"}" | jq
 
-# Query DeDi for the status.
+# Query DeDi for the status. The response echoes `hash` and (if a reason
+# was supplied at publish time) `reason`.
 curl -s http://localhost:3100/v1/credentials/revocation-status \
   -H "Authorization: Bearer $OPENCRED_API_KEY" \
   -H "Content-Type: application/json" \
@@ -738,8 +744,13 @@ curl -s http://localhost:3100/v1/keys/resolve \
 ```
 
 `/v1/keys/publish` returns `{ published: true, recordName, namespace }` on
-success. `/v1/keys/resolve` returns `{ did, document, resolvedAt }`. Both
-endpoints return `503 DEDI_NOT_CONFIGURED` if the DeDi env vars from §7c
+success. `/v1/keys/resolve` returns `{ did, document?, keyStatus }` — and may
+include a `proof` block when DeDi anchored the record to the CORD blockchain.
+`document` is omitted for `did:key` records (the verifier derives it from
+the DID itself); `keyStatus` is `"current"` for a freshly-published record
+and flips to `"rotated"` after the desktop's auto-rotation hook runs (see
+[Desktop → Key Management → Auto-rotation on key generation](../desktop/key-management.md#auto-rotation-on-key-generation)).
+Both endpoints return `503 DEDI_NOT_CONFIGURED` if the DeDi env vars from §7c
 aren't set.
 
 > **The takeaway**: once you've run §7d, you can stop serving a `did:web` document from a webserver entirely — OpenCred's verifier falls back to DeDi automatically whenever the canonical endpoint is unreachable. The signature on every issued VC is the same as before; only the discovery path for the public key changes. To make this work for verifiers you don't control, they need to be running OpenCred (or any verifier that wires `createDeDiDIDWebFallback` into its resolver) and have the same `OPENCRED_DEDI_*` env vars set. Pure off-the-shelf did:web resolvers without DeDi awareness will still need the canonical HTTPS endpoint.
