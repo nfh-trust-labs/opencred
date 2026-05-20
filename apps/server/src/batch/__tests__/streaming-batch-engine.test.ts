@@ -336,4 +336,72 @@ describe("createStreamingBatchEngine", () => {
     expect(concurrentMax.value).toBeLessThanOrEqual(concurrency + 1);
     expect(concurrentMax.value).toBeGreaterThanOrEqual(2);
   }, 120_000);
+
+  // ---------------------------------------------------------------------
+  // onProgress hook (Tier 3 #8 of #446)
+  // ---------------------------------------------------------------------
+  //
+  // The hook is the integration seam that lets the BullMQ worker push
+  // progress frames into the JobStore without polling. The throttle is
+  // deliberately observable in tests — a fast batch may emit just one
+  // frame; the only invariant we care about is that the FINAL frame
+  // always reaches every registered observer.
+
+  describe("onProgress", () => {
+    it("delivers a terminal frame to every observer even when the throttle would otherwise drop it", async () => {
+      installStubSchemaRegistry();
+      const { signer } = makeStubSigner();
+      const engine = createStreamingBatchEngine(signer, BASE_CONFIG, {
+        source: simpleSource(3),
+        concurrency: 1,
+      });
+
+      const frames: number[] = [];
+      engine.onProgress((frame) => {
+        frames.push(frame.completed);
+      });
+
+      const final = await engine.start();
+
+      // The throttle may collapse intermediate frames into one trailing
+      // emission, but the final flush MUST fire. We assert on the LAST
+      // frame, not the count.
+      expect(frames.length).toBeGreaterThanOrEqual(1);
+      expect(frames[frames.length - 1]).toBe(final.completed);
+      expect(final.successCount).toBe(3);
+    });
+
+    it("swallows observer errors so a broken observer cannot abort signing", async () => {
+      installStubSchemaRegistry();
+      const { signer } = makeStubSigner();
+      const engine = createStreamingBatchEngine(signer, BASE_CONFIG, {
+        source: simpleSource(2),
+        concurrency: 1,
+      });
+      // Observer throws on every frame. Engine must still settle
+      // successfully — the observer is best-effort.
+      engine.onProgress(() => {
+        throw new Error("observer crashed");
+      });
+      const result = await engine.start();
+      expect(result.successCount).toBe(2);
+      expect(result.errorCount).toBe(0);
+    });
+
+    it("returns an unsubscribe function that stops further deliveries", async () => {
+      installStubSchemaRegistry();
+      const { signer } = makeStubSigner();
+      const engine = createStreamingBatchEngine(signer, BASE_CONFIG, {
+        source: simpleSource(5),
+        concurrency: 1,
+      });
+      let callCount = 0;
+      const off = engine.onProgress(() => {
+        callCount++;
+      });
+      off();
+      await engine.start();
+      expect(callCount).toBe(0);
+    });
+  });
 });

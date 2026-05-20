@@ -36,8 +36,9 @@ import { setDeDiClient } from "./dedi-singleton.js";
 import { health } from "./routes/health.js";
 import { schemas } from "./routes/schemas.js";
 import { credentials } from "./routes/credentials.js";
-import { batch, finalizeAllRunningJobs, setJobStore } from "./routes/batch.js";
+import { batch, finalizeAllRunningJobs, setBatchQueue, setJobStore } from "./routes/batch.js";
 import { createJobStore } from "./batch/job-store/factory.js";
+import { buildQueues, type BatchQueue, type WebhookQueue } from "./batch/queue.js";
 import { revocation } from "./routes/revocation.js";
 import { packaging } from "./routes/packaging.js";
 import { keys } from "./routes/keys.js";
@@ -332,6 +333,28 @@ const jobStore = await createJobStore(config, logger);
 setJobStore(jobStore);
 
 // ---------------------------------------------------------------------------
+// BullMQ batch dispatch (Tier 3 #8 of nfh-trust-labs/opencred#446)
+// ---------------------------------------------------------------------------
+// When OPENCRED_BATCH_DISPATCH=queue the API process enqueues a BatchJob
+// onto Redis and returns 202 immediately. The actual signing happens
+// inside a separate worker process (apps/server/src/worker.ts).
+//
+// In `inline` mode (default) the queue handle stays unset and the route
+// runs the engine in-band — bit-identical to every release before this.
+//
+// SECURITY: the queue payload NEVER carries key material. Workers load
+// their own signing key from the same OPENCRED_KEY_PATH / Cloud HSM
+// configuration as the API process — see worker.ts.
+
+let queues: { batch: BatchQueue; webhook: WebhookQueue } | null = null;
+if (config.OPENCRED_BATCH_DISPATCH === "queue") {
+  queues = await buildQueues(config, logger);
+  setBatchQueue(queues.batch);
+} else {
+  logger.info({ dispatch: "inline" }, "Batch dispatch: in-process (no queue)");
+}
+
+// ---------------------------------------------------------------------------
 // App setup
 // ---------------------------------------------------------------------------
 
@@ -603,6 +626,14 @@ function shutdown(signal: string) {
         await jobStore.close();
       } catch (err) {
         logger.warn({ err }, "Failed to close JobStore");
+      }
+      if (queues) {
+        try {
+          await queues.batch.close();
+          await queues.webhook.close();
+        } catch (err) {
+          logger.warn({ err }, "Failed to close BullMQ queues");
+        }
       }
       if (tracer) await tracer.shutdown();
       logger.info("Server closed");

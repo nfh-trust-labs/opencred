@@ -27,8 +27,42 @@ import {
   type PrecomputedProofConfig,
 } from "@opencred/crypto";
 import type { Signer } from "@opencred/signing";
+import { getCachedSignerDidDocument } from "@opencred/signing";
 import type { ParsedRow } from "./csv-parser.js";
 import { runInSpan } from "../observability/span-helpers.js";
+
+/**
+ * Warm the signer-DID-document cache for the batch's signer.
+ *
+ * The cache (see `packages/signing/src/signer-did-cache.ts`) is shared
+ * process-wide and keyed on the signer's public-key fingerprint. By
+ * resolving the document once at engine creation we ensure every row in
+ * the batch (and every concurrent worker) sees a cache hit on subsequent
+ * `getCachedSignerDidDocument(signer)` calls — no resolver work, no
+ * allocation, just a Map lookup.
+ *
+ * Fire-and-forget: we don't await the warmup here because the engine
+ * factory is synchronous. The first row that genuinely needs the
+ * document will await the in-flight resolver call via the cache's
+ * natural lookup flow.
+ *
+ * Best-effort: any error during resolution (did:web unsupported, mock
+ * signer with a synthetic did:key, transient resolver failure) is
+ * swallowed. The cache is a hot-path optimisation, not a correctness
+ * gate — the signing path uses `signer.id` directly and the verifier
+ * resolves the doc independently. We attach an empty `.catch` so a
+ * rejected warmup promise doesn't surface as an unhandled rejection
+ * and stay vitest's "unhandled error" reporter from firing in tests
+ * that use stub signers (the warmup is best-effort, the test isn't
+ * exercising it, so the rejection is noise).
+ *
+ * See #573 / #572.
+ */
+function warmSignerDidDocumentCache(signer: Signer): void {
+  void getCachedSignerDidDocument(signer).catch(() => {
+    /* best-effort warmup — swallow any error */
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -138,6 +172,10 @@ export function createBatchEngine(
   config: BatchConfig,
   options: BatchEngineOptions = {},
 ) {
+  // Pre-warm the signer-DID-document cache so every row's signing
+  // operations see a hit. See {@link warmSignerDidDocumentCache}.
+  warmSignerDidDocumentCache(signer);
+
   const jobIdForSpans = options.jobId;
   const progress: BatchProgress = {
     total: parsedRows.length,
@@ -445,6 +483,25 @@ export interface StreamingBatchEngineOptions extends BatchEngineOptions {
 }
 
 /**
+ * Progress observer callback invoked by the engine as rows settle.
+ *
+ * Used by the BullMQ worker (`apps/server/src/worker.ts`, #588) to push
+ * progress frames into the JobStore without the worker polling the
+ * engine. The callback is invoked at most once per `throttleMs`
+ * (default 500 ms) so a 10 000-row batch finishing in seconds does
+ * NOT generate 10 000 Redis writes — the throttle collapses bursts
+ * into a steady stream of snapshots. The final frame on `start()`
+ * resolve is delivered to the caller's `await` (not through this
+ * callback) so the worker always sees the terminal state.
+ *
+ * SECURITY: each frame carries `progress.rows` with credential drafts
+ * (PII). The callback runs in the same process as the engine; the
+ * worker must apply the same TTL via `JobStore.update(...)` so the
+ * data never outlives `OPENCRED_SESSION_TTL`.
+ */
+export type ProgressObserver = (frame: BatchProgress) => void | Promise<void>;
+
+/**
  * Build a streaming batch engine. Mirrors {@link createBatchEngine}'s
  * public surface — `start()` / `cancel()` / `getProgress()` — but
  * consumes rows from an async iterable instead of a pre-built array.
@@ -469,6 +526,11 @@ export function createStreamingBatchEngine(
   config: BatchConfig,
   options: StreamingBatchEngineOptions,
 ) {
+  // Pre-warm the signer-DID-document cache. See the buffered engine for
+  // rationale; same mechanism applies — every row's verificationMethod
+  // is `signer.id`, so a single warmup serves the whole batch.
+  warmSignerDidDocumentCache(signer);
+
   const jobIdForSpans = options.jobId;
   const progress: BatchProgress = {
     total: 0,
@@ -480,6 +542,67 @@ export function createStreamingBatchEngine(
     running: false,
     cancelled: false,
   };
+
+  // Progress observers — registered via `onProgress(cb)`. Used by the
+  // BullMQ worker (#588) to push frames into the JobStore without
+  // polling. Throttled so a fast batch doesn't generate one write per
+  // row: at most one delivery per `progressThrottleMs` window with a
+  // trailing-edge flush when the engine settles. The trailing flush
+  // is critical — a sub-throttle-interval batch must still see at
+  // least one progress frame.
+  //
+  // Errors thrown by an observer are caught so they cannot abort the
+  // engine. The observer is a side-effecting integration boundary; a
+  // misbehaving observer should never break batch processing.
+  const observers: ProgressObserver[] = [];
+  let lastEmittedAt = 0;
+  let pendingFrame: BatchProgress | null = null;
+  let flushScheduled = false;
+
+  const progressThrottleMs = 500;
+
+  function snapshotProgress(): BatchProgress {
+    return { ...progress, rows: [...progress.rows] };
+  }
+
+  async function emitFrame(frame: BatchProgress): Promise<void> {
+    for (const cb of observers) {
+      try {
+        await cb(frame);
+      } catch {
+        // Observer callbacks are best-effort. A failing observer (e.g.
+        // Redis write timing out) must NOT abort signing. The worker's
+        // own logger surfaces the error via the JobStore write path.
+      }
+    }
+  }
+
+  function scheduleProgressEmit(): void {
+    if (observers.length === 0) return;
+    pendingFrame = snapshotProgress();
+    const now = Date.now();
+    const elapsed = now - lastEmittedAt;
+    if (elapsed >= progressThrottleMs) {
+      const frame = pendingFrame;
+      pendingFrame = null;
+      lastEmittedAt = now;
+      void emitFrame(frame);
+      return;
+    }
+    if (flushScheduled) return;
+    flushScheduled = true;
+    setTimeout(
+      () => {
+        flushScheduled = false;
+        if (!pendingFrame) return;
+        const frame = pendingFrame;
+        pendingFrame = null;
+        lastEmittedAt = Date.now();
+        void emitFrame(frame);
+      },
+      Math.max(0, progressThrottleMs - elapsed),
+    ).unref?.();
+  }
 
   // Single-flight proof-config precompute (mirrors the buffered engine
   // from #572). Without this, every row independently re-canonicalizes
@@ -643,6 +766,7 @@ export function createStreamingBatchEngine(
     if (!parsedRow.valid) {
       progress.skippedCount++;
       progress.completed++;
+      scheduleProgressEmit();
       return;
     }
 
@@ -651,10 +775,12 @@ export function createStreamingBatchEngine(
       rowResult.error = "Batch cancelled";
       progress.skippedCount++;
       progress.completed++;
+      scheduleProgressEmit();
       return;
     }
 
     await processRow(parsedRow, rowResult);
+    scheduleProgressEmit();
   }
 
   return {
@@ -689,11 +815,23 @@ export function createStreamingBatchEngine(
         // The route promotes this into a 4xx; the engine just
         // records progress.
         progress.running = false;
+        // Best-effort terminal emission even on iterator failure —
+        // observers may still want to record the partial frame.
+        if (observers.length > 0) await emitFrame(snapshotProgress());
         throw err;
       }
 
       progress.running = false;
-      return { ...progress, rows: [...progress.rows] };
+      // Final flush — guarantees observers see the terminal state
+      // regardless of where in the throttle window the last row
+      // landed. The trailing-edge `setTimeout` flush may still be
+      // pending; cancelling it isn't strictly necessary (the
+      // pendingFrame is reset by this synchronous emit), but the
+      // `.unref()` above means it never holds the event loop open.
+      const finalFrame = snapshotProgress();
+      pendingFrame = null;
+      if (observers.length > 0) await emitFrame(finalFrame);
+      return finalFrame;
     },
 
     cancel(): void {
@@ -701,7 +839,23 @@ export function createStreamingBatchEngine(
     },
 
     getProgress(): BatchProgress {
-      return { ...progress, rows: [...progress.rows] };
+      return snapshotProgress();
+    },
+
+    /**
+     * Register a progress observer. Returns an unsubscribe function.
+     *
+     * Used by the BullMQ worker (#588) to push frames into the
+     * JobStore without polling. Multiple observers are supported but
+     * not expected — the typical caller is the worker process
+     * registering a single JobStore-update closure.
+     */
+    onProgress(observer: ProgressObserver): () => void {
+      observers.push(observer);
+      return () => {
+        const idx = observers.indexOf(observer);
+        if (idx >= 0) observers.splice(idx, 1);
+      };
     },
   };
 }

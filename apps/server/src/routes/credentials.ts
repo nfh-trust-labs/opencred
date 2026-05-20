@@ -32,6 +32,7 @@ import {
 } from "@opencred/crypto";
 import { CryptoError, ValidationError, detectCredentialInputFormat } from "@opencred/shared";
 import { encodeDidWeb } from "@opencred/did";
+import { getCachedSignerDidDocument } from "@opencred/signing";
 import { REVOCATION_REGISTRY } from "@opencred/dedi-client";
 import type { TemplateCustomization } from "@opencred/templates";
 import { requireSigner } from "../signing/key-manager.js";
@@ -357,6 +358,30 @@ credentials.post("/credentials/issue", async (c) => {
   rejectKeyMaterial(body);
   const parsed = issueRequestSchema.parse(body);
   const signer = requireSigner();
+
+  // Warm the signer-DID-document cache. First call resolves via the
+  // did:key / did:jwk resolver and stores the result; every subsequent
+  // call within the process is an O(1) Map lookup.
+  //
+  // The cache entry is held by the helper module; we discard the
+  // returned doc here because /credentials/issue itself doesn't embed
+  // the DID document in the response — verifiers re-derive it from the
+  // `verificationMethod` URL during verify. The hoist exists so that
+  // future signing paths (e.g. embedding the DID document in a
+  // credential receipt) reuse the resolved object reference instead of
+  // re-allocating on every call.
+  //
+  // Best-effort: did:web signers (Docker production, when configured)
+  // intentionally fall through this helper's "unsupported" branch.
+  // Other transient resolver errors (mock signers in tests, synthetic
+  // DIDs) are also swallowed — the cache is a hot-path optimisation,
+  // not a correctness gate. The signing path uses `signer.id` directly,
+  // so a missed warmup never produces an incorrect signature.
+  //
+  // See #573 / #572.
+  await getCachedSignerDidDocument(signer).catch(() => {
+    /* best-effort warmup */
+  });
 
   // Resolve the effective issuer DID.
   //

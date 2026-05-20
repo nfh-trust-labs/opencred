@@ -45,9 +45,14 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { ValidationError } from "@opencred/shared";
+import type { BatchJob, BatchJobConfig, BatchJobRow } from "@opencred/shared";
 import { requireSigner } from "../signing/key-manager.js";
 import { getConfig } from "../config.js";
-import { parseCsvStreaming, StreamingCsvLimitError } from "../batch/csv-parser.js";
+import {
+  parseCsvStreaming,
+  StreamingCsvLimitError,
+  StreamingCsvRecordSizeError,
+} from "../batch/csv-parser.js";
 import type { Delimiter, ParsedRow } from "../batch/csv-parser.js";
 import { createStreamingBatchEngine } from "../batch/batch-engine.js";
 import type { StreamingBatchEngine, BatchProgress, ProofFormat } from "../batch/batch-engine.js";
@@ -59,6 +64,7 @@ import { batchJobsTotal } from "../metrics.js";
 import { parseJsonBody } from "../middleware/parse-json.js";
 import { MemoryJobStore } from "../batch/job-store/memory.js";
 import type { JobRecord, JobStatus, JobStore } from "../batch/job-store/types.js";
+import type { BatchQueue } from "../batch/queue.js";
 
 const batch = new Hono();
 
@@ -95,11 +101,47 @@ export function getJobStore(): JobStore {
   return jobStore;
 }
 
+// ---------------------------------------------------------------------------
+// Batch queue wiring (Tier 3 #8 of #446)
+// ---------------------------------------------------------------------------
+//
+// When `OPENCRED_BATCH_DISPATCH=queue` is configured at startup,
+// `index.ts` builds a BullMQ-backed BatchQueue and injects it here via
+// `setBatchQueue`. The POST handler then enqueues a `BatchJob` instead
+// of running the engine in-process.
+//
+// Default (`inline` mode): the queue stays `null` and the POST handler
+// retains today's behaviour bit-for-bit.
+
+let batchQueue: BatchQueue | null = null;
+
+/**
+ * Inject the BullMQ-backed batch queue. Called by `index.ts` only when
+ * `OPENCRED_BATCH_DISPATCH=queue`. Tests pass a stub for the queue
+ * dispatch path; pass `null` to revert to inline mode.
+ */
+export function setBatchQueue(queue: BatchQueue | null): void {
+  batchQueue = queue;
+}
+
 // In-process map of live engines. Keyed by jobId, populated only on the
 // replica that accepted the POST. Engines are removed once they settle
 // (success / cancellation / failure) or when shutdown finalizes the
 // batch — see `finalizeAllRunningJobs` below.
 const localEngines = new Map<string, StreamingBatchEngine>();
+
+// Per-job heartbeat timers (Tier 2 #6 of nfh-trust-labs/opencred#446).
+//
+// While an engine is running, this replica writes `lastSeenAt` to the
+// shared JobStore every `OPENCRED_HEARTBEAT_INTERVAL_SEC`. A remote
+// observer reading the record from a different replica uses the
+// freshness of that timestamp to detect a dead owning replica — see
+// `findStaleRunningJobs` in `batch/job-store/types.ts`.
+//
+// We do NOT auto-transition a stale record here: cross-replica work
+// stealing is the job of an external queue (Tier 3 #8 / #583). The
+// heartbeat is a liveness *signal*, not a coordination primitive.
+const heartbeatTimers = new Map<string, NodeJS.Timeout>();
 
 /**
  * Build a diagnostic identifier for the running replica. Embedded in
@@ -110,6 +152,67 @@ const localEngines = new Map<string, StreamingBatchEngine>();
  * as a best-effort hint, not for correctness.
  */
 const REPLICA_ID = `${hostname()}:${process.pid}`;
+
+/**
+ * Start the heartbeat loop for a running job. Writes the current time
+ * to the record's `lastSeenAt` field every `intervalSeconds`. Idempotent
+ * — calling twice with the same id replaces the prior timer.
+ *
+ * The timer is `.unref()`ed so it never holds the process open on its
+ * own; graceful shutdown's `finalizeAllRunningJobs` is the canonical
+ * stop signal.
+ */
+function startHeartbeat(jobId: string, intervalSeconds: number, ttlSeconds: number): void {
+  // Replace any prior timer for the same id — defensive, the route
+  // normally only schedules one heartbeat per job.
+  stopHeartbeat(jobId);
+  const intervalMs = intervalSeconds * 1000;
+  const timer = setInterval(() => {
+    const lastSeenAt = new Date().toISOString();
+    jobStore
+      .update(
+        jobId,
+        (current) => {
+          // Defensive: if the record settled between ticks (the engine's
+          // `.then`/`.catch` ran first), skip the write — we'd otherwise
+          // re-touch the TTL on a finished record, which is harmless but
+          // muddies the dashboard.
+          if (
+            current.status === "completed" ||
+            current.status === "failed" ||
+            current.status === "cancelled" ||
+            current.status === "interrupted"
+          ) {
+            return null;
+          }
+          return { ...current, lastSeenAt };
+        },
+        ttlSeconds,
+      )
+      .catch((err) => {
+        // Best-effort: a missed heartbeat is exactly what a stale-job
+        // observer is supposed to detect. We log at debug so a misconfigured
+        // Redis doesn't drown the logs, but the symptom is visible
+        // downstream regardless.
+        getLogger().debug({ jobId, err }, "Heartbeat write failed");
+      });
+  }, intervalMs);
+  timer.unref?.();
+  heartbeatTimers.set(jobId, timer);
+}
+
+/**
+ * Stop the heartbeat loop for a job. Safe to call for an unknown id —
+ * no-op in that case. Called when the engine settles or when shutdown
+ * tears down in-flight work.
+ */
+function stopHeartbeat(jobId: string): void {
+  const timer = heartbeatTimers.get(jobId);
+  if (timer) {
+    clearInterval(timer);
+    heartbeatTimers.delete(jobId);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Request validation
@@ -166,7 +269,6 @@ batch.post("/credentials/batch", async (c) => {
   // is checked once. See CLAUDE.md rule 1.
   rejectKeyMaterial(body);
   const parsed = batchRequestSchema.parse(body);
-  const signer = requireSigner();
   const config = getConfig();
 
   // LOW-04: supplying a webhookUrl requires a dedicated, configured secret.
@@ -185,6 +287,14 @@ batch.post("/credentials/batch", async (c) => {
       400,
     );
   }
+
+  // In inline mode the route requires a loaded signer up-front (the engine
+  // runs in this process). In queue mode the SIGNING happens inside the
+  // worker process, so the API can accept the POST without a local signer.
+  // Worker boot-time also validates its own signer, so the request is
+  // never dispatched against a worker without a key.
+  const dispatchMode = batchQueue ? "queue" : "inline";
+  const signer = dispatchMode === "inline" ? requireSigner() : null;
 
   // Streaming CSV parser (issue #446 Tier 2 #7). Replaces the old
   // `parseCsv(string)` path that materialised THREE in-memory copies
@@ -208,6 +318,11 @@ batch.post("/credentials/batch", async (c) => {
     columnMapping: parsed.columnMapping,
     delimiter: parsed.delimiter as Delimiter | undefined,
     maxRows: config.OPENCRED_BATCH_ROW_LIMIT,
+    // Defense-in-depth alongside OPENCRED_MAX_BATCH_BODY_BYTES. The
+    // body-limit middleware bounds the whole request; this cap bounds
+    // a single in-flight record so a no-newline / unclosed-quote
+    // attacker can't pin the body budget on one record (#578).
+    maxRecordBytes: config.OPENCRED_BATCH_MAX_RECORD_BYTES,
   });
 
   // Header parsing happens up-front so we can return `headers` in the
@@ -220,91 +335,75 @@ batch.post("/credentials/batch", async (c) => {
     if (err instanceof StreamingCsvLimitError) {
       throw new ValidationError(`Batch exceeds maximum of ${err.limit} rows. Split your CSV.`);
     }
+    if (err instanceof StreamingCsvRecordSizeError) {
+      // SECURITY: surface only the configured cap, not the offending
+      // record content or byte position. The buffer may carry PII.
+      throw new ValidationError(
+        `CSV record exceeds maximum size of ${err.limit} bytes. Split your CSV or check for an unterminated quoted field.`,
+      );
+    }
     throw err;
   }
 
-  // Counters + bounded parse-error buffer updated as a side-effect of
-  // the streaming pass. PII NOTE per CLAUDE.md: row content never
-  // enters logs/spans; `parseErrors` carries `rowIndex` (an ordinal,
-  // not user data) and the schema validator's structured error
-  // tuples (`field` / `message`) — same shape as before #580. The
-  // 100-entry cap ensures a malicious caller can't blow up the 202
-  // response body with 1M error entries.
+  // Drain the parser into an array, ticking counters + bounded parseErrors
+  // as we go. The full row array is needed for queue mode (BullMQ payload
+  // must be JSON-serializable). Inline mode reuses the same materialized
+  // rows via a lazy iterator below — the route doesn't keep a second copy.
+  //
+  // PII NOTE per CLAUDE.md: row content never enters logs/spans;
+  // `parseErrors` carries `rowIndex` (an ordinal, not user data) and the
+  // schema validator's structured error tuples (`field` / `message`) — same
+  // shape as before. The 100-entry cap (from #580) ensures a malicious
+  // caller can't blow up the 202 response body with 1M error entries.
   const PARSE_ERRORS_LIMIT = 100;
-  const counters = { valid: 0, invalid: 0, total: 0 };
+  const parsedRows: ParsedRow[] = [];
+  let validCount = 0;
+  let invalidCount = 0;
   const parseErrors: Array<{ rowIndex: number; errors: ParsedRow["errors"] }> = [];
   let parseErrorsTruncated = 0;
-
-  // The parser's row generator is wrapped in a passthrough that ticks
-  // counters and stashes a bounded slice of validation failures. The
-  // engine pulls rows lazily through `p-map`, so the parser is read
-  // at the worker pool's rate — true streaming end-to-end. The
-  // `parseCompletion` promise lets us know when the parser has fully
-  // drained so we can return 202 with the final counts WITHOUT
-  // awaiting the engine itself (which keeps running in the background
-  // signing rows). See acceptance criteria #2/#3 on issue #580.
-  let parseError: unknown = undefined;
-  let resolveParseCompletion: () => void = () => undefined;
-  let rejectParseCompletion: (err: unknown) => void = () => undefined;
-  const parseCompletion = new Promise<void>((resolve, reject) => {
-    resolveParseCompletion = resolve;
-    rejectParseCompletion = reject;
-  });
-  async function* countingSource(): AsyncIterable<ParsedRow> {
-    try {
-      for await (const row of parser.rows()) {
-        counters.total++;
-        if (row.valid) {
-          counters.valid++;
+  try {
+    for await (const row of parser.rows()) {
+      if (row.valid) {
+        validCount++;
+      } else {
+        invalidCount++;
+        if (parseErrors.length < PARSE_ERRORS_LIMIT) {
+          parseErrors.push({ rowIndex: row.rowIndex, errors: row.errors });
         } else {
-          counters.invalid++;
-          if (parseErrors.length < PARSE_ERRORS_LIMIT) {
-            parseErrors.push({ rowIndex: row.rowIndex, errors: row.errors });
-          } else {
-            parseErrorsTruncated++;
-          }
+          parseErrorsTruncated++;
         }
-        yield row;
       }
-      resolveParseCompletion();
-    } catch (err) {
-      // Errors from the parser (StreamingCsvLimitError, decode
-      // failures, ...) surface through the iterator. Capture and
-      // re-throw so p-map propagates them into engine.start()'s
-      // rejection — we also reject `parseCompletion` so the route's
-      // pre-202 await aborts with the same error.
-      parseError = err;
-      rejectParseCompletion(err);
-      throw err;
+      parsedRows.push(row);
     }
+  } catch (err) {
+    if (err instanceof StreamingCsvLimitError) {
+      throw new ValidationError(`Batch exceeds maximum of ${err.limit} rows. Split your CSV.`);
+    }
+    if (err instanceof StreamingCsvRecordSizeError) {
+      // SECURITY: never leak the buffered bytes or row index — both
+      // can carry PII / credential subject data.
+      throw new ValidationError(
+        `CSV record exceeds maximum size of ${err.limit} bytes. Split your CSV or check for an unterminated quoted field.`,
+      );
+    }
+    throw err;
   }
 
   const jobId = randomUUID();
-
-  const engine = createStreamingBatchEngine(
-    signer,
-    {
-      schemaId: parsed.schemaId,
-      issuerDid: parsed.issuerDid,
-      validFrom: parsed.validFrom,
-      validUntil: parsed.validUntil,
-      revocationRegistryUrl: parsed.revocationRegistryUrl,
-      additionalTypes: parsed.additionalTypes,
-      proofFormat: parsed.proofFormat as ProofFormat,
-      selectiveDisclosureClaims: parsed.selectiveDisclosureClaims,
-      credentialSchemaUrl: parsed.credentialSchemaUrl,
-    },
-    {
-      source: countingSource(),
-      // OTel attribute for per-row spans (#581 / #446 Tier 3 #10). The
-      // jobId is an opaque UUID — CLAUDE.md security invariant: span
-      // attributes carry only opaque identifiers, never user-provided
-      // data.
-      jobId,
-    },
-  );
   const createdAt = new Date().toISOString();
   const ttlSeconds = config.OPENCRED_SESSION_TTL;
+
+  const batchJobConfig: BatchJobConfig = {
+    schemaId: parsed.schemaId,
+    issuerDid: parsed.issuerDid,
+    validFrom: parsed.validFrom,
+    validUntil: parsed.validUntil,
+    revocationRegistryUrl: parsed.revocationRegistryUrl,
+    additionalTypes: parsed.additionalTypes,
+    proofFormat: parsed.proofFormat as ProofFormat,
+    selectiveDisclosureClaims: parsed.selectiveDisclosureClaims,
+    credentialSchemaUrl: parsed.credentialSchemaUrl,
+  };
 
   const initialRecord: JobRecord = {
     jobId,
@@ -313,15 +412,137 @@ batch.post("/credentials/batch", async (c) => {
     createdAt,
     webhookUrl: parsed.webhookUrl,
     ownerReplica: REPLICA_ID,
+    // Seed `lastSeenAt` to `createdAt` so the record carries a valid
+    // freshness anchor before the first heartbeat tick. An observer
+    // looking at the record between the initial write and the first
+    // heartbeat sees a timestamp that's at most one heartbeat interval
+    // old — which is inside the stale-threshold window.
+    lastSeenAt: createdAt,
   };
 
-  // Two writes happen atomically from the request's point of view:
-  //   1. The JobStore record (what every replica can see).
-  //   2. The local engine map (what this replica needs to drive the work).
   await jobStore.set(jobId, initialRecord, ttlSeconds);
+  batchJobsTotal.inc({ status: "started" });
+
+  // ----- Queue mode --------------------------------------------------
+  //
+  // The route enqueues a `BatchJob` and immediately returns 202. The
+  // worker pulls the job, runs the engine, and pushes progress frames
+  // into the same JobStore via the engine's `onProgress` hook.
+  if (batchQueue) {
+    // Convert parsed rows to the wire-format. `claims` is intentionally
+    // `mappedSubject` (NOT `rawValues`) — the worker uses it directly
+    // as the credentialSubject.
+    const wireRows: BatchJobRow[] = parsedRows.map((r) => ({
+      rowIndex: r.rowIndex,
+      valid: r.valid,
+      errors: r.valid ? undefined : r.errors.map((e) => `${e.field}: ${e.message}`),
+      claims: r.valid ? r.mappedSubject : undefined,
+    }));
+    const message: BatchJob = {
+      jobId,
+      config: batchJobConfig,
+      rows: wireRows,
+      webhookUrl: parsed.webhookUrl,
+      enqueuedByReplica: REPLICA_ID,
+      enqueuedAt: createdAt,
+    };
+    try {
+      await batchQueue.add(message, { removeOnCompleteAgeSec: ttlSeconds });
+    } catch (err) {
+      // Enqueue failure: mark the job failed in the store so a GET
+      // doesn't return a stuck `queued` record. The 500 surfaces to the
+      // client so the operator can retry.
+      getLogger().warn({ jobId, err }, "Failed to enqueue batch job");
+      await jobStore
+        .update(
+          jobId,
+          (current) => ({
+            ...current,
+            status: "failed",
+            completedAt: new Date().toISOString(),
+          }),
+          ttlSeconds,
+        )
+        .catch(() => undefined);
+      batchJobsTotal.inc({ status: "failed" });
+      return c.json(
+        {
+          error: {
+            code: "QUEUE_ENQUEUE_FAILED",
+            message: "Failed to enqueue batch job; check server logs",
+          },
+        },
+        503,
+      );
+    }
+
+    // Use the bounded parseErrors collected during the parser drain. Cap is
+    // PARSE_ERRORS_LIMIT (100) — if more parse errors occurred, the
+    // `_truncated` sentinel reports the overflow count so clients know to
+    // re-check via GET /v1/credentials/batch/:jobId/results.
+    const responseParseErrors: Array<{ rowIndex: number; errors: ParsedRow["errors"] }> = [
+      ...parseErrors,
+    ];
+    if (parseErrorsTruncated > 0) {
+      responseParseErrors.push({
+        rowIndex: -1,
+        errors: [
+          {
+            field: "_truncated",
+            message: `+${parseErrorsTruncated} more errors omitted (cap: ${PARSE_ERRORS_LIMIT})`,
+          },
+        ],
+      });
+    }
+
+    return c.json(
+      {
+        jobId,
+        status: "queued" as const,
+        headers,
+        validCount,
+        invalidCount,
+        totalCount: parsedRows.length,
+        parseErrors: responseParseErrors.length > 0 ? responseParseErrors : undefined,
+        webhookUrl: parsed.webhookUrl,
+      },
+      202,
+    );
+  }
+
+  // ----- Inline mode (default, back-compat) --------------------------
+
+  // Async-iterable adapter over the array. Yields rows on demand so
+  // the engine's `p-map` pulls one row at a time at the worker pool's
+  // rate. The engine itself doesn't care that the underlying input is
+  // already materialised — same code path as a true byte-stream feed.
+  async function* sourceRows(): AsyncIterable<ParsedRow> {
+    for (const row of parsedRows) yield row;
+  }
+
+  // `signer` is non-null here because we only enter the inline branch
+  // when batchQueue is null, and the top of the handler `requireSigner()`s
+  // when dispatchMode is "inline". The non-null assertion documents that
+  // invariant rather than re-running the check.
+  const engine = createStreamingBatchEngine(signer!, batchJobConfig, {
+    source: sourceRows(),
+    // OTel attribute for per-row spans (#581 / #446 Tier 3 #10). The
+    // jobId is an opaque UUID — CLAUDE.md security invariant: span
+    // attributes carry only opaque identifiers, never user-provided
+    // data.
+    jobId,
+  });
+
+  // Inline mode keeps the live engine on this replica so we can answer
+  // GETs from its `getProgress()` without a Redis round-trip.
   localEngines.set(jobId, engine);
 
-  batchJobsTotal.inc({ status: "started" });
+  // Tier 2 #6: start the heartbeat loop. Owning replica refreshes
+  // `lastSeenAt` every `OPENCRED_HEARTBEAT_INTERVAL_SEC` until the
+  // engine settles or shutdown tears it down. Queue mode does NOT start
+  // a heartbeat here — the worker process owns the heartbeat for jobs
+  // it picks up off the queue.
+  startHeartbeat(jobId, config.OPENCRED_HEARTBEAT_INTERVAL_SEC, ttlSeconds);
 
   // Background driver — engine.start() returns a Promise that settles
   // once every row has been processed. We don't await it for the 202
@@ -356,6 +577,7 @@ batch.post("/credentials/batch", async (c) => {
       // garbage collector can reclaim it. Future GETs read from the
       // JobStore record only.
       localEngines.delete(jobId);
+      stopHeartbeat(jobId);
 
       // Deliver webhook notification on completion (best-effort).
       // LOW-04: `webhookSecret` is guaranteed non-empty at this point because
@@ -397,64 +619,27 @@ batch.post("/credentials/batch", async (c) => {
           // best-effort — if the store is also down there's nothing more we can do.
         });
       localEngines.delete(jobId);
+      stopHeartbeat(jobId);
     });
 
-  // Wait for the streaming parser to drain (#580). `parseCompletion`
-  // resolves when the counting passthrough has yielded its last row
-  // and rejects on parser errors (including StreamingCsvLimitError).
-  // The engine continues running in the background regardless of
-  // how we exit here.
-  try {
-    await parseCompletion;
-  } catch (err) {
-    // The engine is already aware of the failure via the same
-    // iterator rejection (its `.catch` handler above writes
-    // status="failed" to the job store). We additionally clean up
-    // the job record + local engine handle here so the caller's 4xx
-    // doesn't leave a dangling "failed" job referenced by a UUID we
-    // never returned. The .catch(noop) on each step keeps us
-    // resilient if the engine's own catch already ran the cleanup.
-    localEngines.delete(jobId);
-    await jobStore.delete(jobId).catch(() => undefined);
-    if (err instanceof StreamingCsvLimitError) {
-      throw new ValidationError(`Batch exceeds maximum of ${err.limit} rows. Split your CSV.`);
-    }
-    throw err;
+  // Bounded parseErrors surface: when truncated, append a sentinel marker
+  // so callers can detect the cap was hit without exposing unbounded
+  // payload bytes (CLAUDE.md rule 5). Same shape as the queue-mode branch
+  // above so clients see consistent semantics across dispatch modes.
+  const inlineResponseParseErrors: Array<{ rowIndex: number; errors: ParsedRow["errors"] }> = [
+    ...parseErrors,
+  ];
+  if (parseErrorsTruncated > 0) {
+    inlineResponseParseErrors.push({
+      rowIndex: -1,
+      errors: [
+        {
+          field: "_truncated",
+          message: `+${parseErrorsTruncated} more errors omitted (cap: ${PARSE_ERRORS_LIMIT})`,
+        },
+      ],
+    });
   }
-  // Defensive: `parseError` is set inside `countingSource` before the
-  // rejection propagates. If we ever observe a path where parseCompletion
-  // resolved but parseError is set, surface it the same way.
-  if (parseError !== undefined) {
-    localEngines.delete(jobId);
-    await jobStore.delete(jobId).catch(() => undefined);
-    if (parseError instanceof StreamingCsvLimitError) {
-      throw new ValidationError(
-        `Batch exceeds maximum of ${parseError.limit} rows. Split your CSV.`,
-      );
-    }
-    throw parseError;
-  }
-
-  // Bounded parseErrors surface: when truncated, append a sentinel
-  // marker so callers can detect the cap was hit without exposing
-  // unbounded payload bytes (CLAUDE.md rule 5).
-  const responseParseErrors: Array<{ rowIndex: number; errors: ParsedRow["errors"] }> | undefined =
-    parseErrors.length === 0
-      ? undefined
-      : parseErrorsTruncated > 0
-        ? [
-            ...parseErrors,
-            {
-              rowIndex: -1,
-              errors: [
-                {
-                  field: "_truncated",
-                  message: `+${parseErrorsTruncated} more errors omitted (cap: ${PARSE_ERRORS_LIMIT})`,
-                },
-              ],
-            },
-          ]
-        : parseErrors;
 
   return c.json(
     {
@@ -464,10 +649,10 @@ batch.post("/credentials/batch", async (c) => {
       // (`void engine.start().then(...)`) but hasn't transitioned yet.
       status: "queued" as const,
       headers,
-      validCount: counters.valid,
-      invalidCount: counters.invalid,
-      totalCount: counters.total,
-      parseErrors: responseParseErrors,
+      validCount,
+      invalidCount,
+      totalCount: parsedRows.length,
+      parseErrors: inlineResponseParseErrors.length > 0 ? inlineResponseParseErrors : undefined,
       webhookUrl: parsed.webhookUrl,
     },
     202,
@@ -608,6 +793,10 @@ export async function finalizeAllRunningJobs(): Promise<number> {
     // new rows. Rows already in flight will complete naturally (they
     // hold the only reference to their signer call), but we don't wait.
     engine.cancel();
+    // Stop heartbeat first — once the record is "interrupted" we don't
+    // want a stray heartbeat tick to write `lastSeenAt` and make a
+    // dead replica look alive in the next observer window.
+    stopHeartbeat(jobId);
     await jobStore
       .update(
         jobId,
@@ -643,7 +832,12 @@ export async function finalizeAllRunningJobs(): Promise<number> {
  */
 export function __resetBatchStateForTesting(): void {
   localEngines.clear();
+  for (const timer of heartbeatTimers.values()) {
+    clearInterval(timer);
+  }
+  heartbeatTimers.clear();
   jobStore = new MemoryJobStore();
+  batchQueue = null;
 }
 
 /**
@@ -651,6 +845,14 @@ export function __resetBatchStateForTesting(): void {
  */
 export function __getLocalEngineCount(): number {
   return localEngines.size;
+}
+
+/**
+ * Expose the heartbeat-timer map size for diagnostic asserts in tests.
+ * Used to verify the heartbeat is torn down on settle and on shutdown.
+ */
+export function __getHeartbeatTimerCount(): number {
+  return heartbeatTimers.size;
 }
 
 export { batch };

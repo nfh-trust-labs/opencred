@@ -67,8 +67,52 @@ const configSchema = z.object({
   /** Maximum rows allowed in a single batch CSV. */
   OPENCRED_BATCH_ROW_LIMIT: z.coerce.number().int().min(1).default(1000),
 
+  /**
+   * Maximum size (bytes) of a single CSV record (one logical row,
+   * possibly spanning multiple physical lines because of quoted
+   * newlines) before the streaming parser rejects the upload with
+   * `StreamingCsvRecordSizeError`.
+   *
+   * Defense-in-depth alongside `OPENCRED_MAX_BATCH_BODY_BYTES`: the
+   * body-limit middleware bounds the whole request, this cap bounds
+   * a single in-flight record so a pathological no-newline /
+   * unclosed-quote payload can't pin the entire body-limit budget on
+   * one record that never completes (issue #578 / #577 review).
+   *
+   * Default: 1 MiB. A credential-issuance row is typically a few
+   * hundred bytes — anything north of 1 MiB is suspicious. Bump it
+   * if you legitimately ship multi-megabyte free-text fields.
+   */
+  OPENCRED_BATCH_MAX_RECORD_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1024)
+    .default(1024 * 1024),
+
   /** Session TTL in seconds (for ephemeral credential data). Default: 4 hours. */
   OPENCRED_SESSION_TTL: z.coerce.number().int().min(60).default(14400),
+
+  /**
+   * Heartbeat interval (seconds) for running batch jobs (Tier 2 #6 of
+   * nfh-trust-labs/opencred#446).
+   *
+   * While a batch engine is running, the owning replica re-writes the
+   * job record every `OPENCRED_HEARTBEAT_INTERVAL_SEC` seconds with an
+   * updated `lastSeenAt` timestamp. Observer code (the same or a
+   * different replica) treats a job as candidate-for-interruption when
+   * `lastSeenAt` is older than `2 ×` this value — see
+   * `findStaleRunningJobs` in `batch/job-store/types.ts`.
+   *
+   * Range: 1–60 s. Defaults to 5 s — a 10 s detection window for dead
+   * replicas, tight enough to catch real failures but loose enough to
+   * absorb one missed write across a GC pause or Redis blip.
+   *
+   * Set to a smaller value in deployments that want faster failure
+   * signalling. Set to 0 is NOT allowed — the heartbeat is observer-only
+   * and never auto-transitions the record; there is no operator-facing
+   * reason to disable it.
+   */
+  OPENCRED_HEARTBEAT_INTERVAL_SEC: z.coerce.number().int().min(1).max(60).default(5),
 
   /**
    * Maximum request body size in bytes for all routes except batch CSV
@@ -380,6 +424,54 @@ const configSchema = z.object({
       return value;
     }, z.boolean())
     .default(true),
+
+  // --- Batch dispatch (Tier 3 #8 of nfh-trust-labs/opencred#446) ---
+
+  /**
+   * Dispatch model for batch credential issuance.
+   *
+   *  - `inline` (default): the API process runs the StreamingBatchEngine
+   *    in-band on the request handler's continuation. This is the
+   *    behaviour every release shipped before this flag landed. Single
+   *    instance, no Redis required.
+   *  - `queue`: the API process only enqueues a `BatchJob` onto a
+   *    BullMQ queue (`opencred:batch`) and returns `202 + jobId`. A
+   *    separate worker process (`node dist/worker.js`) consumes the
+   *    queue and runs the engine. Required for multi-replica scale
+   *    and survival across API-process restarts.
+   *
+   * Defaults to `inline` so every existing deployment is bit-identical.
+   * Switch to `queue` after standing up a worker fleet — see
+   * `docs/docker/deployment.md` and the `docker-compose.yml` `worker`
+   * service example.
+   */
+  OPENCRED_BATCH_DISPATCH: z.enum(["inline", "queue"]).default("inline"),
+
+  /**
+   * Worker pool concurrency for the batch worker process. Each worker
+   * picks up at most `OPENCRED_WORKER_CONCURRENCY` BullMQ jobs in
+   * parallel. Per-job intra-batch concurrency is still capped by
+   * `OPENCRED_BATCH_CONCURRENCY` inside each engine invocation, so the
+   * effective parallelism is `OPENCRED_WORKER_CONCURRENCY *
+   * OPENCRED_BATCH_CONCURRENCY` rows in flight per worker container.
+   *
+   * Default: `min(4, os.cpus().length)`. The default is computed lazily
+   * in `apps/server/src/worker.ts` (not here) so the same compiled
+   * config schema works across containers with different cpu shapes.
+   * The schema accepts an explicit override; 0 is rejected because a
+   * worker that consumes zero jobs is operationally meaningless.
+   */
+  OPENCRED_WORKER_CONCURRENCY: z.coerce.number().int().min(1).optional(),
+
+  /**
+   * Concurrency for the webhook delivery worker. Webhook calls are
+   * I/O-bound (single HTTP POST + retries) so they can run much hotter
+   * than the batch worker without saturating CPU. Default 4.
+   *
+   * Same shape as `OPENCRED_WORKER_CONCURRENCY` — an `undefined` env
+   * variable falls through to the worker's hard-coded default.
+   */
+  OPENCRED_WEBHOOK_WORKER_CONCURRENCY: z.coerce.number().int().min(1).default(4),
 });
 
 export type ServerConfig = z.infer<typeof configSchema>;
@@ -529,6 +621,34 @@ export function loadConfig(): ServerConfig {
         "If you do not need horizontal scale, set OPENCRED_JOB_STORE=memory " +
         "(or omit the variable entirely — memory is the default).",
     );
+  }
+
+  // --- Batch dispatch cross-field validation ---
+  // When OPENCRED_BATCH_DISPATCH=queue:
+  //   - OPENCRED_REDIS_URL is required (BullMQ broker == Redis).
+  //   - OPENCRED_JOB_STORE=memory is technically valid for a 1 API + 1
+  //     worker pinned to the same Redis-less host but practically a
+  //     footgun: jobs queue, are picked up by the worker, but progress
+  //     writes land on the API replica's in-process map and never reach
+  //     the worker — and vice-versa. We refuse the combination.
+  if (parsed.OPENCRED_BATCH_DISPATCH === "queue") {
+    if (!parsed.OPENCRED_REDIS_URL) {
+      throw new ConfigError(
+        "OPENCRED_REDIS_URL is required when OPENCRED_BATCH_DISPATCH=queue. " +
+          "Queue dispatch routes batch jobs through BullMQ on Redis. Set " +
+          "OPENCRED_REDIS_URL to a redis:// (or rediss:// for TLS) URL. " +
+          "If you don't need a separate worker fleet, set OPENCRED_BATCH_DISPATCH=inline " +
+          "(or omit the variable — inline is the default).",
+      );
+    }
+    if (parsed.OPENCRED_JOB_STORE !== "redis") {
+      throw new ConfigError(
+        "OPENCRED_BATCH_DISPATCH=queue requires OPENCRED_JOB_STORE=redis. " +
+          "With queue dispatch the API process enqueues a job, and a SEPARATE worker " +
+          "process runs the engine — they share state only through Redis. A memory-only " +
+          "job store would leave the worker's progress invisible to the API replicas.",
+      );
+    }
   }
 
   cachedConfig = parsed;

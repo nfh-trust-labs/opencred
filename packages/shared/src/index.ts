@@ -17,3 +17,14 @@ export type { CredentialInputFormat } from "./credential-format.js";
 export { MAX_JWT_BYTES, assertJwtSize } from "./jwt-size.js";
 export { ok, err, isOk } from "./result.js";
 export type { Result, Ok, Err } from "./result.js";
+// Tier 3 #8 of #446 — queue wire-format. Pure types, no runtime cost.
+// Not yet consumed in production; ships with spike-1 so the impl PR can
+// pick it up without re-litigating the message shape.
+export type {
+  BatchJob,
+  BatchJobConfig,
+  BatchJobProofFormat,
+  BatchJobRow,
+  WebhookDeliveryJob,
+} from "./batch-job.js";
+export { BATCH_QUEUE_NAME, WEBHOOK_QUEUE_NAME } from "./batch-job.js";

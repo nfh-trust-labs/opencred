@@ -3,14 +3,25 @@
 # ==============================================================================
 # Usage:
 #   docker compose up -d            # Start OpenCred server
+#   docker compose up -d --scale worker=4   # Scale worker fleet
 #   docker compose down              # Stop all services
 #   docker compose logs -f server    # Follow server logs
+#   docker compose logs -f worker    # Follow worker logs
 #
 # SECURITY:
 #   - Non-root user inside container (node)
 #   - Read-only root filesystem (tmpfs for writable paths)
 #   - All capabilities dropped except NET_BIND_SERVICE
 #   - No secrets baked into image — inject via .env file
+#
+# QUEUE DISPATCH (Tier 3 #8 of nfh-trust-labs/opencred#446):
+#   Set OPENCRED_BATCH_DISPATCH=queue in .env to route batch jobs through
+#   BullMQ → Redis → worker fleet. Requires:
+#     OPENCRED_BATCH_DISPATCH=queue
+#     OPENCRED_JOB_STORE=redis
+#     OPENCRED_REDIS_URL=redis://redis:6379
+#   When unset (default `inline`), the server runs the batch engine
+#   in-process — back-compat with every release before the queue landed.
 # ==============================================================================
 
 services:
@@ -50,6 +61,40 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  # ---------- Worker fleet (optional, OPENCRED_BATCH_DISPATCH=queue) ----------
+  # Uncomment the worker service below to run a separate batch + webhook
+  # consumer alongside the API. The worker uses the SAME image as the
+  # server but starts via `node dist/worker.js` instead of `dist/index.js`.
+  #
+  # Scale horizontally with `docker compose up -d --scale worker=N`.
+  # In production, drive the scale knob from a queue-depth metric
+  # (`opencred_batch_queue_depth` / Prometheus → HPA) — see
+  # docs/docker/deployment.md.
+  #
+  # The worker loads the SAME signing key as the API (CLAUDE.md rule 1).
+  # Mount the key the same way you do for `server`.
+  #
+  # worker:
+  #   image: ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+  #   command: ["node", "apps/server/dist/worker.js"]
+  #   env_file: .env
+  #   restart: unless-stopped
+  #   networks:
+  #     - opencred-net
+  #   read_only: true
+  #   tmpfs:
+  #     - /tmp:noexec,nosuid,size=64m
+  #   cap_drop:
+  #     - ALL
+  #   security_opt:
+  #     - no-new-privileges:true
+  #   depends_on:
+  #     - server
+  #   # The worker does NOT serve HTTP; no port mapping required.
+  #   # Mount the signing key just like the server.
+  #   # volumes:
+  #   #   - ./path/to/key.pem:/app/keys/key.pem:ro
 
   # ---------- Reverse proxy (optional) ----------
   # Uncomment the nginx service below to add a hardened reverse proxy in
