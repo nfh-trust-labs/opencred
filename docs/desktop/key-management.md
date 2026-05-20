@@ -76,3 +76,18 @@ The config file is restricted to owner-only permissions (0600 on Unix).
 Each key produces a `did:key` identifier derived from the public key, used as the issuer identifier in credentials. The derivation is deterministic — the same public key always produces the same DID.
 
 For the Self-Published Keys flow, you can also use a `did:web` identifier by publishing your public key at `https://yourdomain.com/.well-known/did.json`.
+
+## Auto-rotation on Key Generation
+
+If DeDi is configured and you have previously published one or more DIDs to it from this desktop client, **generating a new key automatically marks every previously-published DID as rotated on DeDi**. The new DID (the one derived from the freshly-generated key) is excluded from the rotation list, so it is published — and remains — `keyStatus: "current"`.
+
+Behavior:
+
+- The rotation hook fires immediately after the new key is in memory, before the IPC handler returns success to the renderer.
+- The hook is **best-effort**. A DeDi outage, a transient network error, or a misconfigured DeDi token does **not** block key generation — the new key always succeeds. The rotation hook logs the failure and moves on.
+- Credentials signed under a rotated key remain cryptographically valid. The rotation marker is advisory: it lets verifier UIs surface a "key rotated" badge, but it does not invalidate existing credentials.
+- The flag transitions monotonically (`current → rotated`, never back), so re-rotating to a DID that was previously marked `rotated` is a safe no-op.
+
+Implementation: `apps/desktop/src/main/ipc-handlers.ts` (the `KEY_GENERATE` handler) calls `DeDiPublishManager.markDIDRotated()` for each previously-published DID. The desktop tracks the list locally in `dediPublishedDIDs`; see `apps/desktop/src/main/store.ts`.
+
+Verifiers pick up the rotation flag via the `/v1/keys/resolve` response (`keyStatus: "rotated"`) and the verify endpoint's advisory `keyRotation` check — see [Concepts → DIDs → Key rotation on DeDi-published DIDs](../concepts/dids.md#key-rotation-on-dedi-published-dids).

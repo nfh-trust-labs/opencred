@@ -4,7 +4,7 @@ Verifiable credentials need a way to be invalidated after they're issued — for
 
 ## DeDi Revocation List v1
 
-Under DeDi Revocation List v1, the registry stores **only revoked hashes** — never issuance-time hashes. A credential is valid if its hash is *not* in the registry, and revoked if it is.
+Under DeDi Revocation List v1, the registry stores **only revoked hashes** — never issuance-time hashes. A credential is valid if its hash is *not* in the registry, and revoked if it is. This is the canonical DeDi `revoke` tag ([`revoke.json`](https://dedi.global/revoke.json)) — **record existence signifies revocation**; there is no boolean flag inside `details`. The optional `reason` field on a revocation record is preserved verbatim and surfaced by `/v1/credentials/revocation-status` lookups.
 
 The hash is deterministic: any party (issuer or verifier) can compute the same hash from the credential body. The formula is:
 

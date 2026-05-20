@@ -213,13 +213,14 @@ boot — no pre-provisioning required.
 > reuse when their attached schema matches what OpenCred writes. DeDi
 > backends ship built-in JSON Schemas for some registry names — notably
 > `public_key.json` with shape `{public_key_id, publicKey, keyType, …}`,
-> which is **not** the shape OpenCred writes (`{did, document,
-> resolvedAt}`). If a DeDi operator pre-creates a `public_key_registry`
-> with the built-in schema before OpenCred boots, every
-> `/v1/keys/publish` call will fail with a `400 "Record data does not
-> match the registry schema"`. Let OpenCred create the registries on
-> first boot to avoid this; see local-docker.md §3a for the full
-> mitigation note.
+> which is **not** the shape OpenCred writes (`{did, document?,
+> keyStatus}` — `document` is omitted for `did:key` records, and
+> `keyStatus` is `"current"` or `"rotated"`). If a DeDi operator
+> pre-creates a `public_key_registry` with the built-in schema before
+> OpenCred boots, every `/v1/keys/publish` call will fail with a `400
+> "Record data does not match the registry schema"`. Let OpenCred create
+> the registries on first boot to avoid this; see local-docker.md §3a for
+> the full mitigation note.
 
 Pull the public OpenCred image. ~30 seconds on a GCP VM:
 

@@ -263,6 +263,32 @@ POST (not GET) so DIDs containing colons or path components don't have to be URL
 
 **Response: `200 OK`**
 
+```ts
+{
+  did: string;                            // the DID that was resolved
+  document?: Record<string, unknown>;     // W3C DID document — omitted for did:key
+  keyStatus: "current" | "rotated";       // rotation flag (advisory)
+  proof?: {                               // CORD anchor metadata, present if DeDi anchored the record
+    type: string;
+    namespace_did: string;
+    registry_identifier?: string;
+    record_identifier?: string;
+    creator_did: string;
+    digest: string;
+    network_genesis: string | null;
+  };
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `did` | `string` | The DID string this record represents. |
+| `document` | `object` _(optional)_ | The W3C DID document. **Omitted for `did:key` records** because the verifier derives the document from the DID itself via the canonical did:key resolution algorithm. Always present for `did:web` records (DeDi acts as a cache of the domain-hosted `.well-known/did.json`). |
+| `keyStatus` | `"current" \| "rotated"` | `"current"` while the key is in active use. Flipped to `"rotated"` by `markDIDRotated` when the issuer publishes a new key from the desktop. The flag is **advisory** — credentials signed under a rotated key remain cryptographically valid; the rotation marker exists so verifier UIs can surface "key rotated" without rejecting the credential. |
+| `proof` | `object` _(optional)_ | CORD-blockchain anchor metadata. Set server-side by DeDi when the record was published to CORD; surfaced unchanged here so verifier callers can confirm the record was anchored on-chain by the claimed creator DID. Absence simply means DeDi did not include a proof for this response. See [Concepts → DIDs → CORD anchoring](../concepts/dids.md#cord-anchoring-as-supplementary-provenance). |
+
+**Example — `did:web` record (with `document` and a CORD `proof`)**
+
 ```json
 {
   "did": "did:web:bootcamp.example.org",
@@ -271,9 +297,29 @@ POST (not GET) so DIDs containing colons or path components don't have to be URL
     "id": "did:web:bootcamp.example.org",
     "verificationMethod": [ ... ]
   },
-  "resolvedAt": "2026-04-27T10:00:00.000Z"
+  "keyStatus": "current",
+  "proof": {
+    "type": "DediRecordProof2026",
+    "namespace_did": "did:web:did.cord.network:bootcamp",
+    "registry_identifier": "registry_xxx",
+    "record_identifier": "record_xxx",
+    "creator_did": "did:web:bootcamp.example.org",
+    "digest": "0xabcd…",
+    "network_genesis": "0x1234…"
+  }
 }
 ```
+
+**Example — `did:key` record (no `document`, key has been rotated)**
+
+```json
+{
+  "did": "did:key:zDnaerDaTF5BXEavCrfRZEk316dpbLsfPDZ3WJ5hRTPFU2169",
+  "keyStatus": "rotated"
+}
+```
+
+**Breaking change.** Prior releases returned `resolvedAt: string` and could include `metadata` / `supersededBy`. Downstream consumers must migrate to `keyStatus`. If a precise on-server timestamp is needed in a future iteration, the DeDi envelope's `updated_at` is canonical — open an issue.
 
 **Error responses**
 
@@ -283,7 +329,7 @@ POST (not GET) so DIDs containing colons or path components don't have to be URL
 | `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
 | `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
 
-The underlying DeDi adapter (`packages/dedi-client/src/adapter/client.ts`) returns `502` if the DeDi response is malformed (missing required fields on the record).
+The underlying DeDi adapter (`packages/dedi-client/src/adapter/client.ts`) returns `502` if the DeDi response is malformed (missing required fields, or `keyStatus` is anything other than `"current"` / `"rotated"`).
 
 ---
 
@@ -565,6 +611,13 @@ The response body is assembled by `buildVerifyResponseBody()` in `apps/server/sr
 ```
 
 A revocation check entry (`{ "name": "revocation", "passed": true }`) is appended when a `DeDiClient` is configured and the credential carries a `credentialStatus`. A Bitstring Status List check is appended when the credential's `credentialStatus.type` is `BitstringStatusListEntry`.
+
+**Advisory DeDi checks.** When a `DeDiClient` is configured and the credential is issued under a `did:key` DID, the verifier appends two additional **advisory** entries to `checks`:
+
+- `keyRotation` — fails (`passed: false`) when DeDi reports `keyStatus: "rotated"` on the issuer's DID record. The server collapses the detail to the literal `"Issuer key rotated"` so callers can render a "key rotated" badge. The headline `valid` boolean is **unchanged** by this check — credentials signed under a rotated key remain cryptographically valid. Verifier policy can choose to reject anyway.
+- `registryAnchor` — surfaces the CORD-blockchain proof block DeDi attaches to record lookup responses. Passes silently when no proof is present (benign on DeDi instances that don't anchor). Fails advisorily when the proof's `creator_did` does not match the credential's issuer DID — DeDi is reporting the record was anchored by someone other than the issuer the credential is signed by, which is suspicious enough to surface but not fatal on its own. Like `keyRotation`, it does not flip the headline `valid` boolean. See [Concepts → DIDs → CORD anchoring](../concepts/dids.md#cord-anchoring-as-supplementary-provenance) for the trust-model rationale.
+
+Both advisory checks **degrade open** on DeDi outages — a DeDi outage must never block verification of a cryptographically valid credential. See `checkKeyRotation` and `checkRegistryAnchor` in `packages/verification/src/checks.ts`.
 
 For an invalid credential:
 
@@ -860,10 +913,13 @@ Publishes a revocation hash to DeDi. Requires a configured DeDi client (`OPENCRE
   credential?: Record<string, unknown>;  // compute hash from credential
   hash?: string;                         // or provide the hash directly (64-char hex)
   namespace?: string;                    // DeDi namespace override
+  reason?: string;                       // optional free-text reason, preserved on the DeDi record
 }
 ```
 
 Either `credential` or `hash` must be provided. If `credential` is given, the hash is computed via JCS canonicalization + SHA-256.
+
+`reason` is optional free-text per DeDi's canonical [`revoke.json`](https://dedi.global/revoke.json) schema — typical values are short descriptors like `"key-compromised"`, `"superseded"`, or `"holder-request"`. When supplied, the reason is stored alongside the hash on the DeDi record and surfaced by `POST /v1/credentials/revocation-status` lookups.
 
 **Response: `200 OK`**
 
@@ -871,9 +927,17 @@ Either `credential` or `hash` must be provided. If `credential` is given, the ha
 {
   "hash": "d6f4e2c9b7a8...e1f0",
   "revoked": true,
-  "revokedAt": "2026-04-08T10:00:00.000Z"
+  "revokedAt": "2026-04-08T10:00:00.000Z",
+  "reason": "key-compromised"
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `hash` | `string` | The 64-char hex hash that was published. Re-attached by the server for API compatibility — the underlying DeDi adapter's `RevocationHashRecord` no longer carries the hash in `details` because record existence already signifies revocation. |
+| `revoked` | `boolean` | Always `true` after a successful publish. |
+| `revokedAt` | `string` | ISO 8601 timestamp from the DeDi envelope's `updated_at`. |
+| `reason` | `string` _(optional)_ | Echoed only when the publish supplied a reason. Omitted otherwise (no empty-string placeholder). |
 
 Returns `503 DEDI_NOT_CONFIGURED` if DeDi is not set up. `rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/revocation.ts`.
 
@@ -897,7 +961,16 @@ Queries DeDi for the revocation status of a credential hash. Requires a configur
 
 **Response: `200 OK`**
 
-Returns the DeDi revocation record for the hash. Returns `503 DEDI_NOT_CONFIGURED` if DeDi is not set up. `rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/revocation.ts`.
+```ts
+{
+  hash: string;          // echoed from the request
+  revoked: boolean;      // true if a record exists on DeDi for this hash
+  revokedAt?: string;    // present when revoked === true
+  reason?: string;       // present when revoked === true and a reason was supplied at publish time
+}
+```
+
+`reason` is surfaced exactly as published — see `POST /v1/credentials/revoke` above. Returns `503 DEDI_NOT_CONFIGURED` if DeDi is not set up. `rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/revocation.ts`.
 
 ---
 

@@ -58,6 +58,40 @@ These guarantees are non-negotiable; see the [SSRF invariant](../security/invari
 
 The resolver also accepts an optional fallback (typically a DeDi-backed DID resolver). The fallback is **only** tried when the primary HTTPS resolution fails — and it is **not** tried on SSRF violations, since those are security boundaries, not transient errors.
 
+### CORD anchoring as supplementary provenance
+
+When an issuer publishes a DID document via DeDi (`POST /v1/keys/publish` on the Docker server, or the Desktop "publish to DeDi" action), the DeDi instance may additionally anchor that record on the [CORD blockchain](https://cord.network/). Subsequent `/v1/keys/resolve` responses then carry an extra `proof` block alongside the DID document, e.g.:
+
+```json
+{
+  "did": "did:web:university.example",
+  "document": { "...": "..." },
+  "keyStatus": "current",
+  "proof": {
+    "type": "DediRecordProof2026",
+    "creator_did": "did:web:university.example",
+    "namespace_did": "did:web:did.cord.network:university",
+    "digest": "0x…",
+    "network_genesis": "0x…"
+  }
+}
+```
+
+This anchor is **supplementary provenance**, not VC-signature verification. It tells a verifier "DeDi reports this DID record was anchored on CORD by `creator_did`". The verifier's `registryAnchor` advisory check (`packages/verification/src/checks.ts`) surfaces a UI badge when the proof is present and matches the issuer DID, and surfaces a suspicion badge when the `creator_did` does **not** match — indicating the DID record was anchored by a different party than the credential's issuer. Absence of a proof is benign on DeDi instances that don't anchor; the check degrades open.
+
+The credential's cryptographic signature remains the sole authority on whether the credential itself is valid. CORD anchoring exists so verifiers can independently confirm the *record* (the public key DeDi serves) was published on-chain by the claimed party, in addition to whatever trust they place in DeDi itself. A future iteration will look up the digest on-chain rather than trusting the DeDi-attached proof; today the proof is opaque metadata, and a compromised DeDi could fabricate it.
+
+### Key rotation on DeDi-published DIDs
+
+When an issuer publishes a DID document to DeDi, the record carries a `keyStatus` field that is `"current"` while the key is in active use. When the issuer later generates a new key from the Desktop client, **every previously-published DID for that client is automatically marked rotated** on DeDi (`markDIDRotated`) — the new DID is excluded from the list. See [Desktop → Key Management → Auto-rotation on key generation](../desktop/key-management.md#auto-rotation-on-key-generation) for the desktop side, and `packages/dedi-client/src/publish-manager.ts` for the rotation primitive.
+
+The rotation flag is **advisory**:
+
+- Credentials signed under a rotated key remain **cryptographically valid**. The signature continues to verify against the key the issuer used at signing time, and nothing about the underlying VC has changed.
+- Verifier UIs can read `keyStatus` from the resolved DID record (via `/v1/keys/resolve`) and surface a "key rotated" badge so end users know the issuer has since moved to a new key.
+- The OpenCred verifier emits this as the `keyRotation` check on the verify response — `passed: false` when DeDi reports rotation, `passed: true` (and silent) otherwise. The headline `valid` boolean is unchanged by rotation.
+- The flag is monotone (`current → rotated`, never back) and append-only, so concurrent `markDIDRotated` writes are safe without optimistic locking on the DeDi side. See `packages/dedi-client/src/adapter/types.ts` for the invariant discussion.
+
 ## CompositeDIDResolver
 
 `packages/did/src/composite-resolver.ts` ties the three methods together. The Docker server and Desktop client both use a composite resolver during verification:
