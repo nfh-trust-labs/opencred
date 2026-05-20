@@ -716,39 +716,29 @@ const SAFE_DETAIL_CHECK_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Synthesize a generic, public-safe detail for the advisory attribution /
- * supersession checks. The raw detail from `packages/verification` contains
- * verbose information (org name, DeDi metadata, the issuer DID itself,
- * supersession timestamps) that's appropriate for the desktop verifier's
- * IPC consumer but not for an anonymous HTTP caller.
+ * Synthesize a generic, public-safe detail for the advisory key-rotation
+ * check. The raw detail from `packages/verification` is already
+ * public-safe ("Issuer key has been rotated..."), but we collapse to a
+ * stable short string here so HTTP callers don't tightly couple to the
+ * raw phrasing.
  *
- * Mapping (kept deliberately minimal — see plan §"Server endpoint"):
- *   issuerAttribution + passed   → `{ source: "did:web" | "dedi" }`
- *   issuerAttribution + !passed  → `{ source: "none" }`
- *   keySupersession   + !passed  → `Issuer key superseded`
- *   keySupersession   + passed   → undefined (no detail needed for the pass)
+ * Mapping:
+ *   keyRotation + !passed → `Issuer key rotated`
+ *   keyRotation + passed  → undefined (no detail needed; PASS row says it)
  *
- * Returns `undefined` when no synthetic detail should be emitted (i.e. when
- * the check name isn't one we recognise, or the pass state has no public
- * meaning). Callers fall through to dropping the raw detail in that case.
+ * Returns `undefined` when no synthetic detail should be emitted.
+ *
+ * (The `issuerAttribution` / `keySupersession` checks were removed in
+ * PR-3 of the DeDi client refactor — the bare issuer DID surfaces
+ * elsewhere in the response, and rotation collapses to a single bit.)
  */
 function syntheticAdvisoryDetail(
   name: string,
   passed: boolean,
-  rawDetail: string | undefined,
+  _rawDetail: string | undefined,
 ): string | undefined {
-  if (name === "issuerAttribution") {
-    if (!passed) return "Unattributed issuer";
-    // The raw detail mentions "via did:web" or "via DeDi"; collapse to a
-    // generic source string so we don't leak org names / DeDi namespaces.
-    if (rawDetail?.toLowerCase().includes("did:web")) return "Attributed via did:web";
-    if (rawDetail?.toLowerCase().includes("dedi")) return "Attributed via DeDi";
-    return "Attributed";
-  }
-  if (name === "keySupersession") {
-    if (!passed) return "Issuer key superseded";
-    // Passed = no successor known. No detail to emit; the PASS row in the
-    // checks array communicates that fact already.
+  if (name === "keyRotation") {
+    if (!passed) return "Issuer key rotated";
     return undefined;
   }
   return undefined;

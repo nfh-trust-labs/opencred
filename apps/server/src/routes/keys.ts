@@ -167,7 +167,20 @@ keys.post("/keys/publish", async (c) => {
  *   { did: string, namespace?: string }
  *
  * Response (200):
- *   { did: string, document: object, resolvedAt: string }
+ *   { did: string, document?: object, keyStatus: "current" | "rotated" }
+ *
+ * `document` is omitted from the response when the DID is `did:key:` —
+ * the verifier derives the document from the DID itself via the
+ * canonical did:key resolution algorithm. For `did:web` records the
+ * cached domain-hosted document is returned. `keyStatus` is `"current"`
+ * by default and flipped to `"rotated"` after the issuer rotates keys.
+ *
+ * **Breaking change** (PR-3 of the DeDi client refactor): prior to this
+ * release the response carried `resolvedAt: string` and optionally
+ * `metadata` / `supersededBy`. Downstream consumers must update to read
+ * the new shape; `resolvedAt` is no longer surfaced (the DeDi envelope's
+ * `updated_at` is canonical if a precise on-server timestamp is needed
+ * in a future iteration).
  *
  * POST (not GET) is used so that DIDs containing colons (e.g.
  * `did:web:example.org:users:alice`) and other path-unfriendly characters

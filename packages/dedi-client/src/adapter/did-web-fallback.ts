@@ -46,10 +46,13 @@ import type { DeDiClient } from "./client.js";
  * The returned function:
  * - Calls `client.resolveDID(did)` to look up the record in
  *   `public_key_registry` under the client's configured namespace.
- * - Maps the resulting `{did, document, resolvedAt}` record into a
+ * - Maps the resulting `{did, document?, keyStatus}` record into a
  *   standard `DIDResolutionResult`, populating
- *   `didDocumentMetadata.resolvedAt` from the record so callers can
- *   see when DeDi last touched the entry.
+ *   `didDocumentMetadata.resolvedAt` with the current wall-clock time
+ *   so the fallback consumer can still see "when did we resolve this".
+ *   The DeDi record itself no longer carries a per-record `resolvedAt`
+ *   (the envelope's `updated_at` is canonical if a precise on-server
+ *   timestamp is needed in a future iteration).
  * - Returns `null` (not throws) for any DeDi-side failure — that lets
  *   the resolver re-raise the original HTTPS error, which is almost
  *   always more actionable for the user than a generic "DeDi didn't
@@ -73,9 +76,9 @@ export function createDeDiDIDWebFallback(client: DeDiClient): DIDWebFallbackReso
         return null;
       }
       return {
-        didDocument: record.document as DIDDocument,
+        didDocument: record.document as unknown as DIDDocument,
         didResolutionMetadata: { contentType: "application/did+json" },
-        didDocumentMetadata: { resolvedAt: record.resolvedAt },
+        didDocumentMetadata: { resolvedAt: new Date().toISOString() },
       };
     } catch {
       // Any failure — 404, network error, malformed response — falls

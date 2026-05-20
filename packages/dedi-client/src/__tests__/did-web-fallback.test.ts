@@ -50,7 +50,7 @@ describe("createDeDiDIDWebFallback", () => {
       resolveDID: vi.fn().mockResolvedValue({
         did,
         document,
-        resolvedAt: "2026-05-12T10:00:00Z",
+        keyStatus: "current",
       }),
     });
 
@@ -60,7 +60,10 @@ describe("createDeDiDIDWebFallback", () => {
     expect(result).not.toBeNull();
     expect(result!.didDocument).toEqual(document);
     expect(result!.didResolutionMetadata).toEqual({ contentType: "application/did+json" });
-    expect(result!.didDocumentMetadata).toEqual({ resolvedAt: "2026-05-12T10:00:00Z" });
+    // `resolvedAt` is wall-clock at resolve time (the DIDRecord no longer
+    // carries one); assert shape, not value.
+    expect(result!.didDocumentMetadata).toHaveProperty("resolvedAt");
+    expect(typeof result!.didDocumentMetadata.resolvedAt).toBe("string");
   });
 
   it("returns null when DeDi has no record for the DID", async () => {
@@ -103,8 +106,8 @@ describe("createDeDiDIDWebFallback", () => {
       resolveDID: vi.fn().mockResolvedValue({
         did: "did:web:malformed.example.com",
         document: "not an object",
-        resolvedAt: "2026-05-12T10:00:00Z",
-      }),
+        keyStatus: "current",
+      } as unknown as DIDRecord),
     });
 
     const fallback = createDeDiDIDWebFallback(client);
@@ -117,9 +120,9 @@ describe("createDeDiDIDWebFallback", () => {
     const client = makeMockClient({
       resolveDID: vi.fn().mockResolvedValue({
         did: "did:web:malformed.example.com",
-        document: null,
-        resolvedAt: "2026-05-12T10:00:00Z",
-      }),
+        document: undefined,
+        keyStatus: "current",
+      } as unknown as DIDRecord),
     });
 
     const fallback = createDeDiDIDWebFallback(client);

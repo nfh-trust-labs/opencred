@@ -112,6 +112,29 @@ export class DeDiPublishManager {
   }
 
   /**
+   * Mark a previously-published DID as rotated in DeDi (sets
+   * `keyStatus: "rotated"` on the record).
+   *
+   * Fire-and-forget: errors are logged, never thrown — same rationale
+   * as `publishDIDDocument`. A 404 (record never existed) and a 502
+   * (DeDi outage) both surface as `false` so callers can decide whether
+   * to alert; key generation itself is never blocked by a DeDi failure.
+   */
+  async markDIDRotated(did: string, namespace?: string): Promise<boolean> {
+    try {
+      await this.client.markDIDRotated(did, namespace);
+      this.logger.debug("DID marked as rotated in DeDi", { did });
+      return true;
+    } catch (error) {
+      this.logger.error("Failed to mark DID as rotated in DeDi (non-fatal)", {
+        did,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  /**
    * Ensure all required registries exist in the namespace.
    * Fire-and-forget: errors are logged, never thrown.
    */

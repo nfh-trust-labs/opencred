@@ -467,7 +467,7 @@ describe("POST /v1/credentials/verify", () => {
         return {
           did: inputDid,
           document: didDocument,
-          resolvedAt: new Date().toISOString(),
+          keyStatus: "current" as const,
         };
       },
       queryRevocationHash: async () => ({ revoked: false as const }),

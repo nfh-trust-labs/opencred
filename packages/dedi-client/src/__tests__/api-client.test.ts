@@ -306,6 +306,71 @@ describe("DeDiApiClient", () => {
 
       expect(mockFetch.mock.calls[0]![0]).toBe("https://dedi.example.com/dedi/lookup/ns/r/rec1");
     });
+
+    it("updateRecord POSTs to /dedi/{ns}/{reg}/{record}/update-record", async () => {
+      // Mutating endpoint — body is `{ details, meta: {} }`, same as
+      // publishRecord. Retry is disabled at the request layer so a
+      // transient 5xx mid-write doesn't append two new versions.
+      const envelope = {
+        message: "Record updated",
+        data: {
+          record_name: "abc",
+          registry: "r",
+          namespace: "ns",
+          details: { did: "did:key:z6Mkold", keyStatus: "rotated" },
+          state: "live",
+          version: "2",
+          created_at: "",
+          updated_at: "",
+        },
+      };
+      mockFetch.mockResolvedValue(jsonResponse(envelope));
+
+      const client = new DeDiApiClient(createConfig());
+      const result = await client.updateRecord("ns", "r", "abc", {
+        did: "did:key:z6Mkold",
+        keyStatus: "rotated",
+      });
+
+      const [url, init] = mockFetch.mock.calls[0]!;
+      expect(url).toBe("https://dedi.example.com/dedi/ns/r/abc/update-record");
+      expect(init?.method).toBe("POST");
+      const body = JSON.parse(init?.body as string);
+      expect(body.details).toEqual({ did: "did:key:z6Mkold", keyStatus: "rotated" });
+      expect(body.meta).toEqual({});
+      expect(result).toEqual(envelope);
+    });
+
+    it("updateRecord encodes path segments containing reserved characters", async () => {
+      mockFetch.mockResolvedValue(jsonResponse({ message: "ok", data: {} }));
+      const client = new DeDiApiClient(createConfig());
+      await client.updateRecord("my ns", "reg name", "did:key:z6Mk/foo", {
+        did: "x",
+        keyStatus: "rotated",
+      });
+
+      expect(mockFetch.mock.calls[0]![0]).toBe(
+        "https://dedi.example.com/dedi/my%20ns/reg%20name/did%3Akey%3Az6Mk%2Ffoo/update-record",
+      );
+    });
+
+    it("updateRecord does NOT retry on 5xx (mutating endpoint)", async () => {
+      // Same rationale as publishRecord — mutating + no Idempotency-Key
+      // means retry creates duplicate versions on the server. The retry
+      // helper respects `retryable: false` and surfaces the first error.
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify({ error: "boom" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new DeDiApiClient(createConfig({ maxRetries: 3 }));
+      await expect(
+        client.updateRecord("ns", "r", "abc", { did: "x", keyStatus: "rotated" }),
+      ).rejects.toThrow(/500/);
+      // Only one underlying fetch — the request layer skipped retry.
+      expect(mockFetch.mock.calls.length).toBe(1);
+    });
   });
 
   // ── Query & Search ───────────────────────────────────────────────

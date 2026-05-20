@@ -15,6 +15,7 @@ vi.mock("../api/api-client.js", () => {
   const MockDeDiApiClient = vi.fn();
   MockDeDiApiClient.prototype.publishRecord = vi.fn();
   MockDeDiApiClient.prototype.lookupRecord = vi.fn();
+  MockDeDiApiClient.prototype.updateRecord = vi.fn();
   MockDeDiApiClient.prototype.search = vi.fn();
   MockDeDiApiClient.prototype.createNamespace = vi.fn();
   MockDeDiApiClient.prototype.createRegistry = vi.fn();
@@ -231,8 +232,7 @@ describe("DeDiClient (adapter)", () => {
       const api = mockApi();
       const didRecord = {
         did: "did:key:z6Mk123",
-        document: { id: "did:key:z6Mk123" },
-        resolvedAt: "2026-01-01T00:00:00Z",
+        keyStatus: "current" as const,
       };
 
       vi.mocked(api.lookupRecord).mockResolvedValue({
@@ -259,6 +259,56 @@ describe("DeDiClient (adapter)", () => {
       expect(result).toEqual(didRecord);
     });
 
+    it("returns did:web record with cached document", async () => {
+      // did:web records DO carry document — it caches the domain-hosted
+      // .well-known/did.json so the resolver fallback can serve it when
+      // the issuer's webserver is unreachable.
+      const client = createClient("example.com");
+      const api = mockApi();
+      const document = { id: "did:web:example.com", verificationMethod: [] };
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-web-example.com",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:web:example.com", document, keyStatus: "current" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+
+      const result = await client.resolveDID("did:web:example.com");
+      expect(result.did).toBe("did:web:example.com");
+      expect(result.document).toEqual(document);
+      expect(result.keyStatus).toBe("current");
+    });
+
+    it("returns rotated DID record with keyStatus 'rotated'", async () => {
+      // Verifier UI surfaces a "Rotated" badge for credentials whose
+      // issuer DID has been marked rotated in DeDi.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mkold",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:key:z6Mkold", keyStatus: "rotated" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+
+      const result = await client.resolveDID("did:key:z6Mkold");
+      expect(result.keyStatus).toBe("rotated");
+    });
+
     it("converts DID colons to hyphens for record name", async () => {
       const client = createClient("example.com");
       const api = mockApi();
@@ -268,7 +318,7 @@ describe("DeDiClient (adapter)", () => {
           record_name: "did-key-z6Mk123",
           registry: PUBLIC_KEY_REGISTRY,
           namespace: "example.com",
-          details: { did: "did:key:z6Mk123", document: {}, resolvedAt: "" },
+          details: { did: "did:key:z6Mk123", keyStatus: "current" },
           state: "live",
           version: "1",
           created_at: "",
@@ -285,7 +335,7 @@ describe("DeDiClient (adapter)", () => {
       );
     });
 
-    it("throws when API returns invalid DID record", async () => {
+    it("throws when API returns invalid DID record (missing did)", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.lookupRecord).mockResolvedValue({
@@ -304,6 +354,50 @@ describe("DeDiClient (adapter)", () => {
 
       await expect(client.resolveDID("did:key:z6Mk123")).rejects.toThrow(
         "DID record detail missing required field: did",
+      );
+    });
+
+    it("throws when keyStatus is missing or not a valid enum value", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mk123",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:key:z6Mk123", keyStatus: "wat" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+
+      await expect(client.resolveDID("did:key:z6Mk123")).rejects.toThrow(
+        "DID record detail field 'keyStatus' must be 'current' or 'rotated'",
+      );
+    });
+
+    it("throws when document is present but not an object", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mk123",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:key:z6Mk123", keyStatus: "current", document: "not-an-object" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+
+      await expect(client.resolveDID("did:key:z6Mk123")).rejects.toThrow(
+        "DID record detail field 'document' must be an object when present",
       );
     });
   });
@@ -355,7 +449,12 @@ describe("DeDiClient (adapter)", () => {
         "example.com",
         PUBLIC_KEY_REGISTRY,
         expect.objectContaining({
-          properties: expect.objectContaining({ did: { type: "string" } }),
+          properties: expect.objectContaining({
+            did: { type: "string", pattern: "^did:" },
+            keyStatus: { type: "string", enum: ["current", "rotated"] },
+          }),
+          required: ["did", "keyStatus"],
+          additionalProperties: false,
         }),
       );
       expect(api.createRegistry).toHaveBeenCalledWith(
@@ -507,7 +606,7 @@ describe("DeDiClient (adapter)", () => {
   // ── publishDID ───────────────────────────────────────────────────
 
   describe("publishDID", () => {
-    it("publishes a DID document to the public_key_registry", async () => {
+    it("publishes a did:web record with document and keyStatus 'current'", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       const didDocument = { id: "did:web:example.com", verificationMethod: [] };
@@ -517,11 +616,7 @@ describe("DeDiClient (adapter)", () => {
           record_name: "did-web-example.com",
           registry: PUBLIC_KEY_REGISTRY,
           namespace: "example.com",
-          details: {
-            did: "did:web:example.com",
-            document: didDocument,
-            resolvedAt: "2026-03-25T00:00:00Z",
-          },
+          details: { did: "did:web:example.com", document: didDocument, keyStatus: "current" },
           state: "live",
           version: "1",
           created_at: "",
@@ -535,11 +630,186 @@ describe("DeDiClient (adapter)", () => {
         "example.com",
         PUBLIC_KEY_REGISTRY,
         "did-web-example.com",
-        expect.objectContaining({ did: "did:web:example.com", document: didDocument }),
+        {
+          did: "did:web:example.com",
+          document: didDocument,
+          keyStatus: "current",
+        },
       );
       expect(result.published).toBe(true);
       expect(result.recordName).toBe("did-web-example.com");
       expect(result.namespace).toBe("example.com");
+    });
+
+    it("publishes a did:key record WITHOUT document", async () => {
+      // did:key records omit `document` — the verifier derives it from
+      // the DID itself. Pin that even when the caller passes a document.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mkfoo",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:key:z6Mkfoo", keyStatus: "current" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+
+      await client.publishDID("did:key:z6Mkfoo", {
+        id: "did:key:z6Mkfoo",
+        verificationMethod: [],
+      });
+
+      expect(api.publishRecord).toHaveBeenCalledWith(
+        "example.com",
+        PUBLIC_KEY_REGISTRY,
+        "did-key-z6Mkfoo",
+        // Document MUST NOT appear in the published detail for did:key.
+        { did: "did:key:z6Mkfoo", keyStatus: "current" },
+      );
+    });
+
+    it("rejects did:web records without a document", async () => {
+      // The whole point of putting a did:web in DeDi is to cache the
+      // domain-hosted document. Publishing without one is a programming
+      // bug — surface it loudly with a 400.
+      const client = createClient("example.com");
+      await expect(client.publishDID("did:web:example.com", null)).rejects.toThrow(
+        "publishDID: did:web records require a DID Document",
+      );
+      await expect(client.publishDID("did:web:example.com", undefined)).rejects.toThrow(
+        "publishDID: did:web records require a DID Document",
+      );
+    });
+  });
+
+  // ── markDIDRotated ───────────────────────────────────────────────
+
+  describe("markDIDRotated", () => {
+    it("flips keyStatus from 'current' to 'rotated' via update-record", async () => {
+      // Two API calls: a lookupRecord first (to preserve `did` + the
+      // optional `document` so the wholesale-replace updateRecord doesn't
+      // wipe them), then an updateRecord with the rotated payload.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mkold",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:key:z6Mkold", keyStatus: "current" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+      vi.mocked(api.updateRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mkold",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:key:z6Mkold", keyStatus: "rotated" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+
+      await client.markDIDRotated("did:key:z6Mkold");
+
+      expect(api.lookupRecord).toHaveBeenCalledWith(
+        "example.com",
+        PUBLIC_KEY_REGISTRY,
+        "did-key-z6Mkold",
+      );
+      expect(api.updateRecord).toHaveBeenCalledWith(
+        "example.com",
+        PUBLIC_KEY_REGISTRY,
+        "did-key-z6Mkold",
+        { did: "did:key:z6Mkold", keyStatus: "rotated" },
+      );
+    });
+
+    it("preserves the document on rotated did:web records", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      const document = { id: "did:web:acme.com", verificationMethod: [] };
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-web-acme.com",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:web:acme.com", document, keyStatus: "current" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+      vi.mocked(api.updateRecord).mockResolvedValue({} as never);
+
+      await client.markDIDRotated("did:web:acme.com");
+
+      expect(api.updateRecord).toHaveBeenCalledWith(
+        "example.com",
+        PUBLIC_KEY_REGISTRY,
+        "did-web-acme.com",
+        // document preserved alongside the flipped keyStatus
+        { did: "did:web:acme.com", document, keyStatus: "rotated" },
+      );
+    });
+
+    it("propagates 404 when the record does not exist", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 404", 404),
+      );
+
+      await expect(client.markDIDRotated("did:key:z6Mkmissing")).rejects.toThrow(DeDiClientError);
+      expect(api.updateRecord).not.toHaveBeenCalled();
+    });
+
+    it("uses an explicit namespace override when provided", async () => {
+      const client = createClient("default-ns");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mkfoo",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "other-ns",
+          details: { did: "did:key:z6Mkfoo", keyStatus: "current" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+      vi.mocked(api.updateRecord).mockResolvedValue({} as never);
+
+      await client.markDIDRotated("did:key:z6Mkfoo", "other-ns");
+      expect(api.lookupRecord).toHaveBeenCalledWith(
+        "other-ns",
+        PUBLIC_KEY_REGISTRY,
+        expect.any(String),
+      );
+      expect(api.updateRecord).toHaveBeenCalledWith(
+        "other-ns",
+        PUBLIC_KEY_REGISTRY,
+        "did-key-z6Mkfoo",
+        expect.objectContaining({ keyStatus: "rotated" }),
+      );
     });
   });
 
@@ -836,7 +1106,7 @@ describe("DeDiClient (adapter)", () => {
       const api = mockApi();
       vi.mocked(api.lookupRecord).mockResolvedValue({
         message: "ok",
-        data: { details: { did: "did:key:z6Mk123", document: {}, resolvedAt: "" } },
+        data: { details: { did: "did:key:z6Mk123", keyStatus: "current" } },
       } as never);
 
       await expect(client.resolveDID("did:key:z6Mk123")).rejects.toThrow(

@@ -399,6 +399,37 @@ async function handleKeyGenerate(
     loadedPublicKeyJwks.set(signer.id, publicKey.export({ format: "jwk" }));
 
     logger.info("Key generated", { keyId: signer.id, fingerprint: meta.fingerprint });
+
+    // If DeDi is configured and we've previously published one or more
+    // DIDs from this client, mark them as rotated so verifiers see
+    // `keyStatus: "rotated"` on credentials signed under the old keys.
+    // Conservative semantics:
+    //   - The new DID (signer.id) is excluded from the "to rotate" list.
+    //   - Failures are swallowed and logged — a DeDi outage must NOT
+    //     break local key generation, since the new key is already in
+    //     memory and the user expects success.
+    //   - The list is append-only; we never auto-remove entries (an
+    //     issuer might re-rotate to a previously-rotated DID, which
+    //     would just be a no-op `update-record` that flips to "rotated"
+    //     again).
+    try {
+      const store = getStore();
+      if (store.get("dediConfig") != null) {
+        const previousDIDs = (store.get("dediPublishedDIDs") ?? []).filter((d) => d !== signer.id);
+        if (previousDIDs.length > 0) {
+          const mgr = getDeDiPublishManager();
+          if (mgr) {
+            // Fire-and-forget per DID; the manager catches errors.
+            await Promise.all(previousDIDs.map((did) => mgr.markDIDRotated(did)));
+          }
+        }
+      }
+    } catch (rotationErr) {
+      logger.error("DeDi key-rotation hook failed (non-fatal — new key was still generated)", {
+        error: rotationErr instanceof Error ? rotationErr.message : String(rotationErr),
+      });
+    }
+
     return { success: true, key: meta };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Key generation failed.";
@@ -2775,9 +2806,39 @@ async function handleDeDiPublishDID(
   const mgr = getDeDiPublishManager();
   if (!mgr) return { success: false, error: "DeDi not configured" };
   const result = await mgr.publishDIDDocument(request.did, request.document);
-  return result
-    ? { success: true, recordName: result.recordName }
-    : { success: false, error: "Failed to publish DID to DeDi" };
+  if (!result) {
+    return { success: false, error: "Failed to publish DID to DeDi" };
+  }
+  // Track the published DID locally so the next key-generation can mark
+  // it rotated without an extra round-trip to look it up. Idempotent —
+  // republishing the same DID is a no-op on the local list.
+  const store = getStore();
+  const published = store.get("dediPublishedDIDs") ?? [];
+  if (!published.includes(request.did)) {
+    store.set("dediPublishedDIDs", [...published, request.did]);
+  }
+  return { success: true, recordName: result.recordName };
+}
+
+/**
+ * DEDI_MARK_DID_ROTATED — flip a previously-published DID's
+ * `keyStatus` to `"rotated"` in DeDi.
+ *
+ * Used by the renderer-side key-rotation UX (and by the in-process
+ * key-generation hook below). The DeDi publish manager wraps this in a
+ * try/catch so a DeDi outage doesn't break the caller; the returned
+ * `success` flag tells the UI whether to surface a "saved" toast.
+ */
+async function handleDeDiMarkDIDRotated(
+  _event: IpcMainInvokeEvent,
+  request: import("../shared/ipc-types.js").DeDiMarkDIDRotatedRequest,
+): Promise<DeDiPublishResponse> {
+  const mgr = getDeDiPublishManager();
+  if (!mgr) return { success: false, error: "DeDi not configured" };
+  const ok = await mgr.markDIDRotated(request.did);
+  return ok
+    ? { success: true }
+    : { success: false, error: "Failed to mark DID as rotated in DeDi" };
 }
 
 async function handleDeDiPublishSchema(
@@ -2968,6 +3029,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.DEDI_SET_CONFIG, handleDeDiSetConfig);
   ipcMain.handle(IPC_CHANNELS.DEDI_GET_STATUS, handleDeDiGetStatus);
   ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_DID, handleDeDiPublishDID);
+  ipcMain.handle(IPC_CHANNELS.DEDI_MARK_DID_ROTATED, handleDeDiMarkDIDRotated);
   ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_SCHEMA, handleDeDiPublishSchema);
   ipcMain.handle(IPC_CHANNELS.DEDI_ENSURE_REGISTRIES, handleDeDiEnsureRegistries);
   ipcMain.handle(IPC_CHANNELS.DEDI_DISCONNECT, handleDeDiDisconnect);

@@ -414,12 +414,11 @@ describe("POST /v1/keys/resolve", () => {
   });
 
   it("returns the resolved DID record when DeDi is configured", async () => {
-    const resolvedAt = new Date().toISOString();
     const mockClient = {
       resolveDID: async (did: string) => ({
         did,
         document: SAMPLE_DID_DOCUMENT,
-        resolvedAt,
+        keyStatus: "current" as const,
       }),
     } as never;
     setDeDiClient(mockClient);
@@ -433,11 +432,32 @@ describe("POST /v1/keys/resolve", () => {
     const body = (await res.json()) as {
       did: string;
       document: unknown;
-      resolvedAt: string;
+      keyStatus: "current" | "rotated";
     };
     expect(body.did).toBe("did:web:bootcamp.example.org");
-    expect(body.resolvedAt).toBe(resolvedAt);
+    expect(body.keyStatus).toBe("current");
     expect(body.document).toEqual(SAMPLE_DID_DOCUMENT);
+  });
+
+  it("returns a rotated DID record with keyStatus: 'rotated'", async () => {
+    // Verifier consumers branch on this to surface a "rotated" badge.
+    const mockClient = {
+      resolveDID: async (did: string) => ({
+        did,
+        document: SAMPLE_DID_DOCUMENT,
+        keyStatus: "rotated" as const,
+      }),
+    } as never;
+    setDeDiClient(mockClient);
+
+    const res = await app.request("/v1/keys/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ did: "did:web:bootcamp.example.org" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { keyStatus: "current" | "rotated" };
+    expect(body.keyStatus).toBe("rotated");
   });
 
   it("returns 400 when did is missing", async () => {
