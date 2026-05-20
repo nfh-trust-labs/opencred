@@ -3,7 +3,7 @@
 
 export const electricityV1: Record<string, unknown> = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/electricity/v1/schema.json",
+  "$id": "https://schema.beckn.io/ElectricityCredential/1.0/schema.json",
   "title": "Customer Credential Schema",
   "description": "JSON Schema for a unified customer credential that combines customer identity, customer details, consumption characteristics, generation capability, and storage capability as equal-level properties within a single W3C Verifiable Credential (VC Data Model 2.0). Issued by energy providers.",
   "type": "object",

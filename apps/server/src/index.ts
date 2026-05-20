@@ -36,7 +36,8 @@ import { setDeDiClient } from "./dedi-singleton.js";
 import { health } from "./routes/health.js";
 import { schemas } from "./routes/schemas.js";
 import { credentials } from "./routes/credentials.js";
-import { batch, startBatchJobCleanup } from "./routes/batch.js";
+import { batch, finalizeAllRunningJobs, setJobStore } from "./routes/batch.js";
+import { createJobStore } from "./batch/job-store/factory.js";
 import { revocation } from "./routes/revocation.js";
 import { packaging } from "./routes/packaging.js";
 import { keys } from "./routes/keys.js";
@@ -266,6 +267,20 @@ if (dediClient) {
 }
 
 // ---------------------------------------------------------------------------
+// JobStore (batch jobs)
+// ---------------------------------------------------------------------------
+// Tier 2 #5 of nfh-trust-labs/opencred#446: replace the in-process Map
+// with a pluggable backing store. Default is `memory` (no change for
+// existing single-instance deployments); `redis` unlocks horizontal
+// scale across replicas.
+//
+// SECURITY: `createJobStore` logs only host/port for Redis. The full URL
+// — which may carry credentials — never appears in logs.
+
+const jobStore = await createJobStore(config, logger);
+setJobStore(jobStore);
+
+// ---------------------------------------------------------------------------
 // App setup
 // ---------------------------------------------------------------------------
 
@@ -470,14 +485,14 @@ if (config.OPENCRED_RATE_LIMIT_ENABLED) {
   });
 }
 
-// Start the batch-job purge loop. Jobs in the in-memory Map are evicted
-// once their (completedAt ?? createdAt) + OPENCRED_SESSION_TTL is in the
-// past, honouring CLAUDE.md rule 3 on ephemeral session data. We hold the
-// handle so shutdown (or a test tear-down) can cancel it cleanly.
-const batchCleanupInterval = startBatchJobCleanup(
-  5 * 60 * 1000, // sweep every 5 minutes
-  config.OPENCRED_SESSION_TTL * 1000,
-);
+// Batch-job purge:
+//
+//  - MemoryJobStore runs its own internal purge sweep (see `MemoryJobStore`
+//    constructor) — no module-level timer needed here anymore.
+//  - RedisJobStore relies on Redis-managed TTL (`SET ... EX`) — same.
+//
+// This replaces the old `startBatchJobCleanup` loop. Both stores honour
+// the `OPENCRED_SESSION_TTL` invariant from CLAUDE.md rule 3.
 
 // TODO(#109): When a DeDi client is available in the server, add optional
 // startup behaviour: if OPENCRED_DEDI_PUBLISH_BUNDLED=true, iterate through
@@ -485,14 +500,37 @@ const batchCleanupInterval = startBatchJobCleanup(
 // DeDiClient.publishSchema(). Errors should be logged, not thrown.
 
 // Graceful shutdown
+//
+// When SIGTERM/SIGINT lands:
+//  1. Mark every in-flight batch on THIS replica as "interrupted" in the
+//     JobStore. A replica picking up the work later (or an operator
+//     reviewing the run) can distinguish "the host died mid-batch" from
+//     "the job failed".
+//  2. Close the HTTP server (drains in-flight requests).
+//  3. Close the JobStore (flush Redis socket / clear in-memory timer).
+//  4. Shut down the OTel tracer.
 function shutdown(signal: string) {
   logger.info({ signal }, "Shutting down");
-  clearInterval(batchCleanupInterval);
-  server.close(async () => {
-    if (tracer) await tracer.shutdown();
-    logger.info("Server closed");
-    process.exit(0);
-  });
+  void (async () => {
+    try {
+      const interrupted = await finalizeAllRunningJobs();
+      if (interrupted > 0) {
+        logger.info({ count: interrupted }, "Finalized in-flight batch jobs as 'interrupted'");
+      }
+    } catch (err) {
+      logger.warn({ err }, "Failed to finalize in-flight batch jobs during shutdown");
+    }
+    server.close(async () => {
+      try {
+        await jobStore.close();
+      } catch (err) {
+        logger.warn({ err }, "Failed to close JobStore");
+      }
+      if (tracer) await tracer.shutdown();
+      logger.info("Server closed");
+      process.exit(0);
+    });
+  })();
 }
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));

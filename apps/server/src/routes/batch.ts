@@ -5,13 +5,45 @@
  * GET  /credentials/batch/:jobId    — get batch progress
  * GET  /credentials/batch/:jobId/results — get batch results
  *
- * SECURITY: The signing key is loaded at startup. Key material is never
- * logged or returned in responses.
+ * ---------------------------------------------------------------------------
+ * STATE MODEL (Tier 2 #5 of nfh-trust-labs/opencred#446)
+ * ---------------------------------------------------------------------------
+ *
+ * Two layers of state:
+ *
+ *  1. The JobStore (memory or Redis) — JSON-serializable {@link JobRecord}
+ *     entries, one per job. Shared visibility: when the server runs as
+ *     multiple replicas behind a Redis-backed store, replica B can read
+ *     and answer GET requests for jobs that replica A is running.
+ *
+ *  2. An in-process `localEngines` map — live {@link BatchEngine}
+ *     instances bound to whichever replica accepted the POST. Engines
+ *     are NOT serializable (they hold closures over signer instances and
+ *     mutable progress state), so cross-replica work stealing is out of
+ *     scope for this PR. Tier 3 #8 (BullMQ/SQS) addresses that.
+ *
+ * As the engine runs, it periodically syncs its progress snapshot back
+ * to the JobStore. Reads from any replica return the most recent
+ * snapshot — either the live engine state (own replica) or the stored
+ * record (other replicas).
+ *
+ * ---------------------------------------------------------------------------
+ * SECURITY
+ * ---------------------------------------------------------------------------
+ *
+ *  - The signing key is loaded at startup. Key material is never logged
+ *    or returned in responses (CLAUDE.md rule 1).
+ *  - Job records carry credential drafts (PII). The JobStore TTL is
+ *    bounded by `OPENCRED_SESSION_TTL` (default 4h) — Redis enforces
+ *    this via `SET ... EX`; memory enforces it via lazy + recurring
+ *    purge (CLAUDE.md rule 3).
+ *  - Webhook URLs and Redis URLs are never logged in cleartext.
  */
 
 import { Hono } from "hono";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
+import { hostname } from "node:os";
 import { ValidationError } from "@opencred/shared";
 import { requireSigner } from "../signing/key-manager.js";
 import { getConfig } from "../config.js";
@@ -25,31 +57,63 @@ import { getLogger } from "../logger.js";
 import { rejectKeyMaterial, customizationSchema } from "./credentials.js";
 import { batchJobsTotal } from "../metrics.js";
 import { parseJsonBody } from "../middleware/parse-json.js";
+import { MemoryJobStore } from "../batch/job-store/memory.js";
+import type { JobRecord, JobStatus, JobStore } from "../batch/job-store/types.js";
 
 const batch = new Hono();
 
-// In-memory job store (keyed by job ID).
+// ---------------------------------------------------------------------------
+// JobStore wiring
+// ---------------------------------------------------------------------------
 //
-// SECURITY: Per CLAUDE.md rule 3 ("Session data is ephemeral"), batch job
-// entries — including their completed progress payloads — must be purged
-// after `OPENCRED_SESSION_TTL`. See `startBatchJobCleanup` at the bottom
-// of this module for the purge loop; `purgeExpiredBatchJobs` is the sync
-// helper tests drive.
-export interface BatchJobEntry {
-  engine: StreamingBatchEngine;
-  progress: BatchProgress | null;
-  createdAt: string;
-  /**
-   * Set to an ISO-8601 timestamp the moment the engine's `start()` promise
-   * settles (success, cancellation, or failure). The purge clock starts
-   * ticking from `completedAt` when set; otherwise we fall back to
-   * `createdAt` so that genuinely stuck jobs are still reclaimed.
-   */
-  completedAt?: string;
-  webhookUrl?: string;
+// The store is injected at server bootstrap via `setJobStore`. Until then
+// (i.e. in tests that exercise the route without going through `index.ts`)
+// the module falls back to a freshly constructed `MemoryJobStore`.
+//
+// Note: #577's pre-merge base still carried a `BatchJobEntry` in-memory
+// interface from before #575 introduced the JobStore. That interface is
+// intentionally dropped here — JobStore is the canonical cross-replica
+// state, the `localEngines` Map below holds the (non-serializable) engine
+// handle on the owning replica.
+
+let jobStore: JobStore = new MemoryJobStore();
+
+/**
+ * Inject the production-configured JobStore. Called once at server
+ * startup from `index.ts`. Tests may call this directly to substitute a
+ * mock without spinning up a Hono app.
+ */
+export function setJobStore(store: JobStore): void {
+  jobStore = store;
 }
 
-const jobs = new Map<string, BatchJobEntry>();
+/**
+ * Resolve the current JobStore. Exposed for diagnostic/shutdown helpers
+ * that need to access the store without going through a route handler.
+ */
+export function getJobStore(): JobStore {
+  return jobStore;
+}
+
+// In-process map of live engines. Keyed by jobId, populated only on the
+// replica that accepted the POST. Engines are removed once they settle
+// (success / cancellation / failure) or when shutdown finalizes the
+// batch — see `finalizeAllRunningJobs` below.
+const localEngines = new Map<string, StreamingBatchEngine>();
+
+/**
+ * Build a diagnostic identifier for the running replica. Embedded in
+ * `JobRecord.ownerReplica` so an operator looking at a Redis-stored
+ * record can tell which replica is driving the work.
+ *
+ * NOTE: hostname can be unreliable in some container runtimes; use it
+ * as a best-effort hint, not for correctness.
+ */
+const REPLICA_ID = `${hostname()}:${process.pid}`;
+
+// ---------------------------------------------------------------------------
+// Request validation
+// ---------------------------------------------------------------------------
 
 const batchRequestSchema = z.object({
   csvContent: z.string(),
@@ -72,7 +136,27 @@ const batchRequestSchema = z.object({
   customization: customizationSchema,
 });
 
-// --- Start batch ---
+// ---------------------------------------------------------------------------
+// Status derivation
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive the canonical PRD §5.4.2 status enum from the engine's progress.
+ * Mirrors the inline logic that lived in the GET handler pre-refactor.
+ */
+function deriveStatus(progress: BatchProgress | null): JobStatus {
+  if (!progress) return "queued";
+  if (progress.cancelled) return "cancelled";
+  if (progress.running) {
+    return progress.completed === 0 ? "queued" : "running";
+  }
+  if (progress.errorCount > 0 && progress.successCount === 0) return "failed";
+  return "completed";
+}
+
+// ---------------------------------------------------------------------------
+// Start batch
+// ---------------------------------------------------------------------------
 
 batch.post("/credentials/batch", async (c) => {
   const body = await parseJsonBody(c);
@@ -193,30 +277,64 @@ batch.post("/credentials/batch", async (c) => {
   );
 
   const jobId = randomUUID();
-  const job: BatchJobEntry = {
-    engine,
+  const createdAt = new Date().toISOString();
+  const ttlSeconds = config.OPENCRED_SESSION_TTL;
+
+  const initialRecord: JobRecord = {
+    jobId,
+    status: "queued",
     progress: null,
-    createdAt: new Date().toISOString(),
+    createdAt,
     webhookUrl: parsed.webhookUrl,
+    ownerReplica: REPLICA_ID,
   };
-  jobs.set(jobId, job);
+
+  // Two writes happen atomically from the request's point of view:
+  //   1. The JobStore record (what every replica can see).
+  //   2. The local engine map (what this replica needs to drive the work).
+  await jobStore.set(jobId, initialRecord, ttlSeconds);
+  localEngines.set(jobId, engine);
 
   batchJobsTotal.inc({ status: "started" });
 
-  // Start processing in background
+  // Background driver — engine.start() returns a Promise that settles
+  // once every row has been processed. We don't await here; the route
+  // returns 202 immediately with the jobId.
   void engine
     .start()
-    .then((finalProgress) => {
-      job.progress = finalProgress;
-      // TTL countdown starts once the engine is done. See `purgeExpiredBatchJobs`.
-      job.completedAt = new Date().toISOString();
+    .then(async (finalProgress) => {
+      const completedAt = new Date().toISOString();
+      const finalStatus = deriveStatus(finalProgress);
       batchJobsTotal.inc({ status: finalProgress.cancelled ? "cancelled" : "completed" });
+
+      await jobStore
+        .update(
+          jobId,
+          (current) => ({
+            ...current,
+            progress: finalProgress,
+            completedAt,
+            status: finalStatus,
+          }),
+          ttlSeconds,
+        )
+        .catch((err) => {
+          getLogger().warn(
+            { jobId, err },
+            "Failed to write final batch progress to JobStore — local engine state is still authoritative for this replica",
+          );
+        });
+
+      // The engine has settled — drop it from the local map so the
+      // garbage collector can reclaim it. Future GETs read from the
+      // JobStore record only.
+      localEngines.delete(jobId);
 
       // Deliver webhook notification on completion (best-effort).
       // LOW-04: `webhookSecret` is guaranteed non-empty at this point because
       // the route returned 400 WEBHOOK_SECRET_REQUIRED earlier if
       // `webhookUrl` was set without a configured secret.
-      if (job.webhookUrl) {
+      if (parsed.webhookUrl) {
         const webhookPayload: WebhookPayload = {
           jobId,
           status: finalProgress.cancelled ? "cancelled" : "completed",
@@ -227,16 +345,31 @@ batch.post("/credentials/batch", async (c) => {
         };
         const webhookSecret = config.OPENCRED_WEBHOOK_SECRET;
         if (webhookSecret) {
-          deliverWebhook(job.webhookUrl, webhookPayload, webhookSecret).catch((err) => {
-            getLogger().warn({ jobId, webhookUrl: job.webhookUrl, err }, "Webhook delivery failed");
+          deliverWebhook(parsed.webhookUrl, webhookPayload, webhookSecret).catch((err) => {
+            getLogger().warn(
+              { jobId, webhookUrl: parsed.webhookUrl, err },
+              "Webhook delivery failed",
+            );
           });
         }
       }
     })
-    .catch(() => {
-      // Even on engine failure, start the TTL clock so the entry gets purged.
-      job.completedAt = new Date().toISOString();
+    .catch(async (err) => {
+      // Even on engine failure, push status=failed so a replica reading
+      // the record sees a settled state.
+      const completedAt = new Date().toISOString();
       batchJobsTotal.inc({ status: "failed" });
+      getLogger().warn({ jobId, err }, "Batch engine crashed");
+      await jobStore
+        .update(
+          jobId,
+          (current) => ({ ...current, completedAt, status: "failed" as const }),
+          ttlSeconds,
+        )
+        .catch(() => {
+          // best-effort — if the store is also down there's nothing more we can do.
+        });
+      localEngines.delete(jobId);
     });
 
   const parseErrors = parsedRows
@@ -261,30 +394,61 @@ batch.post("/credentials/batch", async (c) => {
   );
 });
 
-// --- Get batch progress ---
+// ---------------------------------------------------------------------------
+// Get batch progress
+// ---------------------------------------------------------------------------
 
-batch.get("/credentials/batch/:jobId", (c) => {
+batch.get("/credentials/batch/:jobId", async (c) => {
   const jobId = c.req.param("jobId");
-  const job = jobs.get(jobId);
 
-  if (!job) {
+  // Local engine wins when present — it's the freshest view of progress.
+  // Otherwise fall back to the JobStore (this is the cross-replica path).
+  const localEngine = localEngines.get(jobId);
+  if (localEngine) {
+    const progress = localEngine.getProgress();
+    const status = deriveStatus(progress);
+    // Best-effort sync to the JobStore so a remote replica can see the
+    // updated frame. Failing this write is non-fatal — the local engine
+    // is still authoritative for this replica.
+    const config = getConfig();
+    await jobStore
+      .update(jobId, (current) => ({ ...current, progress, status }), config.OPENCRED_SESSION_TTL)
+      .catch(() => undefined);
+    return c.json(buildProgressResponse(jobId, progress, status));
+  }
+
+  const record = await jobStore.get(jobId);
+  if (!record) {
     return c.json({ error: { code: "NOT_FOUND", message: `Batch job not found: ${jobId}` } }, 404);
   }
 
-  const progress = job.engine.getProgress();
-  // PRD §5.4.2 canonical `status` enum derived from the booleans.
-  // The legacy `running` / `cancelled` booleans are retained as aliases
-  // for one release so existing clients do not break.
-  const status: "queued" | "running" | "completed" | "cancelled" | "failed" = progress.cancelled
-    ? "cancelled"
-    : progress.running
-      ? progress.completed === 0
-        ? "queued"
-        : "running"
-      : progress.errorCount > 0 && progress.successCount === 0
-        ? "failed"
-        : "completed";
-  return c.json({
+  return c.json(buildProgressResponse(jobId, record.progress, record.status));
+});
+
+function buildProgressResponse(
+  jobId: string,
+  progress: BatchProgress | null,
+  status: JobStatus,
+) {
+  if (!progress) {
+    // Job exists in the store but the engine hasn't produced a frame yet.
+    // Return a zero-progress snapshot so callers always see the same
+    // response shape.
+    return {
+      jobId,
+      status,
+      total: 0,
+      completed: 0,
+      succeeded: 0,
+      failed: 0,
+      successCount: 0,
+      errorCount: 0,
+      skippedCount: 0,
+      running: status === "queued" || status === "running",
+      cancelled: status === "cancelled",
+    };
+  }
+  return {
     jobId,
     status,
     total: progress.total,
@@ -297,22 +461,33 @@ batch.get("/credentials/batch/:jobId", (c) => {
     skippedCount: progress.skippedCount,
     running: progress.running,
     cancelled: progress.cancelled,
-  });
-});
+  };
+}
 
-// --- Get batch results ---
+// ---------------------------------------------------------------------------
+// Get batch results
+// ---------------------------------------------------------------------------
 
-batch.get("/credentials/batch/:jobId/results", (c) => {
+batch.get("/credentials/batch/:jobId/results", async (c) => {
   const jobId = c.req.param("jobId");
-  const job = jobs.get(jobId);
 
-  if (!job) {
-    return c.json({ error: { code: "NOT_FOUND", message: `Batch job not found: ${jobId}` } }, 404);
+  const localEngine = localEngines.get(jobId);
+  let progress: BatchProgress | null;
+
+  if (localEngine) {
+    progress = localEngine.getProgress();
+  } else {
+    const record = await jobStore.get(jobId);
+    if (!record) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: `Batch job not found: ${jobId}` } },
+        404,
+      );
+    }
+    progress = record.progress;
   }
 
-  const progress = job.engine.getProgress();
-
-  if (progress.running) {
+  if (progress?.running) {
     return c.json(
       {
         error: { code: "JOB_RUNNING", message: "Batch is still running. Check progress first." },
@@ -321,7 +496,8 @@ batch.get("/credentials/batch/:jobId/results", (c) => {
     );
   }
 
-  const results = progress.rows.map((r) => ({
+  const rows = progress?.rows ?? [];
+  const results = rows.map((r) => ({
     rowIndex: r.rowIndex,
     status: r.status,
     error: r.error,
@@ -337,72 +513,68 @@ batch.get("/credentials/batch/:jobId/results", (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// TTL purge (HIGH-01)
+// Shutdown — finalize in-flight jobs
 // ---------------------------------------------------------------------------
 //
-// SECURITY: Per CLAUDE.md rule 3, session data — including the in-memory
-// batch job registry — must not outlive `OPENCRED_SESSION_TTL`. Without a
-// purge loop the map grows unboundedly and retains completed-credential
-// metadata forever. `startBatchJobCleanup` is started once at server
-// bootstrap (see `apps/server/src/index.ts`); tests drive the sync helper
-// `purgeExpiredBatchJobs` directly so no real timers are needed.
-//
-// `GET /credentials/batch/:jobId` and `.../results` already return 404 when
-// `jobs.get()` returns undefined, which is the correct post-purge behaviour.
+// When SIGTERM/SIGINT lands, every in-flight engine on this replica is
+// effectively interrupted. We can't reliably wait for them to drain
+// (especially on a fast Cloud Run shutdown grace period), but we CAN
+// publish a final record marking them `"interrupted"`. A downstream
+// retry pipeline or operator dashboard can use that signal to decide
+// whether to re-submit the work.
 
-/**
- * Synchronously evict every batch job whose (completed-or-created) timestamp
- * is older than `ttlMs` relative to `now`. Returns the number of evicted
- * jobs so callers can log meaningful metrics.
- *
- * A completed job's clock starts at `completedAt`; a still-running (or
- * orphaned) job falls back to `createdAt` so genuinely stuck jobs are still
- * reclaimed once the TTL elapses past their creation time.
- */
-export function purgeExpiredBatchJobs(ttlMs: number, now: number): number {
-  let deleted = 0;
-  for (const [jobId, entry] of jobs) {
-    const anchorIso = entry.completedAt ?? entry.createdAt;
-    const anchor = Date.parse(anchorIso);
-    if (!Number.isFinite(anchor)) continue;
-    if (anchor + ttlMs < now) {
-      jobs.delete(jobId);
-      deleted += 1;
-    }
+export async function finalizeAllRunningJobs(): Promise<number> {
+  let count = 0;
+  const config = getConfig();
+  const completedAt = new Date().toISOString();
+  for (const [jobId, engine] of localEngines) {
+    // Mark the engine cancelled so its current row loop stops scheduling
+    // new rows. Rows already in flight will complete naturally (they
+    // hold the only reference to their signer call), but we don't wait.
+    engine.cancel();
+    await jobStore
+      .update(
+        jobId,
+        (current) => {
+          // If the engine somehow already settled between the read and
+          // here, keep its terminal status — don't downgrade
+          // "completed" / "failed" back to "interrupted".
+          if (
+            current.status === "completed" ||
+            current.status === "failed" ||
+            current.status === "cancelled"
+          ) {
+            return current;
+          }
+          return { ...current, status: "interrupted" as const, completedAt };
+        },
+        config.OPENCRED_SESSION_TTL,
+      )
+      .catch(() => undefined);
+    count += 1;
   }
-  return deleted;
+  localEngines.clear();
+  return count;
+}
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Reset all module-level state. Tests call this between cases so a
+ * previous test's engines/store don't leak into the next.
+ */
+export function __resetBatchStateForTesting(): void {
+  localEngines.clear();
+  jobStore = new MemoryJobStore();
 }
 
 /**
- * Start a recurring purge loop. Returns an unref'd `setInterval` handle so
- * the event loop is free to exit cleanly on shutdown. Kept exported so tests
- * and the server bootstrap can clear it via `clearInterval` if needed.
+ * Expose the local-engine map size for diagnostic asserts in tests.
  */
-export function startBatchJobCleanup(intervalMs: number, ttlMs: number): NodeJS.Timeout {
-  const handle = setInterval(() => {
-    const deleted = purgeExpiredBatchJobs(ttlMs, Date.now());
-    if (deleted > 0) {
-      getLogger().debug({ deleted }, "Purged expired batch jobs");
-    }
-  }, intervalMs);
-  // Allow the process to exit even if this timer is still pending.
-  handle.unref?.();
-  return handle;
-}
-
-/**
- * Test-only helper — swaps the job store for a provided Map so unit tests
- * can seed fixed-shape entries without constructing a real BatchEngine.
- * Returns a restorer that resets the original.
- */
-export function __setJobsForTesting(replacement: Map<string, BatchJobEntry>): () => void {
-  const saved = new Map(jobs);
-  jobs.clear();
-  for (const [k, v] of replacement) jobs.set(k, v);
-  return () => {
-    jobs.clear();
-    for (const [k, v] of saved) jobs.set(k, v);
-  };
+export function __getLocalEngineCount(): number {
+  return localEngines.size;
 }
 
 export { batch };

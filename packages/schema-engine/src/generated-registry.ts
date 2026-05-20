@@ -47,8 +47,8 @@ export function createBuiltInRegistry(): SchemaRegistry {
     contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/electricity/v1/context.jsonld",
     version: "1.0.0",
     lastUpdated: "2026-04-08T00:00:00Z",
-    checksum: "9d05ba540532afac7f375d7bbcf1e76242e88167f97df29fe8c25f4621f75028",
-    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/electricity/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
+    checksum: "366f042d00f8853dfa2c449ef9d820b0de8276ec719b2c3d4185f88410219b4e",
+    source: {"kind":"defined","upstreamUrl":"https://schema.beckn.io/ElectricityCredential/1.0/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
   } satisfies SchemaDefinition);
   registry.register({
     id: "salary-slip/v1",

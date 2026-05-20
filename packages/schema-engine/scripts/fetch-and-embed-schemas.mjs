@@ -34,6 +34,36 @@ const HOST_ALLOWLIST = [
 
 const NETWORK_TIMEOUT_MS = 30_000;
 
+/**
+ * Per-schema `$id` overrides. Applied AFTER manifest hash verification, the
+ * override rewrites two fields on the in-memory record before output is
+ * generated:
+ *
+ *   1. The schema object's `$id` field (lands in `schema-data.ts`)
+ *   2. The registry entry's `source.upstreamUrl` (lands in
+ *      `generated-registry.ts`)
+ *
+ * Use this when a schema's canonical reference URL differs from the upstream
+ * source we fetched it from — e.g. the schema originated in
+ * `opencred-vc-schemas` but is now canonically published at a different URL.
+ * Schema CONTENT (properties, required, etc.) is NEVER modified by this map.
+ *
+ * Hash semantics:
+ *   - The MANIFEST hash check runs against the upstream bytes — unchanged,
+ *     BEFORE any override. Supply-chain integrity is preserved.
+ *   - The CHECKSUM written to the registry is recomputed AFTER the override
+ *     so verifiers comparing the published `$id` against the embedded schema
+ *     get a self-consistent record. The recompute is deterministic: same
+ *     override → same checksum on every rebuild.
+ */
+const ID_OVERRIDES = {
+  // Beckn publishes the canonical schema at schema.beckn.io even though our
+  // build pipeline fetches it from the opencred-vc-schemas mirror. Point
+  // `credentialSchema.id` in issued VCs at the canonical Beckn URL so
+  // third-party verifiers dereferencing it land on the authoritative copy.
+  "electricity/v1": "https://schema.beckn.io/ElectricityCredential/1.0/schema.json",
+};
+
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
 /* ------------------------------------------------------------------ */
@@ -433,17 +463,37 @@ export async function run(opts) {
         });
       }
 
+      // Apply canonical `$id` override AFTER manifest hash verification. This
+      // rewrites the schema's `$id` and the registry's source.upstreamUrl so
+      // verifiers dereferencing `credentialSchema.id` land on the canonical
+      // publication URL (e.g. schema.beckn.io for Beckn-published schemas).
+      // Recompute the embedded checksum so the registry stays self-consistent
+      // with the rewritten in-memory schema.
+      const idOverride = ID_OVERRIDES[cred.id];
+      let embeddedChecksum = actualHash;
+      let embeddedUpstreamUrl = schemaUpstreamUrl;
+      if (idOverride) {
+        if (!schemaObj || typeof schemaObj !== "object") {
+          throw new Error(
+            `credential ${cred.id}: cannot apply $id override on non-object schema`,
+          );
+        }
+        schemaObj = { ...schemaObj, $id: idOverride };
+        embeddedChecksum = canonicalJsonSha256(schemaObj);
+        embeddedUpstreamUrl = idOverride;
+      }
+
       records.push({
         id: cred.id,
         constName: idToConst(cred.id),
         schema: schemaObj,
         version: cred.version ?? "1.0.0",
         lastUpdated: cred.lastUpdated ?? "2026-04-08T00:00:00Z",
-        checksum: actualHash,
+        checksum: embeddedChecksum,
         contextUrl,
         source: {
           kind: sourceKind,
-          upstreamUrl: schemaUpstreamUrl,
+          upstreamUrl: embeddedUpstreamUrl,
           upstreamOwner: cred.owner ?? "OpenCred",
           upstreamLicense: cred.license ?? "Apache-2.0",
         },
