@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "f4a1c1f0-7b3e-4b2a-a3f0-opencred000001",
     "name": "OpenCred Server (Docker)",
-    "description": "HTTP requests for the OpenCred Docker image (`apps/server`). Targets the `/v1/*` API surface.\n\n## How to use\n\n1. Start the container locally (or via SSH tunnel if it's on a remote VM):\n   ```\n   docker run -d --name opencred -p 3100:3100 \\\n     -e OPENCRED_API_KEY=\"$OPENCRED_API_KEY\" \\\n     -e OPENCRED_KEY_PATH=/secrets/issuer-key.pem \\\n     -v $PWD/keys/issuer-key.pem:/secrets/issuer-key.pem:ro \\\n     opencred:bootcamp\n   ```\n2. In Postman, edit the collection variables (Variables tab):\n   - `baseUrl` — default `http://localhost:3100`\n   - `apiKey` — paste the value of `OPENCRED_API_KEY`\n3. Run **Public → GET /v1/health** to confirm `signingKeyLoaded: true`.\n4. Run **Inspect → GET /v1/keys** — it auto-saves `issuerDid` into the collection variables for the issue requests.\n5. Run **Issue & Verify → POST /v1/credentials/issue (data-integrity)** — it auto-saves the response into `lastCredential` for the verify request.\n6. Run **Issue & Verify → POST /v1/credentials/verify**.\n\nAuthentication is set at the collection level (Bearer `{{apiKey}}`); the two public endpoints override to no auth.",
+    "description": "HTTP requests for the OpenCred Docker image (`apps/server`). Targets the `/v1/*` API surface.\n\n## How to use\n\n1. Start the container locally (or via SSH tunnel if it's on a remote VM):\n   ```\n   docker run -d --name opencred -p 3100:3100 \\\n     -e OPENCRED_API_KEY=\"$OPENCRED_API_KEY\" \\\n     -e OPENCRED_KEY_PATH=/secrets/issuer-key.pem \\\n     -v $PWD/keys/issuer-key.pem:/secrets/issuer-key.pem:ro \\\n     opencred:bootcamp\n   ```\n2. In Postman, edit the collection variables (Variables tab):\n   - `baseUrl` — default `http://localhost:3100`\n   - `apiKey` — paste the value of `OPENCRED_API_KEY`\n3. Run **Public → GET /v1/health** to confirm `signingKeyLoaded: true`.\n4. Run **Inspect → GET /v1/keys** — it auto-saves `issuerDid` into the collection variables for the issue requests.\n5. Run **Issue & Verify → POST /v1/credentials/issue (vc-jwt)** — it auto-saves the response into `lastCredential` for the verify request.\n6. Run **Issue & Verify → POST /v1/credentials/verify**.\n\nAuthentication is set at the collection level (Bearer `{{apiKey}}`); the two public endpoints override to no auth.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -123,7 +123,7 @@
       "name": "Issue & Verify",
       "item": [
         {
-          "name": "POST /v1/credentials/issue (data-integrity)",
+          "name": "POST /v1/credentials/issue (vc-jwt)",
           "event": [
             {
               "listen": "test",
@@ -148,18 +148,18 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"validUntil\": \"2027-04-27T00:00:00Z\",\n  \"proofFormat\": \"data-integrity\"\n}"
+              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"validUntil\": \"2027-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/v1/credentials/issue",
               "host": ["{{baseUrl}}"],
               "path": ["v1", "credentials", "issue"]
             },
-            "description": "Issue a JSON-LD VC with a Data Integrity proof. Requires an EC key on the server side — RSA keys return 500 CRYPTO_ERROR.\n\nAuto-saves the response into `{{lastCredential}}` for the verify request."
+            "description": "Issue a credential with a compact JWT proof — the server's default. Works with every bundled schema (no JSON-LD context strict-mode constraints).\n\nThe response `credential` is a JSON-LD VC object whose `proof.jwt` holds the compact JWS.\n\nAuto-saves the response into `{{lastCredential}}` for the verify request."
           }
         },
         {
-          "name": "POST /v1/credentials/issue (vc-jwt)",
+          "name": "POST /v1/credentials/issue (data-integrity)",
           "event": [
             {
               "listen": "test",
@@ -182,14 +182,14 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\"\n}"
+              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"data-integrity\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/v1/credentials/issue",
               "host": ["{{baseUrl}}"],
               "path": ["v1", "credentials", "issue"]
             },
-            "description": "Issue a compact JWT-encoded credential. The response `credential` field is a string token, not an object."
+            "description": "Issue a JSON-LD VC with a Data Integrity proof. Requires an EC key on the server side (RSA returns 500 CRYPTO_ERROR) and a JSON-LD context that does not redefine W3C-protected terms (otherwise 500 CRYPTO_ERROR: Invalid JSON-LD syntax). Prefer `vc-jwt` for portable workshops."
           }
         },
         {
@@ -267,7 +267,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"data-integrity\",\n  \"revocationRegistryUrl\": \"https://your-dedi-instance.example.org\"\n}"
+              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\",\n  \"revocationRegistryUrl\": \"https://your-dedi-instance.example.org\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/v1/credentials/issue",
@@ -278,20 +278,20 @@
           }
         },
         {
-          "name": "POST /v1/credentials/issue (data-integrity + inline package)",
+          "name": "POST /v1/credentials/issue (vc-jwt + inline package)",
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"data-integrity\",\n  \"packageFormats\": [\"qr-png\", \"qr-svg\", \"pdf\", \"json\"],\n  \"customization\": {\n    \"primaryColor\": \"#1a56db\",\n    \"issuerDisplayName\": \"OpenCred Bootcamp\",\n    \"footerText\": \"\"\n  }\n}"
+              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\",\n  \"packageFormats\": [\"qr-png\", \"qr-svg\", \"pdf\", \"json\"],\n  \"customization\": {\n    \"primaryColor\": \"#1a56db\",\n    \"issuerDisplayName\": \"OpenCred Bootcamp\",\n    \"footerText\": \"\"\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/v1/credentials/issue",
               "host": ["{{baseUrl}}"],
               "path": ["v1", "credentials", "issue"]
             },
-            "description": "One-call issue + package. The same `customization` knobs documented on `/v1/credentials/package` apply here. The response shape:\n\n```json\n{\n  \"credential\": { ... },\n  \"proofFormat\": \"data-integrity\",\n  \"isCompactToken\": false,\n  \"packagedOutputs\": [\n    { \"format\": \"qr-png\", \"data\": \"data:image/png;base64,...\", \"encoding\": \"utf-8\" },\n    { \"format\": \"qr-svg\", \"data\": \"<svg ...>\", \"encoding\": \"utf-8\" },\n    { \"format\": \"pdf\",    \"data\": \"JVBERi0...\", \"encoding\": \"base64\" },\n    { \"format\": \"json\",   \"data\": \"{ ... }\", \"encoding\": \"utf-8\" }\n  ]\n}\n```\n\nWorks with `proofFormat: \"sd-jwt-vc\"` too — the QR will embed the raw compact token in that case."
+            "description": "One-call issue + package. The same `customization` knobs documented on `/v1/credentials/package` apply here. The response shape:\n\n```json\n{\n  \"credential\": { ... },\n  \"proofFormat\": \"vc-jwt\",\n  \"isCompactToken\": false,\n  \"packagedOutputs\": [\n    { \"format\": \"qr-png\", \"data\": \"data:image/png;base64,...\", \"encoding\": \"utf-8\" },\n    { \"format\": \"qr-svg\", \"data\": \"<svg ...>\", \"encoding\": \"utf-8\" },\n    { \"format\": \"pdf\",    \"data\": \"JVBERi0...\", \"encoding\": \"base64\" },\n    { \"format\": \"json\",   \"data\": \"{ ... }\", \"encoding\": \"utf-8\" }\n  ]\n}\n```\n\nWorks with `proofFormat: \"data-integrity\"` and `\"sd-jwt-vc\"` too — for sd-jwt-vc the QR embeds the raw compact token verbatim."
           }
         },
         {
