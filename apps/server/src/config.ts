@@ -279,6 +279,44 @@ const configSchema = z.object({
    * never hit it; low enough to blunt a trivial DoS.
    */
   OPENCRED_RATE_LIMIT_READ: z.coerce.number().int().min(1).default(600),
+
+  // --- Job store (Tier 2 #5 of nfh-trust-labs/opencred#446) ---
+
+  /**
+   * Backing store for batch jobs.
+   *
+   *  - `memory` (default): single-process Map. Suitable for single-instance
+   *    deployments — same behaviour as every release prior to this one.
+   *  - `redis`: Redis-backed store keyed by job id, with Redis-managed TTL.
+   *    Required for horizontal scale (multiple replicas all need to answer
+   *    `GET /credentials/batch/:jobId` regardless of which replica received
+   *    the original POST).
+   *
+   * Defaults to `memory` so the absence of a Redis is not a regression for
+   * existing single-instance operators. When set to `redis`,
+   * `OPENCRED_REDIS_URL` MUST also be set — startup fails closed with
+   * `ConfigError` otherwise.
+   */
+  OPENCRED_JOB_STORE: z.enum(["memory", "redis"]).default("memory"),
+
+  /**
+   * Redis connection URL — used only when `OPENCRED_JOB_STORE=redis`.
+   * Accepts the standard URL shape (`redis://`, `rediss://` for TLS).
+   * May embed credentials inline (`redis://user:pass@host:6379/0`).
+   *
+   * SECURITY: This URL frequently contains credentials. The server logs
+   * only the host/port descriptor, never the full URL. See `safeRedisInfo`
+   * in `apps/server/src/batch/job-store/factory.ts`.
+   */
+  OPENCRED_REDIS_URL: z.string().url().optional(),
+
+  /**
+   * Whether to verify the Redis server's TLS certificate when using
+   * `rediss://`. Defaults to `true` (verify). Operators MUST opt in
+   * explicitly to disable verification — there is no silent fall-through
+   * via an empty string.
+   */
+  OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED: booleanFromString.default(true),
 });
 
 export type ServerConfig = z.infer<typeof configSchema>;
@@ -414,6 +452,20 @@ export function loadConfig(): ServerConfig {
         );
       }
     }
+  }
+
+  // --- Job store cross-field validation ---
+  // When OPENCRED_JOB_STORE=redis, OPENCRED_REDIS_URL must be set.
+  // Refuse to start with a half-configured Redis store — a silent fall-
+  // back to memory would let an operator believe their jobs were
+  // shareable across replicas when they weren't.
+  if (parsed.OPENCRED_JOB_STORE === "redis" && !parsed.OPENCRED_REDIS_URL) {
+    throw new ConfigError(
+      "OPENCRED_REDIS_URL is required when OPENCRED_JOB_STORE=redis. " +
+        "Set OPENCRED_REDIS_URL to a redis:// (or rediss:// for TLS) URL. " +
+        "If you do not need horizontal scale, set OPENCRED_JOB_STORE=memory " +
+        "(or omit the variable entirely — memory is the default).",
+    );
   }
 
   cachedConfig = parsed;

@@ -153,6 +153,18 @@ The session TTL governs how long batch results and packaged outputs survive in m
 | `OPENCRED_SCHEMA_UPDATE_URL` | URL | — | HTTPS URL of the schema update manifest. If unset, schema updates are disabled. |
 | `OPENCRED_SCHEMA_CACHE_DIR` | path | — | Local directory for caching updated schemas between restarts. |
 
+### Job store (batch jobs)
+
+OpenCred batch jobs (`POST /credentials/batch`) live in a pluggable backing store. The default — `memory` — is an in-process Map and matches the behaviour of every release prior to v1.5.x. For horizontal scale (multiple replicas behind a load balancer), set `OPENCRED_JOB_STORE=redis`.
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `OPENCRED_JOB_STORE` | enum | `memory` | `memory` for single-instance, `redis` for horizontal scale. |
+| `OPENCRED_REDIS_URL` | URL | — | **REQUIRED** when `OPENCRED_JOB_STORE=redis`. Accepts `redis://` or `rediss://` (TLS). May embed credentials inline. The full URL is never logged — only the redacted `host:port` descriptor. |
+| `OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED` | boolean | `true` | Whether to verify the Redis server's TLS certificate when using `rediss://`. Operators must explicitly set `false` to disable verification — there is no silent fall-through. |
+
+See [Horizontal scale](#horizontal-scale) below for when and how to flip between these modes.
+
 ### DeDi integration (optional)
 
 | Variable | Type | Default | Description |
@@ -175,6 +187,48 @@ The session TTL governs how long batch results and packaged outputs survive in m
 | GCP Cloud KMS | `OPENCRED_KMS_PROVIDER=gcp` + key name | Uses Application Default Credentials |
 
 The OS certificate store (Windows CNG / macOS Keychain) is **not** available in the Docker image — those backends are Desktop-only.
+
+## Horizontal scale
+
+OpenCred is designed so a single instance handles the typical issuance load comfortably. If your traffic outgrows a single replica — or you want a redundant pair behind a load balancer — flip the batch job store from in-process memory to a shared Redis:
+
+```bash
+docker run -d \
+  --name opencred \
+  -p 3100:3100 \
+  -e OPENCRED_API_KEY=sk_prod_change_me \
+  -e OPENCRED_KEY_PATH=/secrets/issuer-key.pem \
+  -e OPENCRED_JOB_STORE=redis \
+  -e OPENCRED_REDIS_URL=rediss://default:password@redis.prod:6380/0 \
+  -v /host/path/issuer-key.pem:/secrets/issuer-key.pem:ro \
+  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+```
+
+### What "stateless" buys you
+
+* **Visibility:** Every replica can answer `GET /credentials/batch/:jobId` regardless of which replica accepted the original POST. Job records — status, progress, completion timestamps — are read from the shared Redis.
+* **Bounded memory:** Redis TTL (`SET ... EX`) evicts records automatically when they exceed `OPENCRED_SESSION_TTL`. The previously observed RSS climb under sustained small-batch load (#446) is structurally fixed: an unbounded in-process Map no longer exists.
+* **Restart safety:** Records survive a single replica's restart. A reader hitting a different replica still sees the job.
+
+### What it does NOT do (and why)
+
+* **Cross-replica work stealing.** The actual signing for a batch is pinned to the replica that received the POST. If that replica dies mid-batch, the job is marked `interrupted` in Redis on graceful shutdown; otherwise the entry expires via TTL. There is no automatic re-issuance — clients should re-submit interrupted batches.
+* **A queue.** OpenCred does not implement BullMQ, SQS, or any durable work queue. That's a separate roadmap item (Tier 3 in #446) and would change the API contract.
+
+### When to keep `memory`
+
+Single-instance deployments — including every desktop client deployment of this repo — should stick with `memory`. There is no operational benefit to adding Redis if you only run one replica.
+
+### Operating the Redis
+
+* Use a managed Redis (AWS ElastiCache, Memorystore, Upstash, etc.) rather than co-locating. The Redis is on the credential-issuance hot path; a flaky Redis becomes a flaky issuance API.
+* Cap memory with `maxmemory` + an `allkeys-lru` or `allkeys-lfu` policy. OpenCred's TTL handles its own keys, but a hard cap is the right belt-and-suspenders.
+* Use TLS (`rediss://`) when the Redis is not in the same VPC. Keep `OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED=true` (the default) unless you have a specific reason to relax it.
+* Rotate the Redis password by rotating `OPENCRED_REDIS_URL` and rolling the replicas — there is no in-process rotation hook.
+
+### Sizing
+
+For workloads up to ~1000 active jobs simultaneously, a `cache.t4g.micro`-class instance is sufficient. Storage per job is on the order of 10–50 KB depending on row count and proof format.
 
 ## Persistent state
 
