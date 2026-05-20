@@ -189,27 +189,20 @@ batch.post("/credentials/batch", async (c) => {
   // Streaming CSV parser (issue #446 Tier 2 #7). Replaces the old
   // `parseCsv(string)` path that materialised THREE in-memory copies
   // of the input (raw string → `rawRows: string[][]` split on \n →
-  // `parsedRows: ParsedRow[]`) before any signing started. The
-  // streaming parser yields ParsedRow values one at a time, so the
-  // `rawRows[][]` intermediate disappears entirely.
+  // `parsedRows: ParsedRow[]`) before any signing started.
   //
-  // Row-count cap is now enforced fail-fast inside the parser via
+  // Row-count cap is enforced fail-fast inside the parser via
   // `maxRows`. The old `split(/\r?\n/)` pre-check ran a second full
   // pass over the body just to count lines — the streaming version
   // throws on the (N+1)th row and the remainder is never read.
   //
-  // 202 response back-compat: the existing API contract surfaces
-  // `validCount` / `invalidCount` / `parseErrors` in the POST
-  // response. To preserve that shape we drain the parser into a
-  // pre-allocated `parsedRows` array here on the request thread.
-  // This still saves one full duplicate copy of the input (the
-  // `rawRows[][]` array is gone) and avoids the second `split()` pass.
-  //
-  // The engine consumes the same array via an async-iterable adapter
-  // — the engine's interface is streaming-shaped (`AsyncIterable<ParsedRow>`)
-  // so a future API revision that drops `validCount` from the 202
-  // body can switch to feeding the parser directly to the engine
-  // without further engine changes.
+  // Issue #580: the parser is now fed DIRECTLY to the engine via a
+  // counting passthrough generator. No `parsedRows: ParsedRow[]`
+  // array is materialised. Counters and a bounded `parseErrors`
+  // buffer are updated as a side-effect of the streaming pass, so
+  // the 202 response shape is preserved without buffering every row.
+  // Peak resident memory is O(longest row + parseErrors_cap) instead
+  // of O(N * row_size).
   const parser = parseCsvStreaming(parsed.csvContent, {
     schemaId: parsed.schemaId,
     columnMapping: parsed.columnMapping,
@@ -230,34 +223,60 @@ batch.post("/credentials/batch", async (c) => {
     throw err;
   }
 
-  // Drain the parser into an array. Memory-shape vs. the buffered
-  // parser: we hold ONE copy of each row in `parsedRows` instead of
-  // TWO (rawRows[][] + parsedRows[]). The cap is enforced inside the
-  // parser, so a request that exceeds OPENCRED_BATCH_ROW_LIMIT throws
-  // before fully reading the body. PII NOTE: per CLAUDE.md no row
-  // content is ever logged from this path.
-  const parsedRows: ParsedRow[] = [];
-  let validCount = 0;
-  let invalidCount = 0;
-  try {
-    for await (const row of parser.rows()) {
-      if (row.valid) validCount++;
-      else invalidCount++;
-      parsedRows.push(row);
-    }
-  } catch (err) {
-    if (err instanceof StreamingCsvLimitError) {
-      throw new ValidationError(`Batch exceeds maximum of ${err.limit} rows. Split your CSV.`);
-    }
-    throw err;
-  }
+  // Counters + bounded parse-error buffer updated as a side-effect of
+  // the streaming pass. PII NOTE per CLAUDE.md: row content never
+  // enters logs/spans; `parseErrors` carries `rowIndex` (an ordinal,
+  // not user data) and the schema validator's structured error
+  // tuples (`field` / `message`) — same shape as before #580. The
+  // 100-entry cap ensures a malicious caller can't blow up the 202
+  // response body with 1M error entries.
+  const PARSE_ERRORS_LIMIT = 100;
+  const counters = { valid: 0, invalid: 0, total: 0 };
+  const parseErrors: Array<{ rowIndex: number; errors: ParsedRow["errors"] }> = [];
+  let parseErrorsTruncated = 0;
 
-  // Async-iterable adapter over the array. Yields rows on demand so
-  // the engine's `p-map` pulls one row at a time at the worker pool's
-  // rate. The engine itself doesn't care that the underlying input is
-  // already materialised — same code path as a true byte-stream feed.
-  async function* sourceRows(): AsyncIterable<ParsedRow> {
-    for (const row of parsedRows) yield row;
+  // The parser's row generator is wrapped in a passthrough that ticks
+  // counters and stashes a bounded slice of validation failures. The
+  // engine pulls rows lazily through `p-map`, so the parser is read
+  // at the worker pool's rate — true streaming end-to-end. The
+  // `parseCompletion` promise lets us know when the parser has fully
+  // drained so we can return 202 with the final counts WITHOUT
+  // awaiting the engine itself (which keeps running in the background
+  // signing rows). See acceptance criteria #2/#3 on issue #580.
+  let parseError: unknown = undefined;
+  let resolveParseCompletion: () => void = () => undefined;
+  let rejectParseCompletion: (err: unknown) => void = () => undefined;
+  const parseCompletion = new Promise<void>((resolve, reject) => {
+    resolveParseCompletion = resolve;
+    rejectParseCompletion = reject;
+  });
+  async function* countingSource(): AsyncIterable<ParsedRow> {
+    try {
+      for await (const row of parser.rows()) {
+        counters.total++;
+        if (row.valid) {
+          counters.valid++;
+        } else {
+          counters.invalid++;
+          if (parseErrors.length < PARSE_ERRORS_LIMIT) {
+            parseErrors.push({ rowIndex: row.rowIndex, errors: row.errors });
+          } else {
+            parseErrorsTruncated++;
+          }
+        }
+        yield row;
+      }
+      resolveParseCompletion();
+    } catch (err) {
+      // Errors from the parser (StreamingCsvLimitError, decode
+      // failures, ...) surface through the iterator. Capture and
+      // re-throw so p-map propagates them into engine.start()'s
+      // rejection — we also reject `parseCompletion` so the route's
+      // pre-202 await aborts with the same error.
+      parseError = err;
+      rejectParseCompletion(err);
+      throw err;
+    }
   }
 
   const jobId = randomUUID();
@@ -276,7 +295,7 @@ batch.post("/credentials/batch", async (c) => {
       credentialSchemaUrl: parsed.credentialSchemaUrl,
     },
     {
-      source: sourceRows(),
+      source: countingSource(),
       // OTel attribute for per-row spans (#581 / #446 Tier 3 #10). The
       // jobId is an opaque UUID — CLAUDE.md security invariant: span
       // attributes carry only opaque identifiers, never user-provided
@@ -305,10 +324,11 @@ batch.post("/credentials/batch", async (c) => {
   batchJobsTotal.inc({ status: "started" });
 
   // Background driver — engine.start() returns a Promise that settles
-  // once every row has been processed. We don't await here; the route
-  // returns 202 immediately with the jobId.
-  void engine
-    .start()
+  // once every row has been processed. We don't await it for the 202
+  // response (the route awaits `parseCompletion` instead — see below);
+  // .then/.catch handle post-completion bookkeeping in the background.
+  const enginePromise = engine.start();
+  void enginePromise
     .then(async (finalProgress) => {
       const completedAt = new Date().toISOString();
       const finalStatus = deriveStatus(finalProgress);
@@ -379,9 +399,62 @@ batch.post("/credentials/batch", async (c) => {
       localEngines.delete(jobId);
     });
 
-  const parseErrors = parsedRows
-    .filter((r) => !r.valid)
-    .map((r) => ({ rowIndex: r.rowIndex, errors: r.errors }));
+  // Wait for the streaming parser to drain (#580). `parseCompletion`
+  // resolves when the counting passthrough has yielded its last row
+  // and rejects on parser errors (including StreamingCsvLimitError).
+  // The engine continues running in the background regardless of
+  // how we exit here.
+  try {
+    await parseCompletion;
+  } catch (err) {
+    // The engine is already aware of the failure via the same
+    // iterator rejection (its `.catch` handler above writes
+    // status="failed" to the job store). We additionally clean up
+    // the job record + local engine handle here so the caller's 4xx
+    // doesn't leave a dangling "failed" job referenced by a UUID we
+    // never returned. The .catch(noop) on each step keeps us
+    // resilient if the engine's own catch already ran the cleanup.
+    localEngines.delete(jobId);
+    await jobStore.delete(jobId).catch(() => undefined);
+    if (err instanceof StreamingCsvLimitError) {
+      throw new ValidationError(`Batch exceeds maximum of ${err.limit} rows. Split your CSV.`);
+    }
+    throw err;
+  }
+  // Defensive: `parseError` is set inside `countingSource` before the
+  // rejection propagates. If we ever observe a path where parseCompletion
+  // resolved but parseError is set, surface it the same way.
+  if (parseError !== undefined) {
+    localEngines.delete(jobId);
+    await jobStore.delete(jobId).catch(() => undefined);
+    if (parseError instanceof StreamingCsvLimitError) {
+      throw new ValidationError(
+        `Batch exceeds maximum of ${parseError.limit} rows. Split your CSV.`,
+      );
+    }
+    throw parseError;
+  }
+
+  // Bounded parseErrors surface: when truncated, append a sentinel
+  // marker so callers can detect the cap was hit without exposing
+  // unbounded payload bytes (CLAUDE.md rule 5).
+  const responseParseErrors: Array<{ rowIndex: number; errors: ParsedRow["errors"] }> | undefined =
+    parseErrors.length === 0
+      ? undefined
+      : parseErrorsTruncated > 0
+        ? [
+            ...parseErrors,
+            {
+              rowIndex: -1,
+              errors: [
+                {
+                  field: "_truncated",
+                  message: `+${parseErrorsTruncated} more errors omitted (cap: ${PARSE_ERRORS_LIMIT})`,
+                },
+              ],
+            },
+          ]
+        : parseErrors;
 
   return c.json(
     {
@@ -391,10 +464,10 @@ batch.post("/credentials/batch", async (c) => {
       // (`void engine.start().then(...)`) but hasn't transitioned yet.
       status: "queued" as const,
       headers,
-      validCount,
-      invalidCount,
-      totalCount: parsedRows.length,
-      parseErrors: parseErrors.length > 0 ? parseErrors : undefined,
+      validCount: counters.valid,
+      invalidCount: counters.invalid,
+      totalCount: counters.total,
+      parseErrors: responseParseErrors,
       webhookUrl: parsed.webhookUrl,
     },
     202,
@@ -432,11 +505,7 @@ batch.get("/credentials/batch/:jobId", async (c) => {
   return c.json(buildProgressResponse(jobId, record.progress, record.status));
 });
 
-function buildProgressResponse(
-  jobId: string,
-  progress: BatchProgress | null,
-  status: JobStatus,
-) {
+function buildProgressResponse(jobId: string, progress: BatchProgress | null, status: JobStatus) {
   if (!progress) {
     // Job exists in the store but the engine hasn't produced a frame yet.
     // Return a zero-progress snapshot so callers always see the same
