@@ -27,8 +27,42 @@ import {
   type PrecomputedProofConfig,
 } from "@opencred/crypto";
 import type { Signer } from "@opencred/signing";
+import { getCachedSignerDidDocument } from "@opencred/signing";
 import type { ParsedRow } from "./csv-parser.js";
 import { runInSpan } from "../observability/span-helpers.js";
+
+/**
+ * Warm the signer-DID-document cache for the batch's signer.
+ *
+ * The cache (see `packages/signing/src/signer-did-cache.ts`) is shared
+ * process-wide and keyed on the signer's public-key fingerprint. By
+ * resolving the document once at engine creation we ensure every row in
+ * the batch (and every concurrent worker) sees a cache hit on subsequent
+ * `getCachedSignerDidDocument(signer)` calls — no resolver work, no
+ * allocation, just a Map lookup.
+ *
+ * Fire-and-forget: we don't await the warmup here because the engine
+ * factory is synchronous. The first row that genuinely needs the
+ * document will await the in-flight resolver call via the cache's
+ * natural lookup flow.
+ *
+ * Best-effort: any error during resolution (did:web unsupported, mock
+ * signer with a synthetic did:key, transient resolver failure) is
+ * swallowed. The cache is a hot-path optimisation, not a correctness
+ * gate — the signing path uses `signer.id` directly and the verifier
+ * resolves the doc independently. We attach an empty `.catch` so a
+ * rejected warmup promise doesn't surface as an unhandled rejection
+ * and stay vitest's "unhandled error" reporter from firing in tests
+ * that use stub signers (the warmup is best-effort, the test isn't
+ * exercising it, so the rejection is noise).
+ *
+ * See #573 / #572.
+ */
+function warmSignerDidDocumentCache(signer: Signer): void {
+  void getCachedSignerDidDocument(signer).catch(() => {
+    /* best-effort warmup — swallow any error */
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -138,6 +172,10 @@ export function createBatchEngine(
   config: BatchConfig,
   options: BatchEngineOptions = {},
 ) {
+  // Pre-warm the signer-DID-document cache so every row's signing
+  // operations see a hit. See {@link warmSignerDidDocumentCache}.
+  warmSignerDidDocumentCache(signer);
+
   const jobIdForSpans = options.jobId;
   const progress: BatchProgress = {
     total: parsedRows.length,
@@ -469,6 +507,11 @@ export function createStreamingBatchEngine(
   config: BatchConfig,
   options: StreamingBatchEngineOptions,
 ) {
+  // Pre-warm the signer-DID-document cache. See the buffered engine for
+  // rationale; same mechanism applies — every row's verificationMethod
+  // is `signer.id`, so a single warmup serves the whole batch.
+  warmSignerDidDocumentCache(signer);
+
   const jobIdForSpans = options.jobId;
   const progress: BatchProgress = {
     total: 0,

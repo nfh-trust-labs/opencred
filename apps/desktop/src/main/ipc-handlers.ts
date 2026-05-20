@@ -2670,7 +2670,11 @@ async function handleDidKeyExport(
       };
     }
     const did = signer.id.split("#")[0];
-    const didDocument = await exportDidKeyDocument(did);
+    // Route through the Signer overload so repeated exports (e.g.
+    // re-publishing to DeDi after an outage, or multiple wizard re-tries)
+    // hit the process-wide signer-DID-document cache keyed on the
+    // public-key fingerprint. See #573 / #572.
+    const didDocument = await exportDidKeyDocument(signer);
     return { success: true, did, didDocument };
   } catch (err) {
     return {
