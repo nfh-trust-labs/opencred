@@ -18,7 +18,9 @@ export { detectKeyAlgorithm } from "@opencred/crypto";
 export {
   getCachedSignerDidDocument,
   signerDidDocumentCacheSize,
+  signerDidDocumentCacheMaxSize,
   resetSignerDidDocumentCache,
+  resolveSignerDidCacheMaxSize,
 } from "./signer-did-cache.js";
 
 // PFX parser

@@ -50,6 +50,7 @@ describe("Config validation", () => {
     expect(config.OPENCRED_LOG_LEVEL).toBe("info");
     expect(config.OPENCRED_KEY_LABEL).toBe("server-key");
     expect(config.OPENCRED_BATCH_ROW_LIMIT).toBe(1000);
+    expect(config.OPENCRED_BATCH_MAX_RECORD_BYTES).toBe(1024 * 1024);
     expect(config.OPENCRED_SESSION_TTL).toBe(14400);
     expect(config.OPENCRED_KMS_PROVIDER).toBe("none");
     expect(config.OPENCRED_DEV_MODE_NO_AUTH).toBe(false);

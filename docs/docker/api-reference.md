@@ -329,7 +329,16 @@ Resolve a DID document from the DeDi `public_key_registry`.
 }
 ```
 
-POST (not GET) so DIDs containing colons or path components don't have to be URL-encoded by callers.
+POST (not GET) so DIDs containing colons or path components don't have to be URL-encoded by callers. A `GET /v1/keys/resolve?did=...&namespace=...` form also exists for clients that prefer the GET-cacheable shape — see the [Read-tier deployment](deployment.md#read-tier-deployment) section. Both surfaces return the same response body and set the same cache headers.
+
+**Cache headers (Tier 3 #9 of [#446](https://github.com/nfh-trust-labs/opencred/issues/446))**
+
+Successful responses include:
+
+  - `Cache-Control: public, max-age=300, stale-while-revalidate=60`
+  - `ETag: W/"<sha256-hex>"` — deterministic, derived from the response body
+
+A conditional request with a matching `If-None-Match` returns `304 Not Modified` with an empty body.
 
 **Response: `200 OK`**
 
@@ -744,6 +753,15 @@ curl -s http://localhost:3100/v1/credentials/verify \
 | `500` | `DID_RESOLUTION_ERROR` | A DID could not be resolved (e.g. `did:web` host unreachable, DNS-rebinding rejected, invalid DID document). |
 | `500` | `INTERNAL_ERROR` | Any unhandled error. |
 
+**Cache headers (Tier 3 #9 of [#446](https://github.com/nfh-trust-labs/opencred/issues/446))**
+
+Verify is POST-with-body, so a shared CDN cannot safely cache the response. To support client-side dedup of rapid re-verifications of the same credential, the response sets:
+
+  - `Cache-Control: private, max-age=60`
+  - `Vary: Content-Type, Authorization`
+
+A service-worker, in-process LRU, or any other client-side cache can use these to dedupe. A shared CDN MUST honour `private` and not cache the response.
+
 ---
 
 ### `GET /v1/schemas`
@@ -782,6 +800,16 @@ Each entry includes `id`, `version`, `contextUrl` (the JSON-LD context URL), and
 ```
 
 Returns `404 NOT_FOUND` if the id is not in the registry. Source: `apps/server/src/routes/schemas.ts`.
+
+**Cache headers (Tier 3 #9 of [#446](https://github.com/nfh-trust-labs/opencred/issues/446))**
+
+Both endpoints set:
+
+  - `Cache-Control: public, max-age=3600, stale-while-revalidate=300`
+  - `ETag: W/"<sha256-hex>"` — deterministic
+  - `Vary: category` on the list endpoint
+
+Conditional requests with a matching `If-None-Match` return `304 Not Modified`.
 
 ---
 

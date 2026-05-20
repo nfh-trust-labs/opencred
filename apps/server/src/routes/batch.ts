@@ -47,7 +47,11 @@ import { hostname } from "node:os";
 import { ValidationError } from "@opencred/shared";
 import { requireSigner } from "../signing/key-manager.js";
 import { getConfig } from "../config.js";
-import { parseCsvStreaming, StreamingCsvLimitError } from "../batch/csv-parser.js";
+import {
+  parseCsvStreaming,
+  StreamingCsvLimitError,
+  StreamingCsvRecordSizeError,
+} from "../batch/csv-parser.js";
 import type { Delimiter, ParsedRow } from "../batch/csv-parser.js";
 import { createStreamingBatchEngine } from "../batch/batch-engine.js";
 import type { StreamingBatchEngine, BatchProgress, ProofFormat } from "../batch/batch-engine.js";
@@ -289,6 +293,11 @@ batch.post("/credentials/batch", async (c) => {
     columnMapping: parsed.columnMapping,
     delimiter: parsed.delimiter as Delimiter | undefined,
     maxRows: config.OPENCRED_BATCH_ROW_LIMIT,
+    // Defense-in-depth alongside OPENCRED_MAX_BATCH_BODY_BYTES. The
+    // body-limit middleware bounds the whole request; this cap bounds
+    // a single in-flight record so a no-newline / unclosed-quote
+    // attacker can't pin the body budget on one record (#578).
+    maxRecordBytes: config.OPENCRED_BATCH_MAX_RECORD_BYTES,
   });
 
   // Header parsing happens up-front so we can return `headers` in the
@@ -300,6 +309,13 @@ batch.post("/credentials/batch", async (c) => {
   } catch (err) {
     if (err instanceof StreamingCsvLimitError) {
       throw new ValidationError(`Batch exceeds maximum of ${err.limit} rows. Split your CSV.`);
+    }
+    if (err instanceof StreamingCsvRecordSizeError) {
+      // SECURITY: surface only the configured cap, not the offending
+      // record content or byte position. The buffer may carry PII.
+      throw new ValidationError(
+        `CSV record exceeds maximum size of ${err.limit} bytes. Split your CSV or check for an unterminated quoted field.`,
+      );
     }
     throw err;
   }
@@ -323,6 +339,13 @@ batch.post("/credentials/batch", async (c) => {
     if (err instanceof StreamingCsvLimitError) {
       throw new ValidationError(`Batch exceeds maximum of ${err.limit} rows. Split your CSV.`);
     }
+    if (err instanceof StreamingCsvRecordSizeError) {
+      // SECURITY: never leak the buffered bytes or row index — both
+      // can carry PII / credential subject data.
+      throw new ValidationError(
+        `CSV record exceeds maximum size of ${err.limit} bytes. Split your CSV or check for an unterminated quoted field.`,
+      );
+    }
     throw err;
   }
 
@@ -333,6 +356,8 @@ batch.post("/credentials/batch", async (c) => {
   async function* sourceRows(): AsyncIterable<ParsedRow> {
     for (const row of parsedRows) yield row;
   }
+
+  const jobId = randomUUID();
 
   const engine = createStreamingBatchEngine(
     signer,
@@ -347,10 +372,15 @@ batch.post("/credentials/batch", async (c) => {
       selectiveDisclosureClaims: parsed.selectiveDisclosureClaims,
       credentialSchemaUrl: parsed.credentialSchemaUrl,
     },
-    { source: sourceRows() },
+    {
+      source: sourceRows(),
+      // OTel attribute for per-row spans (#581 / #446 Tier 3 #10). The
+      // jobId is an opaque UUID — CLAUDE.md security invariant: span
+      // attributes carry only opaque identifiers, never user-provided
+      // data.
+      jobId,
+    },
   );
-
-  const jobId = randomUUID();
   const createdAt = new Date().toISOString();
   const ttlSeconds = config.OPENCRED_SESSION_TTL;
 
