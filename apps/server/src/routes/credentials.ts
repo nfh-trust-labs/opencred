@@ -384,15 +384,30 @@ credentials.post("/credentials/issue", async (c) => {
   // Validate credential subject against schema. Two paths:
   //   1. inlineSchema present → compile + validate ad-hoc (no registry lookup)
   //   2. inlineSchema absent  → registry lookup by schemaId (existing behaviour)
-  if (parsed.inlineSchema) {
-    getValidator().validateInlineOrThrow(
-      parsed.inlineSchema,
-      parsed.credentialSubject,
-      parsed.schemaId,
-    );
-  } else if (parsed.schemaId) {
-    getValidator().validateOrThrow(parsed.schemaId, parsed.credentialSubject);
-  }
+  //
+  // Wrapped in a `verify.schema_validate` span so JSON-Schema validation
+  // appears alongside DID resolution / credential verification in
+  // Tempo / Jaeger. The schemaId is opaque (registry key, not user
+  // data), and the credential subject is NEVER attached to the span.
+  const { runInSpan: runInSpanForSchema } = await import("../observability/span-helpers.js");
+  await runInSpanForSchema(
+    "verify.schema_validate",
+    {
+      "verify.schema_id": parsed.schemaId ?? "inline",
+      "verify.inline_schema": Boolean(parsed.inlineSchema),
+    },
+    async () => {
+      if (parsed.inlineSchema) {
+        getValidator().validateInlineOrThrow(
+          parsed.inlineSchema,
+          parsed.credentialSubject,
+          parsed.schemaId,
+        );
+      } else if (parsed.schemaId) {
+        getValidator().validateOrThrow(parsed.schemaId, parsed.credentialSubject);
+      }
+    },
+  );
   // The Zod `.refine()` on issueRequestSchema guarantees at least one of
   // schemaId / inlineSchema is set, so an `else` branch is unreachable.
 
@@ -837,13 +852,19 @@ credentials.post("/credentials/verify", async (c) => {
     didWebResolver = new DIDWebResolver();
   }
 
-  const compositeResolver = new CompositeDIDResolver(
+  const compositeResolverRaw = new CompositeDIDResolver(
     new Map([
       ["key", new DIDKeyResolver()],
       ["jwk", new DIDJwkResolver()],
       ["web", didWebResolver],
     ]),
   );
+  // Wrap the resolver so every `.resolve(did)` call (one per credential
+  // verify, plus N more for chained / nested DID references) emits a
+  // `verify.did_resolve` span. The wrapper is a no-op when tracing is
+  // disabled (#581 / #446 Tier 3 #10).
+  const { wrapDidResolverWithTracing } = await import("../observability/verify-span.js");
+  const compositeResolver = wrapDidResolverWithTracing(compositeResolverRaw);
 
   // Use the CSCA trust store loaded at server startup. The trust store is
   // loaded once from OPENCRED_CSCA_TRUST_STORE_PATH during bootstrap and
@@ -876,7 +897,23 @@ credentials.post("/credentials/verify", async (c) => {
         400,
       );
     }
-    const pdfResult = await verifyPdf(pdfBytes, verifierConfig);
+    const { runInSpan: runInSpanForPdf } = await import("../observability/span-helpers.js");
+    const pdfResult = await runInSpanForPdf(
+      "verify.credential",
+      { "verify.format": "pdf", "verify.input_bytes": pdfBytes.byteLength },
+      async (span) => {
+        const result = await verifyPdf(pdfBytes, verifierConfig);
+        span.setAttribute("verify.code", result.code);
+        span.setAttribute("verify.verified", result.verified);
+        for (const check of result.checks) {
+          span.addEvent("verify.check", {
+            "verify.check_name": check.name,
+            "verify.check_passed": check.passed,
+          });
+        }
+        return result;
+      },
+    );
     credentialsVerifiedTotal.inc({ result: pdfResult.verified ? "valid" : "invalid" });
     return c.json(buildVerifyResponseBody(pdfResult));
   }
@@ -914,7 +951,30 @@ credentials.post("/credentials/verify", async (c) => {
       );
   }
 
-  const verificationResult = await verifyCredential(credential, verifierConfig);
+  const { runInSpan } = await import("../observability/span-helpers.js");
+  const verificationResult = await runInSpan(
+    "verify.credential",
+    { "verify.format": format },
+    async (span) => {
+      const result = await verifyCredential(credential, verifierConfig);
+      // Surface result code as an attribute so dashboards can split
+      // "valid vs invalid" without re-parsing the body. The
+      // verification check NAMES are recorded one-per-event so a
+      // single span carries the breadcrumb trail of which checks ran
+      // and how each fared — without their `detail` strings, which can
+      // leak operator-config (CSCA DN, etc.) per the route's existing
+      // sanitisation contract.
+      span.setAttribute("verify.code", result.code);
+      span.setAttribute("verify.verified", result.verified);
+      for (const check of result.checks) {
+        span.addEvent("verify.check", {
+          "verify.check_name": check.name,
+          "verify.check_passed": check.passed,
+        });
+      }
+      return result;
+    },
+  );
 
   // SECURITY: Do not leak `detail` strings or the name of the first failed
   // check in the response message — those can include operator config (e.g.
