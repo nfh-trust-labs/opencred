@@ -440,9 +440,7 @@ if (config.OPENCRED_RATE_LIMIT_ENABLED) {
       port = addr.port;
     }
     if (port === undefined) {
-      logger.warn(
-        "Rate-limit self-check skipped: server.address() did not return a numeric port",
-      );
+      logger.warn("Rate-limit self-check skipped: server.address() did not return a numeric port");
       return;
     }
     const probeUrl = `http://127.0.0.1:${port}`;
