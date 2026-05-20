@@ -346,7 +346,7 @@ The flow is identical to the local bootcamp once the tunnel is up.
 > **Postman users**: with the SSH tunnel from §5 running, the Postman
 > collection's default `baseUrl=http://localhost:3100` reaches your VM's
 > container exactly the same way. Click `GET /v1/keys` (auto-saves
-> `issuerDid`), then `POST /v1/credentials/issue (data-integrity)`
+> `issuerDid`), then `POST /v1/credentials/issue (vc-jwt)`
 > (auto-saves `lastCredential`), then `POST /v1/credentials/verify`. The
 > curl examples below are the same calls in shell form.
 
@@ -368,7 +368,7 @@ LOCAL$ curl -s http://localhost:3100/v1/credentials/issue \
     },
     \"validFrom\": \"2026-04-27T00:00:00Z\",
     \"validUntil\": \"2027-04-27T00:00:00Z\",
-    \"proofFormat\": \"data-integrity\"
+    \"proofFormat\": \"vc-jwt\"
   }" | tee credential.json | jq .credential
 
 LOCAL$ jq '{credential: (.credential | tostring)}' credential.json | \
@@ -377,6 +377,8 @@ LOCAL$ jq '{credential: (.credential | tostring)}' credential.json | \
     -H "Content-Type: application/json" \
     -d @- | jq
 ```
+
+`vc-jwt` is the server's default and works with every bundled schema. Repeat the issue call with `"proofFormat": "data-integrity"` or `"proofFormat": "sd-jwt-vc"` (and `selectiveDisclosureClaims: ["/credentialSubject/role"]` for the latter) to see the other two formats; `data-integrity` requires a JSON-LD context that does not redefine W3C-protected terms, otherwise the server returns `CRYPTO_ERROR`.
 
 The tamper test is the same — flip a byte of `credentialSubject.name` and
 re-verify. `valid: true` becomes `valid: false`.
@@ -432,7 +434,7 @@ Two paths:
 **A. Inline at issue time.** Add `packageFormats` (and optional
 `customization`) to the issue request body and the response includes
 `packagedOutputs[]` alongside the signed credential. Postman:
-**Issue & Verify → POST /v1/credentials/issue (data-integrity +
+**Issue & Verify → POST /v1/credentials/issue (vc-jwt +
 inline package)**.
 
 **B. Separate `POST /v1/credentials/package` request.** Same

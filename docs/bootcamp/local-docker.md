@@ -281,7 +281,7 @@ fields, easy to demo.
 > already auto-saved your issuer DID into the `issuerDid` collection
 > variable, so the issue requests work immediately. The issue requests in
 > turn auto-save the credential into `lastCredential` for the verify
-> request. Just click **Send** in order: `GET /v1/keys` → `POST /v1/credentials/issue (data-integrity)` → `POST /v1/credentials/verify`.
+> request. Just click **Send** in order: `GET /v1/keys` → `POST /v1/credentials/issue (vc-jwt)` → `POST /v1/credentials/verify`.
 > The curl examples below are the same calls in shell form.
 
 **Issue:**
@@ -300,13 +300,13 @@ curl -s http://localhost:3100/v1/credentials/issue \
     },
     \"validFrom\": \"2026-04-26T00:00:00Z\",
     \"validUntil\": \"2027-04-26T00:00:00Z\",
-    \"proofFormat\": \"data-integrity\"
+    \"proofFormat\": \"vc-jwt\"
   }" | tee credential.json | jq .credential
 ```
 
-Now you have a signed VC on disk. Look at the `proof` block — the
-`verificationMethod` points back to your DID, and the `proofValue` is the EC
-signature over the canonicalized credential.
+`vc-jwt` is the server's default and works with every bundled schema. We'll explore the JSON-LD-flavored `data-integrity` and selective-disclosure `sd-jwt-vc` formats in §6b.
+
+Now you have a signed VC on disk. The `proof` block carries a compact JWS in `proof.jwt` — header.payload.signature — signed by your issuer key over the credential payload.
 
 **Verify** the credential you just issued:
 
@@ -401,13 +401,14 @@ Things worth knowing:
 
 ### 6b. Try a few proof formats
 
-Repeat the issue call with `"proofFormat": "vc-jwt"` and
-`"proofFormat": "sd-jwt-vc"` and observe how the response shape changes:
+§5 used `vc-jwt` (the default). Repeat the issue call with
+`"proofFormat": "data-integrity"` and `"proofFormat": "sd-jwt-vc"`
+and observe how the response shape changes:
 
 | Proof format | Response shape | Use case |
 |---|---|---|
-| `data-integrity` | JSON-LD VC with a `proof` object | Default for human-readable VCs |
-| `vc-jwt` | Compact JWS string in `credential` | Smaller, JOSE-stack interop |
+| `vc-jwt` (default) | Compact JWS in `proof.jwt` | Default — works with every schema, JOSE-stack interop |
+| `data-integrity` | JSON-LD VC with a `proof` object holding a `proofValue` | When you want a self-describing JSON-LD credential. Requires a JSON-LD context that does not redefine W3C-protected terms; otherwise the server returns `CRYPTO_ERROR: Invalid JSON-LD syntax; tried to redefine a protected term`. |
 | `sd-jwt-vc` | Compact `~`-separated string | Selective disclosure (use `selectiveDisclosureClaims`) |
 
 For SD-JWT, also pass:
@@ -423,7 +424,7 @@ There are two paths — pick whichever feels more natural:
 **A. One-call: ask for packaging at issue time.** Add `packageFormats`
 (and optional `customization`) to the issue request body and the response
 includes a `packagedOutputs[]` alongside the signed credential. Postman:
-**Issue & Verify → POST /v1/credentials/issue (data-integrity + inline
+**Issue & Verify → POST /v1/credentials/issue (vc-jwt + inline
 package)**.
 
 **B. Separate-step: re-render an already-issued credential.**
@@ -651,7 +652,7 @@ curl -s http://localhost:3100/v1/credentials/issue \
       \"validFrom\": \"2026-04-26T00:00:00Z\"
     },
     \"validFrom\": \"2026-04-26T00:00:00Z\",
-    \"proofFormat\": \"data-integrity\",
+    \"proofFormat\": \"vc-jwt\",
     \"revocationRegistryUrl\": \"$REVOCATION_REGISTRY_URL\"
   }" | tee revokable.json | jq '.credential.credentialStatus'
 ```
@@ -911,7 +912,7 @@ curl -s http://localhost:3100/v1/credentials/issue \
   -d '{"schemaId":"functional-identity/v1","issuerDid":"'"$ISSUER_DID"'",
        "credentialSubject":{"name":"Jane Doe","role":"Bootcamp Attendee",
        "validFrom":"2026-04-26T00:00:00Z"},
-       "validFrom":"2026-04-26T00:00:00Z","proofFormat":"data-integrity"}' \
+       "validFrom":"2026-04-26T00:00:00Z","proofFormat":"vc-jwt"}' \
   | tee credential.json | jq
 
 # Verify
