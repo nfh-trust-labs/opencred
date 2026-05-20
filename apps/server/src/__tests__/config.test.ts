@@ -372,4 +372,42 @@ describe("Config — issuer identity (DID method)", () => {
     process.env.OPENCRED_DEDI_HOST_DID_DOC = "true";
     expect(() => loadConfig()).toThrow(/requires DeDi to be configured/);
   });
+
+  // --- Job store (Tier 2 #5 of nfh-trust-labs/opencred#446) ---
+
+  it("defaults OPENCRED_JOB_STORE to memory", () => {
+    const config = loadConfig();
+    expect(config.OPENCRED_JOB_STORE).toBe("memory");
+  });
+
+  it("accepts OPENCRED_JOB_STORE=redis with a valid OPENCRED_REDIS_URL", () => {
+    process.env.OPENCRED_JOB_STORE = "redis";
+    process.env.OPENCRED_REDIS_URL = "redis://localhost:6379";
+    const config = loadConfig();
+    expect(config.OPENCRED_JOB_STORE).toBe("redis");
+    expect(config.OPENCRED_REDIS_URL).toBe("redis://localhost:6379");
+  });
+
+  it("rejects OPENCRED_JOB_STORE=redis when OPENCRED_REDIS_URL is unset", () => {
+    process.env.OPENCRED_JOB_STORE = "redis";
+    delete process.env.OPENCRED_REDIS_URL;
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/OPENCRED_REDIS_URL is required/);
+  });
+
+  it("rejects unknown OPENCRED_JOB_STORE values", () => {
+    process.env.OPENCRED_JOB_STORE = "etcd";
+    expect(() => loadConfig()).toThrow();
+  });
+
+  it("defaults OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED to true (verify by default)", () => {
+    const config = loadConfig();
+    expect(config.OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED).toBe(true);
+  });
+
+  it("honours OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED=false (explicit opt-out)", () => {
+    process.env.OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED = "false";
+    const config = loadConfig();
+    expect(config.OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED).toBe(false);
+  });
 });

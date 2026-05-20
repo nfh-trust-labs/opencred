@@ -158,6 +158,9 @@ All configuration is loaded from environment variables at startup and parsed by 
 | `OPENCRED_RATE_LIMIT_VERIFY` | No | `120` | Max requests per window for the `verify` tier. | `120` |
 | `OPENCRED_RATE_LIMIT_READ` | No | `600` | Max requests per window for read-only routes (`/schemas`, `/health`). | `600` |
 | `OPENCRED_TRUST_PROXY` | No | `false` | When `true`, honour `X-Forwarded-For` for IP-based rate-limit buckets. **Set this only when running behind a trusted reverse proxy.** | `true` |
+| `OPENCRED_JOB_STORE` | No | `memory` | Batch job backing store. `memory` for single-instance, `redis` for horizontal scale. See [Horizontal scale](../docker/deployment.md#horizontal-scale). | `redis` |
+| `OPENCRED_REDIS_URL` | When `OPENCRED_JOB_STORE=redis` | _(unset)_ | Redis connection URL. Accepts `redis://` or `rediss://` (TLS). May embed credentials inline; the full URL is **never** logged — only the redacted `host:port` descriptor. | `rediss://default:pw@redis.prod:6380/0` |
+| `OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED` | No | `true` | Whether to verify the Redis server's TLS certificate when using `rediss://`. There is no silent fall-through via an empty string. | `false` |
 
 [^1]: A signing key is required for `POST /v1/credentials/issue` to succeed. If neither `OPENCRED_KEY_PATH` nor a Cloud HSM provider is configured, the server still starts and `/v1/health` reports `signingKeyLoaded: false`, but every issue request returns `500 INTERNAL_ERROR` (the sanitized fallback for the unhandled `requireSigner()` throw — see [Observability → Health Checks](observability.md#health-checks)).
 [^2]: `OPENCRED_CSCA_TRUST_STORE_PATH` is only required to verify credentials that carry an `x5c` certificate chain (DSC-backed credentials). Verification of DID-keyed credentials does not need it. When unset, the verifier still functions but fails closed for any credential whose proof carries an `x5c` chain — see [`POST /v1/credentials/verify`](#post-v1credentialsverify) below.
@@ -812,6 +815,8 @@ The CSV row count is capped at `OPENCRED_BATCH_ROW_LIMIT` (default `1000`); exce
 
 > **Worker pool.** Rows are signed in parallel up to `OPENCRED_BATCH_CONCURRENCY` (default `min(4, cpus)`). Per-row error semantics are unchanged from the pre-pool serial loop: a row that fails signing produces `status: "error"` in the results array and does **not** abort the batch. The results array is always ordered by input row index regardless of completion order.
 
+> **Job store.** Batch jobs live in a pluggable backing store — `OPENCRED_JOB_STORE=memory` (default, single-instance) or `OPENCRED_JOB_STORE=redis` (horizontal scale). When Redis is configured, every replica can answer `GET /v1/credentials/batch/:jobId` regardless of which replica accepted the original POST. See [Horizontal scale](../docker/deployment.md#horizontal-scale) for the deployment story. The actual signing work stays pinned to the replica that received the POST — there is no cross-replica work stealing.
+
 **Response: `202 Accepted`**
 
 ```json
@@ -853,7 +858,9 @@ Returns live progress for a batch job. Safe to poll.
 }
 ```
 
-Returns `404 NOT_FOUND` if the `jobId` is unknown.
+Returns `404 NOT_FOUND` if the `jobId` is unknown — either it never existed, or it was purged by TTL (`OPENCRED_SESSION_TTL`, default 4h).
+
+The `status` field is the canonical PRD §5.4.2 enum: `queued`, `running`, `completed`, `cancelled`, `failed`, or `interrupted`. The `running`/`cancelled` booleans are legacy aliases retained for one release. **`interrupted`** is new in v1.5.x and signals that the server received SIGTERM/SIGINT while this job was in flight — the replica that was driving it shut down before the job could settle. Clients that observe `interrupted` should treat the partial results in `/results` as best-effort and may choose to re-submit the batch.
 
 `GET /v1/credentials/batch/:jobId/results` returns the per-row outcomes as `{ jobId, results: [{ rowIndex, status, error?, credential?, isCompactToken? }] }`. If the job is still running, it returns `409 JOB_RUNNING` — poll the progress endpoint until it reports `running: false`. Source: `apps/server/src/routes/batch.ts`.
 
