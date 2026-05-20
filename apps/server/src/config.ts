@@ -67,6 +67,28 @@ const configSchema = z.object({
   /** Maximum rows allowed in a single batch CSV. */
   OPENCRED_BATCH_ROW_LIMIT: z.coerce.number().int().min(1).default(1000),
 
+  /**
+   * Maximum size (bytes) of a single CSV record (one logical row,
+   * possibly spanning multiple physical lines because of quoted
+   * newlines) before the streaming parser rejects the upload with
+   * `StreamingCsvRecordSizeError`.
+   *
+   * Defense-in-depth alongside `OPENCRED_MAX_BATCH_BODY_BYTES`: the
+   * body-limit middleware bounds the whole request, this cap bounds
+   * a single in-flight record so a pathological no-newline /
+   * unclosed-quote payload can't pin the entire body-limit budget on
+   * one record that never completes (issue #578 / #577 review).
+   *
+   * Default: 1 MiB. A credential-issuance row is typically a few
+   * hundred bytes — anything north of 1 MiB is suspicious. Bump it
+   * if you legitimately ship multi-megabyte free-text fields.
+   */
+  OPENCRED_BATCH_MAX_RECORD_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1024)
+    .default(1024 * 1024),
+
   /** Session TTL in seconds (for ephemeral credential data). Default: 4 hours. */
   OPENCRED_SESSION_TTL: z.coerce.number().int().min(60).default(14400),
 
@@ -309,6 +331,52 @@ const configSchema = z.object({
    * in `apps/server/src/batch/job-store/factory.ts`.
    */
   OPENCRED_REDIS_URL: z.string().url().optional(),
+
+  // --- OpenTelemetry tracing (Tier 3 #10 of nfh-trust-labs/opencred#446) ---
+
+  /**
+   * Master switch for OpenTelemetry tracing. Defaults to **false** for
+   * back-compat with existing single-instance deployments — every release
+   * before this one ran without tracing instrumentation. When enabled,
+   * critical-path spans (`http.server.duration`, `batch.row.process`,
+   * `signer.sign`, `verify.*`, `dedi.*`) are emitted to the configured
+   * collector. Standard OpenTelemetry environment variables apply:
+   *
+   *   - `OTEL_EXPORTER_OTLP_ENDPOINT` — collector URL (e.g. `http://otel:4318`).
+   *     When unset, spans are emitted to a no-op exporter so the tracer
+   *     overhead is still bounded (no network calls). Useful for tests
+   *     that exercise the in-memory exporter via `setInMemoryExporter`.
+   *   - `OTEL_SERVICE_NAME` — defaults to `opencred-server`.
+   *   - `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` — sampler config
+   *     (e.g. `parentbased_traceidratio` + `0.1` for 10% sampling).
+   *
+   * SECURITY: Spans MUST NOT carry private key material, signing buffers,
+   * or credential subject PII. The instrumentation helpers in
+   * `src/observability/` enforce this contract — see signer-span.ts.
+   */
+  OPENCRED_OTEL_ENABLED: booleanFromString,
+
+  /**
+   * Read-only mode (Tier 3 #9 of nfh-trust-labs/opencred#446).
+   *
+   * When `true`, the server refuses every write endpoint (issue, batch,
+   * revoke, keys/publish) with a `405 Method Not Allowed` response. The
+   * read surface (verify, keys/resolve, schemas, contexts, health,
+   * metrics) stays enabled. This implements the "dedicated read tier"
+   * deployment pattern: an operator runs a replica fleet without the
+   * signing key, in front of (or instead of) a CDN, to scale verification
+   * traffic without paying the signing-cost overhead on every node.
+   *
+   * Fail-closed semantics:
+   *  - The enforcement middleware uses a denylist of *write* paths so a
+   *    new write endpoint added later, without updating the list, is
+   *    blocked by default — the read surface is the explicit allowlist,
+   *    not the implicit one. See `apps/server/src/middleware/read-only.ts`.
+   *  - The flag is checked at every request. Toggling it via a runtime
+   *    env hot-reload is not supported (config is cached at startup), but
+   *    a rolling restart picks up the new value.
+   */
+  OPENCRED_READ_ONLY: booleanFromString,
 
   /**
    * Whether to verify the Redis server's TLS certificate when using

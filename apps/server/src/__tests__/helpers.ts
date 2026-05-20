@@ -19,6 +19,7 @@ import { createRegistry, Validator } from "@opencred/schema-engine";
 import { authMiddleware } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { applyRateLimits } from "../middleware/rate-limit.js";
+import { readOnlyMiddleware } from "../middleware/read-only.js";
 import { health } from "../routes/health.js";
 import { schemas } from "../routes/schemas.js";
 import { credentials } from "../routes/credentials.js";
@@ -29,6 +30,7 @@ import { keys } from "../routes/keys.js";
 import { dedi } from "../routes/dedi.js";
 import { metrics } from "../routes/metrics.js";
 import { metricsMiddleware } from "../middleware/metrics.js";
+import { tracingMiddleware } from "../middleware/tracing.js";
 import { computeFingerprint, deriveDidKeyIdFromPublicKey } from "@opencred/signing";
 import type { Signer, SignerMetadata } from "@opencred/signing";
 import { sign as ecSign } from "node:crypto";
@@ -156,6 +158,13 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
   if (!process.env.OPENCRED_RATE_LIMIT_ENABLED) {
     process.env.OPENCRED_RATE_LIMIT_ENABLED = "false";
   }
+  // Read-only mode is off by default so existing endpoint tests still
+  // exercise the write surface. Tests that exercise read-only mode flip
+  // the env on before calling createTestApp() (see read-only.test.ts).
+  // We do NOT auto-clear it — explicit opt-out via the same env var.
+  if (process.env.OPENCRED_READ_ONLY === undefined) {
+    process.env.OPENCRED_READ_ONLY = "false";
+  }
 
   loadConfig();
   createLogger();
@@ -200,7 +209,12 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
     })(c, next);
   });
 
-  // Global middleware
+  // Global middleware — mirror src/index.ts order: tracing first, then metrics.
+  // Tests usually run with tracing disabled (`OPENCRED_OTEL_ENABLED` unset),
+  // in which case `tracingMiddleware` collapses to a single function call
+  // around `next()` via the no-op tracer.
+  app.use("*", tracingMiddleware);
+
   app.use("*", metricsMiddleware);
 
   // applyRateLimits reads OPENCRED_RATE_LIMIT_ENABLED; it is a no-op
@@ -210,6 +224,12 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
   applyRateLimits(app);
 
   app.use("*", authMiddleware);
+
+  // Read-only middleware mirrors src/index.ts. No-op when
+  // OPENCRED_READ_ONLY is false (the default); active under the
+  // `read-only.test.ts` suite which flips the env on before calling
+  // createTestApp().
+  app.use("*", readOnlyMiddleware);
 
   // Mount routes — both legacy ("/") and versioned ("/v1") paths.
   // Mirrors src/index.ts so the smoke test exercises the full production
