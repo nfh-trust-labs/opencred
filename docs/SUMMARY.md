@@ -30,6 +30,7 @@
 * [Cloud HSM](docker/cloud-hsm.md)
 * [Observability](docker/observability.md)
 * [OID4VCI](docker/oid4vci.md)
+* [Grafana dashboards](observability/grafana-dashboards/README.md)
 
 ## Bootcamp
 
