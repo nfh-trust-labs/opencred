@@ -316,7 +316,24 @@ const configSchema = z.object({
    * explicitly to disable verification — there is no silent fall-through
    * via an empty string.
    */
-  OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED: booleanFromString.default(true),
+  OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED: z
+    .preprocess((value) => {
+      // SECURITY: empty string MUST fall through to the default (true).
+      // The generic `booleanFromString` helper coerces "" to false, which
+      // would silently disable TLS verification — a common footgun when an
+      // env template variable fails to expand. Override the preprocess here
+      // so only explicit "false" / "0" / "no" / "off" actually opt-out.
+      if (value === undefined || value === null || value === "") return true;
+      if (typeof value === "boolean") return value;
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === "") return true;
+        if (["true", "1", "yes", "on"].includes(normalized)) return true;
+        if (["false", "0", "no", "off"].includes(normalized)) return false;
+      }
+      return value;
+    }, z.boolean())
+    .default(true),
 });
 
 export type ServerConfig = z.infer<typeof configSchema>;

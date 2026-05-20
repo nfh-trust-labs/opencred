@@ -127,8 +127,15 @@ export type JobMutator = (current: JobRecord) => JobRecord | null;
  *  - The memory implementation is safe by virtue of the single-threaded
  *    JS event loop — no two awaits land between read and write inside one
  *    method invocation.
- *  - The Redis implementation uses optimistic concurrency via WATCH/MULTI
- *    in {@link update}.
+ *  - The Redis implementation of {@link update} is last-writer-wins: it
+ *    reads, applies the mutator in JS, then writes back via `SET ... EX`,
+ *    retrying only on transient SET failures. Safe in practice because
+ *    progress writes are monotonic per-record and pinned to the owning
+ *    replica (other replicas read but do not write the same job's progress).
+ *    `finalizeAllRunningJobs` interleaving on SIGTERM is benign — both
+ *    writers produce the same `"interrupted"` state. If a future caller
+ *    violates the single-writer invariant, switch this to WATCH/MULTI or
+ *    a Lua script.
  */
 export interface JobStore {
   /**
