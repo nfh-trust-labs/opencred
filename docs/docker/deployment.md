@@ -343,11 +343,63 @@ Both the LB (above) and the container orchestrator should probe `/v1/health`:
 
 #### What it does NOT do (and why)
 
-* **Cross-replica work stealing.** The actual signing for a batch is pinned to the replica that received the POST. If that replica dies mid-batch:
+* **Cross-replica work stealing — `inline` mode only.** In the default `inline` dispatch the actual signing for a batch is pinned to the replica that received the POST. If that replica dies mid-batch:
   - On a *graceful* shutdown (SIGTERM), the replica marks every in-flight job as `interrupted` in Redis before exiting. A client polling for that job sees the settled state and can re-submit.
   - On an *abrupt* exit (kernel OOM, hard kill), no terminal write happens. The job's `lastSeenAt` stops refreshing; the entry eventually expires via TTL. The heartbeat signal is what lets an observer notice this gap without waiting for the full TTL.
-  In neither case does another replica pick up the work — re-issuance is the client's call.
-* **A queue.** OpenCred does not implement BullMQ, SQS, or any durable work queue. That's a separate roadmap item (Tier 3 in #446) and would change the API contract.
+  In neither case does another replica pick up the work — re-issuance is the client's call. The opt-in `queue` dispatch (see below) lifts this restriction by moving signing into a separate worker fleet.
+
+### Queue dispatch (worker fleet) — `OPENCRED_BATCH_DISPATCH=queue`
+
+When you scale beyond a single API replica AND batches are large enough that you want them to survive an API restart, opt into the worker-fleet model (Tier 3 #8 of nfh-trust-labs/opencred#446):
+
+```bash
+# .env additions
+OPENCRED_BATCH_DISPATCH=queue
+OPENCRED_JOB_STORE=redis
+OPENCRED_REDIS_URL=rediss://redis.prod:6380/0
+# Optional knobs (sensible defaults if unset)
+OPENCRED_WORKER_CONCURRENCY=4              # jobs per worker process (default min(4, cpus))
+OPENCRED_WEBHOOK_WORKER_CONCURRENCY=4      # webhook deliveries per worker
+```
+
+```yaml
+# docker-compose.yml — uncomment the `worker` stanza
+worker:
+  image: ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+  command: ["node", "apps/server/dist/worker.js"]
+  env_file: .env
+  restart: unless-stopped
+  depends_on:
+    - server
+  volumes:
+    - ./issuer-key.pem:/app/keys/key.pem:ro
+```
+
+Then:
+
+```bash
+docker compose up -d --scale worker=4
+```
+
+**How it works.** In queue mode the API process does:
+
+1. Parse + validate the CSV body (same as inline).
+2. Persist the initial `JobRecord` with `status: "queued"` to Redis.
+3. Enqueue a `BatchJob` message onto the `opencred:batch` BullMQ queue.
+4. Return `202 { jobId, status: "queued" }` immediately.
+
+Worker processes consume the queue, run the streaming engine, push progress frames back into the shared JobStore via the engine's `onProgress` hook, and enqueue a webhook delivery (if `webhookUrl` was supplied) onto `opencred:webhook` for the same fleet to handle with retry + DLQ semantics.
+
+**Failure model.**
+
+| Event | Behaviour |
+| --- | --- |
+| Worker crashes mid-batch | BullMQ marks the job stalled after `lockDuration` (~30 s) and re-enqueues it. At-least-once — see the [spike doc](../spikes/spike-1-external-job-queue.md) for the duplicate-row caveat. |
+| API replica restart | No effect on in-flight work — workers own it. Returning replicas read the same Redis. |
+| Webhook receiver down | Webhook job retries up to 5× with exponential backoff (2s, 4s, 8s, 16s, 32s), then lands in BullMQ's `failed` set (DLQ). Batch outcome is unaffected. |
+| Redis down | Enqueue fails → API returns 503. Already-running batches lose progress visibility until Redis returns. |
+
+**Security.** Workers load the signing key from `OPENCRED_KEY_PATH` (or a Cloud HSM provider) the same way the API does — keys NEVER travel through the queue payload (CLAUDE.md rule 1). Webhook signing secrets are read from `OPENCRED_WEBHOOK_SECRET` in the worker's own env at delivery time; the secret never enters a queue message.
 
 #### Stale-replica detection
 

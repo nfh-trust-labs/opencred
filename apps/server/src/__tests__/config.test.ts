@@ -411,4 +411,46 @@ describe("Config — issuer identity (DID method)", () => {
     const config = loadConfig();
     expect(config.OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED).toBe(false);
   });
+
+  // -------------------------------------------------------------------
+  // Batch dispatch cross-field validation (Tier 3 #8 of #446)
+  // -------------------------------------------------------------------
+
+  it("defaults OPENCRED_BATCH_DISPATCH to inline", () => {
+    const config = loadConfig();
+    expect(config.OPENCRED_BATCH_DISPATCH).toBe("inline");
+  });
+
+  it("OPENCRED_BATCH_DISPATCH=queue rejects without OPENCRED_REDIS_URL", () => {
+    process.env.OPENCRED_BATCH_DISPATCH = "queue";
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/OPENCRED_REDIS_URL is required/);
+  });
+
+  it("OPENCRED_BATCH_DISPATCH=queue rejects when OPENCRED_JOB_STORE=memory", () => {
+    process.env.OPENCRED_BATCH_DISPATCH = "queue";
+    process.env.OPENCRED_REDIS_URL = "redis://localhost:6379";
+    // OPENCRED_JOB_STORE defaults to memory — explicit assignment is
+    // not required to trigger the validator.
+    expect(() => loadConfig()).toThrow(/requires OPENCRED_JOB_STORE=redis/);
+  });
+
+  it("OPENCRED_BATCH_DISPATCH=queue accepts with redis store + url", () => {
+    process.env.OPENCRED_BATCH_DISPATCH = "queue";
+    process.env.OPENCRED_REDIS_URL = "redis://localhost:6379";
+    process.env.OPENCRED_JOB_STORE = "redis";
+    const config = loadConfig();
+    expect(config.OPENCRED_BATCH_DISPATCH).toBe("queue");
+  });
+
+  it("OPENCRED_WEBHOOK_WORKER_CONCURRENCY defaults to 4", () => {
+    const config = loadConfig();
+    expect(config.OPENCRED_WEBHOOK_WORKER_CONCURRENCY).toBe(4);
+  });
+
+  it("OPENCRED_WORKER_CONCURRENCY parses to a positive integer override", () => {
+    process.env.OPENCRED_WORKER_CONCURRENCY = "8";
+    const config = loadConfig();
+    expect(config.OPENCRED_WORKER_CONCURRENCY).toBe(8);
+  });
 });

@@ -8,11 +8,25 @@
 # Build from the repo root:
 #   docker build -f apps/server/Dockerfile -t opencred/server:dev .
 #
-# Run:
+# Run (server — API):
 #   docker run --rm -p 3100:3100 \
 #     -e OPENCRED_KEY_PATH=/run/secrets/issuer.pem \
 #     -v /local/path/issuer.pem:/run/secrets/issuer.pem:ro \
 #     opencred/server:dev
+#
+# Run (worker — batch + webhook consumer, Tier 3 #8 of #446):
+#   docker run --rm \
+#     -e OPENCRED_BATCH_DISPATCH=queue \
+#     -e OPENCRED_JOB_STORE=redis \
+#     -e OPENCRED_REDIS_URL=redis://redis:6379 \
+#     -e OPENCRED_KEY_PATH=/run/secrets/issuer.pem \
+#     -v /local/path/issuer.pem:/run/secrets/issuer.pem:ro \
+#     opencred/server:dev \
+#     node apps/server/dist/worker.js
+#
+# The worker uses the SAME image as the server — only the entry point
+# differs. Workers load the same signing key as the API (CLAUDE.md
+# rule 1: keys never travel through the queue).
 #
 # REQUIRED ENV VARS
 #   OPENCRED_KEY_PATH        Absolute path inside the container to a PEM/JWK/

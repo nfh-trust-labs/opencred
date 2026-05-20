@@ -45,6 +45,7 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { ValidationError } from "@opencred/shared";
+import type { BatchJob, BatchJobConfig, BatchJobRow } from "@opencred/shared";
 import { requireSigner } from "../signing/key-manager.js";
 import { getConfig } from "../config.js";
 import {
@@ -63,6 +64,7 @@ import { batchJobsTotal } from "../metrics.js";
 import { parseJsonBody } from "../middleware/parse-json.js";
 import { MemoryJobStore } from "../batch/job-store/memory.js";
 import type { JobRecord, JobStatus, JobStore } from "../batch/job-store/types.js";
+import type { BatchQueue } from "../batch/queue.js";
 
 const batch = new Hono();
 
@@ -97,6 +99,29 @@ export function setJobStore(store: JobStore): void {
  */
 export function getJobStore(): JobStore {
   return jobStore;
+}
+
+// ---------------------------------------------------------------------------
+// Batch queue wiring (Tier 3 #8 of #446)
+// ---------------------------------------------------------------------------
+//
+// When `OPENCRED_BATCH_DISPATCH=queue` is configured at startup,
+// `index.ts` builds a BullMQ-backed BatchQueue and injects it here via
+// `setBatchQueue`. The POST handler then enqueues a `BatchJob` instead
+// of running the engine in-process.
+//
+// Default (`inline` mode): the queue stays `null` and the POST handler
+// retains today's behaviour bit-for-bit.
+
+let batchQueue: BatchQueue | null = null;
+
+/**
+ * Inject the BullMQ-backed batch queue. Called by `index.ts` only when
+ * `OPENCRED_BATCH_DISPATCH=queue`. Tests pass a stub for the queue
+ * dispatch path; pass `null` to revert to inline mode.
+ */
+export function setBatchQueue(queue: BatchQueue | null): void {
+  batchQueue = queue;
 }
 
 // In-process map of live engines. Keyed by jobId, populated only on the
@@ -244,7 +269,6 @@ batch.post("/credentials/batch", async (c) => {
   // is checked once. See CLAUDE.md rule 1.
   rejectKeyMaterial(body);
   const parsed = batchRequestSchema.parse(body);
-  const signer = requireSigner();
   const config = getConfig();
 
   // LOW-04: supplying a webhookUrl requires a dedicated, configured secret.
@@ -263,6 +287,14 @@ batch.post("/credentials/batch", async (c) => {
       400,
     );
   }
+
+  // In inline mode the route requires a loaded signer up-front (the engine
+  // runs in this process). In queue mode the SIGNING happens inside the
+  // worker process, so the API can accept the POST without a local signer.
+  // Worker boot-time also validates its own signer, so the request is
+  // never dispatched against a worker without a key.
+  const dispatchMode = batchQueue ? "queue" : "inline";
+  const signer = dispatchMode === "inline" ? requireSigner() : null;
 
   // Streaming CSV parser (issue #446 Tier 2 #7). Replaces the old
   // `parseCsv(string)` path that materialised THREE in-memory copies
@@ -349,40 +381,21 @@ batch.post("/credentials/batch", async (c) => {
     throw err;
   }
 
-  // Async-iterable adapter over the array. Yields rows on demand so
-  // the engine's `p-map` pulls one row at a time at the worker pool's
-  // rate. The engine itself doesn't care that the underlying input is
-  // already materialised — same code path as a true byte-stream feed.
-  async function* sourceRows(): AsyncIterable<ParsedRow> {
-    for (const row of parsedRows) yield row;
-  }
-
   const jobId = randomUUID();
-
-  const engine = createStreamingBatchEngine(
-    signer,
-    {
-      schemaId: parsed.schemaId,
-      issuerDid: parsed.issuerDid,
-      validFrom: parsed.validFrom,
-      validUntil: parsed.validUntil,
-      revocationRegistryUrl: parsed.revocationRegistryUrl,
-      additionalTypes: parsed.additionalTypes,
-      proofFormat: parsed.proofFormat as ProofFormat,
-      selectiveDisclosureClaims: parsed.selectiveDisclosureClaims,
-      credentialSchemaUrl: parsed.credentialSchemaUrl,
-    },
-    {
-      source: sourceRows(),
-      // OTel attribute for per-row spans (#581 / #446 Tier 3 #10). The
-      // jobId is an opaque UUID — CLAUDE.md security invariant: span
-      // attributes carry only opaque identifiers, never user-provided
-      // data.
-      jobId,
-    },
-  );
   const createdAt = new Date().toISOString();
   const ttlSeconds = config.OPENCRED_SESSION_TTL;
+
+  const batchJobConfig: BatchJobConfig = {
+    schemaId: parsed.schemaId,
+    issuerDid: parsed.issuerDid,
+    validFrom: parsed.validFrom,
+    validUntil: parsed.validUntil,
+    revocationRegistryUrl: parsed.revocationRegistryUrl,
+    additionalTypes: parsed.additionalTypes,
+    proofFormat: parsed.proofFormat as ProofFormat,
+    selectiveDisclosureClaims: parsed.selectiveDisclosureClaims,
+    credentialSchemaUrl: parsed.credentialSchemaUrl,
+  };
 
   const initialRecord: JobRecord = {
     jobId,
@@ -399,18 +412,114 @@ batch.post("/credentials/batch", async (c) => {
     lastSeenAt: createdAt,
   };
 
-  // Two writes happen atomically from the request's point of view:
-  //   1. The JobStore record (what every replica can see).
-  //   2. The local engine map (what this replica needs to drive the work).
   await jobStore.set(jobId, initialRecord, ttlSeconds);
+  batchJobsTotal.inc({ status: "started" });
+
+  // ----- Queue mode --------------------------------------------------
+  //
+  // The route enqueues a `BatchJob` and immediately returns 202. The
+  // worker pulls the job, runs the engine, and pushes progress frames
+  // into the same JobStore via the engine's `onProgress` hook.
+  if (batchQueue) {
+    // Convert parsed rows to the wire-format. `claims` is intentionally
+    // `mappedSubject` (NOT `rawValues`) — the worker uses it directly
+    // as the credentialSubject.
+    const wireRows: BatchJobRow[] = parsedRows.map((r) => ({
+      rowIndex: r.rowIndex,
+      valid: r.valid,
+      errors: r.valid ? undefined : r.errors.map((e) => `${e.field}: ${e.message}`),
+      claims: r.valid ? r.mappedSubject : undefined,
+    }));
+    const message: BatchJob = {
+      jobId,
+      config: batchJobConfig,
+      rows: wireRows,
+      webhookUrl: parsed.webhookUrl,
+      enqueuedByReplica: REPLICA_ID,
+      enqueuedAt: createdAt,
+    };
+    try {
+      await batchQueue.add(message, { removeOnCompleteAgeSec: ttlSeconds });
+    } catch (err) {
+      // Enqueue failure: mark the job failed in the store so a GET
+      // doesn't return a stuck `queued` record. The 500 surfaces to the
+      // client so the operator can retry.
+      getLogger().warn({ jobId, err }, "Failed to enqueue batch job");
+      await jobStore
+        .update(
+          jobId,
+          (current) => ({
+            ...current,
+            status: "failed",
+            completedAt: new Date().toISOString(),
+          }),
+          ttlSeconds,
+        )
+        .catch(() => undefined);
+      batchJobsTotal.inc({ status: "failed" });
+      return c.json(
+        {
+          error: {
+            code: "QUEUE_ENQUEUE_FAILED",
+            message: "Failed to enqueue batch job; check server logs",
+          },
+        },
+        503,
+      );
+    }
+
+    const parseErrors = parsedRows
+      .filter((r) => !r.valid)
+      .map((r) => ({ rowIndex: r.rowIndex, errors: r.errors }));
+
+    return c.json(
+      {
+        jobId,
+        status: "queued" as const,
+        headers,
+        validCount,
+        invalidCount,
+        totalCount: parsedRows.length,
+        parseErrors: parseErrors.length > 0 ? parseErrors : undefined,
+        webhookUrl: parsed.webhookUrl,
+      },
+      202,
+    );
+  }
+
+  // ----- Inline mode (default, back-compat) --------------------------
+
+  // Async-iterable adapter over the array. Yields rows on demand so
+  // the engine's `p-map` pulls one row at a time at the worker pool's
+  // rate. The engine itself doesn't care that the underlying input is
+  // already materialised — same code path as a true byte-stream feed.
+  async function* sourceRows(): AsyncIterable<ParsedRow> {
+    for (const row of parsedRows) yield row;
+  }
+
+  // `signer` is non-null here because we only enter the inline branch
+  // when batchQueue is null, and the top of the handler `requireSigner()`s
+  // when dispatchMode is "inline". The non-null assertion documents that
+  // invariant rather than re-running the check.
+  const engine = createStreamingBatchEngine(signer!, batchJobConfig, {
+    source: sourceRows(),
+    // OTel attribute for per-row spans (#581 / #446 Tier 3 #10). The
+    // jobId is an opaque UUID — CLAUDE.md security invariant: span
+    // attributes carry only opaque identifiers, never user-provided
+    // data.
+    jobId,
+  });
+
+  // Inline mode keeps the live engine on this replica so we can answer
+  // GETs from its `getProgress()` without a Redis round-trip.
   localEngines.set(jobId, engine);
 
   // Tier 2 #6: start the heartbeat loop. Owning replica refreshes
   // `lastSeenAt` every `OPENCRED_HEARTBEAT_INTERVAL_SEC` until the
-  // engine settles or shutdown tears it down.
+  // engine settles or shutdown tears it down. Queue mode does NOT start
+  // a heartbeat here — the worker process owns the heartbeat for jobs
+  // it picks up off the queue.
   startHeartbeat(jobId, config.OPENCRED_HEARTBEAT_INTERVAL_SEC, ttlSeconds);
-
-  batchJobsTotal.inc({ status: "started" });
 
   // Background driver — engine.start() returns a Promise that settles
   // once every row has been processed. We don't await here; the route
@@ -689,6 +798,7 @@ export function __resetBatchStateForTesting(): void {
   }
   heartbeatTimers.clear();
   jobStore = new MemoryJobStore();
+  batchQueue = null;
 }
 
 /**
