@@ -159,8 +159,21 @@ All configuration is loaded from environment variables at startup and parsed by 
 | `OPENCRED_RATE_LIMIT_READ` | No | `600` | Max requests per window for read-only routes (`/schemas`, `/health`). | `600` |
 | `OPENCRED_TRUST_PROXY` | No | `false` | When `true`, honour `X-Forwarded-For` for IP-based rate-limit buckets. **Set this only when running behind a trusted reverse proxy.** | `true` |
 | `OPENCRED_JOB_STORE` | No | `memory` | Batch job backing store. `memory` for single-instance, `redis` for horizontal scale. See [Horizontal scale](../docker/deployment.md#horizontal-scale). | `redis` |
-| `OPENCRED_REDIS_URL` | When `OPENCRED_JOB_STORE=redis` | _(unset)_ | Redis connection URL. Accepts `redis://` or `rediss://` (TLS). May embed credentials inline; the full URL is **never** logged — only the redacted `host:port` descriptor. | `rediss://default:pw@redis.prod:6380/0` |
+| `OPENCRED_REDIS_URL` | When `OPENCRED_JOB_STORE=redis` or `OPENCRED_BATCH_DISPATCH=queue` | _(unset)_ | Redis connection URL. Accepts `redis://` or `rediss://` (TLS). May embed credentials inline; the full URL is **never** logged — only the redacted `host:port` descriptor. | `rediss://default:pw@redis.prod:6380/0` |
 | `OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED` | No | `true` | Whether to verify the Redis server's TLS certificate when using `rediss://`. There is no silent fall-through via an empty string. | `false` |
+| `OPENCRED_HEARTBEAT_INTERVAL_SEC` | No | `5` | How often (seconds) a running replica refreshes its batch job's `lastSeenAt` timestamp. Observers treat a job as candidate-for-interruption when `lastSeenAt` is older than `2 ×` this value. Range: 1–60. See [Stale-replica detection](deployment.md#stale-replica-detection). | `5` |
+| `OPENCRED_BATCH_DISPATCH` | No | `inline` | `inline` (default) runs the batch engine in the API process. `queue` enqueues a `BatchJob` onto BullMQ and returns immediately; a separate worker process consumes the queue. Required for multi-replica scale beyond a single Redis-coordinated fleet. See [Queue dispatch](deployment.md#queue-dispatch-worker-fleet--opencred_batch_dispatchqueue). | `queue` |
+| `OPENCRED_WORKER_CONCURRENCY` | No | `min(4, cpus)` | BullMQ jobs each worker process picks up in parallel. Only consulted when `OPENCRED_BATCH_DISPATCH=queue`. Per-job parallelism is still bounded by `OPENCRED_BATCH_CONCURRENCY`, so effective concurrency is the product of the two. | `4` |
+| `OPENCRED_WEBHOOK_WORKER_CONCURRENCY` | No | `4` | Webhook deliveries per worker process. Webhook calls are I/O-bound (one HTTP POST + retries) so this can run hotter than the batch worker without saturating CPU. | `4` |
+| `OPENCRED_WEBHOOK_SECRET` | When a batch request supplies `webhookUrl` | _(unset)_ | HMAC-SHA256 secret used to sign batch-completion webhook deliveries. Minimum 32 chars. Kept distinct from `OPENCRED_API_KEY` so the two can be rotated independently. Requests that supply `webhookUrl` while this is unset are rejected at the route boundary with `400 WEBHOOK_SECRET_REQUIRED`. | `whsec_8WxR2K9...` |
+| `OPENCRED_MAX_BODY_BYTES` | No | `52428800` (50 MiB) | Maximum request body size for every route except `/v1/credentials/batch`. Enforced by `hono/body-limit`; oversize requests return `413 PAYLOAD_TOO_LARGE`. | `52428800` |
+| `OPENCRED_MAX_BATCH_BODY_BYTES` | No | `209715200` (200 MiB) | Batch-specific body limit (CSVs are legitimately larger than a single credential). | `209715200` |
+| `OPENCRED_BATCH_MAX_RECORD_BYTES` | No | `1048576` (1 MiB) | Per-CSV-record cap in the streaming parser. Defense-in-depth against pathological no-newline / unclosed-quote payloads that would otherwise pin the entire body budget on one record. Minimum 1 KiB. | `1048576` |
+| `OPENCRED_OTEL_ENABLED` | No | `false` | Master switch for OpenTelemetry critical-path tracing (`http.server.duration`, `batch.row.process`, `signer.sign`, `verify.*`, `dedi.*`). When enabled, standard `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_TRACES_SAMPLER*` env vars apply. See [Observability → Tracing](observability.md#tracing). | `true` |
+| `OPENCRED_ISSUER_DID_METHOD` | No | `key` | Which DID method the issuer identity uses. `key` derives `did:key:z…` from the signer's public key (offline-verifiable). `web` uses `did:web:<OPENCRED_ISSUER_DOMAIN>` and requires the operator to serve the DID document. | `web` |
+| `OPENCRED_ISSUER_DOMAIN` | When `OPENCRED_ISSUER_DID_METHOD=web` | _(unset)_ | Domain for `did:web`. The server does NOT host the DID document — operator serves it at `https://<domain>/.well-known/did.json` or via DeDi bundled hosting. | `issuer.example.com` |
+| `OPENCRED_DEDI_HOST_DID_DOC` | No | `false` | When `true` and DeDi is configured, the server publishes its DID document to DeDi at startup as bundled hosting for did:web. Ignored when `OPENCRED_ISSUER_DID_METHOD=key`. | `true` |
+| `OPENCRED_READ_ONLY` | No | `false` | When `true`, write endpoints (issue, batch, revoke, publish, schemas/generate, dedi/*) return `405 READ_ONLY_MODE`. Read surface (verify, key resolve, schemas, health, metrics) stays enabled. See [Read-tier deployment](deployment.md#read-tier-deployment). | `true` |
 
 [^1]: A signing key is required for `POST /v1/credentials/issue` to succeed. If neither `OPENCRED_KEY_PATH` nor a Cloud HSM provider is configured, the server still starts and `/v1/health` reports `signingKeyLoaded: false`, but every issue request returns `500 INTERNAL_ERROR` (the sanitized fallback for the unhandled `requireSigner()` throw — see [Observability → Health Checks](observability.md#health-checks)).
 [^2]: `OPENCRED_CSCA_TRUST_STORE_PATH` is only required to verify credentials that carry an `x5c` certificate chain (DSC-backed credentials). Verification of DID-keyed credentials does not need it. When unset, the verifier still functions but fails closed for any credential whose proof carries an `x5c` chain — see [`POST /v1/credentials/verify`](#post-v1credentialsverify) below.
@@ -836,10 +849,13 @@ Starts a batch-issuance job from a CSV payload. Returns a `jobId` immediately an
   selectiveDisclosureClaims?: string[];
   columnMapping?: Record<string, string>;
   delimiter?: "," | ";" | "\t";
+  webhookUrl?: string;             // HTTPS only
 }
 ```
 
-The CSV row count is capped at `OPENCRED_BATCH_ROW_LIMIT` (default `1000`); exceeding it returns `400 VALIDATION_ERROR`. `rejectKeyMaterial()` runs on the full request body.
+The CSV row count is capped at `OPENCRED_BATCH_ROW_LIMIT` (default `1000`); exceeding it returns `400 VALIDATION_ERROR`. Per-record byte size is capped at `OPENCRED_BATCH_MAX_RECORD_BYTES` (default 1 MiB). `rejectKeyMaterial()` runs on the full request body.
+
+> **Webhook delivery.** When `webhookUrl` is set, the batch worker POSTs a signed completion payload to that URL after the job finishes. The URL must be HTTPS and `OPENCRED_WEBHOOK_SECRET` (min 32 chars) must be configured — otherwise the request is rejected with `400 WEBHOOK_SECRET_REQUIRED` at the route boundary. Deliveries are HMAC-SHA256 signed and retried with exponential backoff up to 5× (2s, 4s, 8s, 16s, 32s) before landing in the BullMQ failed-set DLQ. The batch outcome itself is unaffected by webhook delivery failures.
 
 > **Worker pool.** Rows are signed in parallel up to `OPENCRED_BATCH_CONCURRENCY` (default `min(4, cpus)`). Per-row error semantics are unchanged from the pre-pool serial loop: a row that fails signing produces `status: "error"` in the results array and does **not** abort the batch. The results array is always ordered by input row index regardless of completion order.
 
@@ -1165,6 +1181,8 @@ Zod parse failures from request body validation use the same envelope and add a 
 | `NOT_FOUND` | 404 | `NotFoundError`, `notFound()` handler | Endpoint or resource not found. |
 | `CONFLICT` | 409 | `ConflictError` | Generic resource state conflict. |
 | `JOB_RUNNING` | 409 | batch route handler | Returned by `GET /v1/credentials/batch/:jobId/results` when the batch job is still running. Poll `GET /v1/credentials/batch/:jobId` for progress until it reports `running: false`. |
+| `WEBHOOK_SECRET_REQUIRED` | 400 | batch route handler | Request supplied `webhookUrl` but `OPENCRED_WEBHOOK_SECRET` is unset. Configure the secret (min 32 chars) before requesting webhook delivery. |
+| `READ_ONLY_MODE` | 405 | read-only middleware | `OPENCRED_READ_ONLY=true` is set and the request targets a write endpoint (issue, batch, revoke, publish, schemas/generate, dedi/*). Direct the call to a write-tier replica or unset the flag. |
 | `SESSION_EXPIRED` | 410 | `SessionExpiredError` | Ephemeral session payload expired (TTL elapsed). |
 | `PAYLOAD_TOO_LARGE` | 413 | `PayloadTooLargeError` | Request body exceeded the configured limit. |
 | `RATE_LIMIT_EXCEEDED` | 429 | `RateLimitError` | Client hit a rate limit. |

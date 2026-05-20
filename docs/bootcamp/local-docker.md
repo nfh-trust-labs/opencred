@@ -281,7 +281,7 @@ fields, easy to demo.
 > already auto-saved your issuer DID into the `issuerDid` collection
 > variable, so the issue requests work immediately. The issue requests in
 > turn auto-save the credential into `lastCredential` for the verify
-> request. Just click **Send** in order: `GET /v1/keys` → `POST /v1/credentials/issue (data-integrity)` → `POST /v1/credentials/verify`.
+> request. Just click **Send** in order: `GET /v1/keys` → `POST /v1/credentials/issue (vc-jwt)` → `POST /v1/credentials/verify`.
 > The curl examples below are the same calls in shell form.
 
 **Issue:**
@@ -300,13 +300,13 @@ curl -s http://localhost:3100/v1/credentials/issue \
     },
     \"validFrom\": \"2026-04-26T00:00:00Z\",
     \"validUntil\": \"2027-04-26T00:00:00Z\",
-    \"proofFormat\": \"data-integrity\"
+    \"proofFormat\": \"vc-jwt\"
   }" | tee credential.json | jq .credential
 ```
 
-Now you have a signed VC on disk. Look at the `proof` block — the
-`verificationMethod` points back to your DID, and the `proofValue` is the EC
-signature over the canonicalized credential.
+`vc-jwt` is the server's default and works with every bundled schema. We'll explore the JSON-LD-flavored `data-integrity` and selective-disclosure `sd-jwt-vc` formats in §6b.
+
+Now you have a signed VC on disk. The `proof` block carries a compact JWS in `proof.jwt` — header.payload.signature — signed by your issuer key over the credential payload.
 
 **Verify** the credential you just issued:
 
@@ -321,6 +321,12 @@ jq '{credential: (.credential | tostring)}' credential.json | \
 
 You want `"valid": true` and a `checks` array where every entry has
 `passed: true`. The check names will include `signature` and `date`.
+
+> **PDF inputs.** `POST /v1/credentials/verify` also accepts a raw
+> PDF body when the request carries `Content-Type: application/pdf`.
+> Useful when you've already packaged a credential as a printable
+> PDF in §6c and want to verify the PDF directly without re-extracting
+> the JSON. See [Docker → API reference → `POST /v1/credentials/verify`](../docker/api-reference.md#post-v1credentialsverify).
 
 **Tamper test** (do this — it is the demo punchline):
 
@@ -401,13 +407,14 @@ Things worth knowing:
 
 ### 6b. Try a few proof formats
 
-Repeat the issue call with `"proofFormat": "vc-jwt"` and
-`"proofFormat": "sd-jwt-vc"` and observe how the response shape changes:
+§5 used `vc-jwt` (the default). Repeat the issue call with
+`"proofFormat": "data-integrity"` and `"proofFormat": "sd-jwt-vc"`
+and observe how the response shape changes:
 
 | Proof format | Response shape | Use case |
 |---|---|---|
-| `data-integrity` | JSON-LD VC with a `proof` object | Default for human-readable VCs |
-| `vc-jwt` | Compact JWS string in `credential` | Smaller, JOSE-stack interop |
+| `vc-jwt` (default) | Compact JWS in `proof.jwt` | Default — works with every schema, JOSE-stack interop |
+| `data-integrity` | JSON-LD VC with a `proof` object holding a `proofValue` | When you want a self-describing JSON-LD credential. Requires a JSON-LD context that does not redefine W3C-protected terms; otherwise the server returns `CRYPTO_ERROR: Invalid JSON-LD syntax; tried to redefine a protected term`. |
 | `sd-jwt-vc` | Compact `~`-separated string | Selective disclosure (use `selectiveDisclosureClaims`) |
 
 For SD-JWT, also pass:
@@ -423,7 +430,7 @@ There are two paths — pick whichever feels more natural:
 **A. One-call: ask for packaging at issue time.** Add `packageFormats`
 (and optional `customization`) to the issue request body and the response
 includes a `packagedOutputs[]` alongside the signed credential. Postman:
-**Issue & Verify → POST /v1/credentials/issue (data-integrity + inline
+**Issue & Verify → POST /v1/credentials/issue (vc-jwt + inline
 package)**.
 
 **B. Separate-step: re-render an already-issued credential.**
@@ -713,7 +720,7 @@ curl -s http://localhost:3100/v1/credentials/issue \
       \"validFrom\": \"2026-04-26T00:00:00Z\"
     },
     \"validFrom\": \"2026-04-26T00:00:00Z\",
-    \"proofFormat\": \"data-integrity\",
+    \"proofFormat\": \"vc-jwt\",
     \"revocationRegistryUrl\": \"$REVOCATION_REGISTRY_URL\"
   }" | tee revokable.json | jq '.credential.credentialStatus'
 ```
@@ -880,6 +887,56 @@ env vars (in which case go with option 1).
 The Postman collection has this under **DeDi runtime → POST
 /v1/dedi/namespace/ensure**.
 
+### 7e. Beyond the bootcamp — production hardening
+
+The bootcamp drives a single container with the most ergonomic
+defaults. Production deployments have more knobs. None of these are
+required for the §1–§7 happy path — they're pointers to follow when
+you outgrow the single-instance model.
+
+- **Horizontal scale.** Swap `OPENCRED_JOB_STORE=memory` for `redis`
+  and run multiple replicas behind a load balancer. Every replica
+  can answer batch status reads regardless of which one received the
+  POST. See [Docker → Deployment → Horizontal scale](../docker/deployment.md#horizontal-scale).
+
+- **Read-only verify tier.** Set `OPENCRED_READ_ONLY=true` on a
+  separate replica pool to refuse every write endpoint with
+  `405 READ_ONLY_MODE`. These replicas have **no signing key** and
+  exist only to serve verification traffic at high volume. See
+  [Docker → Deployment → Read-tier deployment](../docker/deployment.md#read-tier-deployment).
+
+- **Worker fleet.** `OPENCRED_BATCH_DISPATCH=queue` moves batch
+  signing onto a BullMQ queue consumed by a separate `node
+  dist/worker.js` process. Required when you want batch jobs to
+  survive an API-process restart, or when you need to scale workers
+  independently of the API. See
+  [Docker → Deployment → Queue dispatch](../docker/deployment.md#queue-dispatch-worker-fleet--opencred_batch_dispatchqueue).
+
+- **Webhooks.** Add `webhookUrl` (HTTPS) to a batch request to be
+  notified when the job finishes. `OPENCRED_WEBHOOK_SECRET` (min 32
+  chars) configures the HMAC-SHA256 signing key. Deliveries retry
+  with exponential backoff and land in a DLQ on permanent failure.
+
+- **Body caps and rate limits.** Tune `OPENCRED_MAX_BODY_BYTES`,
+  `OPENCRED_MAX_BATCH_BODY_BYTES`,
+  `OPENCRED_BATCH_MAX_RECORD_BYTES`, and the
+  `OPENCRED_RATE_LIMIT_*` family to your traffic profile. See
+  [Docker → API reference → Rate limits](../docker/api-reference.md#rate-limits)
+  and the env-var table.
+
+- **`@opencred/verify` SDK.** Verifiers who want to embed
+  verification in their own Node.js service can install
+  `@opencred/verify` instead of running the container. Zero-config
+  handles `did:key` / `did:jwk` fully offline; pass a `dedi` block
+  for revocation + `did:web` fallback. See
+  [Docker overview](../docker/README.md#three-surfaces).
+
+- **Tracing.** Set `OPENCRED_OTEL_ENABLED=true` plus the standard
+  `OTEL_EXPORTER_OTLP_ENDPOINT` to ship critical-path spans
+  (`batch.run`, `signer.sign`, `verify.credential`, `dedi.*`) to
+  your collector. A sample Grafana dashboard ships at
+  [docs/observability/grafana-dashboards/](../observability/grafana-dashboards/README.md).
+
 ### 8. Troubleshooting cheat sheet
 
 | Symptom | Likely cause | Fix |
@@ -973,7 +1030,7 @@ curl -s http://localhost:3100/v1/credentials/issue \
   -d '{"schemaId":"functional-identity/v1","issuerDid":"'"$ISSUER_DID"'",
        "credentialSubject":{"name":"Jane Doe","role":"Bootcamp Attendee",
        "validFrom":"2026-04-26T00:00:00Z"},
-       "validFrom":"2026-04-26T00:00:00Z","proofFormat":"data-integrity"}' \
+       "validFrom":"2026-04-26T00:00:00Z","proofFormat":"vc-jwt"}' \
   | tee credential.json | jq
 
 # Verify

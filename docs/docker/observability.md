@@ -149,14 +149,42 @@ scrape_configs:
 
 ## Tracing
 
-OpenTelemetry tracing is supported and opt-in via the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable. When set, the server initialises a `NodeTracerProvider` that exports spans via OTLP/HTTP to the configured collector. When unset, tracing adds zero overhead.
+OpenTelemetry critical-path tracing is opt-in via the `OPENCRED_OTEL_ENABLED=true` master switch. When disabled (the default), the tracer is never installed and the instrumentation adds zero overhead — every release before this flag landed ran without it. When enabled, the server emits spans for HTTP requests and for the four hot paths that drive latency: batch issuance, signing, verification, and DeDi calls.
 
 ```bash
-# Enable tracing to a local collector
-docker run -e OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 ...
+docker run \
+  -e OPENCRED_OTEL_ENABLED=true \
+  -e OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
+  -e OTEL_SERVICE_NAME=opencred-server \
+  -e OTEL_TRACES_SAMPLER=parentbased_traceidratio \
+  -e OTEL_TRACES_SAMPLER_ARG=0.1 \
+  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
 ```
 
-The implementation is in `apps/server/src/tracing.ts`. The service name is `opencred-server`. Spans are batched via `BatchSpanProcessor` and flushed on graceful shutdown.
+Standard OpenTelemetry env vars apply: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` (defaults to `opencred-server`), `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG`. The implementation lives in `apps/server/src/tracing.ts`; spans are batched via `BatchSpanProcessor` and flushed on graceful shutdown. When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, spans go to a no-op exporter — useful for local validation without standing up a collector.
+
+### Span inventory
+
+| Span | Source | Key attributes |
+|---|---|---|
+| `<METHOD> <route>` | `tracingMiddleware` | `http.request.method`, `http.route`, `http.response.status_code` |
+| `signer.sign` | `wrapSignerWithTracing` | `signer.algorithm`, `signer.kind`, `signer.fingerprint`, `signer.input_bytes`, `signer.signature_bytes` |
+| `batch.run` | `createBatchEngine` / `createStreamingBatchEngine` | `batch.job_id`, `batch.proof_format`, `batch.total_rows` |
+| `batch.row.process` | `createBatchEngine` / `createStreamingBatchEngine` | `batch.job_id`, `batch.row_index`, `batch.proof_format`, `batch.row_status` |
+| `verify.credential` | `routes/credentials.ts` | `verify.format`, `verify.code`, `verify.verified` |
+| `verify.did_resolve` | `wrapDidResolverWithTracing` | `did.method`, `did` |
+| `verify.schema_validate` | `routes/credentials.ts` | `verify.schema_id`, `verify.inline_schema` |
+| `dedi.lookup_record` | `wrapDeDiClientWithTracing` | `dedi.host`, `dedi.registry` |
+| `dedi.publish_record` | `wrapDeDiClientWithTracing` | `dedi.host`, `dedi.registry` |
+| `dedi.update_record` | `wrapDeDiClientWithTracing` | `dedi.host`, `dedi.registry` |
+
+### Grafana dashboard
+
+A sample dashboard with HTTP-server p50/p95/p99, `batch.row.process` distribution, `signer.sign` by algorithm and kind, `verify.credential` outcomes, `verify.did_resolve` latency by DID method, DeDi adapter latency, and error rate by span name lives at [`docs/observability/grafana-dashboards/opencred-overview.json`](../observability/grafana-dashboards/opencred-overview.json). See [the README](../observability/grafana-dashboards/README.md) for import steps.
+
+### Security contract
+
+Spans MUST NOT carry private key material, signing buffers, or credential subject PII. Span attributes are opaque identifiers only — job-id UUIDs, key fingerprints (hashes), DID strings. `dedi.host` is the HOST only; record-name paths are stripped before attachment. The contract is enforced by the helpers in `apps/server/src/observability/` and documented in CLAUDE.md (security invariants 2 and 5).
 
 ## Auditing
 
