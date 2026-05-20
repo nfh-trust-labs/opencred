@@ -321,6 +321,21 @@ export class DeDiClient {
    * `did` and (for did:web) `document`, then send the merged payload back
    * with `keyStatus` flipped.
    *
+   * Concurrency story: DeDi's `update-record` has no `If-Match` /
+   * `expected_version` parameter, so the naïve read-merge-write would race
+   * if two desktops rotated the same DID simultaneously. This is safe
+   * today because of two structural facts:
+   *   1. The flip is monotone — `current` → `rotated`, never reversed.
+   *   2. `did` is the record key (immutable) and `document` is written
+   *      only by `publishDID`, not mutated here — so concurrent calls
+   *      send identical payloads.
+   * Concurrent callers therefore converge to the same state, and the
+   * idempotent fast-path below short-circuits any caller whose read sees
+   * the record already rotated. Extending `DIDRecord` with a non-monotone
+   * field (e.g. `rotatedAt`, `supersededBy`, multi-key state) would break
+   * this property — see `DIDRecord` in `./types.ts` before changing the
+   * shape.
+   *
    * Throws if the record isn't already published. Callers in
    * fire-and-forget paths (e.g. `handleKeyGenerate`) wrap this in
    * `try/catch` to keep a DeDi outage from breaking local key generation.
@@ -329,6 +344,13 @@ export class DeDiClient {
     const ns = this.resolveNamespace(namespace);
     const recordName = didToRecordName(did);
     const existing = await this.resolveDID(did, ns);
+    if (existing.keyStatus === "rotated") {
+      this.logger.info("DID already marked as rotated; skipping update-record", {
+        did,
+        namespace: ns,
+      });
+      return;
+    }
     const updatedDetails: DIDRecord = {
       did: existing.did,
       keyStatus: "rotated",
