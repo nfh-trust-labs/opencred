@@ -148,6 +148,92 @@ function buildLimiter(getLimit: () => number, label: string): MiddlewareHandler 
 }
 
 /**
+ * Boot-time self-check for the IP-extraction path used by the rate
+ * limiter. Hits the supplied URL with a real HTTP fetch and inspects the
+ * bucket key the limiter would have derived for the request.
+ *
+ * Why this exists: `deriveRateLimitKey` falls back to
+ * `c.env.incoming.socket.remoteAddress`, which is a property surface
+ * specific to `@hono/node-server`. If the adapter ever changes its
+ * private shape (or another runtime is plugged in), every anonymous
+ * client collapses into a single `ip:unknown` bucket and the rate
+ * limiter becomes a single global chokepoint instead of per-IP. The
+ * unit test exercises a hand-rolled mock context; only a real HTTP
+ * request through the actual adapter catches a regression in the
+ * adapter itself.
+ *
+ * Behaviour:
+ *  - Mounts a one-shot probe route on the app before starting, so the
+ *    test endpoint and the bucket-key calculation share the same
+ *    middleware stack the production routes use.
+ *  - Returns `{ ok, key, error? }`. We log a `warn` (not `fatal`) so
+ *    the server still starts — an operator with a non-Node adapter or a
+ *    container that strips peer info can still serve traffic, they just
+ *    lose per-IP rate limiting and we make that loss visible at boot.
+ *
+ * Surface-area note: this is a network call to localhost. We use the
+ * default fetch and a 2s timeout — if the probe itself fails (DNS,
+ * firewall, exotic ENV), we log and continue. We do NOT use the result
+ * to gate process startup; an over-zealous fail-closed here would
+ * prevent legitimate edge runtimes from running at all.
+ */
+export interface RateLimitSelfCheckResult {
+  ok: boolean;
+  key: string;
+  error?: string;
+}
+
+export async function checkRateLimitIpExtraction(
+  baseUrl: string,
+  options: { timeoutMs?: number; fetchImpl?: typeof fetch } = {},
+): Promise<RateLimitSelfCheckResult> {
+  const { timeoutMs = 2_000, fetchImpl = fetch } = options;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/__rate-limit-self-check`, {
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      return {
+        ok: false,
+        key: "ip:unknown",
+        error: `probe returned ${res.status}`,
+      };
+    }
+    const body = (await res.json()) as { key?: string };
+    const key = body.key ?? "ip:unknown";
+    const isUnknown = key === "ip:unknown";
+    return { ok: !isUnknown, key };
+  } catch (err) {
+    return {
+      ok: false,
+      key: "ip:unknown",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Mount the boot self-check route. Kept separate from `applyRateLimits`
+ * so the route only exists when the operator opts into the self-check
+ * (which they do by default via `runRateLimitSelfCheck` in index.ts).
+ * The route returns the key the limiter would have used for THIS
+ * request — never the raw IP or any header value, so it does not leak
+ * client information even if an attacker discovers the endpoint.
+ */
+export function mountRateLimitSelfCheckRoute<
+  E extends { get: (path: string, h: MiddlewareHandler) => unknown },
+>(app: E): void {
+  app.get("/__rate-limit-self-check", (async (c) => {
+    const key = deriveRateLimitKey(c);
+    return c.json({ key });
+  }) as MiddlewareHandler);
+}
+
+/**
  * Mount the three per-tier limiters on the supplied Hono app. Both the
  * legacy and `/v1` path prefixes are wired so issuers using either surface
  * see the same caps.
