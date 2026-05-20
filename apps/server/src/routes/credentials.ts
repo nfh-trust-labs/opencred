@@ -41,6 +41,7 @@ import { credentialsIssuedTotal, credentialsVerifiedTotal } from "../metrics.js"
 import { getLogger } from "../logger.js";
 import { getConfig } from "../config.js";
 import { parseJsonBody } from "../middleware/parse-json.js";
+import { CACHE_PRESETS } from "../middleware/cache-control.js";
 
 const credentials = new Hono();
 
@@ -878,6 +879,14 @@ credentials.post("/credentials/verify", async (c) => {
     }
     const pdfResult = await verifyPdf(pdfBytes, verifierConfig);
     credentialsVerifiedTotal.inc({ result: pdfResult.verified ? "valid" : "invalid" });
+    // Verify is POST-with-body, so a shared CDN can't safely cache the
+    // response — but `private, max-age=60` lets a caller-side cache
+    // (service-worker, in-process LRU) dedupe rapid re-verifications of
+    // the SAME credential without breaking HTTP caching semantics. Vary
+    // on Content-Type so JSON and PDF replies don't collide in the
+    // client's cache.
+    c.header("Cache-Control", CACHE_PRESETS.verifyPrivate);
+    c.header("Vary", "Content-Type, Authorization");
     return c.json(buildVerifyResponseBody(pdfResult));
   }
 
@@ -936,6 +945,10 @@ credentials.post("/credentials/verify", async (c) => {
 
   credentialsVerifiedTotal.inc({ result: verificationResult.verified ? "valid" : "invalid" });
 
+  // See the PDF branch above for the cache-header rationale. Same shape
+  // applies for the JSON entrypoint.
+  c.header("Cache-Control", CACHE_PRESETS.verifyPrivate);
+  c.header("Vary", "Content-Type, Authorization");
   return c.json(buildVerifyResponseBody(verificationResult));
 });
 
