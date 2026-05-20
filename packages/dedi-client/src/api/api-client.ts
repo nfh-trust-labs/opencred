@@ -236,6 +236,32 @@ export class DeDiApiClient {
     );
   }
 
+  /**
+   * Update an existing record's `details` wholesale.
+   *
+   * POSTs to `/dedi/{ns}/{reg}/{record}/update-record` with body
+   * `{ details, meta: {} }` — see the `develop` Postman collection.
+   * Non-idempotent (the server appends a new version each call), so retry
+   * is disabled — same rationale as `publishRecord` / `createNamespace`
+   * (#546). Callers wanting "patch" semantics must read-merge-write
+   * themselves; the `details` field replaces the prior payload in full.
+   */
+  async updateRecord<T = unknown>(
+    ns: string,
+    reg: string,
+    recordName: string,
+    details: T,
+  ): Promise<DeDiResponse<DeDiRecord<T>>> {
+    return this.request<DeDiResponse<DeDiRecord<T>>>(
+      `/dedi/${enc(ns)}/${enc(reg)}/${enc(recordName)}/update-record`,
+      {
+        method: "POST",
+        body: JSON.stringify({ details, meta: {} }),
+      },
+      { retryable: false },
+    );
+  }
+
   // NOTE: per-record state-change endpoints (`revoke-record`,
   // `suspend-record`, `reinstate-record`) were removed in PR-4 of the
   // DeDi client refactor (issue #555). The real DeDi API (verified

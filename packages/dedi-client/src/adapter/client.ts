@@ -19,6 +19,20 @@ import {
   contextToRecordName,
 } from "./registry-names.js";
 
+/**
+ * Validate a DeDi DID record payload against the 3-field schema:
+ * `{ did, document?, keyStatus }`.
+ *
+ * `document` is optional — did:key records omit it because the verifier
+ * derives the document from the DID itself. did:web records carry it
+ * (DeDi caches the domain-hosted doc). When present it must be an
+ * object; presence-without-shape is the only structural check we do
+ * here, the downstream verifier validates the DID-Document contract.
+ *
+ * `keyStatus` is a strict enum — anything other than `"current"` or
+ * `"rotated"` is treated as a server-side bug (502) because the field
+ * is what drives the verifier's rotation badge.
+ */
 function assertDIDRecordShape(detail: unknown): asserts detail is DIDRecord {
   if (detail == null || typeof detail !== "object") {
     throw new DeDiClientError("DID record detail is missing or not an object", 502);
@@ -27,11 +41,17 @@ function assertDIDRecordShape(detail: unknown): asserts detail is DIDRecord {
   if (typeof rec["did"] !== "string") {
     throw new DeDiClientError("DID record detail missing required field: did", 502);
   }
-  if (!("document" in rec)) {
-    throw new DeDiClientError("DID record detail missing required field: document", 502);
+  if (rec["keyStatus"] !== "current" && rec["keyStatus"] !== "rotated") {
+    throw new DeDiClientError(
+      "DID record detail field 'keyStatus' must be 'current' or 'rotated'",
+      502,
+    );
   }
-  if (typeof rec["resolvedAt"] !== "string") {
-    throw new DeDiClientError("DID record detail missing required field: resolvedAt", 502);
+  if ("document" in rec && (rec["document"] == null || typeof rec["document"] !== "object")) {
+    throw new DeDiClientError(
+      "DID record detail field 'document' must be an object when present",
+      502,
+    );
   }
 }
 
@@ -237,14 +257,46 @@ export class DeDiClient {
     };
   }
 
+  /**
+   * Publish a DID document to the DeDi public-key registry.
+   *
+   * Payload shape: `{ did, document?, keyStatus: "current" }`.
+   *
+   * - For `did:key`, `document` is omitted regardless of whether the
+   *   caller passes one — the verifier derives the document from the DID
+   *   via the canonical did:key resolution algorithm, so caching the
+   *   document in DeDi adds bytes without information.
+   * - For `did:web`, `document` is REQUIRED — the whole point of putting
+   *   a did:web in DeDi is to act as a cache of the domain-hosted
+   *   `.well-known/did.json`. Calling `publishDID` for a did:web without
+   *   a document is a programming error; throws a 400.
+   * - For other DID methods, `document` is included if the caller
+   *   supplied an object; otherwise omitted.
+   *
+   * Newly-published records always carry `keyStatus: "current"`. Flip to
+   * `"rotated"` later by calling `markDIDRotated`.
+   */
   async publishDID(did: string, document: unknown, namespace?: string): Promise<PublishResult> {
     const ns = this.resolveNamespace(namespace);
     const recordName = didToRecordName(did);
-    const detail: DIDRecord = {
+    const isDidKey = did.startsWith("did:key:");
+    const isDidWeb = did.startsWith("did:web:");
+
+    if (isDidWeb && (document == null || typeof document !== "object")) {
+      throw new DeDiClientError(
+        "publishDID: did:web records require a DID Document",
+        400,
+      );
+    }
+
+    const detail: { did: string; document?: Record<string, unknown>; keyStatus: "current" } = {
       did,
-      document,
-      resolvedAt: new Date().toISOString(),
+      keyStatus: "current",
     };
+    if (!isDidKey && document != null && typeof document === "object") {
+      detail.document = document as Record<string, unknown>;
+    }
+
     await this.api.publishRecord(ns, PUBLIC_KEY_REGISTRY, recordName, detail);
     return { published: true, recordName, namespace: ns };
   }
@@ -257,6 +309,36 @@ export class DeDiClient {
     const details = response.data.details;
     assertDIDRecordShape(details);
     return details;
+  }
+
+  /**
+   * Flip a published DID's `keyStatus` from `"current"` to `"rotated"`.
+   *
+   * Called when the issuer rotates to a new key — old credentials remain
+   * cryptographically valid against the prior key, but verifier UIs can
+   * surface a "key rotated" badge so consumers know to expect a different
+   * DID on fresh credentials going forward.
+   *
+   * The DeDi `update-record` endpoint replaces `details` wholesale, so we
+   * read-merge-write: look up the existing record first to preserve
+   * `did` and (for did:web) `document`, then send the merged payload back
+   * with `keyStatus` flipped.
+   *
+   * Throws if the record isn't already published. Callers in
+   * fire-and-forget paths (e.g. `handleKeyGenerate`) wrap this in
+   * `try/catch` to keep a DeDi outage from breaking local key generation.
+   */
+  async markDIDRotated(did: string, namespace?: string): Promise<void> {
+    const ns = this.resolveNamespace(namespace);
+    const recordName = didToRecordName(did);
+    const existing = await this.resolveDID(did, ns);
+    const updatedDetails: DIDRecord = {
+      did: existing.did,
+      keyStatus: "rotated",
+      ...(existing.document !== undefined ? { document: existing.document } : {}),
+    };
+    await this.api.updateRecord(ns, PUBLIC_KEY_REGISTRY, recordName, updatedDetails);
+    this.logger.info("DID marked as rotated in DeDi", { did, namespace: ns });
   }
 
   async publishSchema(schema: SchemaRecord, namespace?: string): Promise<PublishResult> {
@@ -365,13 +447,18 @@ export class DeDiClient {
         this.api.createRegistry(namespace, PUBLIC_KEY_REGISTRY, {
           $schema: "http://json-schema.org/draft-07/schema#",
           type: "object",
-          description: "OpenCred public key registry",
+          description: "OpenCred DID Document registry",
           properties: {
-            did: { type: "string" },
-            document: { type: "object" },
-            resolvedAt: { type: "string" },
+            did: { type: "string", pattern: "^did:" },
+            document: {
+              type: "object",
+              description:
+                "W3C DID Document. Omit for did:key — verifier derives from DID.",
+            },
+            keyStatus: { type: "string", enum: ["current", "rotated"] },
           },
-          required: ["did", "document"],
+          required: ["did", "keyStatus"],
+          additionalProperties: false,
         }),
       ),
       ignoreConflict(() =>
