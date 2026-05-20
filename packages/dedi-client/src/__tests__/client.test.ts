@@ -905,6 +905,32 @@ describe("DeDiClient (adapter)", () => {
       expect(api.updateRecord).not.toHaveBeenCalled();
     });
 
+    it("is idempotent — skips update-record when already rotated", async () => {
+      // Closes the concurrent-rotation window without an If-Match on
+      // DeDi: the second caller's lookup sees `rotated` and short-circuits
+      // before issuing the racy update-record write.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mkalready",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:key:z6Mkalready", keyStatus: "rotated" },
+          state: "live",
+          version: "2",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+
+      await client.markDIDRotated("did:key:z6Mkalready");
+
+      expect(api.lookupRecord).toHaveBeenCalledTimes(1);
+      expect(api.updateRecord).not.toHaveBeenCalled();
+    });
+
     it("uses an explicit namespace override when provided", async () => {
       const client = createClient("default-ns");
       const api = mockApi();

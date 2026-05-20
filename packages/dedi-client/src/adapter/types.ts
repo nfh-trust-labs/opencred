@@ -34,6 +34,16 @@ export type RevocationHashRecord =
  *                  publishes a new key. The signature on credentials
  *                  signed under a rotated key remains cryptographically
  *                  valid; the flag is advisory to verifier UIs.
+ *
+ * Concurrency invariant — read before adding fields. DeDi's
+ * `update-record` has no optimistic-lock parameter, so `markDIDRotated`
+ * is safe under concurrent writes only because every mutable transition
+ * on this record is monotone and convergent: `keyStatus` flips
+ * `current` → `rotated` once and never back, `did` is the record key,
+ * and `document` is written only by `publishDID`. Any new field that
+ * can diverge between concurrent writers (e.g. `rotatedAt` timestamp,
+ * `supersededBy` chain, multi-key state) would reintroduce the
+ * lost-update race — close it at the DeDi side first.
  */
 export interface DIDRecord {
   did: string;
