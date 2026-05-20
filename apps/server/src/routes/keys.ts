@@ -209,11 +209,16 @@ keys.post("/keys/resolve", async (c) => {
   }
 
   const record = await dediClient.resolveDID(parsed.did, parsed.namespace);
-  // Cache headers + ETag (issue #446 Tier 3 #9). DID-document resolution
-  // is idempotent and the record is identified by its content, so a
-  // downstream CDN or service-worker can dedupe rapid re-reads. The 304
-  // path short-circuits on a matching `If-None-Match`.
-  const notModified = applyCacheHeaders(c, record, CACHE_PRESETS.didDocument);
+  // Cache headers + ETag (issue #446 Tier 3 #9, follow-up #586).
+  // DID-document resolution is idempotent and the record is identified by
+  // its content, so a downstream service-worker / in-process LRU can dedupe
+  // rapid re-reads. We use the `didDocumentPrivate` preset (private,
+  // max-age=60) here — mirroring `POST /credentials/verify` — so a shared
+  // CDN cannot accidentally cache one tenant's resolution and serve it to
+  // another. Callers that want a publicly-cacheable response should use
+  // `GET /keys/resolve?did=...` instead, which emits the public preset.
+  // The 304 path still short-circuits on a matching `If-None-Match`.
+  const notModified = applyCacheHeaders(c, record, CACHE_PRESETS.didDocumentPrivate);
   if (notModified) return notModified;
   return c.json(record);
 });
