@@ -4,6 +4,51 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.0](https://github.com/nfh-trust-labs/opencred/compare/v1.4.1...v1.5.0) (2026-05-20)
+
+
+### Features
+
+* add did:key as a first-class issuer option alongside did:web ([44421de](https://github.com/nfh-trust-labs/opencred/commit/44421de54c11107bc7d7222c6c8ef3ec2a6efc7f))
+* **batch-core,server:** add maxRecordBytes cap to streaming CSV parser ([#578](https://github.com/nfh-trust-labs/opencred/issues/578)) ([#592](https://github.com/nfh-trust-labs/opencred/issues/592)) ([acadacb](https://github.com/nfh-trust-labs/opencred/commit/acadacb94bf81ce4533257724da438726e356825))
+* **dedi-client,verification,desktop:** simplify DID record + add keyStatus rotation flag ([#562](https://github.com/nfh-trust-labs/opencred/issues/562)) ([59fbb53](https://github.com/nfh-trust-labs/opencred/commit/59fbb530227f9545cf8ee7eff9151742cc481418))
+* **dedi-client,verification,desktop:** surface DeDi CORD anchor proof block ([#565](https://github.com/nfh-trust-labs/opencred/issues/565)) ([6c19824](https://github.com/nfh-trust-labs/opencred/commit/6c19824a6e84ea0d9e238f85fcb839f728c48d74))
+* **dedi-client:** migrate revocation registry to DeDi canonical revoke tag ([#561](https://github.com/nfh-trust-labs/opencred/issues/561)) ([41879df](https://github.com/nfh-trust-labs/opencred/commit/41879df0e372f556228af8bdec2f7d658e1d0566))
+* **desktop:** add did:key option to Self-Published Keys wizard ([ad875be](https://github.com/nfh-trust-labs/opencred/commit/ad875be5c58cf00758151b706fceee0e75612e2c))
+* **desktop:** capture optional reason when revoking a credential ([#564](https://github.com/nfh-trust-labs/opencred/issues/564)) ([7533e2c](https://github.com/nfh-trust-labs/opencred/commit/7533e2cd522d91e4c85d5d7c666c97f0d5decf3d))
+* **did,server:** foundation for did:key as a first-class issuer option ([37d5275](https://github.com/nfh-trust-labs/opencred/commit/37d5275eaab3021029b10b69c5ca3311327a21f1))
+* **schema-engine:** accept YAML files for locally-defined schemas ([#553](https://github.com/nfh-trust-labs/opencred/issues/553)) ([19e2efe](https://github.com/nfh-trust-labs/opencred/commit/19e2efee28cf1391b478c6384b25cb71cce20954)), closes [#552](https://github.com/nfh-trust-labs/opencred/issues/552)
+* **schema-engine:** point electricity/v1 schema $id at canonical Beckn URL ([#570](https://github.com/nfh-trust-labs/opencred/issues/570)) ([a936c76](https://github.com/nfh-trust-labs/opencred/commit/a936c76729aa617b682ac4f3924dbc1f1f8dcb9c))
+* **server,batch:** streaming CSV parser ([#446](https://github.com/nfh-trust-labs/opencred/issues/446)) ([#577](https://github.com/nfh-trust-labs/opencred/issues/577)) ([04560f3](https://github.com/nfh-trust-labs/opencred/commit/04560f33c3a8c597c20e11abbaa933af381d31fc))
+* **server,crypto,signing:** cache DID doc + hoist proof-config canon ([#446](https://github.com/nfh-trust-labs/opencred/issues/446)) ([#572](https://github.com/nfh-trust-labs/opencred/issues/572)) ([204815e](https://github.com/nfh-trust-labs/opencred/commit/204815ef453aa2edf5a35bd077f9f32b4f6a2a18)), closes [#571](https://github.com/nfh-trust-labs/opencred/issues/571)
+* **server,signing:** wire signer DID cache into issuance + verification ([#573](https://github.com/nfh-trust-labs/opencred/issues/573)) ([#593](https://github.com/nfh-trust-labs/opencred/issues/593)) ([5d324eb](https://github.com/nfh-trust-labs/opencred/commit/5d324eb4c8bc2915614270acb7a60a8d8e77ce67))
+* **server:** BullMQ worker process + queue dispatch ([#446](https://github.com/nfh-trust-labs/opencred/issues/446) Tier 3 [#8](https://github.com/nfh-trust-labs/opencred/issues/8)) ([#594](https://github.com/nfh-trust-labs/opencred/issues/594)) ([ceb50fa](https://github.com/nfh-trust-labs/opencred/commit/ceb50fa62d14eb3b29ef050946d66d95b7aa56ab))
+* **server:** cache headers + read-only mode for verify-split ([#446](https://github.com/nfh-trust-labs/opencred/issues/446)) ([#585](https://github.com/nfh-trust-labs/opencred/issues/585)) ([7aa1b12](https://github.com/nfh-trust-labs/opencred/commit/7aa1b12f99ce1358ee98608767e0ebdd71b9637d))
+* **server:** consume request body directly into streaming CSV parser ([#580](https://github.com/nfh-trust-labs/opencred/issues/580)) ([#595](https://github.com/nfh-trust-labs/opencred/issues/595)) ([7597ca4](https://github.com/nfh-trust-labs/opencred/commit/7597ca439d7ae956fdf13e5622f83af16c720751))
+* **server:** multi-replica coordination + horizontal-scale docs ([#446](https://github.com/nfh-trust-labs/opencred/issues/446)) ([#591](https://github.com/nfh-trust-labs/opencred/issues/591)) ([f3f6bbd](https://github.com/nfh-trust-labs/opencred/commit/f3f6bbd5793c26a05d180e18c1bf667df81ad03a))
+* **server:** OTel critical-path spans for batch/signer/verify/DeDi ([#446](https://github.com/nfh-trust-labs/opencred/issues/446)) ([#587](https://github.com/nfh-trust-labs/opencred/issues/587)) ([3d10645](https://github.com/nfh-trust-labs/opencred/commit/3d1064525e519bad1dcbd0cc6cac2718f15217ba))
+* **server:** stateless jobs store with Redis adapter ([#446](https://github.com/nfh-trust-labs/opencred/issues/446)) ([#575](https://github.com/nfh-trust-labs/opencred/issues/575)) ([c6a296c](https://github.com/nfh-trust-labs/opencred/commit/c6a296cd68154686bb404a8fde666bb746a1e809))
+* **server:** tier-1 scale wins — batch worker pool + per-route rate limiter ([#569](https://github.com/nfh-trust-labs/opencred/issues/569)) ([0c9d56e](https://github.com/nfh-trust-labs/opencred/commit/0c9d56e618e8b0cff79d02dc31bb2f65a170e8c5))
+* **verification,desktop,server:** surface issuer attribution + key supersession ([e89993a](https://github.com/nfh-trust-labs/opencred/commit/e89993afae7db8323cf3b3d72d762f8e0356140b))
+* **verify-sdk:** add @opencred/verify v0.1.0 SDK package ([#542](https://github.com/nfh-trust-labs/opencred/issues/542)) ([1d8d809](https://github.com/nfh-trust-labs/opencred/commit/1d8d8097185138af9099acebc490771f2b0462ef))
+
+
+### Bug Fixes
+
+* **dedi-client:** correct response envelope parsing for real DeDi API ([#558](https://github.com/nfh-trust-labs/opencred/issues/558)) ([2b08073](https://github.com/nfh-trust-labs/opencred/commit/2b08073b899cf86b80c0036096fcbf6c4fc6301d)), closes [#556](https://github.com/nfh-trust-labs/opencred/issues/556)
+* **dedi-client:** make markDIDRotated idempotent under concurrent writes ([#566](https://github.com/nfh-trust-labs/opencred/issues/566)) ([558c0d0](https://github.com/nfh-trust-labs/opencred/commit/558c0d0e1efdb5147880074eef1e5f15fb4a78c3))
+* **dedi-client:** prevent duplicate namespace creation on retry ([#546](https://github.com/nfh-trust-labs/opencred/issues/546)) ([#550](https://github.com/nfh-trust-labs/opencred/issues/550)) ([e93ac75](https://github.com/nfh-trust-labs/opencred/commit/e93ac753a115095bde5ff3f9e2c6f393d94d4712))
+* **desktop,ci:** bypass @electron/rebuild dep-tree walk that hangs on Windows ([#567](https://github.com/nfh-trust-labs/opencred/issues/567)) ([0b9edc0](https://github.com/nfh-trust-labs/opencred/commit/0b9edc0ff188c41071294fc1a591ef00a854b645))
+* **desktop:** make buildDidKeyDocument produce a real did:key document ([0bc0e9d](https://github.com/nfh-trust-labs/opencred/commit/0bc0e9d501cfdbdce1ab0c5c0f5be68daf3c2287))
+* **desktop:** publish DeDi attribution record under canonical issuer DID ([a1ad908](https://github.com/nfh-trust-labs/opencred/commit/a1ad908935e4791ecfd0671c4e3e78cd325b1a48))
+* **desktop:** refuse to overwrite stale package.json.bak on build:dist ([#549](https://github.com/nfh-trust-labs/opencred/issues/549)) ([c7a62e6](https://github.com/nfh-trust-labs/opencred/commit/c7a62e6db96958f012191354ddc3276bb16222a2))
+* **desktop:** restore package.json after build:dist completes ([#544](https://github.com/nfh-trust-labs/opencred/issues/544)) ([31e4072](https://github.com/nfh-trust-labs/opencred/commit/31e40728568367114968e512b19fcf96bd25302f))
+* **desktop:** wire missing Back buttons across the onboarding flow ([#547](https://github.com/nfh-trust-labs/opencred/issues/547)) ([#551](https://github.com/nfh-trust-labs/opencred/issues/551)) ([aa1234a](https://github.com/nfh-trust-labs/opencred/commit/aa1234afb065e9404d964e27ebedd570cbdfd12f))
+* **did,verification:** unblock CI on feat/did-key-option ([801fb13](https://github.com/nfh-trust-labs/opencred/commit/801fb13fdaf3b78f070e554d7a2f8ddf43f573fb))
+* **server:** address PR 1 review findings — CLI fallback, DeDi-hosted boot probe, JSDoc ([f2918a5](https://github.com/nfh-trust-labs/opencred/commit/f2918a515e4b5c987cd3fb39471fac61758671d8))
+* **server:** align POST resolve cache + multi-colon DID test + normalize prefixes ([#586](https://github.com/nfh-trust-labs/opencred/issues/586)) ([#589](https://github.com/nfh-trust-labs/opencred/issues/589)) ([5921a38](https://github.com/nfh-trust-labs/opencred/commit/5921a38e414fa4730cd5a1497f1c0cf7dc377442))
+* **verification:** use DeDiClientError.statusCode to detect 404, not message substring ([05c9d7f](https://github.com/nfh-trust-labs/opencred/commit/05c9d7fca320995a8c9f06479e46648155dc8c31))
+
 ## [1.4.1](https://github.com/nfh-trust-labs/opencred/compare/v1.4.0...v1.4.1) (2026-05-15)
 
 
