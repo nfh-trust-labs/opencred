@@ -179,6 +179,9 @@ importers:
       happy-dom:
         specifier: ^20.8.9
         version: 20.8.9
+      node-gyp:
+        specifier: ^12.2.0
+        version: 12.2.0
       postcss:
         specifier: ^8.4.49
         version: 8.5.6

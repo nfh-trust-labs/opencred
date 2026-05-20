@@ -32,7 +32,7 @@ jobs:
             electron_builder_args: "--linux --x64"
             artifact_suffix: linux-x64
           # Windows — x64 only (no GitHub-hosted arm64 runners)
-          - os: windows-latest
+          - os: windows-2022
             platform: win
             arch: x64
             electron_builder_args: "--win --x64"
@@ -108,8 +108,17 @@ jobs:
         # true so release builds (desktop-release.yml) enforce signing by
         # default.  Non-release CI builds have no signing certs configured
         # (CSC_IDENTITY_AUTO_DISCOVERY is false), so we must disable it here.
+        #
+        # --config.npmRebuild=false: native modules were already rebuilt
+        # in the explicit Rebuild step above (rebuild-native.cjs, upstream
+        # node-gyp). Without this, electron-builder invokes its bundled
+        # @electron/rebuild AGAIN — which hangs 60+ min on Windows pnpm
+        # symlink trees (same root cause as #501). Forced timeout cap so
+        # any future regression fails fast instead of burning the default
+        # 6-hour job budget.
+        timeout-minutes: 20
         run: |
-          npx electron-builder $EB_ARGS --publish never --config.forceCodeSigning=false
+          npx electron-builder $EB_ARGS --publish never --config.forceCodeSigning=false --config.npmRebuild=false
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
