@@ -271,20 +271,23 @@ describe("DeDiApiClient", () => {
 
   describe("record endpoints", () => {
     it("publishRecord POSTs to /dedi/{ns}/{reg}/save-record-as-draft?publish=true", async () => {
-      const record = {
-        name: "abc",
-        registry: "r",
-        namespace: "ns",
-        detail: {},
-        state: "live",
-        version: 1,
-        created_at: "",
-        updated_at: "",
+      const envelope = {
+        message: "Record published",
+        data: {
+          record_name: "abc",
+          registry: "r",
+          namespace: "ns",
+          details: {},
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
       };
-      mockFetch.mockResolvedValue(jsonResponse(record));
+      mockFetch.mockResolvedValue(jsonResponse(envelope));
 
       const client = new DeDiApiClient(createConfig());
-      await client.publishRecord("ns", "r", "abc", { hash: "abc" });
+      const result = await client.publishRecord("ns", "r", "abc", { hash: "abc" });
 
       const [url, init] = mockFetch.mock.calls[0]!;
       expect(url).toBe("https://dedi.example.com/dedi/ns/r/save-record-as-draft?publish=true");
@@ -292,6 +295,8 @@ describe("DeDiApiClient", () => {
       const body = JSON.parse(init?.body as string);
       expect(body.record_name).toBe("abc");
       expect(body.details).toEqual({ hash: "abc" });
+      // The api-client returns the envelope verbatim; adapter unwraps.
+      expect(result).toEqual(envelope);
     });
 
     it("lookupRecord GETs /dedi/lookup/{ns}/{reg}/{record}", async () => {
@@ -327,25 +332,30 @@ describe("DeDiApiClient", () => {
 
   describe("query and search", () => {
     it("queryRecords GETs /dedi/query/{ns}/{reg} with params", async () => {
-      mockFetch.mockResolvedValue(jsonResponse({ records: [], total: 0, page: 1, per_page: 20 }));
+      mockFetch.mockResolvedValue(jsonResponse({ message: "ok", data: [] }));
       const client = new DeDiApiClient(createConfig());
-      await client.queryRecords("ns", "r", { page: 2, per_page: 10 });
+      const result = await client.queryRecords("ns", "r", { page: 2, per_page: 10 });
 
       const url = mockFetch.mock.calls[0]![0] as string;
       expect(url).toContain("/dedi/query/ns/r");
       expect(url).toContain("page=2");
       expect(url).toContain("per_page=10");
+      expect(result).toEqual({ message: "ok", data: [] });
     });
 
     it("search GETs /dedi/search/{ns} with query params", async () => {
-      mockFetch.mockResolvedValue(jsonResponse({ records: [], total: 0 }));
+      mockFetch.mockResolvedValue(jsonResponse({ message: "ok", data: [] }));
       const client = new DeDiApiClient(createConfig());
-      await client.search("ns", { registry_name: "revocation_list", "detail.hash": "abc" });
+      const result = await client.search("ns", {
+        registry_name: "revocation_list",
+        "detail.hash": "abc",
+      });
 
       const url = mockFetch.mock.calls[0]![0] as string;
       expect(url).toContain("/dedi/search/ns");
       expect(url).toContain("registry_name=revocation_list");
       expect(url).toContain("detail.hash=abc");
+      expect(result).toEqual({ message: "ok", data: [] });
     });
   });
 
@@ -557,19 +567,51 @@ describe("DeDiApiClient", () => {
   // ── bulkUpload ─────────────────────────────────────────────────
 
   describe("bulkUpload", () => {
-    it("POSTs to /dedi/namespace/{ns}/registry/{reg}/bulk with auth header", async () => {
-      mockFetch.mockResolvedValue(jsonResponse({ job_id: "j1" }));
+    it("POSTs to /dedi/bulk-upload with auth header and required form fields", async () => {
+      mockFetch.mockResolvedValue(jsonResponse({ message: "Job queued", data: { jobId: "j1" } }));
 
       const client = new DeDiApiClient(createConfig());
       const file = new Blob(["col1,col2\na,b"], { type: "text/csv" });
       const result = await client.bulkUpload("ns", "r", file);
 
-      expect(result).toEqual({ job_id: "j1" });
+      // Response is unwrapped: `data.jobId` becomes `{ jobId }`.
+      expect(result).toEqual({ jobId: "j1" });
       const [url, init] = mockFetch.mock.calls[0]!;
       expect(url).toBe("https://dedi.example.com/dedi/bulk-upload");
       expect(init?.method).toBe("POST");
       expect((init?.headers as Record<string, string>)["Authorization"]).toBe("Bearer dk_test_key");
       expect(init?.body).toBeInstanceOf(FormData);
+      // The DeDi API requires `namespace` and `registry_name` alongside
+      // the `file` field — verified against the develop Postman
+      // collection, 2026-05-19.
+      const fd = init?.body as FormData;
+      expect(fd.get("namespace")).toBe("ns");
+      expect(fd.get("registry_name")).toBe("r");
+      // record_name_field is optional — not set in this call.
+      expect(fd.get("record_name_field")).toBeNull();
+    });
+
+    it("includes record_name_field when provided", async () => {
+      mockFetch.mockResolvedValue(jsonResponse({ message: "Job queued", data: { jobId: "j1" } }));
+
+      const client = new DeDiApiClient(createConfig());
+      await client.bulkUpload("ns", "r", new Blob(["a,b\n1,2"]), "col1");
+
+      const init = mockFetch.mock.calls[0]![1]!;
+      const fd = init.body as FormData;
+      expect(fd.get("record_name_field")).toBe("col1");
+    });
+
+    it("throws when bulk-upload response is missing data.jobId", async () => {
+      mockFetch.mockResolvedValue(jsonResponse({ message: "ok", data: {} }));
+
+      const client = new DeDiApiClient(createConfig());
+      const err = await client.bulkUpload("ns", "r", new Blob(["data"])).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(DeDiClientError);
+      expect((err as DeDiClientError).message).toBe(
+        "DeDi API bulk upload response missing required field: data.jobId",
+      );
     });
 
     it("throws DeDiClientError on 4xx/5xx", async () => {
@@ -618,7 +660,7 @@ describe("DeDiApiClient", () => {
       // First call fails, second succeeds
       mockFetch
         .mockRejectedValueOnce(new TypeError("transient failure"))
-        .mockResolvedValueOnce(jsonResponse({ job_id: "j2" }));
+        .mockResolvedValueOnce(jsonResponse({ message: "ok", data: { jobId: "j2" } }));
 
       const client = new DeDiApiClient(createConfig({ maxRetries: 1 }));
       const promise = client.bulkUpload("ns", "r", new Blob(["data"]));
@@ -627,7 +669,7 @@ describe("DeDiApiClient", () => {
       await vi.advanceTimersByTimeAsync(300);
 
       const result = await promise;
-      expect(result).toEqual({ job_id: "j2" });
+      expect(result).toEqual({ jobId: "j2" });
       expect(mockFetch).toHaveBeenCalledTimes(2);
       // Each call should have its own FormData instance
       const body1 = mockFetch.mock.calls[0]![1]?.body;
