@@ -50,6 +50,7 @@ import {
   checkRateLimitIpExtraction,
   mountRateLimitSelfCheckRoute,
 } from "./middleware/rate-limit.js";
+import { readOnlyMiddleware } from "./middleware/read-only.js";
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -357,6 +358,24 @@ applyRateLimits(app);
 mountRateLimitSelfCheckRoute(app);
 
 app.use("*", authMiddleware);
+
+// Read-only mode enforcement (Tier 3 #9 of nfh-trust-labs/opencred#446).
+//
+// Mounted AFTER auth so callers still need a valid Bearer token to reach the
+// read surface — read-only is a deployment topology, not an authentication
+// bypass. The middleware is a no-op when `OPENCRED_READ_ONLY=false`
+// (default).
+app.use("*", readOnlyMiddleware);
+
+// Log read-only mode loudly at startup so an operator who flipped the flag
+// in a write-tier env var by accident sees it on boot rather than after a
+// confused integrator hits a 405 in prod.
+if (config.OPENCRED_READ_ONLY) {
+  logger.warn(
+    "OPENCRED_READ_ONLY=true — write endpoints (issue, batch, revoke, keys/publish) " +
+      "will return 405. This server is a read tier; send write traffic elsewhere.",
+  );
+}
 
 // Mount routes.
 //

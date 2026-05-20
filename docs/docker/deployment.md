@@ -153,6 +153,12 @@ The session TTL governs how long batch results and packaged outputs survive in m
 | `OPENCRED_SCHEMA_UPDATE_URL` | URL | — | HTTPS URL of the schema update manifest. If unset, schema updates are disabled. |
 | `OPENCRED_SCHEMA_CACHE_DIR` | path | — | Local directory for caching updated schemas between restarts. |
 
+### Read-tier mode
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `OPENCRED_READ_ONLY` | boolean | `false` | When `true`, write endpoints (`/credentials/issue`, `/credentials/batch`, `/credentials/revoke`, `/keys/publish`, `/schemas/generate`, `/dedi/*`) return `405 READ_ONLY_MODE`. The read surface (verify, key resolve, schemas, health, metrics) stays enabled. See [Read-tier deployment](#read-tier-deployment) below. |
+
 ### Job store (batch jobs)
 
 OpenCred batch jobs (`POST /credentials/batch`) live in a pluggable backing store. The default — `memory` — is an in-process Map and matches the behaviour of every release prior to v1.5.x. For horizontal scale (multiple replicas behind a load balancer), set `OPENCRED_JOB_STORE=redis`.
@@ -229,6 +235,169 @@ Single-instance deployments — including every desktop client deployment of thi
 ### Sizing
 
 For workloads up to ~1000 active jobs simultaneously, a `cache.t4g.micro`-class instance is sufficient. Storage per job is on the order of 10–50 KB depending on row count and proof format.
+
+## Read-tier deployment
+
+Most production traffic against an OpenCred deployment is **verify**, not issue: end users carry a credential, a verifier validates it. Verify is read-only, idempotent, and its expensive dependencies (DID document resolution, CSCA trust-store lookups, JSON Schema bodies) are cacheable. If your verify rate dwarfs your issue rate — the usual shape once you've issued a few thousand credentials — split the two surfaces.
+
+This section covers two complementary deployment patterns:
+
+  1. **Put a CDN in front of the read endpoints.** The server emits `ETag` and `Cache-Control` headers on every cacheable response; any HTTP cache (CloudFront, Fastly, nginx caching proxy, a service-worker) can dedupe identical reads.
+  2. **Run a dedicated read tier of replicas** with `OPENCRED_READ_ONLY=true`. These replicas have **no signing key** and refuse every write endpoint with a `405 Method Not Allowed`. Front them with a load balancer; route write traffic to a separate, smaller fleet that holds the signing key.
+
+You can combine the two — a read-tier fleet behind a CDN — or use either one alone.
+
+### Endpoints with cache headers
+
+Implemented in Tier 3 #9 of [#446](https://github.com/nfh-trust-labs/opencred/issues/446):
+
+| Endpoint | Method | Cache-Control | Notes |
+|---|---|---|---|
+| `/v1/schemas` | GET | `public, max-age=3600, stale-while-revalidate=300` | Vary: `category` |
+| `/v1/schemas/:id` | GET | `public, max-age=3600, stale-while-revalidate=300` | Schemas in the v1 catalogue are versioned in the id, so the body is effectively immutable |
+| `/v1/keys/resolve` | GET | `public, max-age=300, stale-while-revalidate=60` | DID document resolution |
+| `/v1/keys/resolve` | POST | `public, max-age=300, stale-while-revalidate=60` | Same as the GET surface; POST exists for DIDs whose serialization is unfriendly to an L7 proxy |
+| `/v1/credentials/verify` | POST | `private, max-age=60` | Vary: `Content-Type, Authorization`. POSTs cannot be cached by a shared CDN, but a client-side cache (service-worker, in-process LRU) can dedupe rapid re-verifications |
+
+Every cacheable response carries a weak `ETag` (`W/"<sha256-hex>"`) computed deterministically from the response body. A conditional request with a matching `If-None-Match` returns `304 Not Modified` with an empty body and the validators preserved.
+
+### Sample nginx caching proxy
+
+The following snippet sits in front of an OpenCred read tier and adds CDN-style edge caching for the GET-cacheable endpoints. It honours the upstream `Cache-Control` directives and bypasses caching for any path it doesn't explicitly recognise.
+
+```nginx
+# /etc/nginx/conf.d/opencred-readtier.conf
+
+proxy_cache_path /var/cache/nginx/opencred
+                 levels=1:2
+                 keys_zone=opencred_read:100m
+                 max_size=1g
+                 inactive=24h
+                 use_temp_path=off;
+
+upstream opencred_read_tier {
+    # Round-robin across the read replicas. Each runs with
+    # OPENCRED_READ_ONLY=true and no signing key.
+    server opencred-read-1.internal:3100 max_fails=3 fail_timeout=10s;
+    server opencred-read-2.internal:3100 max_fails=3 fail_timeout=10s;
+    server opencred-read-3.internal:3100 max_fails=3 fail_timeout=10s;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name verify.example.org;
+    # ssl_certificate + ssl_certificate_key elided
+
+    # Pass through whatever Cache-Control the upstream sets — don't
+    # widen the directive on our own initiative.
+    proxy_cache opencred_read;
+    proxy_cache_key "$scheme://$host$request_uri";
+    proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+    proxy_cache_revalidate on;             # honour upstream ETag for 304 path
+    proxy_cache_lock on;                   # collapse stampedes
+    proxy_cache_background_update on;      # serve stale + refresh in bg
+    add_header X-Cache-Status $upstream_cache_status always;
+
+    # GET /v1/schemas, GET /v1/schemas/:id → 1h cache, 5m SWR
+    location ~ ^/v1/schemas {
+        proxy_pass http://opencred_read_tier;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_cache_valid 200 1h;
+        proxy_cache_valid 404 1m;
+        proxy_cache_methods GET HEAD;
+    }
+
+    # GET/POST /v1/keys/resolve → 5m cache, 1m SWR
+    location = /v1/keys/resolve {
+        proxy_pass http://opencred_read_tier;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Only GET is shared-cacheable. The upstream sets Cache-Control
+        # on POSTs too (`public, max-age=300`) but nginx by default
+        # refuses to cache POST responses. Leave that off.
+        proxy_cache_methods GET HEAD;
+        proxy_cache_valid 200 5m;
+    }
+
+    # POST /v1/credentials/verify → never edge-cache. The upstream
+    # response is `private, max-age=60` so a client-side cache can
+    # dedupe; nginx must not.
+    location = /v1/credentials/verify {
+        proxy_pass http://opencred_read_tier;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
+    }
+
+    # Health, metrics, everything else: pass through, don't cache.
+    location / {
+        proxy_pass http://opencred_read_tier;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+The `proxy_cache_revalidate on` directive is what makes the `If-None-Match` ➜ `304 Not Modified` path work end-to-end: nginx forwards its cached `ETag` upstream and on a 304 swaps in the cached body, avoiding the upstream serialization cost entirely.
+
+### Read-only mode
+
+Set `OPENCRED_READ_ONLY=true` to refuse every write endpoint at the route boundary with a `405 Method Not Allowed` and a `READ_ONLY_MODE` error code:
+
+```bash
+docker run -d \
+  --name opencred-read-1 \
+  -p 3100:3100 \
+  -e OPENCRED_API_KEY=sk_prod_change_me \
+  -e OPENCRED_READ_ONLY=true \
+  -e OPENCRED_CSCA_TRUST_STORE_PATH=/app/trust-store \
+  -v /host/path/trust-store:/app/trust-store:ro \
+  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+```
+
+Note that the read tier:
+
+  - Does NOT need `OPENCRED_KEY_PATH` or any `OPENCRED_KMS_*` variables. There is no signing key on these replicas — that's the entire point.
+  - Still needs `OPENCRED_API_KEY`. Read-only is a deployment topology, not an authentication bypass.
+  - Still needs `OPENCRED_CSCA_TRUST_STORE_PATH` if you want DSC-backed credentials to verify (the trust store is used by `/credentials/verify`).
+  - Still benefits from `OPENCRED_DEDI_*` configuration if you use DeDi for revocation or did:web hosting — verify consults DeDi for revocation, key rotation, and DID-document fallback.
+
+#### What `OPENCRED_READ_ONLY=true` blocks
+
+  - `POST /credentials/issue`
+  - `POST /credentials/batch` (POST is start; `GET /credentials/batch/:jobId` and `/results` remain readable)
+  - `POST /credentials/revoke`
+  - `POST /keys/publish`
+  - `POST /schemas/generate`
+  - `POST /dedi/namespace/ensure`
+
+#### What stays open
+
+  - `GET /health`, `GET /metrics`
+  - `GET /schemas`, `GET /schemas/:id`
+  - `GET /keys/resolve`, `POST /keys/resolve`
+  - `POST /credentials/verify`
+  - `POST /credentials/revocation-status` (read against DeDi)
+  - `POST /credentials/revocation-hash` and `/batch` (local hash compute, deterministic)
+
+#### Fail-closed semantics
+
+The enforcement middleware uses a denylist of *write-prefix paths* (`/credentials/`, `/keys/`, `/batch/`, `/schemas/`, `/dedi/`) and a small allowlist of known-safe POSTs. **A new write endpoint added later without updating the allowlist is blocked by default** — the read surface is explicit, the write surface is implicit. This is intentional: a quiet leak of a new write endpoint onto the read tier is the failure mode we never want.
+
+If you add an endpoint that should be reachable from the read tier, update both `READ_OPERATIONS` in `apps/server/src/middleware/read-only.ts` and the table above.
+
+### Sizing the split
+
+Per-replica capacity is roughly:
+
+| Tier | Endpoints | CPU bottleneck | Memory |
+|---|---|---|---|
+| Write (`OPENCRED_READ_ONLY=false`) | issue, batch, revoke, publish | Signing (RSA-3072 / P-384 sign per credential) | Bounded by job-store TTL |
+| Read (`OPENCRED_READ_ONLY=true`) | verify, resolve, schemas | Verifier crypto (ECDSA / Ed25519 verify) + JSON-LD canonicalize | Stateless; bounded by request rate |
+
+A common starting split is one write replica per ~50 issuances/s and one read replica per ~500 verifications/s. Front the read replicas with a CDN once your steady-state verify QPS exceeds what a single replica can serve at its tail latency budget.
 
 ## Persistent state
 

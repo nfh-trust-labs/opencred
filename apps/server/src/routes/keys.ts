@@ -25,6 +25,7 @@ import { getConfig } from "../config.js";
 import { getDeDiClient } from "../dedi-singleton.js";
 import { rejectKeyMaterial } from "./credentials.js";
 import { parseJsonBody } from "../middleware/parse-json.js";
+import { applyCacheHeaders, CACHE_PRESETS } from "../middleware/cache-control.js";
 
 const keys = new Hono();
 
@@ -208,6 +209,53 @@ keys.post("/keys/resolve", async (c) => {
   }
 
   const record = await dediClient.resolveDID(parsed.did, parsed.namespace);
+  // Cache headers + ETag (issue #446 Tier 3 #9). DID-document resolution
+  // is idempotent and the record is identified by its content, so a
+  // downstream CDN or service-worker can dedupe rapid re-reads. The 304
+  // path short-circuits on a matching `If-None-Match`.
+  const notModified = applyCacheHeaders(c, record, CACHE_PRESETS.didDocument);
+  if (notModified) return notModified;
+  return c.json(record);
+});
+
+/**
+ * GET /keys/resolve?did=...&namespace=...
+ *
+ * Read-only, idempotent surface of {@link `POST /keys/resolve`} suitable for
+ * caching at the CDN tier. DIDs whose serialization contains characters that
+ * an L7 proxy might choke on (the canonical `did:web:host:path` form has
+ * colons that some intermediates reject) are still resolvable via the POST
+ * surface — this GET handler is the cacheable companion, not a replacement.
+ *
+ * The query string is URL-decoded by Hono before reaching `c.req.query`.
+ * Cache headers + ETag are applied the same way as the POST variant.
+ */
+keys.get("/keys/resolve", async (c) => {
+  const did = c.req.query("did");
+  if (!did) {
+    return c.json(
+      { error: { code: "VALIDATION_ERROR", message: "`did` query parameter is required" } },
+      400,
+    );
+  }
+  const namespace = c.req.query("namespace");
+  const dediClient = getDeDiClient();
+  if (!dediClient) {
+    return c.json(
+      {
+        error: {
+          code: "DEDI_NOT_CONFIGURED",
+          message:
+            "DeDi is not configured. Set OPENCRED_DEDI_BASE_URL, OPENCRED_DEDI_AUTH_TYPE, " +
+            "OPENCRED_DEDI_NAMESPACE, and the matching auth secret to enable this endpoint.",
+        },
+      },
+      503,
+    );
+  }
+  const record = await dediClient.resolveDID(did, namespace);
+  const notModified = applyCacheHeaders(c, record, CACHE_PRESETS.didDocument);
+  if (notModified) return notModified;
   return c.json(record);
 });
 

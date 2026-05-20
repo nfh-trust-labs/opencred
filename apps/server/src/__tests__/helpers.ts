@@ -19,6 +19,7 @@ import { createRegistry, Validator } from "@opencred/schema-engine";
 import { authMiddleware } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { applyRateLimits } from "../middleware/rate-limit.js";
+import { readOnlyMiddleware } from "../middleware/read-only.js";
 import { health } from "../routes/health.js";
 import { schemas } from "../routes/schemas.js";
 import { credentials } from "../routes/credentials.js";
@@ -156,6 +157,13 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
   if (!process.env.OPENCRED_RATE_LIMIT_ENABLED) {
     process.env.OPENCRED_RATE_LIMIT_ENABLED = "false";
   }
+  // Read-only mode is off by default so existing endpoint tests still
+  // exercise the write surface. Tests that exercise read-only mode flip
+  // the env on before calling createTestApp() (see read-only.test.ts).
+  // We do NOT auto-clear it — explicit opt-out via the same env var.
+  if (process.env.OPENCRED_READ_ONLY === undefined) {
+    process.env.OPENCRED_READ_ONLY = "false";
+  }
 
   loadConfig();
   createLogger();
@@ -210,6 +218,12 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
   applyRateLimits(app);
 
   app.use("*", authMiddleware);
+
+  // Read-only middleware mirrors src/index.ts. No-op when
+  // OPENCRED_READ_ONLY is false (the default); active under the
+  // `read-only.test.ts` suite which flips the env on before calling
+  // createTestApp().
+  app.use("*", readOnlyMiddleware);
 
   // Mount routes — both legacy ("/") and versioned ("/v1") paths.
   // Mirrors src/index.ts so the smoke test exercises the full production
