@@ -306,26 +306,6 @@ describe("DeDiApiClient", () => {
 
       expect(mockFetch.mock.calls[0]![0]).toBe("https://dedi.example.com/dedi/lookup/ns/r/rec1");
     });
-
-    it("revokeRecord POSTs to /dedi/{ns}/{reg}/{rec}/revoke-record", async () => {
-      mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
-      const client = new DeDiApiClient(createConfig());
-      await client.revokeRecord("ns", "r", "rec1");
-
-      const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/ns/r/rec1/revoke-record");
-      expect(init?.method).toBe("POST");
-    });
-
-    it("changeRecordState POSTs to /dedi/{ns}/{reg}/{rec}/{action}", async () => {
-      mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
-      const client = new DeDiApiClient(createConfig());
-      await client.changeRecordState("ns", "r", "rec1", "suspended");
-
-      const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/ns/r/rec1/suspend-record");
-      expect(init?.method).toBe("POST");
-    });
   });
 
   // ── Query & Search ───────────────────────────────────────────────

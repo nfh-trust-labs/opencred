@@ -12,7 +12,6 @@ import type {
   DeDiRegistry,
   DeDiRegistryTag,
   DeDiRecord,
-  DeDiRecordState,
   DeDiResponse,
   DeDiQueryParams,
   DeDiQueryResult,
@@ -237,30 +236,13 @@ export class DeDiApiClient {
     );
   }
 
-  async revokeRecord(ns: string, reg: string, recordName: string): Promise<void> {
-    await this.changeRecordState(ns, reg, recordName, "revoked");
-  }
-
-  async changeRecordState(
-    ns: string,
-    reg: string,
-    recordName: string,
-    state: DeDiRecordState,
-  ): Promise<void> {
-    // Map state to DeDi endpoint
-    const action =
-      state === "revoked"
-        ? "revoke-record"
-        : state === "suspended"
-          ? "suspend-record"
-          : state === "live"
-            ? "reinstate-record"
-            : null;
-    if (!action) return;
-    await this.requestVoid(`/dedi/${enc(ns)}/${enc(reg)}/${enc(recordName)}/${action}`, {
-      method: "POST",
-    });
-  }
+  // NOTE: per-record state-change endpoints (`revoke-record`,
+  // `suspend-record`, `reinstate-record`) were removed in PR-4 of the
+  // DeDi client refactor (issue #555). The real DeDi API (verified
+  // against the `develop` Postman collection, 2026-05-19) does not
+  // expose these routes. OpenCred manages credential revocation and
+  // key rotation independently of DeDi's record state machine — see
+  // `docs/decisions/dedi-integration-open-questions.md`.
 
   // ── Query & Search ───────────────────────────────────────────────
 
