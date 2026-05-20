@@ -71,6 +71,28 @@ const configSchema = z.object({
   OPENCRED_SESSION_TTL: z.coerce.number().int().min(60).default(14400),
 
   /**
+   * Heartbeat interval (seconds) for running batch jobs (Tier 2 #6 of
+   * nfh-trust-labs/opencred#446).
+   *
+   * While a batch engine is running, the owning replica re-writes the
+   * job record every `OPENCRED_HEARTBEAT_INTERVAL_SEC` seconds with an
+   * updated `lastSeenAt` timestamp. Observer code (the same or a
+   * different replica) treats a job as candidate-for-interruption when
+   * `lastSeenAt` is older than `2 ×` this value — see
+   * `findStaleRunningJobs` in `batch/job-store/types.ts`.
+   *
+   * Range: 1–60 s. Defaults to 5 s — a 10 s detection window for dead
+   * replicas, tight enough to catch real failures but loose enough to
+   * absorb one missed write across a GC pause or Redis blip.
+   *
+   * Set to a smaller value in deployments that want faster failure
+   * signalling. Set to 0 is NOT allowed — the heartbeat is observer-only
+   * and never auto-transitions the record; there is no operator-facing
+   * reason to disable it.
+   */
+  OPENCRED_HEARTBEAT_INTERVAL_SEC: z.coerce.number().int().min(1).max(60).default(5),
+
+  /**
    * Maximum request body size in bytes for all routes except batch CSV
    * ingestion (see `OPENCRED_MAX_BATCH_BODY_BYTES`). Enforced globally via
    * `hono/body-limit` middleware; oversize requests receive a 413 with a

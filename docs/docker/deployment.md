@@ -162,6 +162,7 @@ OpenCred batch jobs (`POST /credentials/batch`) live in a pluggable backing stor
 | `OPENCRED_JOB_STORE` | enum | `memory` | `memory` for single-instance, `redis` for horizontal scale. |
 | `OPENCRED_REDIS_URL` | URL | — | **REQUIRED** when `OPENCRED_JOB_STORE=redis`. Accepts `redis://` or `rediss://` (TLS). May embed credentials inline. The full URL is never logged — only the redacted `host:port` descriptor. |
 | `OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED` | boolean | `true` | Whether to verify the Redis server's TLS certificate when using `rediss://`. Operators must explicitly set `false` to disable verification — there is no silent fall-through. |
+| `OPENCRED_HEARTBEAT_INTERVAL_SEC` | integer (1–60) | `5` | How often a running replica refreshes its job's `lastSeenAt` timestamp in the JobStore. Observers treat a job as candidate-for-interruption when `lastSeenAt` is older than 2× this value. See [Stale-replica detection](#stale-replica-detection). |
 
 See [Horizontal scale](#horizontal-scale) below for when and how to flip between these modes.
 
@@ -204,31 +205,186 @@ docker run -d \
   ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
 ```
 
-### What "stateless" buys you
+### Multi-replica with a load balancer
 
-* **Visibility:** Every replica can answer `GET /credentials/batch/:jobId` regardless of which replica accepted the original POST. Job records — status, progress, completion timestamps — are read from the shared Redis.
+Once `OPENCRED_JOB_STORE=redis` is in play, you can run N replicas behind any L4/L7 load balancer with **no sticky-session requirement**. Every job-status read (`GET /credentials/batch/:jobId`) goes through the Redis-backed JobStore, so any replica can answer for any job — the LB is free to round-robin every request, including reads for in-flight batches.
+
+A minimal 3-replica + 1-Redis + nginx LB compose looks like this:
+
+```yaml
+# docker-compose.scale.yml
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    # No persistence — OpenCred uses Redis for ephemeral TTL'd job records.
+    # `--save ""` disables RDB snapshots; `--appendonly no` disables AOF.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  opencred-1: &opencred
+    image: ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      OPENCRED_PORT: "3100"
+      OPENCRED_API_KEY: "${OPENCRED_API_KEY:?set OPENCRED_API_KEY in .env}"
+      OPENCRED_KEY_PATH: "/secrets/issuer-key.pem"
+      OPENCRED_JOB_STORE: "redis"
+      OPENCRED_REDIS_URL: "redis://redis:6379/0"
+      OPENCRED_HEARTBEAT_INTERVAL_SEC: "5"
+      OPENCRED_LOG_LEVEL: "info"
+    volumes:
+      - ./keys/issuer-key.pem:/secrets/issuer-key.pem:ro
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3100/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  opencred-2:
+    <<: *opencred
+
+  opencred-3:
+    <<: *opencred
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      opencred-1:
+        condition: service_healthy
+      opencred-2:
+        condition: service_healthy
+      opencred-3:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+```
+
+And a matching `nginx.conf` — round-robin across the three replicas, with the rate-limit-cheap `/health` endpoint used as the upstream probe:
+
+```nginx
+upstream opencred {
+    # Default round-robin. No `ip_hash` — sticky sessions are NOT required.
+    server opencred-1:3100 max_fails=2 fail_timeout=10s;
+    server opencred-2:3100 max_fails=2 fail_timeout=10s;
+    server opencred-3:3100 max_fails=2 fail_timeout=10s;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name _;
+
+    # Batch endpoints can ship large CSV bodies; nginx defaults are tight.
+    client_max_body_size 50m;
+    proxy_request_buffering off;
+
+    location / {
+        proxy_pass http://opencred;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Long-poll friendly — batch GETs can be slow on large progress arrays.
+        proxy_read_timeout 60s;
+    }
+
+    # Passive upstream health check via /v1/health. The endpoint is
+    # rate-limit-cheap (see issue #569) so the LB can poll it aggressively.
+    # If you also need active health checks, NGINX Plus or an L7 LB does the
+    # ping itself; on open-source NGINX, the `max_fails` directive above
+    # gives you passive ejection.
+    location = /health {
+        access_log off;
+        proxy_pass http://opencred/v1/health;
+    }
+}
+```
+
+Front this with a real L7 (AWS ALB, GCP HTTPS LB, Caddy, Traefik) in production. Terminate TLS at the LB; the upstream connections stay HTTP-only, the same posture as a single-replica deployment.
+
+#### Replica health-check config
+
+Both the LB (above) and the container orchestrator should probe `/v1/health`:
+
+- **Liveness:** returns `200` when the signing key is loaded; `503` otherwise. A 503 here is a hard-fail state — restarting the replica is the right response.
+- **Readiness:** identical endpoint; the LB pulls a replica out of rotation when probes start failing. The default exclusion threshold (`max_fails=2, fail_timeout=10s` in nginx, or 2-of-3 in Cloud Run) is a good starting point.
+- **Cost:** `/health` is on the cheap rate-limit bucket (issue #569). A 30 s probe interval × N replicas × M LB layers is well under the bucket's budget.
+
+#### What "stateless" buys you
+
+* **Visibility:** Every replica can answer `GET /credentials/batch/:jobId` regardless of which replica accepted the original POST. Job records — status, progress, completion timestamps, `lastSeenAt` heartbeat — are read from the shared Redis.
 * **Bounded memory:** Redis TTL (`SET ... EX`) evicts records automatically when they exceed `OPENCRED_SESSION_TTL`. The previously observed RSS climb under sustained small-batch load (#446) is structurally fixed: an unbounded in-process Map no longer exists.
 * **Restart safety:** Records survive a single replica's restart. A reader hitting a different replica still sees the job.
+* **Liveness signal:** Each running batch carries a `lastSeenAt` ISO-8601 timestamp refreshed every `OPENCRED_HEARTBEAT_INTERVAL_SEC` by the owning replica. Observers can detect a dead replica from the stored record alone — see [Stale-replica detection](#stale-replica-detection).
 
-### What it does NOT do (and why)
+#### What it does NOT do (and why)
 
-* **Cross-replica work stealing.** The actual signing for a batch is pinned to the replica that received the POST. If that replica dies mid-batch, the job is marked `interrupted` in Redis on graceful shutdown; otherwise the entry expires via TTL. There is no automatic re-issuance — clients should re-submit interrupted batches.
+* **Cross-replica work stealing.** The actual signing for a batch is pinned to the replica that received the POST. If that replica dies mid-batch:
+  - On a *graceful* shutdown (SIGTERM), the replica marks every in-flight job as `interrupted` in Redis before exiting. A client polling for that job sees the settled state and can re-submit.
+  - On an *abrupt* exit (kernel OOM, hard kill), no terminal write happens. The job's `lastSeenAt` stops refreshing; the entry eventually expires via TTL. The heartbeat signal is what lets an observer notice this gap without waiting for the full TTL.
+  In neither case does another replica pick up the work — re-issuance is the client's call.
 * **A queue.** OpenCred does not implement BullMQ, SQS, or any durable work queue. That's a separate roadmap item (Tier 3 in #446) and would change the API contract.
 
-### When to keep `memory`
+#### Stale-replica detection
+
+When a replica dies mid-batch, its `JobRecord` stays in Redis until the TTL expires (default 4 h). The `lastSeenAt` field is how you tell "dead 5 minutes ago" from "still working at it":
+
+- The owning replica writes `lastSeenAt` every `OPENCRED_HEARTBEAT_INTERVAL_SEC` (default `5` s).
+- Any observer — another replica, a sidecar exporter, a monitoring script — treats a job as **candidate-for-interruption** when:
+  1. `status === "running"` (or `"queued"`), AND
+  2. `lastSeenAt` is older than `2 × OPENCRED_HEARTBEAT_INTERVAL_SEC` (default 10 s).
+
+The helper `findStaleRunningJobs(jobStore, { heartbeatIntervalSeconds })` (exported from `apps/server/src/batch/job-store/types.ts`) implements this; build dashboards or alerts on top.
+
+**Important: the helper does NOT auto-transition stale records.** It only reports them. A future external-queue tier (#446 Tier 3 #8 / #583) is the right place to introduce re-queueing; until then, the heartbeat is a *signal*, not a coordination primitive. This matches the CLAUDE.md security model — keys never move between replicas, so silent work transfer would violate the local-signing invariant.
+
+#### When to keep `memory`
 
 Single-instance deployments — including every desktop client deployment of this repo — should stick with `memory`. There is no operational benefit to adding Redis if you only run one replica.
 
-### Operating the Redis
+#### Operating the Redis
 
 * Use a managed Redis (AWS ElastiCache, Memorystore, Upstash, etc.) rather than co-locating. The Redis is on the credential-issuance hot path; a flaky Redis becomes a flaky issuance API.
 * Cap memory with `maxmemory` + an `allkeys-lru` or `allkeys-lfu` policy. OpenCred's TTL handles its own keys, but a hard cap is the right belt-and-suspenders.
 * Use TLS (`rediss://`) when the Redis is not in the same VPC. Keep `OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED=true` (the default) unless you have a specific reason to relax it.
 * Rotate the Redis password by rotating `OPENCRED_REDIS_URL` and rolling the replicas — there is no in-process rotation hook.
 
-### Sizing
+#### Sizing
 
 For workloads up to ~1000 active jobs simultaneously, a `cache.t4g.micro`-class instance is sufficient. Storage per job is on the order of 10–50 KB depending on row count and proof format.
+
+### Future work — Node `cluster` API
+
+Node's built-in [`cluster`](https://nodejs.org/api/cluster.html) module lets a single process fork N worker processes (one per CPU core) over a shared listening socket. It's a different shape from the multi-replica deployment above:
+
+| | Multi-replica (current) | Node `cluster` (future) |
+|---|---|---|
+| Process boundary | N separate Node processes, possibly on N hosts | 1 parent + N child processes on ONE host |
+| Shared state | Redis | IPC + Redis (if also multi-host) |
+| Failure isolation | Per-host | Per-worker, shared host kernel |
+| Operational story | Standard container orchestration | One container, internal supervision |
+
+**Decision (this PR):** punted. Implementing `cluster` correctly under the CLAUDE.md key-management invariant requires non-trivial design — the signing key must stay in the parent process, and every worker has to round-trip a "sign this credential" request over IPC. That's a meaningful refactor of the signer interface, with its own performance characteristics to measure. The multi-replica path above already delivers the headline scale benefit (horizontal capacity) without touching the signing path.
+
+If this becomes a need later, the design constraint is fixed up front: **key material never leaves the parent process**. The likely shape is a `cluster.fork()` parent that owns the signer instance and a worker pool that handles HTTP via IPC-forwarded sign requests. Tracked as a follow-up to #446 Tier 2 #6.
 
 ## Persistent state
 
