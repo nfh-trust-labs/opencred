@@ -69,6 +69,66 @@ curl -s http://localhost:3100/v1/keys \
 
 A missing or malformed header returns `401 AUTHENTICATION_ERROR`. See [Environment variables](#environment-variables) for the full list of related config values.
 
+## Rate limits
+
+The server applies per-route, in-memory rate limits to protect the signing path from tail-latency collapse and casual DoS. Limits are evaluated **before** authentication, so a hostile peer hammering `/v1/credentials/issue` with bogus tokens hits `429` before the auth check runs.
+
+### Default limits
+
+Buckets are evaluated over a 60-second rolling window per client identifier.
+
+| Endpoint group | Limit (per 60 s) | Tier |
+|---|---|---|
+| `POST /v1/credentials/issue`, `POST /v1/credentials/batch`, `GET /v1/credentials/batch/:jobId(/results)` | `60` | `issue` |
+| `POST /v1/credentials/verify` | `120` | `verify` |
+| `GET /v1/schemas`, `GET /v1/schemas/:id`, `GET /v1/health` | `600` | `read` |
+
+The unprefixed legacy paths (`/credentials/issue`, etc.) share the same buckets — moving between `/` and `/v1` does not give a caller a fresh quota.
+
+### Client identifier
+
+The bucket key is derived in this order:
+
+1. **Bearer token (preferred).** When `Authorization: Bearer <token>` is present, the token is hashed (SHA-256, truncated to 32 hex chars) and used as the bucket key. **The raw token never leaves the request handler and is never logged or stored.**
+2. **Trusted `X-Forwarded-For`.** When `OPENCRED_TRUST_PROXY=true`, the *first* IP in the comma-separated `X-Forwarded-For` chain is used. **The header is ignored entirely when `OPENCRED_TRUST_PROXY` is unset** — otherwise a hostile client could spoof a fresh "IP" per request and trivially bypass the limit.
+3. **TCP remote address.** Falls back to the connection's source IP.
+
+Two clients sharing the same bearer token share a bucket. Two clients on the same NAT share a bucket only when no token is present.
+
+### Response on bust
+
+When a bucket is exhausted the server returns:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 47
+RateLimit-Limit: 60
+RateLimit-Remaining: 0
+Content-Type: application/json
+
+{
+  "error": {
+    "code": "RATE_LIMIT_EXCEEDED",
+    "message": "Too many requests. Retry after the time indicated by Retry-After."
+  }
+}
+```
+
+The `RateLimit-*` headers follow [draft-7 of `draft-ietf-httpapi-ratelimit-headers`](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/). The response body deliberately omits the offending client identifier — leaking the IP or token hash back to the caller is not useful and is a small but unnecessary observability surface.
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENCRED_RATE_LIMIT_ENABLED` | `true` | Master switch. Set to `false` when an upstream gateway is already applying limits and you want to avoid double-counting. |
+| `OPENCRED_RATE_LIMIT_WINDOW_MS` | `60000` | Rolling-window size in milliseconds. |
+| `OPENCRED_RATE_LIMIT_ISSUE` | `60` | Cap for the issue/batch tier. |
+| `OPENCRED_RATE_LIMIT_VERIFY` | `120` | Cap for the verify tier. |
+| `OPENCRED_RATE_LIMIT_READ` | `600` | Cap for read-only routes (`/schemas`, `/health`). |
+| `OPENCRED_TRUST_PROXY` | `false` | When `true`, honour `X-Forwarded-For` for IP-based buckets. Required when the server runs behind a reverse proxy or load balancer. |
+
+> **In-memory only.** The current store is per-process. When running behind a load balancer across multiple replicas, configure per-instance limits proportional to the replica count (or apply limits at the load-balancer tier instead).
+
 ## Environment variables
 
 All configuration is loaded from environment variables at startup and parsed by Zod (`apps/server/src/config.ts`). Invalid values cause an immediate exit with a descriptive error. None of these values are ever logged.
@@ -91,6 +151,13 @@ All configuration is loaded from environment variables at startup and parsed by 
 | `OPENCRED_AZURE_KEY_VAULT_URL` | When `OPENCRED_KMS_PROVIDER=azure` | _(unset)_ | Azure Key Vault base URL. | `https://vault.vault.azure.net/` |
 | `OPENCRED_AZURE_KEY_NAME` | When `OPENCRED_KMS_PROVIDER=azure` | _(unset)_ | Azure Key Vault key name. | `opencred-issuer` |
 | `OPENCRED_GCP_KMS_KEY_NAME` | When `OPENCRED_KMS_PROVIDER=gcp` | _(unset)_ | GCP KMS key resource name including version. | `projects/p/locations/.../cryptoKeyVersions/1` |
+| `OPENCRED_BATCH_CONCURRENCY` | No | `min(4, cpus)` | Maximum number of rows the batch engine signs in parallel. See [batch engine — worker pool](#post-v1credentialsbatch). | `8` |
+| `OPENCRED_RATE_LIMIT_ENABLED` | No | `true` | Master switch for the per-route rate limiter. See [Rate limits](#rate-limits). | `true` |
+| `OPENCRED_RATE_LIMIT_WINDOW_MS` | No | `60000` | Rolling-window size in milliseconds for rate-limit buckets. | `60000` |
+| `OPENCRED_RATE_LIMIT_ISSUE` | No | `60` | Max requests per window for the `issue` / `batch` tier. | `60` |
+| `OPENCRED_RATE_LIMIT_VERIFY` | No | `120` | Max requests per window for the `verify` tier. | `120` |
+| `OPENCRED_RATE_LIMIT_READ` | No | `600` | Max requests per window for read-only routes (`/schemas`, `/health`). | `600` |
+| `OPENCRED_TRUST_PROXY` | No | `false` | When `true`, honour `X-Forwarded-For` for IP-based rate-limit buckets. **Set this only when running behind a trusted reverse proxy.** | `true` |
 
 [^1]: A signing key is required for `POST /v1/credentials/issue` to succeed. If neither `OPENCRED_KEY_PATH` nor a Cloud HSM provider is configured, the server still starts and `/v1/health` reports `signingKeyLoaded: false`, but every issue request returns `500 INTERNAL_ERROR` (the sanitized fallback for the unhandled `requireSigner()` throw — see [Observability → Health Checks](observability.md#health-checks)).
 [^2]: `OPENCRED_CSCA_TRUST_STORE_PATH` is only required to verify credentials that carry an `x5c` certificate chain (DSC-backed credentials). Verification of DID-keyed credentials does not need it. When unset, the verifier still functions but fails closed for any credential whose proof carries an `x5c` chain — see [`POST /v1/credentials/verify`](#post-v1credentialsverify) below.
@@ -689,6 +756,8 @@ Starts a batch-issuance job from a CSV payload. Returns a `jobId` immediately an
 ```
 
 The CSV row count is capped at `OPENCRED_BATCH_ROW_LIMIT` (default `1000`); exceeding it returns `400 VALIDATION_ERROR`. `rejectKeyMaterial()` runs on the full request body.
+
+> **Worker pool.** Rows are signed in parallel up to `OPENCRED_BATCH_CONCURRENCY` (default `min(4, cpus)`). Per-row error semantics are unchanged from the pre-pool serial loop: a row that fails signing produces `status: "error"` in the results array and does **not** abort the batch. The results array is always ordered by input row index regardless of completion order.
 
 **Response: `202 Accepted`**
 

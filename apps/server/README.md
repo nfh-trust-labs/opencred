@@ -195,6 +195,32 @@ the values below are ever logged.
 | `OPENCRED_AZURE_KEY_VAULT_URL` | _(unset)_ | Required when provider is `azure`. |
 | `OPENCRED_AZURE_KEY_NAME` | _(unset)_ | Required when provider is `azure`. |
 | `OPENCRED_GCP_KMS_KEY_NAME` | _(unset)_ | Required when provider is `gcp`. |
+| `OPENCRED_BATCH_CONCURRENCY` | `min(4, cpus)` | Max rows the batch engine signs in parallel. Bumped by `p-limit` worker pool. |
+| `OPENCRED_RATE_LIMIT_ENABLED` | `true` | Master switch for the per-route rate limiter. |
+| `OPENCRED_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit rolling-window size, in ms. |
+| `OPENCRED_RATE_LIMIT_ISSUE` | `60` | Limit per window for `/credentials/issue` and `/credentials/batch`. |
+| `OPENCRED_RATE_LIMIT_VERIFY` | `120` | Limit per window for `/credentials/verify`. |
+| `OPENCRED_RATE_LIMIT_READ` | `600` | Limit per window for `/schemas` and `/health`. |
+| `OPENCRED_TRUST_PROXY` | `false` | When `true`, derive client IPs from `X-Forwarded-For`. Set only when behind a trusted reverse proxy. |
+
+## Rate limits
+
+The server applies per-route, per-client rate limits to protect the
+signing path from tail-latency collapse. Default limits per 60-second
+window:
+
+| Endpoint group | Limit |
+|---|---|
+| `POST /credentials/issue`, `POST /credentials/batch`, `GET /credentials/batch/:jobId(/results)` | 60 |
+| `POST /credentials/verify` | 120 |
+| `GET /schemas`, `GET /schemas/:id`, `GET /health` | 600 |
+
+Buckets key on the bearer token (SHA-256 hashed) when an `Authorization`
+header is present, otherwise on the client IP. The `X-Forwarded-For`
+header is honoured **only** when `OPENCRED_TRUST_PROXY=true`. Exceeding a
+bucket returns `429 RATE_LIMIT_EXCEEDED` with a `Retry-After` header.
+
+See [`docs/docker/api-reference.md` § Rate limits](../../docs/docker/api-reference.md#rate-limits) for the full reference.
 
 ## Running locally
 

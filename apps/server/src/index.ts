@@ -44,6 +44,7 @@ import { dedi } from "./routes/dedi.js";
 import { metrics } from "./routes/metrics.js";
 import { initTracing } from "./tracing.js";
 import { metricsMiddleware } from "./middleware/metrics.js";
+import { applyRateLimits } from "./middleware/rate-limit.js";
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -318,6 +319,17 @@ app.use("*", async (c, next) => {
 
 // Global middleware
 app.use("*", metricsMiddleware);
+
+// Per-route rate limiting (issue #446 Tier 1).
+//
+// Mounted BEFORE auth so unauthenticated traffic burns budget too — a
+// hostile peer hammering /credentials/issue with bogus tokens should hit
+// the 429 path before we ever spend a syscall on the bearer check, and a
+// bug in the auth path shouldn't accidentally make the surface
+// unlimited. The rate limiter middleware short-circuits cleanly when
+// OPENCRED_RATE_LIMIT_ENABLED=false.
+applyRateLimits(app);
+
 app.use("*", authMiddleware);
 
 // Mount routes.
