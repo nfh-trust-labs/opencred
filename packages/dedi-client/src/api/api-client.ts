@@ -13,6 +13,7 @@ import type {
   DeDiRegistryTag,
   DeDiRecord,
   DeDiRecordState,
+  DeDiResponse,
   DeDiQueryParams,
   DeDiQueryResult,
   DeDiSearchResult,
@@ -207,9 +208,12 @@ export class DeDiApiClient {
     reg: string,
     name: string,
     details: T,
-  ): Promise<DeDiRecord<T>> {
-    // Step 1: Save record as draft and publish immediately
-    const record = await this.request<DeDiRecord<T>>(
+  ): Promise<DeDiResponse<DeDiRecord<T>>> {
+    // The real DeDi API wraps the published record in the standard
+    // `{ message, data: DeDiRecord<T> }` envelope — see Postman `develop`
+    // collection, 2026-05-19. We return the envelope verbatim so the
+    // adapter layer (DeDiClient) decides how to validate and unwrap it.
+    return this.request<DeDiResponse<DeDiRecord<T>>>(
       `/dedi/${enc(ns)}/${enc(reg)}/save-record-as-draft?publish=true`,
       {
         method: "POST",
@@ -221,15 +225,16 @@ export class DeDiApiClient {
         }),
       },
     );
-    return record;
   }
 
   async lookupRecord<T = unknown>(
     ns: string,
     reg: string,
     recordName: string,
-  ): Promise<DeDiRecord<T>> {
-    return this.request<DeDiRecord<T>>(`/dedi/lookup/${enc(ns)}/${enc(reg)}/${enc(recordName)}`);
+  ): Promise<DeDiResponse<DeDiRecord<T>>> {
+    return this.request<DeDiResponse<DeDiRecord<T>>>(
+      `/dedi/lookup/${enc(ns)}/${enc(reg)}/${enc(recordName)}`,
+    );
   }
 
   async revokeRecord(ns: string, reg: string, recordName: string): Promise<void> {
@@ -263,17 +268,19 @@ export class DeDiApiClient {
     ns: string,
     reg: string,
     params?: DeDiQueryParams,
-  ): Promise<DeDiQueryResult<T>> {
+  ): Promise<DeDiResponse<DeDiQueryResult<T>>> {
     const qs = params ? toQueryString(params as Record<string, unknown>) : "";
-    return this.request<DeDiQueryResult<T>>(`/dedi/query/${enc(ns)}/${enc(reg)}${qs}`);
+    return this.request<DeDiResponse<DeDiQueryResult<T>>>(
+      `/dedi/query/${enc(ns)}/${enc(reg)}${qs}`,
+    );
   }
 
   async search<T = unknown>(
     ns: string,
     params: Record<string, string>,
-  ): Promise<DeDiSearchResult<T>> {
+  ): Promise<DeDiResponse<DeDiSearchResult<T>>> {
     const qs = toQueryString(params);
-    return this.request<DeDiSearchResult<T>>(`/dedi/search/${enc(ns)}${qs}`);
+    return this.request<DeDiResponse<DeDiSearchResult<T>>>(`/dedi/search/${enc(ns)}${qs}`);
   }
 
   // ── Domain verification ──────────────────────────────────────────
@@ -320,7 +327,12 @@ export class DeDiApiClient {
 
   // ── Bulk ─────────────────────────────────────────────────────────
 
-  async bulkUpload(_ns: string, _reg: string, file: Blob): Promise<{ job_id: string }> {
+  async bulkUpload(
+    ns: string,
+    reg: string,
+    file: Blob,
+    recordNameField?: string,
+  ): Promise<{ jobId: string }> {
     // Anand's P2-08: this method used to inline a copy of the entire
     // `doFetch` pipeline — AbortController, timeout, SSRF re-check,
     // logging, error handling — purely because the body is `FormData`
@@ -329,11 +341,23 @@ export class DeDiApiClient {
     // FormData bodies and skips the JSON `Content-Type` auto-set, so
     // we route through the shared pipeline. FormData is rebuilt per
     // retry attempt so the underlying blob can be re-read from scratch.
+    //
+    // The real DeDi `/dedi/bulk-upload` endpoint expects multiple form
+    // fields alongside the file: `namespace`, `registry_name`, and an
+    // optional `record_name_field` that names the CSV column to use as
+    // the record name. Verified against the `develop` Postman
+    // collection, 2026-05-19. Response is `{ message, data: { jobId } }`
+    // — camelCase `jobId` nested under `data`, not top-level `job_id`.
     return this.circuitBreaker.execute(() =>
       withRetry(
         async () => {
           const formData = new FormData();
           formData.append("file", file);
+          formData.append("namespace", ns);
+          formData.append("registry_name", reg);
+          if (recordNameField !== undefined) {
+            formData.append("record_name_field", recordNameField);
+          }
           const response = await this.doFetch("/dedi/bulk-upload", {
             method: "POST",
             body: formData,
@@ -359,8 +383,7 @@ export class DeDiApiClient {
           } catch {
             throw new DeDiClientError("DeDi API returned non-JSON response", 502);
           }
-          assertBulkUploadResultShape(parsed);
-          return parsed;
+          return extractBulkUploadResult(parsed);
         },
         { maxRetries: this.config.maxRetries, logger: this.logger },
       ),
@@ -640,14 +663,29 @@ async function readErrorBody(
   }
 }
 
-function assertBulkUploadResultShape(value: unknown): asserts value is { job_id: string } {
+/**
+ * Parse the bulk-upload response envelope. The real DeDi shape is
+ * `{ message, data: { jobId } }` (camelCase `jobId`, nested under
+ * `data`). Verified against the `develop` Postman collection,
+ * 2026-05-19.
+ */
+function extractBulkUploadResult(value: unknown): { jobId: string } {
   if (value == null || typeof value !== "object") {
     throw new DeDiClientError("DeDi API bulk upload response is missing or not an object", 502);
   }
-  const rec = value as Record<string, unknown>;
-  if (typeof rec["job_id"] !== "string") {
-    throw new DeDiClientError("DeDi API bulk upload response missing required field: job_id", 502);
+  const env = value as Record<string, unknown>;
+  const data = env["data"];
+  if (data == null || typeof data !== "object") {
+    throw new DeDiClientError("DeDi API bulk upload response missing required field: data", 502);
   }
+  const dataRec = data as Record<string, unknown>;
+  if (typeof dataRec["jobId"] !== "string") {
+    throw new DeDiClientError(
+      "DeDi API bulk upload response missing required field: data.jobId",
+      502,
+    );
+  }
+  return { jobId: dataRec["jobId"] };
 }
 
 function toQueryString(params: Record<string, unknown>): string {

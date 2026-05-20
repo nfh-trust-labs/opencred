@@ -28,6 +28,8 @@ export type {
   DeDiNamespace,
   DeDiRegistry,
   DeDiRecord,
+  DeDiResponse,
+  DeDiProof,
   DeDiRegistrySummary,
   DeDiRecordSummary,
   DeDiQueryParams,

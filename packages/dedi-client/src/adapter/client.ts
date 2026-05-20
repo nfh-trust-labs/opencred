@@ -106,26 +106,68 @@ function assertContextRecordShape(detail: unknown): asserts detail is ContextRec
   }
 }
 
-function assertDeDiRecordShape(value: unknown, label: string): void {
+/**
+ * Validate that a single DeDi record (the inner payload, not the
+ * `{ message, data }` wrapper) has the required top-level fields.
+ * Reused by `assertDeDiRecordShape` for the envelope path and directly
+ * for search-result entries (which arrive as bare records inside
+ * `data: DeDiRecord[]`).
+ */
+function assertDeDiRecordPayload(
+  value: unknown,
+  label: string,
+): asserts value is { record_name: string; details: unknown } {
   if (value == null || typeof value !== "object") {
     throw new DeDiClientError(`DeDi API ${label} response is missing or not an object`, 502);
   }
   const rec = value as Record<string, unknown>;
-  if (typeof rec["name"] !== "string") {
-    throw new DeDiClientError(`DeDi API ${label} response missing required field: name`, 502);
+  if (typeof rec["record_name"] !== "string") {
+    throw new DeDiClientError(
+      `DeDi API ${label} response missing required field: record_name`,
+      502,
+    );
   }
-  if (!("detail" in rec)) {
-    throw new DeDiClientError(`DeDi API ${label} response missing required field: detail`, 502);
+  if (!("details" in rec)) {
+    throw new DeDiClientError(`DeDi API ${label} response missing required field: details`, 502);
   }
 }
 
-function assertSearchResultShape(value: unknown): void {
+/**
+ * Validate that a response from `publishRecord` / `lookupRecord` matches
+ * the real DeDi envelope shape — `{ message, data: { record_name,
+ * details, ... } }`. Verified against the `develop` Postman collection
+ * on 2026-05-19. Callers extract `response.data.details` to get the
+ * OpenCred payload after this check.
+ */
+function assertDeDiRecordShape(
+  value: unknown,
+  label: string,
+): asserts value is { message: string; data: { record_name: string; details: unknown } } {
+  if (value == null || typeof value !== "object") {
+    throw new DeDiClientError(`DeDi API ${label} response is missing or not an object`, 502);
+  }
+  const env = value as Record<string, unknown>;
+  if (!("data" in env)) {
+    throw new DeDiClientError(`DeDi API ${label} response missing required field: data`, 502);
+  }
+  assertDeDiRecordPayload(env["data"], `${label} data`);
+}
+
+/**
+ * Validate that a search response matches the real DeDi envelope shape
+ * — `{ message, data: DeDiRecord<T>[] }`. The payload lives under
+ * `data` as an array of records; pagination is communicated out-of-band
+ * by the server.
+ */
+function assertSearchResultShape(
+  value: unknown,
+): asserts value is { message: string; data: unknown[] } {
   if (value == null || typeof value !== "object") {
     throw new DeDiClientError("DeDi API search response is missing or not an object", 502);
   }
-  const rec = value as Record<string, unknown>;
-  if (!Array.isArray(rec["records"])) {
-    throw new DeDiClientError("DeDi API search response field 'records' must be an array", 502);
+  const env = value as Record<string, unknown>;
+  if (!Array.isArray(env["data"])) {
+    throw new DeDiClientError("DeDi API search response field 'data' must be an array", 502);
   }
 }
 
@@ -147,33 +189,34 @@ export class DeDiClient {
   async publishRevocationHash(hash: string, namespace?: string): Promise<RevocationHashRecord> {
     const ns = this.resolveNamespace(namespace);
     const revokedAt = new Date().toISOString();
-    const record = await this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, {
+    const response = await this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, {
       hash,
       revoked: true,
       revokedAt,
     });
-    assertDeDiRecordShape(record, "publishRecord");
-    assertRevocationHashShape(record.detail);
-    return record.detail;
+    assertDeDiRecordShape(response, "publishRecord");
+    const details = response.data.details;
+    assertRevocationHashShape(details);
+    return details;
   }
 
   async queryRevocationHash(hash: string, namespace?: string): Promise<RevocationHashRecord> {
     const ns = this.resolveNamespace(namespace);
 
-    const result = await this.api.search(ns, {
+    const response = await this.api.search(ns, {
       registry_name: REVOCATION_REGISTRY,
       "detail.hash": hash,
     });
-    assertSearchResultShape(result);
+    assertSearchResultShape(response);
 
-    if (result.records.length === 0) {
+    if (response.data.length === 0) {
       return { hash, revoked: false as const };
     }
 
-    assertDeDiRecordShape(result.records[0], "search record");
-    const detail = result.records[0]!.detail;
-    assertRevocationHashShape(detail);
-    return detail;
+    assertDeDiRecordPayload(response.data[0], "search record");
+    const details = response.data[0].details;
+    assertRevocationHashShape(details);
+    return details;
   }
 
   async publishDID(did: string, document: unknown, namespace?: string): Promise<PublishResult> {
@@ -191,10 +234,11 @@ export class DeDiClient {
   async resolveDID(did: string, namespace?: string): Promise<DIDRecord> {
     const ns = this.resolveNamespace(namespace);
     const recordName = didToRecordName(did);
-    const record = await this.api.lookupRecord(ns, PUBLIC_KEY_REGISTRY, recordName);
-    assertDeDiRecordShape(record, "lookupRecord");
-    assertDIDRecordShape(record.detail);
-    return record.detail;
+    const response = await this.api.lookupRecord(ns, PUBLIC_KEY_REGISTRY, recordName);
+    assertDeDiRecordShape(response, "lookupRecord");
+    const details = response.data.details;
+    assertDIDRecordShape(details);
+    return details;
   }
 
   async publishSchema(schema: SchemaRecord, namespace?: string): Promise<PublishResult> {
@@ -211,10 +255,11 @@ export class DeDiClient {
   ): Promise<SchemaRecord> {
     const ns = this.resolveNamespace(namespace);
     const recordName = schemaToRecordName(schemaId, version);
-    const record = await this.api.lookupRecord(ns, SCHEMA_REGISTRY, recordName);
-    assertDeDiRecordShape(record, "lookupRecord");
-    assertSchemaRecordShape(record.detail);
-    return record.detail;
+    const response = await this.api.lookupRecord(ns, SCHEMA_REGISTRY, recordName);
+    assertDeDiRecordShape(response, "lookupRecord");
+    const details = response.data.details;
+    assertSchemaRecordShape(details);
+    return details;
   }
 
   async publishContext(record: ContextRecord, namespace?: string): Promise<PublishResult> {
@@ -231,10 +276,11 @@ export class DeDiClient {
   ): Promise<ContextRecord> {
     const ns = this.resolveNamespace(namespace);
     const recordName = contextToRecordName(schemaId, version);
-    const record = await this.api.lookupRecord(ns, CONTEXT_REGISTRY, recordName);
-    assertDeDiRecordShape(record, "lookupRecord");
-    assertContextRecordShape(record.detail);
-    return record.detail;
+    const response = await this.api.lookupRecord(ns, CONTEXT_REGISTRY, recordName);
+    assertDeDiRecordShape(response, "lookupRecord");
+    const details = response.data.details;
+    assertContextRecordShape(details);
+    return details;
   }
 
   async ensureRegistries(namespace: string): Promise<void> {

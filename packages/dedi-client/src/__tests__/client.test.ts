@@ -50,7 +50,7 @@ describe("DeDiClient (adapter)", () => {
     it("uses defaultNamespace when no explicit namespace provided", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockResolvedValue({ records: [], total: 0 });
+      vi.mocked(api.search).mockResolvedValue({ message: "ok", data: [] });
 
       await client.queryRevocationHash("abc");
 
@@ -60,7 +60,7 @@ describe("DeDiClient (adapter)", () => {
     it("uses explicit namespace over defaultNamespace", async () => {
       const client = createClient("default.com");
       const api = mockApi();
-      vi.mocked(api.search).mockResolvedValue({ records: [], total: 0 });
+      vi.mocked(api.search).mockResolvedValue({ message: "ok", data: [] });
 
       await client.queryRevocationHash("abc", "explicit.com");
 
@@ -80,18 +80,21 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord).mockResolvedValue({
-        name: "abc",
-        registry: REVOCATION_REGISTRY,
-        namespace: "example.com",
-        detail: {
-          hash: "abc",
-          revoked: true,
-          revokedAt: "2026-01-01T00:00:00Z",
+        message: "Record published",
+        data: {
+          record_name: "abc",
+          registry: REVOCATION_REGISTRY,
+          namespace: "example.com",
+          details: {
+            hash: "abc",
+            revoked: true,
+            revokedAt: "2026-01-01T00:00:00Z",
+          },
+          state: "live",
+          version: "1",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
         },
-        state: "live",
-        version: 1,
-        created_at: "2026-01-01T00:00:00Z",
-        updated_at: "2026-01-01T00:00:00Z",
       });
 
       const result = await client.publishRevocationHash("abc");
@@ -109,14 +112,17 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord).mockResolvedValue({
-        name: "abc",
-        registry: REVOCATION_REGISTRY,
-        namespace: "example.com",
-        detail: { invalid: true },
-        state: "live",
-        version: 1,
-        created_at: "2026-01-01T00:00:00Z",
-        updated_at: "2026-01-01T00:00:00Z",
+        message: "Record published",
+        data: {
+          record_name: "abc",
+          registry: REVOCATION_REGISTRY,
+          namespace: "example.com",
+          details: { invalid: true },
+          state: "live",
+          version: "1",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
       });
 
       await expect(client.publishRevocationHash("abc")).rejects.toThrow(
@@ -132,23 +138,23 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.search).mockResolvedValue({
-        records: [
+        message: "ok",
+        data: [
           {
-            name: "abc",
+            record_name: "abc",
             registry: REVOCATION_REGISTRY,
             namespace: "example.com",
-            detail: {
+            details: {
               hash: "abc",
               revoked: true,
               revokedAt: "2026-01-01T00:00:00Z",
             },
             state: "live",
-            version: 1,
+            version: "1",
             created_at: "2026-01-01T00:00:00Z",
             updated_at: "2026-01-01T00:00:00Z",
           },
         ],
-        total: 1,
       });
 
       const result = await client.queryRevocationHash("abc");
@@ -163,7 +169,7 @@ describe("DeDiClient (adapter)", () => {
     it("returns { revoked: false } when hash not found", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockResolvedValue({ records: [], total: 0 });
+      vi.mocked(api.search).mockResolvedValue({ message: "ok", data: [] });
 
       const result = await client.queryRevocationHash("missing");
 
@@ -190,19 +196,19 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.search).mockResolvedValue({
-        records: [
+        message: "ok",
+        data: [
           {
-            name: "abc",
+            record_name: "abc",
             registry: REVOCATION_REGISTRY,
             namespace: "example.com",
-            detail: { hash: "abc", revoked: true },
+            details: { hash: "abc", revoked: true },
             state: "live",
-            version: 1,
+            version: "1",
             created_at: "2026-01-01T00:00:00Z",
             updated_at: "2026-01-01T00:00:00Z",
           },
         ],
-        total: 1,
       });
 
       await expect(client.queryRevocationHash("abc")).rejects.toThrow(
@@ -224,14 +230,17 @@ describe("DeDiClient (adapter)", () => {
       };
 
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        name: "did-key-z6Mk123",
-        registry: PUBLIC_KEY_REGISTRY,
-        namespace: "example.com",
-        detail: didRecord,
-        state: "live",
-        version: 1,
-        created_at: "2026-01-01T00:00:00Z",
-        updated_at: "2026-01-01T00:00:00Z",
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mk123",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: didRecord,
+          state: "live",
+          version: "1",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
       });
 
       const result = await client.resolveDID("did:key:z6Mk123");
@@ -248,14 +257,17 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        name: "did-key-z6Mk123",
-        registry: PUBLIC_KEY_REGISTRY,
-        namespace: "example.com",
-        detail: { did: "did:key:z6Mk123", document: {}, resolvedAt: "" },
-        state: "live",
-        version: 1,
-        created_at: "",
-        updated_at: "",
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mk123",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:key:z6Mk123", document: {}, resolvedAt: "" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
       });
 
       await client.resolveDID("did:key:z6Mk123");
@@ -271,14 +283,17 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        name: "did-key-z6Mk123",
-        registry: PUBLIC_KEY_REGISTRY,
-        namespace: "example.com",
-        detail: { invalid: true },
-        state: "live",
-        version: 1,
-        created_at: "2026-01-01T00:00:00Z",
-        updated_at: "2026-01-01T00:00:00Z",
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mk123",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { invalid: true },
+          state: "live",
+          version: "1",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
       });
 
       await expect(client.resolveDID("did:key:z6Mk123")).rejects.toThrow(
@@ -310,7 +325,7 @@ describe("DeDiClient (adapter)", () => {
         name: "test",
         namespace: "example.com",
         schema: {},
-        tag: "Revoke",
+        tag: "revoke",
         state: "active",
         record_count: 0,
         created_at: "",
@@ -369,7 +384,7 @@ describe("DeDiClient (adapter)", () => {
         name: "test",
         namespace: "example.com",
         schema: {},
-        tag: "Revoke",
+        tag: "revoke",
         state: "active",
         record_count: 0,
         created_at: "",
@@ -415,7 +430,7 @@ describe("DeDiClient (adapter)", () => {
         name: "test",
         namespace: "example.com",
         schema: {},
-        tag: "Revoke",
+        tag: "revoke",
         state: "active",
         record_count: 0,
         created_at: "",
@@ -490,18 +505,21 @@ describe("DeDiClient (adapter)", () => {
       const api = mockApi();
       const didDocument = { id: "did:web:example.com", verificationMethod: [] };
       vi.mocked(api.publishRecord).mockResolvedValue({
-        name: "did-web-example.com",
-        registry: PUBLIC_KEY_REGISTRY,
-        namespace: "example.com",
-        detail: {
-          did: "did:web:example.com",
-          document: didDocument,
-          resolvedAt: "2026-03-25T00:00:00Z",
+        message: "ok",
+        data: {
+          record_name: "did-web-example.com",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: {
+            did: "did:web:example.com",
+            document: didDocument,
+            resolvedAt: "2026-03-25T00:00:00Z",
+          },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
         },
-        state: "live",
-        version: 1,
-        created_at: "",
-        updated_at: "",
       });
 
       const result = await client.publishDID("did:web:example.com", didDocument);
@@ -535,14 +553,17 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord).mockResolvedValue({
-        name: "functional-identity-v1",
-        registry: SCHEMA_REGISTRY,
-        namespace: "example.com",
-        detail: testSchema,
-        state: "live",
-        version: 1,
-        created_at: "",
-        updated_at: "",
+        message: "ok",
+        data: {
+          record_name: "functional-identity-v1",
+          registry: SCHEMA_REGISTRY,
+          namespace: "example.com",
+          details: testSchema,
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
       });
 
       const result = await client.publishSchema(testSchema);
@@ -572,14 +593,17 @@ describe("DeDiClient (adapter)", () => {
         publishedAt: "2026-03-25T00:00:00Z",
       };
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        name: "functional-identity-v1",
-        registry: SCHEMA_REGISTRY,
-        namespace: "example.com",
-        detail: schemaDetail,
-        state: "live",
-        version: 1,
-        created_at: "",
-        updated_at: "",
+        message: "ok",
+        data: {
+          record_name: "functional-identity-v1",
+          registry: SCHEMA_REGISTRY,
+          namespace: "example.com",
+          details: schemaDetail,
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
       });
 
       const result = await client.resolveSchema("functional-identity/v1", "1");
@@ -596,14 +620,17 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        name: "bad-v1",
-        registry: SCHEMA_REGISTRY,
-        namespace: "example.com",
-        detail: { schemaId: "bad" },
-        state: "live",
-        version: 1,
-        created_at: "",
-        updated_at: "",
+        message: "ok",
+        data: {
+          record_name: "bad-v1",
+          registry: SCHEMA_REGISTRY,
+          namespace: "example.com",
+          details: { schemaId: "bad" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
       });
 
       await expect(client.resolveSchema("bad", "1")).rejects.toThrow(
@@ -615,20 +642,23 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        name: "test-v1",
-        registry: SCHEMA_REGISTRY,
-        namespace: "example.com",
-        detail: {
-          schemaId: "test",
+        message: "ok",
+        data: {
+          record_name: "test-v1",
+          registry: SCHEMA_REGISTRY,
+          namespace: "example.com",
+          details: {
+            schemaId: "test",
+            version: "1",
+            schema: { type: "object" },
+            checksum: 12345,
+            publishedAt: "2026-01-01T00:00:00Z",
+          },
+          state: "live",
           version: "1",
-          schema: { type: "object" },
-          checksum: 12345,
-          publishedAt: "2026-01-01T00:00:00Z",
+          created_at: "",
+          updated_at: "",
         },
-        state: "live",
-        version: 1,
-        created_at: "",
-        updated_at: "",
       });
 
       await expect(client.resolveSchema("test", "1")).rejects.toThrow(
@@ -640,20 +670,23 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        name: "test-v1",
-        registry: SCHEMA_REGISTRY,
-        namespace: "example.com",
-        detail: {
-          schemaId: "test",
+        message: "ok",
+        data: {
+          record_name: "test-v1",
+          registry: SCHEMA_REGISTRY,
+          namespace: "example.com",
+          details: {
+            schemaId: "test",
+            version: "1",
+            schema: { type: "object" },
+            checksum: "abc",
+            publishedAt: null,
+          },
+          state: "live",
           version: "1",
-          schema: { type: "object" },
-          checksum: "abc",
-          publishedAt: null,
+          created_at: "",
+          updated_at: "",
         },
-        state: "live",
-        version: 1,
-        created_at: "",
-        updated_at: "",
       });
 
       await expect(client.resolveSchema("test", "1")).rejects.toThrow(
@@ -675,14 +708,17 @@ describe("DeDiClient (adapter)", () => {
         publishedAt: "2026-03-25T00:00:00Z",
       };
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        name: "functional-identity-ctx-v1",
-        registry: CONTEXT_REGISTRY,
-        namespace: "example.com",
-        detail: contextDetail,
-        state: "live",
-        version: 1,
-        created_at: "",
-        updated_at: "",
+        message: "ok",
+        data: {
+          record_name: "functional-identity-ctx-v1",
+          registry: CONTEXT_REGISTRY,
+          namespace: "example.com",
+          details: contextDetail,
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
       });
 
       const result = await client.resolveContext("functional-identity/v1", "1");
@@ -699,14 +735,17 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        name: "bad-ctx-v1",
-        registry: CONTEXT_REGISTRY,
-        namespace: "example.com",
-        detail: { schemaId: "bad" },
-        state: "live",
-        version: 1,
-        created_at: "",
-        updated_at: "",
+        message: "ok",
+        data: {
+          record_name: "bad-ctx-v1",
+          registry: CONTEXT_REGISTRY,
+          namespace: "example.com",
+          details: { schemaId: "bad" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
       });
 
       await expect(client.resolveContext("bad", "1")).rejects.toThrow(
@@ -718,19 +757,22 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        name: "test-ctx-v1",
-        registry: CONTEXT_REGISTRY,
-        namespace: "example.com",
-        detail: {
-          schemaId: "test",
+        message: "ok",
+        data: {
+          record_name: "test-ctx-v1",
+          registry: CONTEXT_REGISTRY,
+          namespace: "example.com",
+          details: {
+            schemaId: "test",
+            version: "1",
+            context: { "@context": {} },
+            publishedAt: 12345,
+          },
+          state: "live",
           version: "1",
-          context: { "@context": {} },
-          publishedAt: 12345,
+          created_at: "",
+          updated_at: "",
         },
-        state: "live",
-        version: 1,
-        created_at: "",
-        updated_at: "",
       });
 
       await expect(client.resolveContext("test", "1")).rejects.toThrow(
@@ -742,19 +784,22 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        name: "test-ctx-v1",
-        registry: CONTEXT_REGISTRY,
-        namespace: "example.com",
-        detail: {
-          schemaId: "test",
+        message: "ok",
+        data: {
+          record_name: "test-ctx-v1",
+          registry: CONTEXT_REGISTRY,
+          namespace: "example.com",
+          details: {
+            schemaId: "test",
+            version: "1",
+            context: "not-an-object",
+            publishedAt: "2026-01-01T00:00:00Z",
+          },
+          state: "live",
           version: "1",
-          context: "not-an-object",
-          publishedAt: "2026-01-01T00:00:00Z",
+          created_at: "",
+          updated_at: "",
         },
-        state: "live",
-        version: 1,
-        created_at: "",
-        updated_at: "",
       });
 
       await expect(client.resolveContext("test", "1")).rejects.toThrow(
@@ -766,27 +811,41 @@ describe("DeDiClient (adapter)", () => {
   // ── DeDi record wrapper validation ──────────────────────────────
 
   describe("DeDi record wrapper validation", () => {
-    it("throws when lookupRecord returns response without detail field", async () => {
+    it("throws when lookupRecord returns response without details field", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        name: "test",
+        message: "ok",
+        data: { record_name: "test" },
       } as never);
 
       await expect(client.resolveDID("did:key:z6Mk123")).rejects.toThrow(
-        "DeDi API lookupRecord response missing required field: detail",
+        "DeDi API lookupRecord data response missing required field: details",
       );
     });
 
-    it("throws when lookupRecord returns response without name field", async () => {
+    it("throws when lookupRecord returns response without record_name field", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.lookupRecord).mockResolvedValue({
-        detail: { did: "did:key:z6Mk123", document: {}, resolvedAt: "" },
+        message: "ok",
+        data: { details: { did: "did:key:z6Mk123", document: {}, resolvedAt: "" } },
       } as never);
 
       await expect(client.resolveDID("did:key:z6Mk123")).rejects.toThrow(
-        "DeDi API lookupRecord response missing required field: name",
+        "DeDi API lookupRecord data response missing required field: record_name",
+      );
+    });
+
+    it("throws when lookupRecord returns response without data field", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+      } as never);
+
+      await expect(client.resolveDID("did:key:z6Mk123")).rejects.toThrow(
+        "DeDi API lookupRecord response missing required field: data",
       );
     });
 
@@ -804,13 +863,13 @@ describe("DeDiClient (adapter)", () => {
   // ── Search result wrapper validation ────────────────────────────
 
   describe("search result wrapper validation", () => {
-    it("throws when search returns response without records array", async () => {
+    it("throws when search returns response without data array", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockResolvedValue({ total: 0 } as never);
+      vi.mocked(api.search).mockResolvedValue({ message: "ok" } as never);
 
       await expect(client.queryRevocationHash("abc")).rejects.toThrow(
-        "DeDi API search response field 'records' must be an array",
+        "DeDi API search response field 'data' must be an array",
       );
     });
 
