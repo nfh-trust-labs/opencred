@@ -17,6 +17,7 @@ import {
   parseRawCsv as parseRawCsvCore,
   streamingParseCsv as streamingParseCsvCore,
   StreamingCsvLimitError as StreamingCsvLimitErrorCore,
+  StreamingCsvRecordSizeError as StreamingCsvRecordSizeErrorCore,
   type ColumnMapping as CoreColumnMapping,
   type CsvParseOptions as CoreCsvParseOptions,
   type CsvParseResult as CoreCsvParseResult,
@@ -46,15 +47,19 @@ export interface CsvParseOptions {
 
 /**
  * Options for the streaming parser. Mirrors {@link CsvParseOptions} and
- * adds the `maxRows` knob — the route layer threads
- * `OPENCRED_BATCH_ROW_LIMIT` through here so a slow-stream attacker
- * can't bypass the cap by buffering the body across many tiny chunks.
+ * adds the `maxRows` + `maxRecordBytes` knobs — the route layer
+ * threads `OPENCRED_BATCH_ROW_LIMIT` and `OPENCRED_BATCH_MAX_RECORD_BYTES`
+ * through here so a slow-stream attacker can't bypass the cap by
+ * either (a) drip-feeding bytes across many tiny chunks or (b)
+ * pinning the entire body-limit budget on one row that never ends.
  */
 export interface StreamingCsvParseOptions extends CsvParseOptions {
   maxRows?: number;
+  maxRecordBytes?: number;
 }
 
 export const StreamingCsvLimitError = StreamingCsvLimitErrorCore;
+export const StreamingCsvRecordSizeError = StreamingCsvRecordSizeErrorCore;
 export const detectDelimiter = detectDelimiterCore;
 export const parseRawCsv = parseRawCsvCore;
 export const applyMapping = applyMappingCore;
@@ -122,6 +127,7 @@ export function parseCsvStreaming(
     trimValues: options.trimValues,
     validate: validateRow,
     maxRows: options.maxRows,
+    maxRecordBytes: options.maxRecordBytes,
   };
   return streamingParseCsvCore(input, coreOptions);
 }
