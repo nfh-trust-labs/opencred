@@ -98,6 +98,28 @@ export function TopBar({ activeView, isOffline, rotationOverdue, onNavigate }: P
         </button>
 
         <button
+          onClick={() => onNavigate("revocation")}
+          className={`oc-topbar-nav-btn ${activeView === "revocation" ? "active" : ""}`}
+          aria-label="Credential revocation"
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+            />
+          </svg>
+          Revoke
+        </button>
+
+        <button
           onClick={() => onNavigate("verify")}
           className={`oc-topbar-nav-btn ${activeView === "verify" ? "active" : ""}`}
           aria-label="Verify credential"

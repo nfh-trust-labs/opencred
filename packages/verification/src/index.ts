@@ -30,7 +30,13 @@ export type {
   SdJwtVcVerifyOptions,
   Disclosure,
 } from "./sd-jwt-vc.js";
-export { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
+export {
+  checkDates,
+  checkRevocation,
+  checkBitstringStatusList,
+  checkKeyRotation,
+  checkRegistryAnchor,
+} from "./checks.js";
 export type { BitstringStatusListOptions } from "./checks.js";
 export { checkX509Chain, loadCscaTrustStore } from "./x509-chain-check.js";
 export type { LoadCscaTrustStoreOptions, X509ChainCheckOptions } from "./x509-chain-check.js";

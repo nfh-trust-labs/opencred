@@ -3,6 +3,7 @@ import { DeDiClientError } from "@opencred/shared";
 import { DeDiClient } from "../adapter/client.js";
 import { DeDiApiClient } from "../api/api-client.js";
 import type { ContextRecord, SchemaRecord } from "../adapter/types.js";
+import type { DeDiProof } from "../api/types.js";
 import {
   REVOCATION_REGISTRY,
   PUBLIC_KEY_REGISTRY,
@@ -399,6 +400,130 @@ describe("DeDiClient (adapter)", () => {
       await expect(client.resolveDID("did:key:z6Mk123")).rejects.toThrow(
         "DID record detail field 'document' must be an object when present",
       );
+    });
+
+    it("surfaces the CORD anchor proof block when DeDi returns one", async () => {
+      // The proof block lives on the envelope (sibling to `details`), not
+      // inside `details`. The adapter copies it onto the returned record so
+      // verifier code can read `record.proof` directly.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mk123",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:key:z6Mk123", keyStatus: "current" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+          proof: {
+            type: "DediRecordProof2026",
+            namespace_did: "did:cord:ns:example",
+            registry_identifier: "reg-public-key",
+            record_identifier: "rec-did-key-z6Mk123",
+            creator_did: "did:key:z6Mk123",
+            digest: "abc123def456",
+            network_genesis: "0xCordGenesis",
+          },
+        },
+      });
+
+      const result = await client.resolveDID("did:key:z6Mk123");
+      expect(result.proof).toBeDefined();
+      expect(result.proof?.creator_did).toBe("did:key:z6Mk123");
+      expect(result.proof?.digest).toBe("abc123def456");
+      expect(result.proof?.network_genesis).toBe("0xCordGenesis");
+      expect(result.proof?.registry_identifier).toBe("reg-public-key");
+      expect(result.proof?.record_identifier).toBe("rec-did-key-z6Mk123");
+    });
+
+    it("omits proof when DeDi envelope has no proof block", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mk123",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:key:z6Mk123", keyStatus: "current" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+
+      const result = await client.resolveDID("did:key:z6Mk123");
+      expect(result.proof).toBeUndefined();
+      expect(result.did).toBe("did:key:z6Mk123");
+    });
+
+    it("accepts a proof block with null network_genesis", async () => {
+      // network_genesis is `string | null` on the wire — a record may exist
+      // in DeDi without being anchored to a specific network yet. Accept
+      // null and normalize to null in the returned proof.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mk123",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:key:z6Mk123", keyStatus: "current" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+          proof: {
+            type: "DediRecordProof2026",
+            namespace_did: "did:cord:ns:example",
+            creator_did: "did:key:z6Mk123",
+            digest: "abc",
+            network_genesis: null,
+          },
+        },
+      });
+
+      const result = await client.resolveDID("did:key:z6Mk123");
+      expect(result.proof).toBeDefined();
+      expect(result.proof?.network_genesis).toBeNull();
+    });
+
+    it("drops a malformed proof block instead of throwing", async () => {
+      // A proof missing required fields (e.g. creator_did) is treated as
+      // "no anchor info" rather than a server-side bug — historically DeDi
+      // shipped envelopes without proof, and we don't want a flaky proof
+      // shape to fail an otherwise-valid record lookup.
+      const client = createClient("example.com");
+      const api = mockApi();
+      // Cast to `unknown` first to bypass DeDiProof's required-fields
+      // typing — the whole point is to simulate a non-conforming server
+      // response and confirm the adapter drops it silently rather than
+      // throwing on the typing-narrowed path.
+      const malformedProof = { type: "DediRecordProof2026" } as unknown as DeDiProof;
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-key-z6Mk123",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: { did: "did:key:z6Mk123", keyStatus: "current" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+          proof: malformedProof,
+        },
+      });
+
+      const result = await client.resolveDID("did:key:z6Mk123");
+      expect(result.proof).toBeUndefined();
+      expect(result.did).toBe("did:key:z6Mk123");
     });
   });
 
@@ -995,6 +1120,41 @@ describe("DeDiClient (adapter)", () => {
       await expect(client.resolveSchema("test", "1")).rejects.toThrow(
         "Schema record field 'publishedAt' must be a string",
       );
+    });
+
+    it("surfaces the CORD anchor proof on schema records", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "test-v1",
+          registry: SCHEMA_REGISTRY,
+          namespace: "example.com",
+          details: {
+            schemaId: "test",
+            version: "1",
+            schema: { type: "object" },
+            checksum: "abc",
+            publishedAt: "2026-01-01T00:00:00Z",
+          },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+          proof: {
+            type: "DediRecordProof2026",
+            namespace_did: "did:cord:ns:example",
+            creator_did: "did:key:z6Mkfoo",
+            digest: "schemaDigest",
+            network_genesis: "0xCordGenesis",
+          },
+        },
+      });
+
+      const result = await client.resolveSchema("test", "1");
+      expect(result.proof?.creator_did).toBe("did:key:z6Mkfoo");
+      expect(result.proof?.digest).toBe("schemaDigest");
     });
   });
 

@@ -286,6 +286,47 @@ describe("Revocation Queue", () => {
       expect(item?.status).toBe("published");
     });
 
+    it("should pass the queued reason through to publishRevocationHash", async () => {
+      // The DeDi `revoke` tag schema persists `reason` alongside the
+      // revoked id; the queue must hand it off to the client untouched
+      // so the on-chain record matches what the issuer typed.
+      queueRevocation("urn:uuid:test-pub-with-reason", "https://dedi.example/revocations/test", {
+        revocationHash: "hash-with-reason",
+        reason: "Key compromised",
+      });
+
+      await publishPendingRevocations(
+        { type: "api-key", apiKey: "test-key-123" },
+        "https://dedi.example",
+      );
+
+      expect(mockPublishRevocationHash).toHaveBeenCalledWith(
+        "hash-with-reason",
+        undefined,
+        "Key compromised",
+      );
+    });
+
+    it("should preserve the reason on the persisted queue item after publish", async () => {
+      // After publish completes the queue row should still carry the
+      // reason — the History tab renders "Revoked: <reason>" from the
+      // persisted state, not from the original IPC payload.
+      const queued = queueRevocation(
+        "urn:uuid:test-reason-preserved",
+        "https://dedi.example/revocations/test",
+        { revocationHash: "hash-keep-reason", reason: "Issued in error" },
+      );
+
+      await publishPendingRevocations(
+        { type: "api-key", apiKey: "test-key" },
+        "https://dedi.example",
+      );
+
+      const after = getQueueItem(queued.queueId);
+      expect(after?.status).toBe("published");
+      expect(after?.reason).toBe("Issued in error");
+    });
+
     it("should accept bearer credentials", async () => {
       queueRevocation("urn:uuid:test-pub-2", "https://dedi.example/revocations/test", {
         revocationHash: "hash456",
