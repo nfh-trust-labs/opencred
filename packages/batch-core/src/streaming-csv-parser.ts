@@ -36,6 +36,16 @@
  *     that would otherwise consume unbounded server memory by trickling
  *     bytes forever. We track yielded row count and throw immediately
  *     once the cap is exceeded — no whole-body buffering required.
+ *   - `maxRows` alone is NOT enough on its own. A pathological body with
+ *     no record terminator (a single 200MB row with no newlines, or a
+ *     200MB quoted field with no closing quote) buffers up to the
+ *     upstream body-limit before any row completes — `maxRows` cannot
+ *     fire because no row ever yields. The `maxRecordBytes` option adds
+ *     defense-in-depth at the parser level: the in-flight record buffer
+ *     is bounded to a small per-row cap (default 1 MiB) and the parser
+ *     throws `StreamingCsvRecordSizeError` as soon as it's exceeded,
+ *     long before the upstream `hono/body-limit` would kick in. The
+ *     error message carries the byte counts but never the row content.
  */
 
 import type {
@@ -76,6 +86,25 @@ export interface StreamingCsvOptions extends Omit<CsvParseOptions, "validate"> {
    * happens at yield time, so we fail as soon as the (N+1)th row resolves.
    */
   maxRows?: number;
+  /**
+   * Maximum size in bytes (well, UTF-16 code units — we measure the
+   * decoded string buffer, which is close enough for ASCII-heavy CSV
+   * and over-counts for multi-byte sequences, biasing toward
+   * rejection rather than buffer growth) of a single in-flight record
+   * before the parser throws {@link StreamingCsvRecordSizeError}.
+   *
+   * This is layered defense alongside the upstream body-limit
+   * middleware: the upstream cap bounds the whole body, this cap
+   * bounds a single record so a pathological no-newline / no-closing-
+   * quote payload can't pin the entire body-limit budget on a single
+   * row that never completes.
+   *
+   * Omit for no cap (matches pre-issue-578 behaviour). Callers that
+   * accept CSV from untrusted sources should always set this. The
+   * server route defaults it to 1 MiB via
+   * `OPENCRED_BATCH_MAX_RECORD_BYTES`.
+   */
+  maxRecordBytes?: number;
 }
 
 /**
@@ -87,6 +116,26 @@ export class StreamingCsvLimitError extends Error {
   constructor(public readonly limit: number) {
     super(`CSV row count exceeds the configured limit of ${limit}`);
     this.name = "StreamingCsvLimitError";
+  }
+}
+
+/**
+ * Thrown when {@link StreamingCsvOptions.maxRecordBytes} is exceeded
+ * during in-flight record accumulation. The error carries the
+ * configured cap and the offending byte count (the length of the
+ * record buffer when the threshold was crossed) so the caller can log
+ * useful diagnostics — but NEVER the buffer content, which may carry
+ * PII / credential subject data.
+ */
+export class StreamingCsvRecordSizeError extends Error {
+  constructor(
+    public readonly recordBytes: number,
+    public readonly limit: number,
+  ) {
+    super(
+      `CSV record exceeds the configured size cap: ${recordBytes} bytes buffered, limit is ${limit} bytes`,
+    );
+    this.name = "StreamingCsvRecordSizeError";
   }
 }
 
@@ -160,8 +209,18 @@ async function* normaliseInput(input: StreamingCsvInput): AsyncIterable<Uint8Arr
  * After yielding a record we drop everything up to and including the
  * terminator from the rolling buffer. This keeps memory bounded by the
  * size of the longest single record, never the cumulative input.
+ *
+ * When `maxRecordBytes` is provided, the scanner throws
+ * `StreamingCsvRecordSizeError` the moment the in-flight buffer
+ * exceeds the cap — BEFORE pulling any more chunks. This is the
+ * slow-stream / unterminated-record defense: a pathological body with
+ * no newline (or an unclosed quoted field) can no longer pin the
+ * entire upstream body-limit on a single record that never completes.
  */
-async function* scanRecords(text: AsyncIterable<string>): AsyncGenerator<string> {
+async function* scanRecords(
+  text: AsyncIterable<string>,
+  maxRecordBytes: number | undefined,
+): AsyncGenerator<string> {
   let buf = "";
   let inQuotes = false;
   // Index of the next character that hasn't been examined for record
@@ -194,6 +253,14 @@ async function* scanRecords(text: AsyncIterable<string>): AsyncGenerator<string>
         if (end > recordStart && buf[end - 1] === "\r") end -= 1;
         const record = buf.slice(recordStart, end);
         if (record.trim().length > 0) {
+          // Per-record cap applies to each completed record. A chunk
+          // could deliver `<huge-row>\n<huge-row>\n` so the IN-FLIGHT
+          // buffer never exceeds the cap (it's drained each \n), yet
+          // an individual record does. SECURITY: report bytes + limit
+          // only, never the content.
+          if (maxRecordBytes !== undefined && record.length > maxRecordBytes) {
+            throw new StreamingCsvRecordSizeError(record.length, maxRecordBytes);
+          }
           yield record;
         }
         recordStart = i + 1;
@@ -210,11 +277,26 @@ async function* scanRecords(text: AsyncIterable<string>): AsyncGenerator<string>
     } else {
       scanPos = buf.length;
     }
+
+    // Defense-in-depth: after draining completed records, if the
+    // in-flight tail (= the un-terminated record we're still
+    // accumulating) has already crossed the cap, throw BEFORE
+    // pulling the next chunk. This is the slow-stream / unclosed-
+    // quote defense — without it a pathological body with no
+    // terminator inside `maxRecordBytes` bytes would keep buffering
+    // up to the upstream body-limit. SECURITY: error carries the
+    // byte count + configured cap, never any sliced row content.
+    if (maxRecordBytes !== undefined && buf.length > maxRecordBytes) {
+      throw new StreamingCsvRecordSizeError(buf.length, maxRecordBytes);
+    }
   }
 
   // Flush a final unterminated record (no trailing \n). Matches the
   // buffered parser, which doesn't require a trailing newline either.
   if (buf.trim().length > 0) {
+    if (maxRecordBytes !== undefined && buf.length > maxRecordBytes) {
+      throw new StreamingCsvRecordSizeError(buf.length, maxRecordBytes);
+    }
     yield buf;
   }
 }
@@ -312,6 +394,7 @@ function parseRecord(record: string, delimiter: string): string[] {
  */
 async function takeHeaderRecord(
   chunks: AsyncIterable<string>,
+  maxRecordBytes: number | undefined,
 ): Promise<{ header: string; tail: AsyncIterable<string> }> {
   const iterator = chunks[Symbol.asyncIterator]();
   let buf = "";
@@ -323,6 +406,9 @@ async function takeHeaderRecord(
       // No header terminator seen — the entire input is the header
       // record (or empty). Yield whatever we have as the header; the
       // tail is an empty iterable.
+      if (maxRecordBytes !== undefined && buf.length > maxRecordBytes) {
+        throw new StreamingCsvRecordSizeError(buf.length, maxRecordBytes);
+      }
       return {
         header: buf,
         tail: (async function* () {
@@ -345,6 +431,14 @@ async function takeHeaderRecord(
         const header = buf.slice(0, end);
         const rest = buf.slice(i + 1);
 
+        // The header itself must obey the per-record cap. Without
+        // this, a giant header line with a normal-sized chunk after
+        // it slips through (we'd only re-check once `rest` enters
+        // the row scanner). SECURITY: report bytes + limit only.
+        if (maxRecordBytes !== undefined && header.length > maxRecordBytes) {
+          throw new StreamingCsvRecordSizeError(header.length, maxRecordBytes);
+        }
+
         // Build a tail iterable that re-emits `rest` then continues
         // pulling from the original iterator. Order matters — `rest`
         // is the leftover from the chunk that contained the header
@@ -360,6 +454,13 @@ async function takeHeaderRecord(
 
         return { header, tail: tail() };
       }
+    }
+
+    // Defense-in-depth: no terminator found in this chunk and buf has
+    // already crossed the cap — a missing-newline header would
+    // otherwise grow unbounded. Throw BEFORE pulling another chunk.
+    if (maxRecordBytes !== undefined && buf.length > maxRecordBytes) {
+      throw new StreamingCsvRecordSizeError(buf.length, maxRecordBytes);
     }
   }
 }
@@ -393,7 +494,7 @@ export function streamingParseCsv(
 
     const byteStream = normaliseInput(input);
     const textChunks = decodeChunks(byteStream);
-    const { header, tail } = await takeHeaderRecord(textChunks);
+    const { header, tail } = await takeHeaderRecord(textChunks, options.maxRecordBytes);
 
     // Delimiter resolution. The buffered detector runs on the first
     // ~5 non-empty lines for consistency; we only have the header in
@@ -428,7 +529,7 @@ export function streamingParseCsv(
     let yielded = 0;
     let rowIndex = 0;
 
-    for await (const record of scanRecords(tail)) {
+    for await (const record of scanRecords(tail, options.maxRecordBytes)) {
       const rawFields = parseRecord(record, delimiter);
       const trimmed = trim ? rawFields.map((v) => v.trim()) : rawFields;
 

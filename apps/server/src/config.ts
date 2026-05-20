@@ -67,6 +67,28 @@ const configSchema = z.object({
   /** Maximum rows allowed in a single batch CSV. */
   OPENCRED_BATCH_ROW_LIMIT: z.coerce.number().int().min(1).default(1000),
 
+  /**
+   * Maximum size (bytes) of a single CSV record (one logical row,
+   * possibly spanning multiple physical lines because of quoted
+   * newlines) before the streaming parser rejects the upload with
+   * `StreamingCsvRecordSizeError`.
+   *
+   * Defense-in-depth alongside `OPENCRED_MAX_BATCH_BODY_BYTES`: the
+   * body-limit middleware bounds the whole request, this cap bounds
+   * a single in-flight record so a pathological no-newline /
+   * unclosed-quote payload can't pin the entire body-limit budget on
+   * one record that never completes (issue #578 / #577 review).
+   *
+   * Default: 1 MiB. A credential-issuance row is typically a few
+   * hundred bytes — anything north of 1 MiB is suspicious. Bump it
+   * if you legitimately ship multi-megabyte free-text fields.
+   */
+  OPENCRED_BATCH_MAX_RECORD_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1024)
+    .default(1024 * 1024),
+
   /** Session TTL in seconds (for ephemeral credential data). Default: 4 hours. */
   OPENCRED_SESSION_TTL: z.coerce.number().int().min(60).default(14400),
 
