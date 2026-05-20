@@ -4,6 +4,7 @@ import {
   checkRevocation,
   checkBitstringStatusList,
   checkKeyRotation,
+  checkRegistryAnchor,
   resolveAndValidateIp,
   _validateStatusListUrl,
   MAX_COMPRESSED_SIZE,
@@ -881,5 +882,137 @@ describe("checkKeyRotation", () => {
     const result = await checkKeyRotation(makeCredential("did:ion:abc"), mockClient);
     expect(result.passed).toBe(true);
     expect(mockClient.resolveDID).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkRegistryAnchor", () => {
+  function makeCredential(issuer: string): Record<string, unknown> {
+    return { issuer };
+  }
+
+  it("passes silently for did:web credentials (concept doesn't apply)", async () => {
+    const result = await checkRegistryAnchor(makeCredential("did:web:example.com"));
+    expect(result.passed).toBe(true);
+    expect(result.name).toBe("registryAnchor");
+    expect(result.detail).toBeUndefined();
+  });
+
+  it("passes silently when no DeDi client is configured", async () => {
+    const result = await checkRegistryAnchor(makeCredential("did:key:z6Mkfoo"));
+    expect(result.passed).toBe(true);
+    expect(result.detail).toBeUndefined();
+  });
+
+  it("passes silently for non-did:key issuers", async () => {
+    const mockClient = { resolveDID: vi.fn() } as unknown as DeDiClient;
+    const result = await checkRegistryAnchor(makeCredential("did:ion:abc"), mockClient);
+    expect(result.passed).toBe(true);
+    expect(mockClient.resolveDID).not.toHaveBeenCalled();
+  });
+
+  it("passes with anchor metadata when proof is present and creator matches", async () => {
+    const mockClient = {
+      resolveDID: vi.fn().mockResolvedValue({
+        did: "did:key:z6Mkfoo",
+        keyStatus: "current",
+        proof: {
+          type: "DediRecordProof2026",
+          namespace_did: "did:cord:ns:example",
+          creator_did: "did:key:z6Mkfoo",
+          digest: "abc123def456789012",
+          network_genesis: "0xCORDgenesishash1234",
+        },
+      }),
+    } as unknown as DeDiClient;
+    const result = await checkRegistryAnchor(makeCredential("did:key:z6Mkfoo"), mockClient);
+    expect(result.passed).toBe(true);
+    expect(result.detail).toMatch(/anchored on CORD/i);
+    expect(result.detail).toContain("did:key:z6Mkfoo");
+    // Long values should be abbreviated for display.
+    expect(result.detail).toContain("abc123def456");
+    expect(result.detail).toContain("0xCORDgenesi");
+  });
+
+  it("passes with anchor metadata even when network_genesis is null", async () => {
+    // A record can be in DeDi without being anchored to a specific network
+    // yet (`network_genesis: null`). Render the rest of the proof without
+    // a network suffix in that case.
+    const mockClient = {
+      resolveDID: vi.fn().mockResolvedValue({
+        did: "did:key:z6Mkfoo",
+        keyStatus: "current",
+        proof: {
+          type: "DediRecordProof2026",
+          namespace_did: "did:cord:ns:example",
+          creator_did: "did:key:z6Mkfoo",
+          digest: "abc",
+          network_genesis: null,
+        },
+      }),
+    } as unknown as DeDiClient;
+    const result = await checkRegistryAnchor(makeCredential("did:key:z6Mkfoo"), mockClient);
+    expect(result.passed).toBe(true);
+    expect(result.detail).toMatch(/anchored on CORD/i);
+    expect(result.detail).not.toMatch(/on network/i);
+  });
+
+  it("fails advisory when the record has no proof block", async () => {
+    // Record found but DeDi did not return an anchor proof. Surface as
+    // failed-advisory so the UI can show "no anchor info" without
+    // rejecting the credential (the headline VALID/INVALID is unaffected).
+    const mockClient = {
+      resolveDID: vi.fn().mockResolvedValue({
+        did: "did:key:z6Mkfoo",
+        keyStatus: "current",
+      }),
+    } as unknown as DeDiClient;
+    const result = await checkRegistryAnchor(makeCredential("did:key:z6Mkfoo"), mockClient);
+    expect(result.passed).toBe(false);
+    expect(result.detail).toMatch(/no CORD anchor proof/i);
+  });
+
+  it("fails advisory when proof creator_did does not match issuer", async () => {
+    // Mismatched creator is suspicious — DeDi is claiming this record was
+    // anchored by someone other than the issuer the credential is signed
+    // by. Surface clearly so verifier policy can reject if desired.
+    const mockClient = {
+      resolveDID: vi.fn().mockResolvedValue({
+        did: "did:key:z6Mkfoo",
+        keyStatus: "current",
+        proof: {
+          type: "DediRecordProof2026",
+          namespace_did: "did:cord:ns:example",
+          creator_did: "did:key:z6Mkattacker",
+          digest: "abc",
+          network_genesis: null,
+        },
+      }),
+    } as unknown as DeDiClient;
+    const result = await checkRegistryAnchor(makeCredential("did:key:z6Mkfoo"), mockClient);
+    expect(result.passed).toBe(false);
+    expect(result.detail).toMatch(/does not match/i);
+    expect(result.detail).toContain("did:key:z6Mkattacker");
+    expect(result.detail).toContain("did:key:z6Mkfoo");
+  });
+
+  it("passes (silently) on DeDi 404 — no record published yet", async () => {
+    const mockClient = {
+      resolveDID: vi.fn().mockRejectedValue(new DeDiClientError("DeDi API error: 404", 404)),
+    } as unknown as DeDiClient;
+    const result = await checkRegistryAnchor(makeCredential("did:key:z6Mkfoo"), mockClient);
+    expect(result.passed).toBe(true);
+    expect(result.detail).toBeUndefined();
+  });
+
+  it("passes on DeDi outage with descriptive detail", async () => {
+    // Non-404 failure: pass with an "anchor status unknown" detail so the
+    // UI can render rotation/anchor status as unknown without blocking
+    // verification of a cryptographically valid credential.
+    const mockClient = {
+      resolveDID: vi.fn().mockRejectedValue(new DeDiClientError("network timeout", 502)),
+    } as unknown as DeDiClient;
+    const result = await checkRegistryAnchor(makeCredential("did:key:z6Mkfoo"), mockClient);
+    expect(result.passed).toBe(true);
+    expect(result.detail).toMatch(/anchor status unknown/i);
   });
 });

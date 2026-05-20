@@ -9,6 +9,7 @@ import {
   checkRevocation,
   checkBitstringStatusList,
   checkKeyRotation,
+  checkRegistryAnchor,
 } from "./checks.js";
 import { checkX509Chain } from "./x509-chain-check.js";
 import type {
@@ -220,6 +221,19 @@ export async function verifyCredential(
   if (credentialForRevocationHash && config.dediClient) {
     const rotationCheck = await checkKeyRotation(credentialForRevocationHash, config.dediClient);
     checks.push(rotationCheck);
+  }
+
+  // Registry-anchor check (did:key only, advisory).
+  //
+  // Surfaces the CORD-blockchain proof block DeDi attaches to record
+  // lookup responses so verifier UIs can show "anchored on CORD by X"
+  // provenance. Advisory: does not flip the headline `verified` boolean.
+  // Anchor mismatches or missing proofs are surfaced as info rather than
+  // rejection — the underlying VC signature is the authority on crypto
+  // validity. On-chain CORD lookup is a follow-up.
+  if (credentialForRevocationHash && config.dediClient) {
+    const anchorCheck = await checkRegistryAnchor(credentialForRevocationHash, config.dediClient);
+    checks.push(anchorCheck);
   }
 
   // BitstringStatusList check

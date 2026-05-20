@@ -1,5 +1,6 @@
 import { DeDiClientError } from "@opencred/shared";
 import { DeDiApiClient } from "../api/api-client.js";
+import type { DeDiProof } from "../api/types.js";
 import type { DeDiLogger } from "../logger.js";
 import { noopLogger } from "../logger.js";
 import type {
@@ -158,6 +159,55 @@ function assertDeDiRecordShape(
 }
 
 /**
+ * Extract the CORD-anchor `proof` block from a DeDi envelope's `data`
+ * payload. Returns `undefined` when the field is absent, malformed, or
+ * missing required string members. Verifier code treats absence as
+ * "no anchor info available" (advisory) rather than an error — DeDi
+ * historically returned envelopes without proof, and we don't want a
+ * non-conforming envelope to block verification of an otherwise valid
+ * credential.
+ *
+ * `network_genesis` is `string | null` on the wire (a record may not be
+ * anchored to a specific network) so we accept both. Any other unexpected
+ * shape is dropped silently.
+ */
+function extractProof(envelopeData: unknown): DeDiProof | undefined {
+  if (envelopeData == null || typeof envelopeData !== "object") return undefined;
+  const proof = (envelopeData as Record<string, unknown>)["proof"];
+  if (proof == null || typeof proof !== "object") return undefined;
+  const p = proof as Record<string, unknown>;
+  if (
+    typeof p["type"] !== "string" ||
+    typeof p["namespace_did"] !== "string" ||
+    typeof p["creator_did"] !== "string" ||
+    typeof p["digest"] !== "string"
+  ) {
+    return undefined;
+  }
+  if (
+    p["network_genesis"] !== null &&
+    p["network_genesis"] !== undefined &&
+    typeof p["network_genesis"] !== "string"
+  ) {
+    return undefined;
+  }
+  const result: DeDiProof = {
+    type: p["type"],
+    namespace_did: p["namespace_did"],
+    creator_did: p["creator_did"],
+    digest: p["digest"],
+    network_genesis: (p["network_genesis"] as string | null | undefined) ?? null,
+  };
+  if (typeof p["registry_identifier"] === "string") {
+    result.registry_identifier = p["registry_identifier"];
+  }
+  if (typeof p["record_identifier"] === "string") {
+    result.record_identifier = p["record_identifier"];
+  }
+  return result;
+}
+
+/**
  * Validate that a search response matches the real DeDi envelope shape
  * — `{ message, data: DeDiRecord<T>[] }`. The payload lives under
  * `data` as an array of records; pagination is communicated out-of-band
@@ -305,7 +355,8 @@ export class DeDiClient {
     assertDeDiRecordShape(response, "lookupRecord");
     const details = response.data.details;
     assertDIDRecordShape(details);
-    return details;
+    const proof = extractProof(response.data);
+    return proof ? { ...details, proof } : details;
   }
 
   /**
@@ -356,7 +407,8 @@ export class DeDiClient {
     assertDeDiRecordShape(response, "lookupRecord");
     const details = response.data.details;
     assertSchemaRecordShape(details);
-    return details;
+    const proof = extractProof(response.data);
+    return proof ? { ...details, proof } : details;
   }
 
   async publishContext(record: ContextRecord, namespace?: string): Promise<PublishResult> {

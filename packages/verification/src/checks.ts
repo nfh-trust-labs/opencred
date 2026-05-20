@@ -471,3 +471,100 @@ export async function checkKeyRotation(
     };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Registry anchor check (CORD-via-DeDi advisory)
+// ---------------------------------------------------------------------------
+//
+// Advisory: surfaces the DeDi `proof` block returned alongside the DID record
+// so verifier UIs can show "anchored on CORD by ..." provenance. Does NOT
+// flip the headline `verified` boolean — the underlying VC signature is the
+// authority on cryptographic validity. The check exists to communicate two
+// things to a verifier UI:
+//
+//   1. Whether DeDi attached an on-chain anchor proof to the record (presence
+//      is informative; absence is benign on networks that don't anchor).
+//   2. Whether the proof's `creator_did` matches the credential's issuer DID
+//      (a mismatch is suspicious — DeDi is reporting the record was anchored
+//      by someone other than the issuer the credential is signed by).
+//
+// On-chain CORD verification (looking up the digest in a CORD block) is out
+// of scope for this first cut — see follow-up. We only surface the proof
+// metadata the DeDi instance hands us. Notably this means a compromised
+// DeDi could fabricate a proof block; that's exactly what the follow-up
+// on-chain check will harden against.
+
+/** Truncate a long hex/string value for display in check details. */
+function abbrev(value: string, head = 12, tail = 6): string {
+  if (value.length <= head + tail + 1) return value;
+  return `${value.slice(0, head)}…${value.slice(-tail)}`;
+}
+
+/**
+ * Check the DeDi-surfaced CORD anchor proof on the issuer's DID record.
+ *
+ * Scope:
+ * - Only meaningful for did:key issuers with a DeDi client configured (same
+ *   scope as the key-rotation check — DeDi is the canonical key store for
+ *   did:key, and did:web has its own anchor in the domain document).
+ * - Pass silently when the concept doesn't apply (no DID, no client, or a
+ *   non-did:key issuer) so unrelated credentials don't carry a noisy check.
+ *
+ * Outcomes:
+ * - Record returned with a well-formed proof whose `creator_did` matches the
+ *   issuer DID → pass; detail surfaces "Anchored by {did} ({network})".
+ * - Record returned with no proof block → pass: false (advisory) so the UI
+ *   can surface "no anchor info" without rejecting the credential.
+ * - Proof present but `creator_did` mismatch → pass: false with a suspicion
+ *   note; verifier policy can treat that as a reason to reject.
+ * - DeDi 404 / outage → pass with a "anchor status unknown" detail (same
+ *   defensive degrade as keyRotation; a DeDi outage should never block
+ *   verification of a cryptographically valid credential).
+ */
+export async function checkRegistryAnchor(
+  credential: unknown,
+  dediClient?: DeDiClient,
+): Promise<VerificationCheck> {
+  const did = extractIssuerDid(credential);
+  if (!did || !did.startsWith("did:key:") || !dediClient) {
+    return { name: "registryAnchor", passed: true };
+  }
+  try {
+    const record = await dediClient.resolveDID(did);
+    const proof = record.proof;
+    if (!proof) {
+      return {
+        name: "registryAnchor",
+        passed: false,
+        detail:
+          "Issuer DID record was found in DeDi but has no CORD anchor proof. Cannot confirm on-chain publication.",
+      };
+    }
+    if (proof.creator_did !== did) {
+      return {
+        name: "registryAnchor",
+        passed: false,
+        detail: `CORD anchor creator (${proof.creator_did}) does not match issuer DID (${did}). The registry record was published by a different party than the credential's issuer.`,
+      };
+    }
+    const networkSuffix = proof.network_genesis
+      ? ` on network ${abbrev(proof.network_genesis)}`
+      : "";
+    return {
+      name: "registryAnchor",
+      passed: true,
+      detail: `Anchored on CORD${networkSuffix} by ${did} (digest ${abbrev(proof.digest)}).`,
+    };
+  } catch (err) {
+    const is404 = err instanceof DeDiClientError && err.statusCode === 404;
+    if (is404) {
+      return { name: "registryAnchor", passed: true };
+    }
+    const message = err instanceof Error && err.message ? err.message : "DeDi anchor lookup failed";
+    return {
+      name: "registryAnchor",
+      passed: true,
+      detail: `Anchor status unknown: ${message}`,
+    };
+  }
+}

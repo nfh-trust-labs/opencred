@@ -1,4 +1,5 @@
 import type { DeDiApiClientConfig } from "../api/api-client.js";
+import type { DeDiProof } from "../api/types.js";
 
 export interface DeDiClientConfig extends DeDiApiClientConfig {
   defaultNamespace?: string;
@@ -38,6 +39,15 @@ export interface DIDRecord {
   did: string;
   document?: Record<string, unknown>;
   keyStatus: "current" | "rotated";
+  /**
+   * CORD-blockchain anchor metadata copied off the DeDi envelope by the
+   * adapter. Not part of the published `details` payload — DeDi sets this
+   * server-side and surfaces it on lookup responses. Verifier callers use
+   * it to confirm the record was anchored on-chain by the claimed creator
+   * DID; absence simply means DeDi did not include a proof in this
+   * response.
+   */
+  proof?: DeDiProof;
 }
 
 export interface SchemaRecord {
@@ -47,6 +57,8 @@ export interface SchemaRecord {
   contextUrl?: string;
   checksum: string;
   publishedAt: string;
+  /** See {@link DIDRecord.proof}. */
+  proof?: DeDiProof;
 }
 
 export interface ContextRecord {

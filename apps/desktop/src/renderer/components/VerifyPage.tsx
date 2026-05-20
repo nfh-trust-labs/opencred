@@ -79,6 +79,7 @@ const CHECK_HINTS: Record<string, string> = {
   revocation: "The credential has not been revoked",
   context: "The credential's context is valid and resolvable",
   keyrotation: "Whether the issuer has rotated to a new signing key",
+  registryanchor: "Whether the issuer's DID record is anchored on the CORD blockchain",
 };
 
 /**
@@ -88,7 +89,7 @@ const CHECK_HINTS: Record<string, string> = {
  * to communicate "still cryptographically valid, but worth knowing" rather
  * than "rejected".
  */
-const ADVISORY_CHECK_NAMES = new Set(["keyRotation"]);
+const ADVISORY_CHECK_NAMES = new Set(["keyRotation", "registryAnchor"]);
 
 /**
  * Issuer key status shown as a distinct badge above the per-check list.
