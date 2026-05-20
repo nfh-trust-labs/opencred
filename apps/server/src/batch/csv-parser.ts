@@ -15,11 +15,16 @@ import {
   detectDelimiter as detectDelimiterCore,
   parseCsv as parseCsvCore,
   parseRawCsv as parseRawCsvCore,
+  streamingParseCsv as streamingParseCsvCore,
+  StreamingCsvLimitError as StreamingCsvLimitErrorCore,
   type ColumnMapping as CoreColumnMapping,
   type CsvParseOptions as CoreCsvParseOptions,
   type CsvParseResult as CoreCsvParseResult,
   type Delimiter as CoreDelimiter,
   type ParsedRow as CoreParsedRow,
+  type StreamingCsvInput as CoreStreamingCsvInput,
+  type StreamingCsvOptions as CoreStreamingCsvOptions,
+  type StreamingCsvParser as CoreStreamingCsvParser,
 } from "@opencred/batch-core";
 import { getValidator } from "../validator-singleton.js";
 
@@ -29,6 +34,8 @@ export type Delimiter = CoreDelimiter;
 export type ColumnMapping = CoreColumnMapping;
 export type ParsedRow = CoreParsedRow;
 export type CsvParseResult = CoreCsvParseResult;
+export type StreamingCsvInput = CoreStreamingCsvInput;
+export type StreamingCsvParser = CoreStreamingCsvParser;
 
 export interface CsvParseOptions {
   schemaId: string;
@@ -37,6 +44,17 @@ export interface CsvParseOptions {
   trimValues?: boolean;
 }
 
+/**
+ * Options for the streaming parser. Mirrors {@link CsvParseOptions} and
+ * adds the `maxRows` knob — the route layer threads
+ * `OPENCRED_BATCH_ROW_LIMIT` through here so a slow-stream attacker
+ * can't bypass the cap by buffering the body across many tiny chunks.
+ */
+export interface StreamingCsvParseOptions extends CsvParseOptions {
+  maxRows?: number;
+}
+
+export const StreamingCsvLimitError = StreamingCsvLimitErrorCore;
 export const detectDelimiter = detectDelimiterCore;
 export const parseRawCsv = parseRawCsvCore;
 export const applyMapping = applyMappingCore;
@@ -62,6 +80,11 @@ function validateRow(
  * Parse CSV text and validate each row against the server's schema
  * registry. Wraps `@opencred/batch-core`'s `parseCsv` with the injected
  * schema validator.
+ *
+ * This is the legacy buffered API — it materialises every row in memory
+ * before returning. Callers that handle large CSVs (the batch route)
+ * should prefer {@link parseCsvStreaming} which yields rows one at a
+ * time and bounds resident memory by the size of the longest row.
  */
 export function parseCsv(csv: string, options: CsvParseOptions): CsvParseResult {
   const coreOptions: CoreCsvParseOptions = {
@@ -72,4 +95,33 @@ export function parseCsv(csv: string, options: CsvParseOptions): CsvParseResult 
     validate: validateRow,
   };
   return parseCsvCore(csv, coreOptions);
+}
+
+/**
+ * Construct a streaming CSV parser for the batch route (issue #446 Tier 2
+ * item #7). Returns the shared {@link StreamingCsvParser} handle — call
+ * `headers()` once, then iterate `rows()` to drain the body.
+ *
+ * The `input` may be a `string` (legacy JSON-body callers), a single
+ * `Uint8Array`, or an `AsyncIterable<Uint8Array>` (the streaming case —
+ * `c.req.raw.body` from Hono is exactly this shape via Web Streams).
+ *
+ * `maxRows` is mandatory in spirit: the route always passes
+ * `OPENCRED_BATCH_ROW_LIMIT` so a slow-stream attacker can't bypass the
+ * cap by drip-feeding bytes. Pass `undefined` only in tests or callers
+ * that have already enforced the cap upstream.
+ */
+export function parseCsvStreaming(
+  input: StreamingCsvInput,
+  options: StreamingCsvParseOptions,
+): StreamingCsvParser {
+  const coreOptions: CoreStreamingCsvOptions = {
+    schemaId: options.schemaId,
+    columnMapping: options.columnMapping,
+    delimiter: options.delimiter,
+    trimValues: options.trimValues,
+    validate: validateRow,
+    maxRows: options.maxRows,
+  };
+  return streamingParseCsvCore(input, coreOptions);
 }
