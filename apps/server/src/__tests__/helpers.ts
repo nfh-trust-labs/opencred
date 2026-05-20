@@ -30,6 +30,7 @@ import { keys } from "../routes/keys.js";
 import { dedi } from "../routes/dedi.js";
 import { metrics } from "../routes/metrics.js";
 import { metricsMiddleware } from "../middleware/metrics.js";
+import { tracingMiddleware } from "../middleware/tracing.js";
 import { computeFingerprint, deriveDidKeyIdFromPublicKey } from "@opencred/signing";
 import type { Signer, SignerMetadata } from "@opencred/signing";
 import { sign as ecSign } from "node:crypto";
@@ -208,7 +209,12 @@ export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean 
     })(c, next);
   });
 
-  // Global middleware
+  // Global middleware — mirror src/index.ts order: tracing first, then metrics.
+  // Tests usually run with tracing disabled (`OPENCRED_OTEL_ENABLED` unset),
+  // in which case `tracingMiddleware` collapses to a single function call
+  // around `next()` via the no-op tracer.
+  app.use("*", tracingMiddleware);
+
   app.use("*", metricsMiddleware);
 
   // applyRateLimits reads OPENCRED_RATE_LIMIT_ENABLED; it is a no-op

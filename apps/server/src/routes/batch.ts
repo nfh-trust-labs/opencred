@@ -260,6 +260,8 @@ batch.post("/credentials/batch", async (c) => {
     for (const row of parsedRows) yield row;
   }
 
+  const jobId = randomUUID();
+
   const engine = createStreamingBatchEngine(
     signer,
     {
@@ -273,10 +275,15 @@ batch.post("/credentials/batch", async (c) => {
       selectiveDisclosureClaims: parsed.selectiveDisclosureClaims,
       credentialSchemaUrl: parsed.credentialSchemaUrl,
     },
-    { source: sourceRows() },
+    {
+      source: sourceRows(),
+      // OTel attribute for per-row spans (#581 / #446 Tier 3 #10). The
+      // jobId is an opaque UUID — CLAUDE.md security invariant: span
+      // attributes carry only opaque identifiers, never user-provided
+      // data.
+      jobId,
+    },
   );
-
-  const jobId = randomUUID();
   const createdAt = new Date().toISOString();
   const ttlSeconds = config.OPENCRED_SESSION_TTL;
 
