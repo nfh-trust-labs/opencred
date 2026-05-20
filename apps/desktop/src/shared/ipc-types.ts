@@ -746,6 +746,16 @@ export interface DeDiPublishDIDRequest {
   document: unknown;
 }
 
+export interface DeDiMarkDIDRotatedRequest {
+  /**
+   * The DID whose `keyStatus` should be flipped from `"current"` to
+   * `"rotated"`. Must already be published to DeDi — otherwise the
+   * underlying update-record call returns a 404 which the handler
+   * swallows (the response is `success: false` so callers can log).
+   */
+  did: string;
+}
+
 export interface DeDiPublishSchemaRequest {
   /** The schema ID to publish (from schema-engine registry). */
   schemaId: string;
@@ -1026,6 +1036,7 @@ export interface OpenCredDesktopAPI {
   dediSetConfig: (request: DeDiConfigSetRequest) => Promise<DeDiConfigSetResponse>;
   dediGetStatus: () => Promise<DeDiStatusResponse>;
   dediPublishDID: (request: DeDiPublishDIDRequest) => Promise<DeDiPublishResponse>;
+  dediMarkDIDRotated: (request: DeDiMarkDIDRotatedRequest) => Promise<DeDiPublishResponse>;
   dediPublishSchema: (request: DeDiPublishSchemaRequest) => Promise<DeDiPublishResponse>;
   dediEnsureRegistries: () => Promise<DeDiEnsureRegistriesResponse>;
   dediDisconnect: () => Promise<DeDiDisconnectResponse>;

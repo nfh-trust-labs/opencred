@@ -140,6 +140,16 @@ export const IPC_CHANNELS = {
   DEDI_GET_STATUS: "dedi:get-status",
   /** Publish a DID document to DeDi. Payload: DeDiPublishDIDRequest. Response: DeDiPublishResponse. */
   DEDI_PUBLISH_DID: "dedi:publish-did",
+  /**
+   * Mark a previously-published DID as rotated in DeDi (sets
+   * `keyStatus: "rotated"`). Called when the issuer regenerates their
+   * signing key — the verifier UI shows a "rotated" badge for credentials
+   * still signed under the old DID, but their signatures remain
+   * cryptographically valid.
+   *
+   * Payload: DeDiMarkDIDRotatedRequest. Response: DeDiPublishResponse.
+   */
+  DEDI_MARK_DID_ROTATED: "dedi:mark-did-rotated",
   /** Publish a schema to DeDi. Payload: DeDiPublishSchemaRequest. Response: DeDiPublishResponse. */
   DEDI_PUBLISH_SCHEMA: "dedi:publish-schema",
   /** Ensure DeDi registries exist. Response: DeDiEnsureRegistriesResponse. */

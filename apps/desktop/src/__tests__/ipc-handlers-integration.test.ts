@@ -45,7 +45,12 @@ vi.mock("electron", () => ({
     showSaveDialog: vi.fn(),
   },
   safeStorage: {
-    isEncryptionAvailable: vi.fn(() => false),
+    // Tests cover both paths: keychain-encryption available (so DeDi
+    // credentials decrypt and the publish manager spins up) and not.
+    // The store mock is mutated per-test for path selection — keep this
+    // default at `true` so the DeDi-configured tests work without an
+    // explicit override.
+    isEncryptionAvailable: vi.fn(() => true),
     encryptString: vi.fn((s: string) => Buffer.from(s)),
     decryptString: vi.fn((b: Buffer) => b.toString()),
   },
@@ -56,6 +61,7 @@ vi.mock("electron", () => ({
 const storeData: Record<string, unknown> = {
   recentTemplates: [],
   dediPublishedSchemas: [],
+  dediPublishedDIDs: [],
   credentialHistory: [],
 };
 vi.mock("electron-store", () => ({
@@ -63,6 +69,9 @@ vi.mock("electron-store", () => ({
     get: vi.fn((key: string) => storeData[key]),
     set: vi.fn((key: string, value: unknown) => {
       storeData[key] = value;
+    }),
+    delete: vi.fn((key: string) => {
+      delete storeData[key];
     }),
     store: {},
   })),
@@ -78,6 +87,7 @@ vi.mock("electron-updater", () => ({
 const mockEnsureSchemaPublished = vi.fn();
 const mockPublishDIDDocument = vi.fn();
 const mockEnsureRegistries = vi.fn();
+const mockMarkDIDRotated = vi.fn();
 
 vi.mock("@opencred/dedi-client", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
@@ -87,6 +97,7 @@ vi.mock("@opencred/dedi-client", async (importOriginal) => {
       ensureSchemaPublished: mockEnsureSchemaPublished,
       publishDIDDocument: mockPublishDIDDocument,
       ensureRegistries: mockEnsureRegistries,
+      markDIDRotated: mockMarkDIDRotated,
       getPublishedSchemaIds: () => [],
     })),
     DeDiPublishManager: vi.fn(),
@@ -149,7 +160,9 @@ beforeEach(() => {
   // Reset store data
   storeData["recentTemplates"] = [];
   storeData["dediPublishedSchemas"] = [];
+  storeData["dediPublishedDIDs"] = [];
   storeData["credentialHistory"] = [];
+  delete storeData["dediConfig"];
 });
 
 // ---------------------------------------------------------------------------
@@ -233,6 +246,105 @@ describe("IPC Handler Integration Tests", () => {
 
       expect(result.success).toBe(true);
       expect(result.key.id).toContain("did:key:");
+    });
+
+    it("marks previously-published DIDs as rotated when DeDi is configured and a new key is generated", async () => {
+      // Simulate: user has DeDi configured and previously published a DID
+      // to the registry. Generating a fresh key should fire markDIDRotated
+      // for the prior DID(s).
+      storeData["dediConfig"] = {
+        baseUrl: "https://dedi.example.com",
+        namespace: "test-ns",
+        authType: "api-key",
+      };
+      storeData["dediPublishedDIDs"] = ["did:key:z6Mkold1", "did:key:z6Mkold2"];
+      // safeStorage mock returns the literal "encrypted" string back as
+      // the credential JSON — give it a valid api-key envelope so the
+      // publish-manager factory doesn't bail.
+      storeData["preferences"] = {
+        dediCredentialEncrypted: Buffer.from(
+          JSON.stringify({ apiKey: "dk_test" }),
+        ).toString("base64"),
+      };
+      // ipc-handlers re-uses the cached publishManager, so reset it via the
+      // disconnect path before this test exercises the hook. Easiest path:
+      // hit the existing reset hook by calling disconnect.
+      const disconnect = registeredHandlers[IPC_CHANNELS.DEDI_DISCONNECT];
+      await disconnect(fakeEvent);
+      // Restore dediConfig the disconnect handler just nuked.
+      storeData["dediConfig"] = {
+        baseUrl: "https://dedi.example.com",
+        namespace: "test-ns",
+        authType: "api-key",
+      };
+      storeData["dediPublishedDIDs"] = ["did:key:z6Mkold1", "did:key:z6Mkold2"];
+      storeData["preferences"] = {
+        dediCredentialEncrypted: Buffer.from(
+          JSON.stringify({ apiKey: "dk_test" }),
+        ).toString("base64"),
+      };
+
+      mockMarkDIDRotated.mockResolvedValue(true);
+
+      const handler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const result = (await handler(fakeEvent, {})) as { success: boolean; key: { id: string } };
+      expect(result.success).toBe(true);
+
+      // Both previously-published DIDs should have been marked rotated.
+      expect(mockMarkDIDRotated).toHaveBeenCalledTimes(2);
+      expect(mockMarkDIDRotated).toHaveBeenCalledWith("did:key:z6Mkold1");
+      expect(mockMarkDIDRotated).toHaveBeenCalledWith("did:key:z6Mkold2");
+    });
+
+    it("skips DeDi rotation when DeDi is not configured", async () => {
+      // No dediConfig → no rotation calls, even if dediPublishedDIDs
+      // happens to be populated (defense in depth — the store entries are
+      // stale if the user has since disconnected DeDi).
+      storeData["dediConfig"] = undefined;
+      storeData["dediPublishedDIDs"] = ["did:key:z6Mkold"];
+
+      const handler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const result = (await handler(fakeEvent, {})) as { success: boolean };
+      expect(result.success).toBe(true);
+      expect(mockMarkDIDRotated).not.toHaveBeenCalled();
+    });
+
+    it("does NOT fail key generation when DeDi rotation throws", async () => {
+      // DeDi outage must not break local key generation — the new key is
+      // already in memory and the user expects success.
+      storeData["dediConfig"] = {
+        baseUrl: "https://dedi.example.com",
+        namespace: "test-ns",
+        authType: "api-key",
+      };
+      storeData["dediPublishedDIDs"] = ["did:key:z6Mkold"];
+      storeData["preferences"] = {
+        dediCredentialEncrypted: Buffer.from(
+          JSON.stringify({ apiKey: "dk_test" }),
+        ).toString("base64"),
+      };
+
+      const disconnect = registeredHandlers[IPC_CHANNELS.DEDI_DISCONNECT];
+      await disconnect(fakeEvent);
+      storeData["dediConfig"] = {
+        baseUrl: "https://dedi.example.com",
+        namespace: "test-ns",
+        authType: "api-key",
+      };
+      storeData["dediPublishedDIDs"] = ["did:key:z6Mkold"];
+      storeData["preferences"] = {
+        dediCredentialEncrypted: Buffer.from(
+          JSON.stringify({ apiKey: "dk_test" }),
+        ).toString("base64"),
+      };
+
+      mockMarkDIDRotated.mockRejectedValue(new Error("DeDi unreachable"));
+
+      const handler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const result = (await handler(fakeEvent, {})) as { success: boolean; key?: { id: string } };
+      // Key generation should still succeed.
+      expect(result.success).toBe(true);
+      expect(result.key?.id).toContain("did:key:");
     });
 
     it("should reject import of nonexistent file", async () => {
