@@ -470,7 +470,7 @@ describe("POST /v1/credentials/verify", () => {
           resolvedAt: new Date().toISOString(),
         };
       },
-      queryRevocationHash: async (hash: string) => ({ hash, revoked: false }),
+      queryRevocationHash: async () => ({ revoked: false as const }),
     } as unknown as Parameters<typeof setDeDiClient>[0];
 
     try {

@@ -82,6 +82,8 @@ const revokeSchema = z
       .regex(/^[a-f0-9]+$/)
       .optional(),
     namespace: z.string().optional(),
+    /** Optional reason (per DeDi canonical revoke schema https://dedi.global/revoke.json). */
+    reason: z.string().optional(),
   })
   .refine((data) => data.credential || data.hash, {
     message: "Either credential or hash must be provided",
@@ -99,13 +101,21 @@ revocation.post("/credentials/revoke", async (c) => {
   }
 
   const hash = parsed.hash ?? resolveRevocationHash(parsed.credential!);
-  const result = await dediClient.publishRevocationHash(hash, parsed.namespace);
+  const result = await dediClient.publishRevocationHash(hash, parsed.namespace, parsed.reason);
 
   revocationsPublishedTotal.inc();
 
-  // publishRevocationHash always returns a revoked=true record.
+  // publishRevocationHash always returns a revoked=true record after a
+  // successful publish; surface `hash` (canonical) plus the DeDi-reported
+  // `revokedAt` and optional `reason`.
   const revokedAt = result.revoked ? result.revokedAt : new Date().toISOString();
-  return c.json({ hash, revoked: true, revokedAt });
+  const responseReason = result.revoked ? result.reason : undefined;
+  return c.json({
+    hash,
+    revoked: true,
+    revokedAt,
+    ...(responseReason !== undefined ? { reason: responseReason } : {}),
+  });
 });
 
 // --- Revocation query endpoint (checks DeDi) ---
@@ -129,7 +139,12 @@ revocation.post("/credentials/revocation-status", async (c) => {
   }
 
   const record = await dediClient.queryRevocationHash(parsed.hash, parsed.namespace);
-  return c.json(record);
+  // Adapter's `RevocationHashRecord` no longer carries the hash (it
+  // dropped out of DeDi's canonical revoke shape — record existence ⇒
+  // revoked, no need to echo the key inside details). Re-attach `hash`
+  // here so clients of this endpoint still get the input they queried
+  // for in the response.
+  return c.json({ hash: parsed.hash, ...record });
 });
 
 export { revocation };

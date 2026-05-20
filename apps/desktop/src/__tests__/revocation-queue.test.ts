@@ -86,7 +86,6 @@ describe("Revocation Queue", () => {
     // Default: network is available and publish succeeds
     mockDnsLookup.mockResolvedValue({ address: "8.8.8.8", family: 4 });
     mockPublishRevocationHash.mockResolvedValue({
-      hash: "test-hash",
       revoked: true,
       revokedAt: new Date().toISOString(),
     });
@@ -278,8 +277,9 @@ describe("Revocation Queue", () => {
       expect(results[0].success).toBe(true);
       expect(results[0].queueId).toBeDefined();
 
-      // Verify DeDi client was called with the hash
-      expect(mockPublishRevocationHash).toHaveBeenCalledWith("hash123");
+      // Verify DeDi client was called with the hash (and undefined
+      // namespace + reason, since this queue item carried no reason).
+      expect(mockPublishRevocationHash).toHaveBeenCalledWith("hash123", undefined, undefined);
 
       // Verify item is now published
       const item = getQueueItem(results[0].queueId);
@@ -377,7 +377,6 @@ describe("Revocation Queue", () => {
 
       // Second call: succeed
       mockPublishRevocationHash.mockResolvedValueOnce({
-        hash: "hash-retry",
         revoked: true,
         revokedAt: new Date().toISOString(),
       });

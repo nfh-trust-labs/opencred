@@ -324,7 +324,10 @@ export async function publishPendingRevocations(
         throw new Error("Revocation hash is missing");
       }
 
-      await client.publishRevocationHash(item.revocationHash);
+      // `reason` plumbs through to DeDi's canonical revoke schema
+      // (https://dedi.global/revoke.json) when present. Surfacing reason
+      // capture in the desktop UI is tracked as a follow-up.
+      await client.publishRevocationHash(item.revocationHash, undefined, item.reason);
       updateQueueItemStatus(item.queueId, "published");
       results.push({ queueId: item.queueId, success: true });
     } catch (error) {
