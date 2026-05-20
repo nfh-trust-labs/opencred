@@ -261,6 +261,40 @@
           }
         },
         {
+          "name": "POST /v1/credentials/issue (electricity/v1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.credential) {",
+                  "    const asString = typeof body.credential === 'string'",
+                  "        ? body.credential",
+                  "        : JSON.stringify(body.credential);",
+                  "    pm.collectionVariables.set('lastCredential', asString);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schemaId\": \"electricity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"customerProfile\": {\n      \"customerNumber\": \"BESCOM-1234567890\",\n      \"meterNumber\": \"MTR-99887766\",\n      \"meterType\": \"AMI\"\n    },\n    \"customerDetails\": {\n      \"fullName\": \"Jane Doe\",\n      \"installationAddress\": {\n        \"address\": \"42 MG Road, Bengaluru\",\n        \"area_code\": \"560001\",\n        \"country\": { \"name\": \"India\", \"code\": \"IN\" }\n      },\n      \"serviceConnectionDate\": \"2024-04-15T00:00:00Z\"\n    }\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"validUntil\": \"2027-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/issue",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "issue"]
+            },
+            "description": "Issue a Beckn-flavored electricity-customer credential (`schemaId: electricity/v1`). Three friction points to watch for:\n\n- `installationAddress.country` is `{ name?, code }`, where `code` matches ISO 3166-1 alpha-2 (`^[A-Z]{2}$`). Not a bare string.\n- `serviceConnectionDate` is `date-time` (full ISO 8601), not `date`.\n- `meterType` is an enum: `AMR | AMI | Electromechanical | Forward | Reverse | Bidirectional | Prepaid | NetMeter | Other`.\n\n`proofFormat: vc-jwt` is required — `data-integrity` against this schema currently returns `CRYPTO_ERROR: Invalid JSON-LD syntax; tried to redefine a protected term` (tracked as opencred#596).\n\nOnly `customerProfile` is required under `credentialSubject`; `customerDetails`, `consumptionProfile`, `generationProfile`, and `storageProfile` are optional."
+          }
+        },
+        {
           "name": "POST /v1/credentials/issue (with revocation registry URL)",
           "request": {
             "method": "POST",
