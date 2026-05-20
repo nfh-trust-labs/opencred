@@ -125,6 +125,7 @@ import {
   batchExportRequestSchema,
   fileOpenRequestSchema,
   fileSaveRequestSchema,
+  revocationQueueRequestSchema,
   parseIpcRequest,
 } from "../shared/ipc-schemas.js";
 
@@ -1119,8 +1120,18 @@ async function handlePackageCredential(
 /** REVOCATION_QUEUE — queue a credential revocation. */
 async function handleRevocationQueue(
   _event: IpcMainInvokeEvent,
-  request: RevocationQueueRequest,
+  rawRequest: unknown,
 ): Promise<RevocationQueueResponse> {
+  // Validate the payload at the IPC boundary so a malformed renderer call
+  // (or one that exceeds bounded field lengths) is rejected before
+  // touching electron-store. `reason` is optional but length-bounded.
+  const parsed = parseIpcRequest(revocationQueueRequestSchema, rawRequest);
+  if (!parsed.ok) {
+    logger.warn("Rejected REVOCATION_QUEUE: invalid payload", { reason: parsed.error });
+    return { success: false, error: `Invalid revocation payload: ${parsed.error}` };
+  }
+  const request = parsed.value as RevocationQueueRequest;
+
   try {
     const item = queueRevocation(request.credentialId, request.registryUrl, {
       revocationHash: request.revocationHash,

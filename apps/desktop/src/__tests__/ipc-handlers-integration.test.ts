@@ -808,6 +808,12 @@ describe("IPC Handler Integration Tests", () => {
   // Revocation queue
   // -----------------------------------------------------------------------
   describe("Revocation queue", () => {
+    // Each revocation queue test seeds a fresh queue so assertions on
+    // length / contents are not polluted by sibling tests.
+    beforeEach(() => {
+      storeData["revocationQueue"] = [];
+    });
+
     it("should queue a revocation and return it in status", async () => {
       const queueHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_QUEUE];
       const queueResult = (await queueHandler(fakeEvent, {
@@ -830,6 +836,70 @@ describe("IPC Handler Integration Tests", () => {
       expect(statusResult.items.length).toBeGreaterThanOrEqual(1);
       const found = statusResult.items.find((i) => i.credentialId === "urn:uuid:test-cred-1");
       expect(found).toBeDefined();
+    });
+
+    it("should persist the reason on the queue item so the History tab can render it", async () => {
+      const queueHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_QUEUE];
+      const statusHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_STATUS];
+
+      await queueHandler(fakeEvent, {
+        credentialId: "urn:uuid:cred-with-reason",
+        registryUrl: "https://dedi.global/revocations/test",
+        reason: "Subject requested deletion",
+      });
+
+      const status = (await statusHandler(fakeEvent)) as {
+        items: Array<{ credentialId: string; reason?: string }>;
+      };
+      const item = status.items.find((i) => i.credentialId === "urn:uuid:cred-with-reason");
+      expect(item).toBeDefined();
+      // The persisted reason is what the History tab displays alongside
+      // the "Revoked" status; if this assertion ever fails the UI label
+      // would silently fall back to "No reason recorded".
+      expect(item?.reason).toBe("Subject requested deletion");
+    });
+
+    it("should queue successfully when reason is omitted (reason is optional)", async () => {
+      const queueHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_QUEUE];
+      const statusHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_STATUS];
+
+      const result = (await queueHandler(fakeEvent, {
+        credentialId: "urn:uuid:cred-no-reason",
+        registryUrl: "https://dedi.global/revocations/test",
+      })) as { success: boolean };
+
+      expect(result.success).toBe(true);
+
+      const status = (await statusHandler(fakeEvent)) as {
+        items: Array<{ credentialId: string; reason?: string }>;
+      };
+      const item = status.items.find((i) => i.credentialId === "urn:uuid:cred-no-reason");
+      expect(item).toBeDefined();
+      expect(item?.reason).toBeUndefined();
+    });
+
+    it("should reject a payload missing credentialId", async () => {
+      const queueHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_QUEUE];
+      const result = (await queueHandler(fakeEvent, {
+        registryUrl: "https://dedi.global/revocations/test",
+        reason: "Key compromised",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/credentialId/i);
+    });
+
+    it("should reject a reason that exceeds the IPC max length", async () => {
+      const queueHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_QUEUE];
+      const oversized = "x".repeat(2048);
+      const result = (await queueHandler(fakeEvent, {
+        credentialId: "urn:uuid:oversized-reason",
+        registryUrl: "https://dedi.global/revocations/test",
+        reason: oversized,
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/reason/i);
     });
   });
 

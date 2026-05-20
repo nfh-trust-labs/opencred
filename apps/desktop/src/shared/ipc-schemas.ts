@@ -175,3 +175,31 @@ export const fileSaveRequestSchema = z
     filters: fileOpenRequestSchema.shape.filters,
   })
   .strict();
+
+// ---------------------------------------------------------------------------
+// Revocation queue
+// ---------------------------------------------------------------------------
+
+/**
+ * Upper bound for `reason` strings — kept in sync with
+ * `REVOCATION_REASON_MAX_LENGTH` in `renderer/components/revocation-reasons.ts`.
+ * A hostile renderer should not be able to pump megabyte-sized strings into
+ * the queue / DeDi payload.
+ */
+const REVOCATION_REASON_MAX_LENGTH = 1024;
+
+/**
+ * Zod schema for `RevocationQueueRequest`.
+ *
+ * `reason` is optional end-to-end; when present it's bounded so callers
+ * can't pump arbitrarily large strings into the queue or the DeDi
+ * payload. The other fields are length-bounded for the same reason.
+ */
+export const revocationQueueRequestSchema = z
+  .object({
+    credentialId: z.string().min(1).max(2048),
+    registryUrl: z.string().min(1).max(2048),
+    revocationHash: z.string().max(256).optional(),
+    reason: z.string().max(REVOCATION_REASON_MAX_LENGTH).optional(),
+  })
+  .strict();
