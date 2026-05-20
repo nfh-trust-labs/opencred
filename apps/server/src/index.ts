@@ -46,11 +46,15 @@ import { dedi } from "./routes/dedi.js";
 import { metrics } from "./routes/metrics.js";
 import { initTracing } from "./tracing.js";
 import { metricsMiddleware } from "./middleware/metrics.js";
+import { tracingMiddleware } from "./middleware/tracing.js";
+import { wrapSignerWithTracing, type SignerKind } from "./observability/signer-span.js";
+import { wrapDeDiClientWithTracing } from "./observability/dedi-span.js";
 import {
   applyRateLimits,
   checkRateLimitIpExtraction,
   mountRateLimitSelfCheckRoute,
 } from "./middleware/rate-limit.js";
+import { readOnlyMiddleware } from "./middleware/read-only.js";
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -94,7 +98,23 @@ if (config.OPENCRED_DEV_MODE_NO_AUTH) {
   logger.warn(banner);
 }
 
-// Tracing (opt-in via OTEL_EXPORTER_OTLP_ENDPOINT)
+// Tracing (Tier 3 #10 of nfh-trust-labs/opencred#446).
+//
+// Opt-in via `OPENCRED_OTEL_ENABLED=true`. Default is OFF for back-compat.
+// When enabled, a NodeTracerProvider is registered globally; standard
+// OTel env vars apply (OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_SERVICE_NAME,
+// OTEL_TRACES_SAMPLER, OTEL_TRACES_SAMPLER_ARG).
+//
+// The critical-path span surface is:
+//   - HTTP server spans (via `tracingMiddleware`)
+//   - `signer.sign` spans (via `wrapSignerWithTracing` below)
+//   - `dedi.lookup_record` / `publish_record` / `update_record`
+//     (via `wrapDeDiClientWithTracing`)
+//   - `batch.run` + per-row `batch.row.process`
+//     (via the batch engines themselves; they reach for the tracer
+//     directly and no-op when tracing is off)
+//   - `verify.credential` / `verify.did_resolve` / `verify.schema_validate`
+//     (in the credentials route)
 const tracer = initTracing();
 if (tracer) {
   logger.info("OpenTelemetry tracing enabled");
@@ -113,11 +133,39 @@ logger.info({ port: config.OPENCRED_PORT }, "Starting OpenCred Server");
 //   1. Cloud HSM provider (if OPENCRED_KMS_PROVIDER is set)
 //   2. Software key file (if OPENCRED_KEY_PATH is set)
 //   3. None — signing endpoints will return 503
+// Cloud HSM provider determines the signer kind for OTel attributes.
+// `Signer.type` is "software" for every cloud HSM signer (since the
+// signature shape is identical to a software EC sign), so we tag the
+// span kind explicitly based on the configured provider — operators
+// looking at `signer.sign` durations in Grafana need to be able to
+// tell AWS KMS apart from a local PEM file.
 const cloudSigner = await createSignerFromConfig();
 if (cloudSigner) {
-  setActiveSigner(cloudSigner);
+  const kmsKind: SignerKind =
+    config.OPENCRED_KMS_PROVIDER === "aws"
+      ? "cloud-hsm-aws"
+      : config.OPENCRED_KMS_PROVIDER === "azure"
+        ? "cloud-hsm-azure"
+        : config.OPENCRED_KMS_PROVIDER === "gcp"
+          ? "cloud-hsm-gcp"
+          : "software";
+  setActiveSigner(wrapSignerWithTracing(cloudSigner, kmsKind));
 } else {
-  loadSigningKey();
+  const loaded = loadSigningKey();
+  if (loaded) {
+    // Re-wrap the loaded software signer. `loadSigningKey` calls
+    // `setActiveSigner` internally, so we replace the singleton with
+    // the tracing-instrumented version here. Kind is derived from
+    // `Signer.type` so OS-cert / PKCS#11 / software paths show
+    // distinct breakdowns in dashboards.
+    const kind: SignerKind =
+      loaded.type === "pkcs11"
+        ? "pkcs11"
+        : loaded.type === "os-cert"
+          ? "os-cert"
+          : "software";
+    setActiveSigner(wrapSignerWithTracing(loaded, kind));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +298,10 @@ if (config.OPENCRED_CSCA_TRUST_STORE_PATH) {
 // When unconfigured, the server functions without DeDi — revocation checks
 // are skipped during verification.
 
-const dediClient = createDeDiClientFromConfig(config, logger);
+const dediClientRaw = createDeDiClientFromConfig(config, logger);
+const dediClient = dediClientRaw
+  ? wrapDeDiClientWithTracing(dediClientRaw, config.OPENCRED_DEDI_BASE_URL!)
+  : null;
 if (dediClient) {
   setDeDiClient(dediClient);
   await dediClient.ensureRegistries(config.OPENCRED_DEDI_NAMESPACE!).catch((err: unknown) => {
@@ -360,6 +411,15 @@ app.use("*", async (c, next) => {
 });
 
 // Global middleware
+//
+// Tracing middleware runs FIRST so HTTP spans are the outermost scope —
+// every downstream call (signer, batch, dedi) nests under the request
+// span. The middleware is cheap (single function call) when tracing is
+// disabled; we still apply it unconditionally so a future
+// `OPENCRED_OTEL_ENABLED=true` flip doesn't require a redeploy of the
+// middleware chain.
+app.use("*", tracingMiddleware);
+
 app.use("*", metricsMiddleware);
 
 // Per-route rate limiting (issue #446 Tier 1).
@@ -380,6 +440,24 @@ applyRateLimits(app);
 mountRateLimitSelfCheckRoute(app);
 
 app.use("*", authMiddleware);
+
+// Read-only mode enforcement (Tier 3 #9 of nfh-trust-labs/opencred#446).
+//
+// Mounted AFTER auth so callers still need a valid Bearer token to reach the
+// read surface — read-only is a deployment topology, not an authentication
+// bypass. The middleware is a no-op when `OPENCRED_READ_ONLY=false`
+// (default).
+app.use("*", readOnlyMiddleware);
+
+// Log read-only mode loudly at startup so an operator who flipped the flag
+// in a write-tier env var by accident sees it on boot rather than after a
+// confused integrator hits a 405 in prod.
+if (config.OPENCRED_READ_ONLY) {
+  logger.warn(
+    "OPENCRED_READ_ONLY=true — write endpoints (issue, batch, revoke, keys/publish) " +
+      "will return 405. This server is a read tier; send write traffic elsewhere.",
+  );
+}
 
 // Mount routes.
 //

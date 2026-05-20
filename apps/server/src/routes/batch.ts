@@ -48,7 +48,11 @@ import { ValidationError } from "@opencred/shared";
 import type { BatchJob, BatchJobConfig, BatchJobRow } from "@opencred/shared";
 import { requireSigner } from "../signing/key-manager.js";
 import { getConfig } from "../config.js";
-import { parseCsvStreaming, StreamingCsvLimitError } from "../batch/csv-parser.js";
+import {
+  parseCsvStreaming,
+  StreamingCsvLimitError,
+  StreamingCsvRecordSizeError,
+} from "../batch/csv-parser.js";
 import type { Delimiter, ParsedRow } from "../batch/csv-parser.js";
 import { createStreamingBatchEngine } from "../batch/batch-engine.js";
 import type { StreamingBatchEngine, BatchProgress, ProofFormat } from "../batch/batch-engine.js";
@@ -126,6 +130,19 @@ export function setBatchQueue(queue: BatchQueue | null): void {
 // batch — see `finalizeAllRunningJobs` below.
 const localEngines = new Map<string, StreamingBatchEngine>();
 
+// Per-job heartbeat timers (Tier 2 #6 of nfh-trust-labs/opencred#446).
+//
+// While an engine is running, this replica writes `lastSeenAt` to the
+// shared JobStore every `OPENCRED_HEARTBEAT_INTERVAL_SEC`. A remote
+// observer reading the record from a different replica uses the
+// freshness of that timestamp to detect a dead owning replica — see
+// `findStaleRunningJobs` in `batch/job-store/types.ts`.
+//
+// We do NOT auto-transition a stale record here: cross-replica work
+// stealing is the job of an external queue (Tier 3 #8 / #583). The
+// heartbeat is a liveness *signal*, not a coordination primitive.
+const heartbeatTimers = new Map<string, NodeJS.Timeout>();
+
 /**
  * Build a diagnostic identifier for the running replica. Embedded in
  * `JobRecord.ownerReplica` so an operator looking at a Redis-stored
@@ -135,6 +152,67 @@ const localEngines = new Map<string, StreamingBatchEngine>();
  * as a best-effort hint, not for correctness.
  */
 const REPLICA_ID = `${hostname()}:${process.pid}`;
+
+/**
+ * Start the heartbeat loop for a running job. Writes the current time
+ * to the record's `lastSeenAt` field every `intervalSeconds`. Idempotent
+ * — calling twice with the same id replaces the prior timer.
+ *
+ * The timer is `.unref()`ed so it never holds the process open on its
+ * own; graceful shutdown's `finalizeAllRunningJobs` is the canonical
+ * stop signal.
+ */
+function startHeartbeat(jobId: string, intervalSeconds: number, ttlSeconds: number): void {
+  // Replace any prior timer for the same id — defensive, the route
+  // normally only schedules one heartbeat per job.
+  stopHeartbeat(jobId);
+  const intervalMs = intervalSeconds * 1000;
+  const timer = setInterval(() => {
+    const lastSeenAt = new Date().toISOString();
+    jobStore
+      .update(
+        jobId,
+        (current) => {
+          // Defensive: if the record settled between ticks (the engine's
+          // `.then`/`.catch` ran first), skip the write — we'd otherwise
+          // re-touch the TTL on a finished record, which is harmless but
+          // muddies the dashboard.
+          if (
+            current.status === "completed" ||
+            current.status === "failed" ||
+            current.status === "cancelled" ||
+            current.status === "interrupted"
+          ) {
+            return null;
+          }
+          return { ...current, lastSeenAt };
+        },
+        ttlSeconds,
+      )
+      .catch((err) => {
+        // Best-effort: a missed heartbeat is exactly what a stale-job
+        // observer is supposed to detect. We log at debug so a misconfigured
+        // Redis doesn't drown the logs, but the symptom is visible
+        // downstream regardless.
+        getLogger().debug({ jobId, err }, "Heartbeat write failed");
+      });
+  }, intervalMs);
+  timer.unref?.();
+  heartbeatTimers.set(jobId, timer);
+}
+
+/**
+ * Stop the heartbeat loop for a job. Safe to call for an unknown id —
+ * no-op in that case. Called when the engine settles or when shutdown
+ * tears down in-flight work.
+ */
+function stopHeartbeat(jobId: string): void {
+  const timer = heartbeatTimers.get(jobId);
+  if (timer) {
+    clearInterval(timer);
+    heartbeatTimers.delete(jobId);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Request validation
@@ -247,6 +325,11 @@ batch.post("/credentials/batch", async (c) => {
     columnMapping: parsed.columnMapping,
     delimiter: parsed.delimiter as Delimiter | undefined,
     maxRows: config.OPENCRED_BATCH_ROW_LIMIT,
+    // Defense-in-depth alongside OPENCRED_MAX_BATCH_BODY_BYTES. The
+    // body-limit middleware bounds the whole request; this cap bounds
+    // a single in-flight record so a no-newline / unclosed-quote
+    // attacker can't pin the body budget on one record (#578).
+    maxRecordBytes: config.OPENCRED_BATCH_MAX_RECORD_BYTES,
   });
 
   // Header parsing happens up-front so we can return `headers` in the
@@ -258,6 +341,13 @@ batch.post("/credentials/batch", async (c) => {
   } catch (err) {
     if (err instanceof StreamingCsvLimitError) {
       throw new ValidationError(`Batch exceeds maximum of ${err.limit} rows. Split your CSV.`);
+    }
+    if (err instanceof StreamingCsvRecordSizeError) {
+      // SECURITY: surface only the configured cap, not the offending
+      // record content or byte position. The buffer may carry PII.
+      throw new ValidationError(
+        `CSV record exceeds maximum size of ${err.limit} bytes. Split your CSV or check for an unterminated quoted field.`,
+      );
     }
     throw err;
   }
@@ -280,6 +370,13 @@ batch.post("/credentials/batch", async (c) => {
   } catch (err) {
     if (err instanceof StreamingCsvLimitError) {
       throw new ValidationError(`Batch exceeds maximum of ${err.limit} rows. Split your CSV.`);
+    }
+    if (err instanceof StreamingCsvRecordSizeError) {
+      // SECURITY: never leak the buffered bytes or row index — both
+      // can carry PII / credential subject data.
+      throw new ValidationError(
+        `CSV record exceeds maximum size of ${err.limit} bytes. Split your CSV or check for an unterminated quoted field.`,
+      );
     }
     throw err;
   }
@@ -307,6 +404,12 @@ batch.post("/credentials/batch", async (c) => {
     createdAt,
     webhookUrl: parsed.webhookUrl,
     ownerReplica: REPLICA_ID,
+    // Seed `lastSeenAt` to `createdAt` so the record carries a valid
+    // freshness anchor before the first heartbeat tick. An observer
+    // looking at the record between the initial write and the first
+    // heartbeat sees a timestamp that's at most one heartbeat interval
+    // old — which is inside the stale-threshold window.
+    lastSeenAt: createdAt,
   };
 
   await jobStore.set(jobId, initialRecord, ttlSeconds);
@@ -400,11 +503,23 @@ batch.post("/credentials/batch", async (c) => {
   // invariant rather than re-running the check.
   const engine = createStreamingBatchEngine(signer!, batchJobConfig, {
     source: sourceRows(),
+    // OTel attribute for per-row spans (#581 / #446 Tier 3 #10). The
+    // jobId is an opaque UUID — CLAUDE.md security invariant: span
+    // attributes carry only opaque identifiers, never user-provided
+    // data.
+    jobId,
   });
 
   // Inline mode keeps the live engine on this replica so we can answer
   // GETs from its `getProgress()` without a Redis round-trip.
   localEngines.set(jobId, engine);
+
+  // Tier 2 #6: start the heartbeat loop. Owning replica refreshes
+  // `lastSeenAt` every `OPENCRED_HEARTBEAT_INTERVAL_SEC` until the
+  // engine settles or shutdown tears it down. Queue mode does NOT start
+  // a heartbeat here — the worker process owns the heartbeat for jobs
+  // it picks up off the queue.
+  startHeartbeat(jobId, config.OPENCRED_HEARTBEAT_INTERVAL_SEC, ttlSeconds);
 
   // Background driver — engine.start() returns a Promise that settles
   // once every row has been processed. We don't await here; the route
@@ -438,6 +553,7 @@ batch.post("/credentials/batch", async (c) => {
       // garbage collector can reclaim it. Future GETs read from the
       // JobStore record only.
       localEngines.delete(jobId);
+      stopHeartbeat(jobId);
 
       // Deliver webhook notification on completion (best-effort).
       // LOW-04: `webhookSecret` is guaranteed non-empty at this point because
@@ -479,6 +595,7 @@ batch.post("/credentials/batch", async (c) => {
           // best-effort — if the store is also down there's nothing more we can do.
         });
       localEngines.delete(jobId);
+      stopHeartbeat(jobId);
     });
 
   const parseErrors = parsedRows
@@ -534,11 +651,7 @@ batch.get("/credentials/batch/:jobId", async (c) => {
   return c.json(buildProgressResponse(jobId, record.progress, record.status));
 });
 
-function buildProgressResponse(
-  jobId: string,
-  progress: BatchProgress | null,
-  status: JobStatus,
-) {
+function buildProgressResponse(jobId: string, progress: BatchProgress | null, status: JobStatus) {
   if (!progress) {
     // Job exists in the store but the engine hasn't produced a frame yet.
     // Return a zero-progress snapshot so callers always see the same
@@ -641,6 +754,10 @@ export async function finalizeAllRunningJobs(): Promise<number> {
     // new rows. Rows already in flight will complete naturally (they
     // hold the only reference to their signer call), but we don't wait.
     engine.cancel();
+    // Stop heartbeat first — once the record is "interrupted" we don't
+    // want a stray heartbeat tick to write `lastSeenAt` and make a
+    // dead replica look alive in the next observer window.
+    stopHeartbeat(jobId);
     await jobStore
       .update(
         jobId,
@@ -676,6 +793,10 @@ export async function finalizeAllRunningJobs(): Promise<number> {
  */
 export function __resetBatchStateForTesting(): void {
   localEngines.clear();
+  for (const timer of heartbeatTimers.values()) {
+    clearInterval(timer);
+  }
+  heartbeatTimers.clear();
   jobStore = new MemoryJobStore();
   batchQueue = null;
 }
@@ -685,6 +806,14 @@ export function __resetBatchStateForTesting(): void {
  */
 export function __getLocalEngineCount(): number {
   return localEngines.size;
+}
+
+/**
+ * Expose the heartbeat-timer map size for diagnostic asserts in tests.
+ * Used to verify the heartbeat is torn down on settle and on shutdown.
+ */
+export function __getHeartbeatTimerCount(): number {
+  return heartbeatTimers.size;
 }
 
 export { batch };

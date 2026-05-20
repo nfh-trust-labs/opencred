@@ -16,6 +16,7 @@ import { describe, it, expect } from "vitest";
 import {
   streamingParseCsv,
   StreamingCsvLimitError,
+  StreamingCsvRecordSizeError,
   type RowValidationVerdict,
   type StreamingCsvInput,
 } from "../index.js";
@@ -316,6 +317,166 @@ describe("streamingParseCsv — fail-fast row cap", () => {
     // second `yield` and `checkpoint = 2` has not run. The third chunk
     // never gets pulled.
     expect(checkpoint).toBe(1);
+  });
+});
+
+describe("streamingParseCsv — per-record size cap (issue #578)", () => {
+  it("throws StreamingCsvRecordSizeError when a single row exceeds maxRecordBytes", async () => {
+    // Construct one giant unterminated row. With no record cap the
+    // parser would buffer the entire body waiting for a `\n`; with
+    // the cap the parser fails BEFORE consuming the full payload.
+    const huge = "a".repeat(2_000);
+    const parser = streamingParseCsv(`name\n${huge}`, {
+      schemaId: "test",
+      validate: alwaysValid,
+      maxRecordBytes: 1_000,
+    });
+    await parser.headers();
+    let caught: unknown;
+    try {
+      for await (const _ of parser.rows()) {
+        /* should never run */
+      }
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(StreamingCsvRecordSizeError);
+    expect((caught as StreamingCsvRecordSizeError).limit).toBe(1_000);
+    expect((caught as StreamingCsvRecordSizeError).recordBytes).toBeGreaterThan(1_000);
+  });
+
+  it("does not include any row content in the error message (PII guard)", async () => {
+    // We pack a unique sentinel into the giant field; the error
+    // message must not echo it back. The CLAUDE.md security
+    // invariant: row content can carry credential subject PII.
+    const sentinel = "SENSITIVE_PAYLOAD_DO_NOT_LEAK";
+    const huge = `${sentinel}${"x".repeat(2_000)}`;
+    const parser = streamingParseCsv(`name\n${huge}`, {
+      schemaId: "test",
+      validate: alwaysValid,
+      maxRecordBytes: 1_000,
+    });
+    await parser.headers();
+    let caught: unknown;
+    try {
+      for await (const _ of parser.rows()) {
+        /* drain */
+      }
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(StreamingCsvRecordSizeError);
+    expect((caught as Error).message).not.toContain(sentinel);
+    expect((caught as Error).message).not.toContain("x".repeat(50));
+  });
+
+  it("triggers when a quoted field never closes (unterminated quote)", async () => {
+    // The attack the upstream body-limit doesn't catch: an open quote
+    // suppresses every `\n` boundary. The parser used to keep
+    // buffering up to 200 MB before any row yielded — now it fails
+    // as soon as the in-flight buffer crosses the cap.
+    const payload = `name\n"${"x".repeat(2_000)}`; // no closing quote
+    const parser = streamingParseCsv(payload, {
+      schemaId: "test",
+      validate: alwaysValid,
+      maxRecordBytes: 1_000,
+    });
+    await parser.headers();
+    let caught: unknown;
+    try {
+      for await (const _ of parser.rows()) {
+        /* drain */
+      }
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(StreamingCsvRecordSizeError);
+  });
+
+  it("passes a multi-row CSV through when every row is under the cap", async () => {
+    // Each row is comfortably under the 1 KiB cap. The parser should
+    // yield all rows without ever throwing.
+    const lines = ["name,role"];
+    for (let i = 0; i < 50; i++) lines.push(`row${i},grower`);
+    const parser = streamingParseCsv(lines.join("\n"), {
+      schemaId: "test",
+      validate: alwaysValid,
+      maxRecordBytes: 1_024,
+    });
+    await parser.headers();
+    const rows = [];
+    for await (const row of parser.rows()) rows.push(row);
+    expect(rows).toHaveLength(50);
+    expect(rows[0].rawValues).toEqual({ name: "row0", role: "grower" });
+    expect(rows[49].rawValues).toEqual({ name: "row49", role: "grower" });
+  });
+
+  it("throws BEFORE pulling the rest of the stream once the cap is hit", async () => {
+    // Same backpressure invariant as the maxRows test — the parser
+    // must not keep draining chunks once a record overflows. The
+    // pattern is `checkpoint = N` AFTER `yield`, which runs only
+    // when the consumer pulls again. So if the parser throws right
+    // after processing chunk 2 (without pulling chunk 3), the
+    // producer is still suspended at the yield that delivered
+    // chunk 2 — `producedChunks` reflects the count BEFORE that
+    // yield resumed.
+    let producedChunks = 0;
+    async function* gen() {
+      const encoder = new TextEncoder();
+      yield encoder.encode("name\n");
+      producedChunks = 1;
+      yield encoder.encode("x".repeat(2_000)); // overflows cap
+      producedChunks = 2;
+      yield encoder.encode("\nshouldnt-reach\n");
+      producedChunks = 3;
+    }
+    const parser = streamingParseCsv(gen(), {
+      schemaId: "test",
+      validate: alwaysValid,
+      maxRecordBytes: 1_000,
+    });
+    await parser.headers();
+    try {
+      for await (const _ of parser.rows()) {
+        /* drain */
+      }
+    } catch {
+      /* expected */
+    }
+    // The header pull woke the producer to `producedChunks = 1`. The
+    // scanner pulled the overflow chunk and threw immediately — it
+    // never asked for the third chunk, so the producer is still
+    // suspended at its second `yield` and `producedChunks = 2` has
+    // not run.
+    expect(producedChunks).toBe(1);
+  });
+
+  it("throws when the header alone exceeds the cap", async () => {
+    // A no-newline header is the same attack surface as a no-newline
+    // data row — `takeHeaderRecord` must enforce the cap too.
+    const huge = "x".repeat(2_000);
+    const parser = streamingParseCsv(huge, {
+      schemaId: "test",
+      validate: alwaysValid,
+      maxRecordBytes: 1_000,
+    });
+    let caught: unknown;
+    try {
+      await parser.headers();
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(StreamingCsvRecordSizeError);
+  });
+
+  it("is opt-in — omitting maxRecordBytes preserves the old unbounded behaviour", async () => {
+    // Pre-issue-578 callers (and tests) didn't pass the option. We
+    // must not regress them: a 10 KiB row with no cap should parse
+    // happily.
+    const big = "y".repeat(10_000);
+    const { rows } = await collectRows(`name\n${big}`);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].rawValues.name).toBe(big);
   });
 });
 

@@ -32,6 +32,7 @@ import {
 } from "@opencred/crypto";
 import { CryptoError, ValidationError, detectCredentialInputFormat } from "@opencred/shared";
 import { encodeDidWeb } from "@opencred/did";
+import { getCachedSignerDidDocument } from "@opencred/signing";
 import { REVOCATION_REGISTRY } from "@opencred/dedi-client";
 import type { TemplateCustomization } from "@opencred/templates";
 import { requireSigner } from "../signing/key-manager.js";
@@ -41,6 +42,7 @@ import { credentialsIssuedTotal, credentialsVerifiedTotal } from "../metrics.js"
 import { getLogger } from "../logger.js";
 import { getConfig } from "../config.js";
 import { parseJsonBody } from "../middleware/parse-json.js";
+import { CACHE_PRESETS } from "../middleware/cache-control.js";
 
 const credentials = new Hono();
 
@@ -357,6 +359,30 @@ credentials.post("/credentials/issue", async (c) => {
   const parsed = issueRequestSchema.parse(body);
   const signer = requireSigner();
 
+  // Warm the signer-DID-document cache. First call resolves via the
+  // did:key / did:jwk resolver and stores the result; every subsequent
+  // call within the process is an O(1) Map lookup.
+  //
+  // The cache entry is held by the helper module; we discard the
+  // returned doc here because /credentials/issue itself doesn't embed
+  // the DID document in the response — verifiers re-derive it from the
+  // `verificationMethod` URL during verify. The hoist exists so that
+  // future signing paths (e.g. embedding the DID document in a
+  // credential receipt) reuse the resolved object reference instead of
+  // re-allocating on every call.
+  //
+  // Best-effort: did:web signers (Docker production, when configured)
+  // intentionally fall through this helper's "unsupported" branch.
+  // Other transient resolver errors (mock signers in tests, synthetic
+  // DIDs) are also swallowed — the cache is a hot-path optimisation,
+  // not a correctness gate. The signing path uses `signer.id` directly,
+  // so a missed warmup never produces an incorrect signature.
+  //
+  // See #573 / #572.
+  await getCachedSignerDidDocument(signer).catch(() => {
+    /* best-effort warmup */
+  });
+
   // Resolve the effective issuer DID.
   //
   // Priority:
@@ -384,15 +410,30 @@ credentials.post("/credentials/issue", async (c) => {
   // Validate credential subject against schema. Two paths:
   //   1. inlineSchema present → compile + validate ad-hoc (no registry lookup)
   //   2. inlineSchema absent  → registry lookup by schemaId (existing behaviour)
-  if (parsed.inlineSchema) {
-    getValidator().validateInlineOrThrow(
-      parsed.inlineSchema,
-      parsed.credentialSubject,
-      parsed.schemaId,
-    );
-  } else if (parsed.schemaId) {
-    getValidator().validateOrThrow(parsed.schemaId, parsed.credentialSubject);
-  }
+  //
+  // Wrapped in a `verify.schema_validate` span so JSON-Schema validation
+  // appears alongside DID resolution / credential verification in
+  // Tempo / Jaeger. The schemaId is opaque (registry key, not user
+  // data), and the credential subject is NEVER attached to the span.
+  const { runInSpan: runInSpanForSchema } = await import("../observability/span-helpers.js");
+  await runInSpanForSchema(
+    "verify.schema_validate",
+    {
+      "verify.schema_id": parsed.schemaId ?? "inline",
+      "verify.inline_schema": Boolean(parsed.inlineSchema),
+    },
+    async () => {
+      if (parsed.inlineSchema) {
+        getValidator().validateInlineOrThrow(
+          parsed.inlineSchema,
+          parsed.credentialSubject,
+          parsed.schemaId,
+        );
+      } else if (parsed.schemaId) {
+        getValidator().validateOrThrow(parsed.schemaId, parsed.credentialSubject);
+      }
+    },
+  );
   // The Zod `.refine()` on issueRequestSchema guarantees at least one of
   // schemaId / inlineSchema is set, so an `else` branch is unreachable.
 
@@ -837,13 +878,19 @@ credentials.post("/credentials/verify", async (c) => {
     didWebResolver = new DIDWebResolver();
   }
 
-  const compositeResolver = new CompositeDIDResolver(
+  const compositeResolverRaw = new CompositeDIDResolver(
     new Map([
       ["key", new DIDKeyResolver()],
       ["jwk", new DIDJwkResolver()],
       ["web", didWebResolver],
     ]),
   );
+  // Wrap the resolver so every `.resolve(did)` call (one per credential
+  // verify, plus N more for chained / nested DID references) emits a
+  // `verify.did_resolve` span. The wrapper is a no-op when tracing is
+  // disabled (#581 / #446 Tier 3 #10).
+  const { wrapDidResolverWithTracing } = await import("../observability/verify-span.js");
+  const compositeResolver = wrapDidResolverWithTracing(compositeResolverRaw);
 
   // Use the CSCA trust store loaded at server startup. The trust store is
   // loaded once from OPENCRED_CSCA_TRUST_STORE_PATH during bootstrap and
@@ -876,8 +923,32 @@ credentials.post("/credentials/verify", async (c) => {
         400,
       );
     }
-    const pdfResult = await verifyPdf(pdfBytes, verifierConfig);
+    const { runInSpan: runInSpanForPdf } = await import("../observability/span-helpers.js");
+    const pdfResult = await runInSpanForPdf(
+      "verify.credential",
+      { "verify.format": "pdf", "verify.input_bytes": pdfBytes.byteLength },
+      async (span) => {
+        const result = await verifyPdf(pdfBytes, verifierConfig);
+        span.setAttribute("verify.code", result.code);
+        span.setAttribute("verify.verified", result.verified);
+        for (const check of result.checks) {
+          span.addEvent("verify.check", {
+            "verify.check_name": check.name,
+            "verify.check_passed": check.passed,
+          });
+        }
+        return result;
+      },
+    );
     credentialsVerifiedTotal.inc({ result: pdfResult.verified ? "valid" : "invalid" });
+    // Verify is POST-with-body, so a shared CDN can't safely cache the
+    // response — but `private, max-age=60` lets a caller-side cache
+    // (service-worker, in-process LRU) dedupe rapid re-verifications of
+    // the SAME credential without breaking HTTP caching semantics. Vary
+    // on Content-Type so JSON and PDF replies don't collide in the
+    // client's cache.
+    c.header("Cache-Control", CACHE_PRESETS.verifyPrivate);
+    c.header("Vary", "Content-Type, Authorization");
     return c.json(buildVerifyResponseBody(pdfResult));
   }
 
@@ -914,7 +985,30 @@ credentials.post("/credentials/verify", async (c) => {
       );
   }
 
-  const verificationResult = await verifyCredential(credential, verifierConfig);
+  const { runInSpan } = await import("../observability/span-helpers.js");
+  const verificationResult = await runInSpan(
+    "verify.credential",
+    { "verify.format": format },
+    async (span) => {
+      const result = await verifyCredential(credential, verifierConfig);
+      // Surface result code as an attribute so dashboards can split
+      // "valid vs invalid" without re-parsing the body. The
+      // verification check NAMES are recorded one-per-event so a
+      // single span carries the breadcrumb trail of which checks ran
+      // and how each fared — without their `detail` strings, which can
+      // leak operator-config (CSCA DN, etc.) per the route's existing
+      // sanitisation contract.
+      span.setAttribute("verify.code", result.code);
+      span.setAttribute("verify.verified", result.verified);
+      for (const check of result.checks) {
+        span.addEvent("verify.check", {
+          "verify.check_name": check.name,
+          "verify.check_passed": check.passed,
+        });
+      }
+      return result;
+    },
+  );
 
   // SECURITY: Do not leak `detail` strings or the name of the first failed
   // check in the response message — those can include operator config (e.g.
@@ -936,6 +1030,10 @@ credentials.post("/credentials/verify", async (c) => {
 
   credentialsVerifiedTotal.inc({ result: verificationResult.verified ? "valid" : "invalid" });
 
+  // See the PDF branch above for the cache-header rationale. Same shape
+  // applies for the JSON entrypoint.
+  c.header("Cache-Control", CACHE_PRESETS.verifyPrivate);
+  c.header("Vary", "Content-Type, Authorization");
   return c.json(buildVerifyResponseBody(verificationResult));
 });
 

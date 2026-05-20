@@ -57,13 +57,7 @@ import type { BatchProgress } from "../batch-engine.js";
  *                     a downstream observer (operator, retry pipeline) can
  *                     distinguish "the host died" from "the work failed".
  */
-export type JobStatus =
-  | "queued"
-  | "running"
-  | "completed"
-  | "cancelled"
-  | "failed"
-  | "interrupted";
+export type JobStatus = "queued" | "running" | "completed" | "cancelled" | "failed" | "interrupted";
 
 /**
  * Serializable representation of a single batch job.
@@ -86,6 +80,16 @@ export type JobStatus =
  *                     never logged
  *  - `ownerReplica` — best-effort identifier (`process.pid` + hostname) of
  *                     the replica running the engine. Diagnostic only.
+ *  - `lastSeenAt`   — ISO-8601 timestamp written by the owning replica every
+ *                     `OPENCRED_HEARTBEAT_INTERVAL_SEC` while the engine is
+ *                     running. A stale value (older than 2× the heartbeat
+ *                     interval) is the signal a remote observer uses to
+ *                     decide the owning replica has died mid-batch. The
+ *                     observer does NOT auto-transition the record —
+ *                     work-stealing is an external-queue concern (Tier 3
+ *                     #8 / #583). This field only reports liveness.
+ *                     Optional because pre-heartbeat records may not carry
+ *                     it; readers must treat `undefined` as "no signal".
  */
 export interface JobRecord {
   jobId: string;
@@ -95,12 +99,16 @@ export interface JobRecord {
   completedAt?: string;
   webhookUrl?: string;
   ownerReplica?: string;
+  lastSeenAt?: string;
 }
 
 /**
  * Lightweight summary for list operations. Avoids shipping the full
  * `progress.rows[]` array (which can be 1 000+ entries) when the caller
  * only needs a directory view.
+ *
+ * `lastSeenAt` is included so {@link findStaleRunningJobs} can decide
+ * liveness from a single `list()` call without a second per-record GET.
  */
 export interface JobSummary {
   jobId: string;
@@ -109,6 +117,8 @@ export interface JobSummary {
   completedAt?: string;
   total: number;
   completed: number;
+  lastSeenAt?: string;
+  ownerReplica?: string;
 }
 
 /**
@@ -186,4 +196,117 @@ export interface JobStore {
    * Idempotent.
    */
   close(): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Stale-job detection (Tier 2 #6 of nfh-trust-labs/opencred#446)
+// ---------------------------------------------------------------------------
+
+/**
+ * Options accepted by {@link findStaleRunningJobs}.
+ */
+export interface StaleJobDetectionOptions {
+  /**
+   * The owning replica refreshes `lastSeenAt` every `heartbeatIntervalSeconds`.
+   * The default observer threshold treats a job as stale when its
+   * `lastSeenAt` is older than `2 × heartbeatIntervalSeconds`. That window
+   * is wide enough to tolerate one missed write (e.g. a slow GC pause or
+   * a Redis blip) without false-positives, and tight enough that an
+   * actually-dead replica is detected within ~10 s at the default 5 s
+   * interval.
+   *
+   * Defaults to `5` (the same default as `OPENCRED_HEARTBEAT_INTERVAL_SEC`).
+   */
+  heartbeatIntervalSeconds?: number;
+
+  /**
+   * Override the staleness multiplier. Defaults to `2`. Larger values are
+   * more forgiving; smaller values flag dead replicas faster but risk
+   * marking healthy-but-slow replicas as stale.
+   */
+  staleMultiplier?: number;
+
+  /**
+   * Test seam for the observer's clock. Defaults to `Date.now()`.
+   */
+  now?: () => number;
+}
+
+/**
+ * Diagnostic record returned by {@link findStaleRunningJobs}.
+ *
+ * The detection is observation-only: callers MUST NOT auto-transition the
+ * job record on the basis of this signal. Cross-replica work-stealing is
+ * a queue-engine concern (Tier 3 #8 / #583). This helper exists so an
+ * operator dashboard, a Prometheus exporter, or a future cleanup job can
+ * surface "the owning replica appears to have died" without conflating
+ * that with the existing `"interrupted"` / `"failed"` statuses (which the
+ * owning replica writes on its own way out — by definition, a dead
+ * replica can't update its own record).
+ */
+export interface StaleJobReport {
+  jobId: string;
+  status: JobStatus;
+  /** ms since the replica last wrote `lastSeenAt`. */
+  staleForMs: number;
+  ownerReplica?: string;
+}
+
+/**
+ * Returns the subset of currently-running (or still-queued) jobs whose
+ * `lastSeenAt` heartbeat is older than `staleMultiplier × heartbeatIntervalSeconds`.
+ *
+ * Behaviour:
+ *  - Jobs without a `lastSeenAt` field at all are ignored. A record may
+ *    legitimately lack one if it was created by an older code path or if
+ *    the engine hadn't yet emitted its first heartbeat. The caller is the
+ *    one who knows whether to treat "no signal" as suspicious.
+ *  - Only `running` and `queued` statuses are considered — settled records
+ *    (`completed` / `failed` / `cancelled` / `interrupted`) carry no
+ *    liveness contract.
+ *  - The owning replica's own clock writes `lastSeenAt`; the observer
+ *    compares it against the observer's clock. Modest clock skew between
+ *    replicas (NTP-bounded, typically < 1 s) is absorbed by the
+ *    `staleMultiplier` window.
+ *
+ * Diagnostic-grade: backed by `store.list()`, which in the Redis
+ * implementation is a SCAN — not a snapshot. Treat the result as
+ * eventually-consistent.
+ */
+export async function findStaleRunningJobs(
+  store: JobStore,
+  opts: StaleJobDetectionOptions = {},
+): Promise<StaleJobReport[]> {
+  const heartbeatIntervalSeconds = opts.heartbeatIntervalSeconds ?? 5;
+  const staleMultiplier = opts.staleMultiplier ?? 2;
+  const now = opts.now ?? (() => Date.now());
+
+  const thresholdMs = heartbeatIntervalSeconds * staleMultiplier * 1000;
+  const nowMs = now();
+  const out: StaleJobReport[] = [];
+
+  // We only need `running` + `queued` summaries; ask the store for each.
+  // (Two cheap calls instead of one big list-and-filter is roughly the
+  // same Redis cost — SCAN sees every key either way — but it keeps the
+  // payload tighter when the running set is small.)
+  const candidates: JobSummary[] = [
+    ...(await store.list({ status: "running" })),
+    ...(await store.list({ status: "queued" })),
+  ];
+
+  for (const summary of candidates) {
+    if (!summary.lastSeenAt) continue;
+    const lastSeenMs = Date.parse(summary.lastSeenAt);
+    if (Number.isNaN(lastSeenMs)) continue;
+    const staleForMs = nowMs - lastSeenMs;
+    if (staleForMs <= thresholdMs) continue;
+    const report: StaleJobReport = {
+      jobId: summary.jobId,
+      status: summary.status,
+      staleForMs,
+    };
+    if (summary.ownerReplica !== undefined) report.ownerReplica = summary.ownerReplica;
+    out.push(report);
+  }
+  return out;
 }
