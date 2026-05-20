@@ -12,7 +12,7 @@
   "main": "dist/main/main/index.js",
   "scripts": {
     "dev": "concurrently -n vite,electron \"vite\" \"wait-on http://localhost:5174 && electron .\"",
-    "rebuild:native": "electron-rebuild -f -m ../../packages/signing/native -o pkcs11js",
+    "rebuild:native": "node scripts/rebuild-native.cjs",
     "build": "vite build && node scripts/bundle-main.mjs",
     "build:dist": "node scripts/build-dist.mjs",
     "build:renderer": "vite build",

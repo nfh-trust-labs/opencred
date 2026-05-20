@@ -106,12 +106,8 @@ jobs:
             platform: mac
           - os: ubuntu-latest
             platform: linux
-          # Windows disabled — @electron/rebuild hangs for 20+ min on the
-          # pnpm symlinked dependency tree during "Searching dependency
-          # tree" on NTFS. Tracked in the Windows-rebuild-hang issue.
-          # Native compile via node-gyp itself works fine (windows-cng.node
-          # is produced in 48s during "Build workspace dependencies"); it's
-          # only the Electron-ABI rebuild step that hangs.
+          - os: windows-latest
+            platform: win
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -136,9 +132,15 @@ jobs:
       - name: Build workspace dependencies
         run: pnpm --filter @opencred/desktop... build
 
+      # rebuild-native.cjs rebuilds ONLY the known native modules
+      # (pkcs11js + opencred-native-addons) directly via node-gyp,
+      # skipping @electron/rebuild's dependency-tree walk that used
+      # to hang for 20+ min on Windows / NTFS / pnpm symlinks. See
+      # issue #501 for the root-cause analysis. 10 min is plenty —
+      # node-gyp itself takes ~3 min total on Windows for both modules.
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
-        timeout-minutes: 20
+        timeout-minutes: 10
 
       - name: Verify native addons
         run: node scripts/verify-native-addons.cjs
@@ -165,7 +167,10 @@ jobs:
             platform: linux
             electron_builder_args: "--linux --x64"
             artifact_suffix: linux-x64
-          # Windows disabled — see note in `test` matrix above.
+          - os: windows-latest
+            platform: win
+            electron_builder_args: "--win --x64"
+            artifact_suffix: win-x64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -196,9 +201,11 @@ jobs:
       - name: Build workspace dependencies
         run: pnpm --filter @opencred/desktop... build
 
+      # See note in `test` matrix above — rebuild-native.cjs bypasses
+      # @electron/rebuild's dep-tree walk so Windows no longer hangs.
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
-        timeout-minutes: 20
+        timeout-minutes: 10
 
       # Fail the build if macos-keychain / windows-cng silently failed to
       # compile. Without this, the release ships without OS cert-store
