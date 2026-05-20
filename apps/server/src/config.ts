@@ -334,6 +334,54 @@ const configSchema = z.object({
       return value;
     }, z.boolean())
     .default(true),
+
+  // --- Batch dispatch (Tier 3 #8 of nfh-trust-labs/opencred#446) ---
+
+  /**
+   * Dispatch model for batch credential issuance.
+   *
+   *  - `inline` (default): the API process runs the StreamingBatchEngine
+   *    in-band on the request handler's continuation. This is the
+   *    behaviour every release shipped before this flag landed. Single
+   *    instance, no Redis required.
+   *  - `queue`: the API process only enqueues a `BatchJob` onto a
+   *    BullMQ queue (`opencred:batch`) and returns `202 + jobId`. A
+   *    separate worker process (`node dist/worker.js`) consumes the
+   *    queue and runs the engine. Required for multi-replica scale
+   *    and survival across API-process restarts.
+   *
+   * Defaults to `inline` so every existing deployment is bit-identical.
+   * Switch to `queue` after standing up a worker fleet — see
+   * `docs/docker/deployment.md` and the `docker-compose.yml` `worker`
+   * service example.
+   */
+  OPENCRED_BATCH_DISPATCH: z.enum(["inline", "queue"]).default("inline"),
+
+  /**
+   * Worker pool concurrency for the batch worker process. Each worker
+   * picks up at most `OPENCRED_WORKER_CONCURRENCY` BullMQ jobs in
+   * parallel. Per-job intra-batch concurrency is still capped by
+   * `OPENCRED_BATCH_CONCURRENCY` inside each engine invocation, so the
+   * effective parallelism is `OPENCRED_WORKER_CONCURRENCY *
+   * OPENCRED_BATCH_CONCURRENCY` rows in flight per worker container.
+   *
+   * Default: `min(4, os.cpus().length)`. The default is computed lazily
+   * in `apps/server/src/worker.ts` (not here) so the same compiled
+   * config schema works across containers with different cpu shapes.
+   * The schema accepts an explicit override; 0 is rejected because a
+   * worker that consumes zero jobs is operationally meaningless.
+   */
+  OPENCRED_WORKER_CONCURRENCY: z.coerce.number().int().min(1).optional(),
+
+  /**
+   * Concurrency for the webhook delivery worker. Webhook calls are
+   * I/O-bound (single HTTP POST + retries) so they can run much hotter
+   * than the batch worker without saturating CPU. Default 4.
+   *
+   * Same shape as `OPENCRED_WORKER_CONCURRENCY` — an `undefined` env
+   * variable falls through to the worker's hard-coded default.
+   */
+  OPENCRED_WEBHOOK_WORKER_CONCURRENCY: z.coerce.number().int().min(1).default(4),
 });
 
 export type ServerConfig = z.infer<typeof configSchema>;
@@ -483,6 +531,34 @@ export function loadConfig(): ServerConfig {
         "If you do not need horizontal scale, set OPENCRED_JOB_STORE=memory " +
         "(or omit the variable entirely — memory is the default).",
     );
+  }
+
+  // --- Batch dispatch cross-field validation ---
+  // When OPENCRED_BATCH_DISPATCH=queue:
+  //   - OPENCRED_REDIS_URL is required (BullMQ broker == Redis).
+  //   - OPENCRED_JOB_STORE=memory is technically valid for a 1 API + 1
+  //     worker pinned to the same Redis-less host but practically a
+  //     footgun: jobs queue, are picked up by the worker, but progress
+  //     writes land on the API replica's in-process map and never reach
+  //     the worker — and vice-versa. We refuse the combination.
+  if (parsed.OPENCRED_BATCH_DISPATCH === "queue") {
+    if (!parsed.OPENCRED_REDIS_URL) {
+      throw new ConfigError(
+        "OPENCRED_REDIS_URL is required when OPENCRED_BATCH_DISPATCH=queue. " +
+          "Queue dispatch routes batch jobs through BullMQ on Redis. Set " +
+          "OPENCRED_REDIS_URL to a redis:// (or rediss:// for TLS) URL. " +
+          "If you don't need a separate worker fleet, set OPENCRED_BATCH_DISPATCH=inline " +
+          "(or omit the variable — inline is the default).",
+      );
+    }
+    if (parsed.OPENCRED_JOB_STORE !== "redis") {
+      throw new ConfigError(
+        "OPENCRED_BATCH_DISPATCH=queue requires OPENCRED_JOB_STORE=redis. " +
+          "With queue dispatch the API process enqueues a job, and a SEPARATE worker " +
+          "process runs the engine — they share state only through Redis. A memory-only " +
+          "job store would leave the worker's progress invisible to the API replicas.",
+      );
+    }
   }
 
   cachedConfig = parsed;
