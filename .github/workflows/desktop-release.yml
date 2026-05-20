@@ -106,7 +106,7 @@ jobs:
             platform: mac
           - os: ubuntu-latest
             platform: linux
-          - os: windows-latest
+          - os: windows-2022
             platform: win
     runs-on: ${{ matrix.os }}
 
@@ -167,7 +167,7 @@ jobs:
             platform: linux
             electron_builder_args: "--linux --x64"
             artifact_suffix: linux-x64
-          - os: windows-latest
+          - os: windows-2022
             platform: win
             electron_builder_args: "--win --x64"
             artifact_suffix: win-x64

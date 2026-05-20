@@ -32,7 +32,7 @@ jobs:
             electron_builder_args: "--linux --x64"
             artifact_suffix: linux-x64
           # Windows — x64 only (no GitHub-hosted arm64 runners)
-          - os: windows-latest
+          - os: windows-2022
             platform: win
             arch: x64
             electron_builder_args: "--win --x64"
