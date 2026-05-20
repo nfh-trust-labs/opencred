@@ -381,6 +381,12 @@ LOCAL$ jq '{credential: (.credential | tostring)}' credential.json | \
 The tamper test is the same — flip a byte of `credentialSubject.name` and
 re-verify. `valid: true` becomes `valid: false`.
 
+> **PDF inputs.** `POST /v1/credentials/verify` also accepts a raw
+> PDF body when the request carries `Content-Type: application/pdf`.
+> Useful when you've already packaged a credential as a printable
+> PDF and want to verify it directly without re-extracting the JSON.
+> See [Docker → API reference → `POST /v1/credentials/verify`](../docker/api-reference.md#post-v1credentialsverify).
+
 #### 6a. Issue against your own pasted schema
 
 The 34 bundled schemas cover common cases. To issue a credential shaped
@@ -675,6 +681,56 @@ block).
 
 The Postman collection has this under **DeDi runtime → POST
 /v1/dedi/namespace/ensure**.
+
+### 7h. Beyond the bootcamp — production hardening
+
+The VM track drives a single container with the most ergonomic
+defaults. Production deployments have more knobs. None of these are
+required for the §1–§7 happy path — they're pointers to follow when
+you outgrow the single-instance model.
+
+- **Horizontal scale.** Swap `OPENCRED_JOB_STORE=memory` for `redis`
+  and run multiple replicas behind a load balancer. Every replica
+  can answer batch status reads regardless of which one received the
+  POST. See [Docker → Deployment → Horizontal scale](../docker/deployment.md#horizontal-scale).
+
+- **Read-only verify tier.** Set `OPENCRED_READ_ONLY=true` on a
+  separate replica pool to refuse every write endpoint with
+  `405 READ_ONLY_MODE`. These replicas have **no signing key** and
+  exist only to serve verification traffic at high volume. See
+  [Docker → Deployment → Read-tier deployment](../docker/deployment.md#read-tier-deployment).
+
+- **Worker fleet.** `OPENCRED_BATCH_DISPATCH=queue` moves batch
+  signing onto a BullMQ queue consumed by a separate `node
+  dist/worker.js` process. Required when you want batch jobs to
+  survive an API-process restart, or when you need to scale workers
+  independently of the API. See
+  [Docker → Deployment → Queue dispatch](../docker/deployment.md#queue-dispatch-worker-fleet--opencred_batch_dispatchqueue).
+
+- **Webhooks.** Add `webhookUrl` (HTTPS) to a batch request to be
+  notified when the job finishes. `OPENCRED_WEBHOOK_SECRET` (min 32
+  chars) configures the HMAC-SHA256 signing key. Deliveries retry
+  with exponential backoff and land in a DLQ on permanent failure.
+
+- **Body caps and rate limits.** Tune `OPENCRED_MAX_BODY_BYTES`,
+  `OPENCRED_MAX_BATCH_BODY_BYTES`,
+  `OPENCRED_BATCH_MAX_RECORD_BYTES`, and the
+  `OPENCRED_RATE_LIMIT_*` family to your traffic profile. See
+  [Docker → API reference → Rate limits](../docker/api-reference.md#rate-limits)
+  and the env-var table.
+
+- **`@opencred/verify` SDK.** Verifiers who want to embed
+  verification in their own Node.js service can install
+  `@opencred/verify` instead of running the container. Zero-config
+  handles `did:key` / `did:jwk` fully offline; pass a `dedi` block
+  for revocation + `did:web` fallback. See
+  [Docker overview](../docker/README.md#three-surfaces).
+
+- **Tracing.** Set `OPENCRED_OTEL_ENABLED=true` plus the standard
+  `OTEL_EXPORTER_OTLP_ENDPOINT` to ship critical-path spans
+  (`batch.run`, `signer.sign`, `verify.credential`, `dedi.*`) to
+  your collector. A sample Grafana dashboard ships at
+  [docs/observability/grafana-dashboards/](../observability/grafana-dashboards/README.md).
 
 ### 8. Troubleshooting cheat sheet
 
