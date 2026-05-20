@@ -103,16 +103,36 @@ function readElectronVersion() {
 }
 
 function resolveNodeGypBin() {
-  // Prefer @electron/node-gyp — the same fork @electron/rebuild uses
-  // internally. It tracks Electron-specific changes (Node 20 / Visual
-  // Studio 2022 toolchain fixes) more aggressively than upstream node-gyp.
+  // Prefer UPSTREAM node-gyp over @electron/node-gyp.
   //
-  // pnpm isolates @electron/node-gyp inside the @electron/rebuild
-  // sub-store, so it's not directly resolvable from apps/desktop. Hop
-  // through @electron/rebuild's package directory first.
+  // @electron/node-gyp v10.2.0-electron.1 (the version bundled with
+  // @electron/rebuild 4.x) ships an older child-process orchestration that
+  // hits "Completion callback never invoked!" on modern Windows runners
+  // (observed against VS 17.14 / windows-2022 / Python 3.11 — the failure
+  // is in the fork's runtime, not in Python or VS detection).
+  //
+  // Upstream node-gyp v11+ works correctly on the same environment: pnpm's
+  // bundled node-gyp builds pkcs11js's native module via its `install`
+  // lifecycle hook in <90s on Windows. We invoke that same node-gyp with
+  // the Electron-specific flags (--target, --runtime=electron, --dist-url)
+  // it supports natively — no @electron-specific patching is needed for a
+  // standard C++ native addon rebuild.
+  //
+  // `@electron/node-gyp` is kept as a fallback in case a future Electron
+  // version ships a header file that upstream node-gyp doesn't handle.
   const searchPaths = [__dirname, desktopDir, repoRoot];
 
-  // First try: @electron/node-gyp via @electron/rebuild.
+  // First try: upstream node-gyp. pkcs11js declares it as a dep, so it's
+  // resolvable from apps/desktop's node_modules.
+  for (const from of searchPaths) {
+    try {
+      return require.resolve("node-gyp/bin/node-gyp.js", { paths: [from] });
+    } catch (_) {
+      /* try next */
+    }
+  }
+
+  // Fallback: @electron/node-gyp via @electron/rebuild's sub-store.
   for (const from of searchPaths) {
     try {
       const rebuildPkg = require.resolve("@electron/rebuild/package.json", {
@@ -127,18 +147,9 @@ function resolveNodeGypBin() {
     }
   }
 
-  // Fallback: upstream node-gyp if anyone has it as a direct dep.
-  for (const from of searchPaths) {
-    try {
-      return require.resolve("node-gyp/bin/node-gyp.js", { paths: [from] });
-    } catch (_) {
-      /* try next */
-    }
-  }
-
   throw new Error(
-    "Could not locate node-gyp. Expected @electron/node-gyp (via @electron/rebuild, " +
-      "which is a devDependency of @opencred/desktop) to be installed."
+    "Could not locate node-gyp. Expected either upstream `node-gyp` (a transitive " +
+      "dep of pkcs11js) or @electron/node-gyp (via @electron/rebuild) to be installed."
   );
 }
 
