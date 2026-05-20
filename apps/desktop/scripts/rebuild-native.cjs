@@ -142,7 +142,35 @@ function resolveNodeGypBin() {
   );
 }
 
+function resolvePython() {
+  // Force node-gyp onto the Python pinned by actions/setup-python in CI.
+  //
+  // GitHub-hosted runner images include MULTIPLE Python versions in
+  // hostedtoolcache. PATH ordering can put a too-new one (e.g. 3.14) ahead
+  // of the one setup-python selected (3.11). @electron/node-gyp v10.x ships
+  // the 2014-era gyp_main.py which silently fails ("Completion callback
+  // never invoked") on Python 3.14 because of removed deprecated APIs.
+  // Pinning via `--python` and `PYTHON` env makes the discovery deterministic.
+  //
+  // actions/setup-python@v5 exports `pythonLocation` env var on Windows
+  // pointing at the install root. The interpreter is `<root>\python.exe`.
+  // On POSIX it would be `<root>/bin/python`, but this codepath only matters
+  // on Windows runners — desktop release validates Mac/Linux too but those
+  // already pick the right Python from PATH.
+  const root = process.env.pythonLocation;
+  if (!root) return null;
+  const exe = process.platform === "win32" ? "python.exe" : path.join("bin", "python");
+  const full = path.join(root, exe);
+  try {
+    if (fs.statSync(full).isFile()) return full;
+  } catch (_) {
+    /* fall through */
+  }
+  return null;
+}
+
 function runNodeGyp({ nodeGypBin, cwd, electronVersion, arch }) {
+  const pythonPath = resolvePython();
   const args = [
     nodeGypBin,
     "rebuild",
@@ -152,6 +180,9 @@ function runNodeGyp({ nodeGypBin, cwd, electronVersion, arch }) {
     `--arch=${arch}`,
     "--build-from-source",
   ];
+  if (pythonPath) {
+    args.push(`--python=${pythonPath}`);
+  }
 
   console.log(`[rebuild-native]   $ node ${args.join(" ")}`);
   const result = childProcess.spawnSync(process.execPath, args, {
@@ -166,6 +197,10 @@ function runNodeGyp({ nodeGypBin, cwd, electronVersion, arch }) {
       npm_config_disturl: "https://electronjs.org/headers",
       npm_config_arch: arch,
       npm_config_build_from_source: "true",
+      // Belt-and-suspenders: node-gyp also reads PYTHON env var when --python
+      // isn't supplied. We set both so nested spawns (e.g. gyp invoking its
+      // own python child) inherit the correct interpreter.
+      ...(pythonPath ? { PYTHON: pythonPath } : {}),
     },
   });
 
