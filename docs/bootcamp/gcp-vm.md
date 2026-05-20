@@ -507,6 +507,66 @@ If one format fails (e.g. QR data > QR capacity), the failure appears
 in `errors[]` with the format + message — the rest still come back,
 HTTP stays `200 OK`.
 
+#### 6d. Try a different built-in schema: `electricity/v1`
+
+`functional-identity/v1` is intentionally minimal. The bundled
+registry has 34 others — `GET /v1/schemas` lists them all. The
+`electricity/v1` schema (a Beckn-flavored utility-customer credential)
+is a good worked example because it hits two friction points first-time
+attendees often miss.
+
+```bash
+LOCAL$ curl -s http://localhost:3100/v1/credentials/issue \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"schemaId\": \"electricity/v1\",
+    \"issuerDid\": \"$ISSUER_DID\",
+    \"credentialSubject\": {
+      \"customerProfile\": {
+        \"customerNumber\": \"BESCOM-1234567890\",
+        \"meterNumber\": \"MTR-99887766\",
+        \"meterType\": \"AMI\"
+      },
+      \"customerDetails\": {
+        \"fullName\": \"Jane Doe\",
+        \"installationAddress\": {
+          \"address\": \"42 MG Road, Bengaluru\",
+          \"area_code\": \"560001\",
+          \"country\": { \"name\": \"India\", \"code\": \"IN\" }
+        },
+        \"serviceConnectionDate\": \"2024-04-15T00:00:00Z\"
+      }
+    },
+    \"validFrom\": \"2026-04-27T00:00:00Z\",
+    \"validUntil\": \"2027-04-27T00:00:00Z\",
+    \"proofFormat\": \"vc-jwt\"
+  }" | tee electricity-credential.json | jq .credential
+```
+
+Three things worth calling out:
+
+- **`country` is an object, not a string.** Beckn's `Location.country`
+  is `{ name?, code }` with `code` matching ISO 3166-1 alpha-2 (`^[A-Z]{2}$`).
+  Passing `"country": "IN"` returns `400 SCHEMA_VALIDATION_ERROR` with
+  `must be object`.
+- **`serviceConnectionDate` is `date-time`, not `date`.** Pass a full
+  ISO 8601 timestamp (`2024-04-15T00:00:00Z`). A bare date
+  (`2024-04-15`) returns `must match format "date-time"`.
+- **`meterType` is an enum.** Valid values: `AMR`, `AMI`,
+  `Electromechanical`, `Forward`, `Reverse`, `Bidirectional`,
+  `Prepaid`, `NetMeter`, `Other`. Anything else is rejected.
+
+`proofFormat: vc-jwt` here is deliberate — `data-integrity` against
+`electricity/v1` currently returns `CRYPTO_ERROR: Invalid JSON-LD
+syntax; tried to redefine a protected term`, tracked as
+[#596](https://github.com/nfh-trust-labs/opencred/issues/596). `vc-jwt`
+is the server's default and works for every bundled schema.
+
+`customerProfile` is the only required block under `credentialSubject`
+— `customerDetails`, `consumptionProfile`, `generationProfile`, and
+`storageProfile` are all optional.
+
 ### 7. Stretch goals
 
 #### 7a. GCP Cloud KMS — the real reason to be on GCP
