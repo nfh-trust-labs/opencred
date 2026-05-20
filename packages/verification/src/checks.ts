@@ -387,16 +387,16 @@ export async function checkBitstringStatusList(
 export { validateStatusListUrl as _validateStatusListUrl, MAX_COMPRESSED_SIZE };
 
 // ---------------------------------------------------------------------------
-// Issuer attribution + key supersession checks (did:key adoption)
+// Key rotation check (did:key adoption)
 // ---------------------------------------------------------------------------
 //
-// These two checks are advisory — they appear in `checks[]` so verifier UIs
-// can distinguish "cryptographically valid" from "attributed to a trusted
-// issuer", but they do NOT flip the headline `verified` boolean. That
-// invariant is intentional: a did:web credential that resolved successfully
-// is implicitly attributed by its domain, and a did:key credential that
-// hasn't been registered to DeDi still has a valid signature. The verifier
-// caller decides what trust level to require.
+// This check is advisory — it appears in `checks[]` so verifier UIs can
+// distinguish "cryptographically valid" from "still in active use", but it
+// does NOT flip the headline `verified` boolean. The signature on a
+// credential signed under a now-rotated key is still mathematically valid;
+// the flag just lets verifier policy decide whether to require a current
+// key. There is no separate issuer-attribution check: the bare DID is the
+// attribution, and the verifier UI surfaces it directly to the user.
 
 /** Extract a string issuer DID from a credential's `issuer` field. */
 function extractIssuerDid(credential: unknown): string | undefined {
@@ -411,169 +411,63 @@ function extractIssuerDid(credential: unknown): string | undefined {
 }
 
 /**
- * Verify that the credential's issuer is attributed to a known organisation.
+ * Check whether the credential's issuer key has been rotated.
  *
- * Semantics by DID method:
+ * Only meaningful for did:key issuers with DeDi configured — did:web
+ * handles rotation natively (the domain serves a new document), and
+ * non-DID issuers have no rotation concept. For those cases this check
+ * is a no-op pass so it never blocks a credential the concept doesn't
+ * apply to.
  *
- * - **did:web** — the domain itself is the attribution. We trust that the
- *   verifier's existing DID resolution succeeded (or it would have failed
- *   the signature check upstream). The attribution `source` is `"did:web"`
- *   and the detail carries the domain string.
+ * When DeDi reports `keyStatus: "rotated"`, this check fails so the
+ * verifier UI can surface a "key rotated" badge. The headline `verified`
+ * boolean stays driven by the signature check — the credential is still
+ * cryptographically valid against the rotated key — but verifier policy
+ * can treat rotation as a reason to reject.
  *
- * - **did:key + DeDi configured** — query the DeDi registry by DID. A hit
- *   reports `source: "dedi"` with the org name; a miss reports
- *   `passed: false` with `source: "none"` (non-blocking — the credential is
- *   still cryptographically valid, just unattributed).
- *
- * - **did:key + DeDi not configured** — passes with `passed: false` and
- *   `source: "none"` so the UI can show "unattributed". The verifier could
- *   layer a local trust list on top in a future iteration.
- *
- * - **Other DID methods or non-DID issuers** — passes with `passed: false`
- *   so unknown shapes don't get a spurious green checkmark.
- *
- * Failure modes (DeDi unreachable / record malformed) degrade to
- * `passed: false` with a descriptive detail rather than throwing — same
- * pattern as `checkRevocation`.
+ * Degrades to pass on DeDi unreachability so a DeDi outage doesn't block
+ * verification.
  */
-export async function checkIssuerAttribution(
-  credential: unknown,
-  dediClient?: DeDiClient,
-): Promise<VerificationCheck> {
-  const did = extractIssuerDid(credential);
-  if (!did) {
-    return {
-      name: "issuerAttribution",
-      passed: false,
-      detail: "Credential has no resolvable issuer DID",
-    };
-  }
-
-  if (did.startsWith("did:web:")) {
-    // The domain in the DID is the attribution. No DeDi call required;
-    // resolution success upstream (signature check passed) means the domain
-    // serves the published key.
-    return {
-      name: "issuerAttribution",
-      passed: true,
-      detail: `Attributed via did:web — ${did}`,
-    };
-  }
-
-  if (did.startsWith("did:key:")) {
-    if (!dediClient) {
-      return {
-        name: "issuerAttribution",
-        passed: false,
-        detail: "Unattributed did:key issuer (no DeDi registry configured)",
-      };
-    }
-    try {
-      const record = await dediClient.resolveDID(did);
-      const orgName = record.metadata?.orgName;
-      const verifiedDomain = record.metadata?.verifiedDomain;
-      return {
-        name: "issuerAttribution",
-        passed: true,
-        detail: verifiedDomain
-          ? `Attributed via DeDi to ${orgName ?? did} (verified domain: ${verifiedDomain})`
-          : orgName
-            ? `Attributed via DeDi to ${orgName}`
-            : `Registered in DeDi (no org metadata)`,
-      };
-    } catch (err) {
-      // Distinguish "no record found" (expected for unregistered did:key)
-      // from "DeDi unreachable" (operator-visible failure). Both surface as
-      // passed:false, but with different details so the UI can render
-      // "unattributed" vs "lookup failed" appropriately.
-      //
-      // The DeDi client throws DeDiClientError with a numeric statusCode for
-      // HTTP failures (see packages/dedi-client/src/adapter/client.ts), so we
-      // branch on the structured field rather than substring-sniffing the
-      // message — error messages like "DeDi API error: 404" don't contain
-      // the literal "not found".
-      const is404 = err instanceof DeDiClientError && err.statusCode === 404;
-      const message =
-        err instanceof Error && err.message ? err.message : "DeDi attribution lookup failed";
-      return {
-        name: "issuerAttribution",
-        passed: false,
-        detail: is404
-          ? "Unattributed did:key issuer (no DeDi record)"
-          : `Unable to check attribution: ${message}`,
-      };
-    }
-  }
-
-  return {
-    name: "issuerAttribution",
-    passed: false,
-    detail: `Cannot attribute issuer with unsupported DID method: ${did.split(":")[1] ?? "?"}`,
-  };
-}
-
-/**
- * Check whether the credential's issuer key has been superseded by a
- * successor (e.g. the issuer rotated to a new did:key after compromise).
- *
- * Only meaningful for did:key issuers with DeDi configured — did:web does
- * its own rotation natively, and non-DID issuers have no successor concept.
- * For those cases this check is a no-op pass (so it never blocks a credential
- * that the supersession concept doesn't apply to).
- *
- * When DeDi reports a `supersededBy` record, this check fails with the
- * successor DID in the detail, letting the verifier UI surface a red
- * "issuer key superseded" badge. The headline `verified` boolean stays
- * driven by the signature check — the credential is still cryptographically
- * valid against the old key — but verifier policy can treat supersession
- * as a reason to reject.
- *
- * Times out fast and degrades to a pass on DeDi unreachability so a DeDi
- * outage doesn't block verification.
- */
-export async function checkKeySupersession(
+export async function checkKeyRotation(
   credential: unknown,
   dediClient?: DeDiClient,
 ): Promise<VerificationCheck> {
   const did = extractIssuerDid(credential);
   if (!did || !did.startsWith("did:key:") || !dediClient) {
-    return { name: "keySupersession", passed: true };
+    return { name: "keyRotation", passed: true };
   }
   try {
     const record = await dediClient.resolveDID(did);
-    if (record.supersededBy) {
-      const successor = record.supersededBy;
+    if (record.keyStatus === "rotated") {
       return {
-        name: "keySupersession",
+        name: "keyRotation",
         passed: false,
-        detail: `Issuer key superseded by ${successor.did} at ${successor.at}${
-          successor.reason ? ` — ${successor.reason}` : ""
-        }`,
+        detail:
+          "Issuer key has been rotated. Credential is still cryptographically valid but the issuer is now using a new key.",
       };
     }
-    return { name: "keySupersession", passed: true };
+    return { name: "keyRotation", passed: true };
   } catch (err) {
-    // Same defensive degrade as attribution: don't fail verification just
-    // because DeDi is down. The verifier UI can surface "unknown supersession
+    // Same defensive degrade as revocation: don't fail verification just
+    // because DeDi is down. The verifier UI can surface "unknown rotation
     // status" if it cares.
     //
     // Branch on DeDiClientError.statusCode (404 = no record published for
     // this DID) rather than substring-matching the message. The real client
     // throws messages like "DeDi API error: 404" with no "not found"
     // substring, so the old toLowerCase().includes check was silently
-    // mis-routing 404s into the "outage" branch and emitting a misleading
-    // `detail` instead of leaving it undefined per the documented contract.
+    // mis-routing 404s into the "outage" branch.
     const is404 = err instanceof DeDiClientError && err.statusCode === 404;
     if (is404) {
-      // No record means we have no supersession info; treat as "no successor".
-      return { name: "keySupersession", passed: true };
+      // No record means no rotation info; treat as "no rotation".
+      return { name: "keyRotation", passed: true };
     }
     const message =
-      err instanceof Error && err.message ? err.message : "DeDi supersession lookup failed";
+      err instanceof Error && err.message ? err.message : "DeDi rotation lookup failed";
     return {
-      name: "keySupersession",
+      name: "keyRotation",
       passed: true,
-      detail: `Supersession status unknown: ${message}`,
+      detail: `Rotation status unknown: ${message}`,
     };
   }
 }
