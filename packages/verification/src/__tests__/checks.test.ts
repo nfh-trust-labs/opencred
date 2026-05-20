@@ -80,7 +80,7 @@ describe("checkDates", () => {
 describe("checkRevocation", () => {
   it("should pass when credential is not revoked", async () => {
     const mockClient = {
-      queryRevocationHash: vi.fn().mockResolvedValue({ hash: "abc", revoked: false }),
+      queryRevocationHash: vi.fn().mockResolvedValue({ revoked: false }),
     } as unknown as DeDiClient;
 
     const result = await checkRevocation({ id: "test" }, mockClient);
@@ -91,7 +91,6 @@ describe("checkRevocation", () => {
   it("should fail when credential is revoked", async () => {
     const mockClient = {
       queryRevocationHash: vi.fn().mockResolvedValue({
-        hash: "abc",
         revoked: true,
         revokedAt: "2026-06-01T00:00:00Z",
       }),

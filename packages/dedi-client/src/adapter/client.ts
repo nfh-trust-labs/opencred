@@ -19,22 +19,6 @@ import {
   contextToRecordName,
 } from "./registry-names.js";
 
-function assertRevocationHashShape(detail: unknown): asserts detail is RevocationHashRecord {
-  if (detail == null || typeof detail !== "object") {
-    throw new DeDiClientError("Revocation hash detail is missing or not an object", 502);
-  }
-  const rec = detail as Record<string, unknown>;
-  if (typeof rec["hash"] !== "string") {
-    throw new DeDiClientError("Revocation hash detail missing required field: hash", 502);
-  }
-  if (typeof rec["revoked"] !== "boolean") {
-    throw new DeDiClientError("Revocation hash detail missing required field: revoked", 502);
-  }
-  if (rec["revoked"] === true && typeof rec["revokedAt"] !== "string") {
-    throw new DeDiClientError("Revocation hash detail missing required field: revokedAt", 502);
-  }
-}
-
 function assertDIDRecordShape(detail: unknown): asserts detail is DIDRecord {
   if (detail == null || typeof detail !== "object") {
     throw new DeDiClientError("DID record detail is missing or not an object", 502);
@@ -186,37 +170,71 @@ export class DeDiClient {
     return this.api;
   }
 
-  async publishRevocationHash(hash: string, namespace?: string): Promise<RevocationHashRecord> {
+  /**
+   * Publish a revocation entry to the `vc-revocation-registry` (DeDi
+   * canonical `revoke` tag). Payload matches https://dedi.global/revoke.json:
+   * `{ revoked_id, reason? }`. Record existence ⇒ revoked; there is no
+   * boolean flag inside `details`.
+   */
+  async publishRevocationHash(
+    hash: string,
+    namespace?: string,
+    reason?: string,
+  ): Promise<RevocationHashRecord> {
     const ns = this.resolveNamespace(namespace);
-    const revokedAt = new Date().toISOString();
-    const response = await this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, {
-      hash,
-      revoked: true,
-      revokedAt,
-    });
+    const detailsToPublish: { revoked_id: string; reason?: string } = { revoked_id: hash };
+    if (reason !== undefined) detailsToPublish.reason = reason;
+    const response = await this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, detailsToPublish);
     assertDeDiRecordShape(response, "publishRecord");
-    const details = response.data.details;
-    assertRevocationHashShape(details);
-    return details;
+    // Post-publish, the record exists ⇒ revoked. Use the envelope's
+    // `updated_at` as the revocation timestamp (DeDi's canonical answer
+    // to "when did this record reach its current state"). The assert
+    // narrows the envelope to a minimal `{ record_name, details }` shape
+    // for safety, but the real wire type carries `updated_at`; fall back
+    // to "now" if a non-conforming DeDi build omits it.
+    const data = response.data as { record_name: string; details: unknown; updated_at?: string };
+    return {
+      revoked: true,
+      revokedAt: data.updated_at ?? new Date().toISOString(),
+      ...(reason !== undefined ? { reason } : {}),
+    };
   }
 
+  /**
+   * Query the `vc-revocation-registry` for a record keyed by VC hash.
+   * Record existence ⇒ revoked (DeDi canonical `revoke` tag semantics).
+   * Returns `{ revoked: false }` when no record is found.
+   */
   async queryRevocationHash(hash: string, namespace?: string): Promise<RevocationHashRecord> {
     const ns = this.resolveNamespace(namespace);
 
     const response = await this.api.search(ns, {
       registry_name: REVOCATION_REGISTRY,
-      "detail.hash": hash,
+      "details.revoked_id": hash,
     });
     assertSearchResultShape(response);
 
     if (response.data.length === 0) {
-      return { hash, revoked: false as const };
+      return { revoked: false };
     }
 
     assertDeDiRecordPayload(response.data[0], "search record");
-    const details = response.data[0].details;
-    assertRevocationHashShape(details);
-    return details;
+    // Search payload is a bare DeDiRecord; assertDeDiRecordPayload only
+    // narrows the minimum required fields. Cast through the wire shape
+    // so we can read the envelope's `updated_at` revocation timestamp.
+    const record = response.data[0] as {
+      record_name: string;
+      details: unknown;
+      updated_at?: string;
+    };
+    const details = record.details as Record<string, unknown> | null | undefined;
+    const reason =
+      details && typeof details["reason"] === "string" ? (details["reason"] as string) : undefined;
+    return {
+      revoked: true,
+      revokedAt: record.updated_at ?? "",
+      ...(reason !== undefined ? { reason } : {}),
+    };
   }
 
   async publishDID(did: string, document: unknown, namespace?: string): Promise<PublishResult> {
@@ -338,19 +356,11 @@ export class DeDiClient {
     }
 
     await Promise.all([
-      ignoreConflict(() =>
-        this.api.createRegistry(namespace, REVOCATION_REGISTRY, {
-          $schema: "http://json-schema.org/draft-07/schema#",
-          type: "object",
-          description: "OpenCred revocation list",
-          properties: {
-            hash: { type: "string" },
-            revoked: { type: "boolean" },
-            revokedAt: { type: "string" },
-          },
-          required: ["hash", "revoked"],
-        }),
-      ),
+      // REVOCATION_REGISTRY uses DeDi's canonical "revoke" tag (schema
+      // https://dedi.global/revoke.json). DeDi enforces the
+      // `{ revoked_id, reason? }` shape server-side via the tag, so we
+      // pass no custom schema body. Record existence ⇒ revoked.
+      ignoreConflict(() => this.api.createRegistry(namespace, REVOCATION_REGISTRY, {}, "revoke")),
       ignoreConflict(() =>
         this.api.createRegistry(namespace, PUBLIC_KEY_REGISTRY, {
           $schema: "http://json-schema.org/draft-07/schema#",

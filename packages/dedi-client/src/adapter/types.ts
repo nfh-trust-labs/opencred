@@ -4,9 +4,18 @@ export interface DeDiClientConfig extends DeDiApiClientConfig {
   defaultNamespace?: string;
 }
 
+/**
+ * Result of a revocation lookup or publish. DeDi's canonical `revoke` tag
+ * uses record existence to signify revocation — there is no boolean flag
+ * inside `details`. Schema: https://dedi.global/revoke.json
+ *
+ * - `revoked: true`  ⇒ a record exists; `revokedAt` is the envelope's
+ *   `updated_at`, `reason` is the optional reason supplied at publish time
+ * - `revoked: false` ⇒ no record exists
+ */
 export type RevocationHashRecord =
-  | { hash: string; revoked: false }
-  | { hash: string; revoked: true; revokedAt: string };
+  | { revoked: true; revokedAt: string; reason?: string }
+  | { revoked: false };
 
 export interface DIDRecord {
   did: string;

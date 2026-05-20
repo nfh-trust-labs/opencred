@@ -818,7 +818,6 @@ describe("POST /credentials/revoke", () => {
   it("returns 400 when neither credential nor hash is provided", async () => {
     const mockClient = {
       publishRevocationHash: async () => ({
-        hash: "x",
         revoked: true as const,
         revokedAt: new Date().toISOString(),
       }),
@@ -837,7 +836,6 @@ describe("POST /credentials/revoke", () => {
   it("returns 400 when hash is invalid (wrong length)", async () => {
     const mockClient = {
       publishRevocationHash: async () => ({
-        hash: "x",
         revoked: true as const,
         revokedAt: new Date().toISOString(),
       }),
@@ -856,7 +854,7 @@ describe("POST /credentials/revoke", () => {
   it("revokes by hash when DeDi is configured", async () => {
     const revokedAt = new Date().toISOString();
     const mockClient = {
-      publishRevocationHash: async (hash: string) => ({ hash, revoked: true as const, revokedAt }),
+      publishRevocationHash: async () => ({ revoked: true as const, revokedAt }),
     } as never;
     setDeDiClient(mockClient);
 
@@ -877,7 +875,7 @@ describe("POST /credentials/revoke", () => {
   it("revokes by credential (computes hash) when DeDi is configured", async () => {
     const revokedAt = new Date().toISOString();
     const mockClient = {
-      publishRevocationHash: async (hash: string) => ({ hash, revoked: true as const, revokedAt }),
+      publishRevocationHash: async () => ({ revoked: true as const, revokedAt }),
     } as never;
     setDeDiClient(mockClient);
 
@@ -921,7 +919,7 @@ describe("POST /credentials/revocation-status", () => {
 
   it("queries revocation status when DeDi is configured", async () => {
     const mockClient = {
-      queryRevocationHash: async (hash: string) => ({ hash, revoked: false as const }),
+      queryRevocationHash: async () => ({ revoked: false as const }),
     } as never;
     setDeDiClient(mockClient);
 

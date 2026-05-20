@@ -76,7 +76,7 @@ describe("DeDiClient (adapter)", () => {
   // ── publishRevocationHash ────────────────────────────────────────
 
   describe("publishRevocationHash", () => {
-    it("publishes a record to the vc-revocation-registry", async () => {
+    it("publishes a record to the vc-revocation-registry using canonical revoke schema", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord).mockResolvedValue({
@@ -85,11 +85,7 @@ describe("DeDiClient (adapter)", () => {
           record_name: "abc",
           registry: REVOCATION_REGISTRY,
           namespace: "example.com",
-          details: {
-            hash: "abc",
-            revoked: true,
-            revokedAt: "2026-01-01T00:00:00Z",
-          },
+          details: { revoked_id: "abc" },
           state: "live",
           version: "1",
           created_at: "2026-01-01T00:00:00Z",
@@ -99,16 +95,16 @@ describe("DeDiClient (adapter)", () => {
 
       const result = await client.publishRevocationHash("abc");
 
-      expect(api.publishRecord).toHaveBeenCalledWith(
-        "example.com",
-        REVOCATION_REGISTRY,
-        "abc",
-        expect.objectContaining({ hash: "abc", revoked: true }),
-      );
-      expect(result).toEqual(expect.objectContaining({ hash: "abc", revoked: true }));
+      // Payload must match https://dedi.global/revoke.json — `revoked_id`
+      // is required, `reason` is omitted when not supplied.
+      expect(api.publishRecord).toHaveBeenCalledWith("example.com", REVOCATION_REGISTRY, "abc", {
+        revoked_id: "abc",
+      });
+      // Record existence ⇒ revoked; revokedAt comes from envelope.updated_at.
+      expect(result).toEqual({ revoked: true, revokedAt: "2026-01-01T00:00:00Z" });
     });
 
-    it("throws when API returns invalid revocation detail", async () => {
+    it("passes through optional reason in the payload and result", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord).mockResolvedValue({
@@ -117,7 +113,7 @@ describe("DeDiClient (adapter)", () => {
           record_name: "abc",
           registry: REVOCATION_REGISTRY,
           namespace: "example.com",
-          details: { invalid: true },
+          details: { revoked_id: "abc", reason: "Key compromised" },
           state: "live",
           version: "1",
           created_at: "2026-01-01T00:00:00Z",
@@ -125,16 +121,24 @@ describe("DeDiClient (adapter)", () => {
         },
       });
 
-      await expect(client.publishRevocationHash("abc")).rejects.toThrow(
-        "Revocation hash detail missing required field: hash",
-      );
+      const result = await client.publishRevocationHash("abc", "example.com", "Key compromised");
+
+      expect(api.publishRecord).toHaveBeenCalledWith("example.com", REVOCATION_REGISTRY, "abc", {
+        revoked_id: "abc",
+        reason: "Key compromised",
+      });
+      expect(result).toEqual({
+        revoked: true,
+        revokedAt: "2026-01-01T00:00:00Z",
+        reason: "Key compromised",
+      });
     });
   });
 
   // ── queryRevocationHash ──────────────────────────────────────────
 
   describe("queryRevocationHash", () => {
-    it("searches for hash in vc-revocation-registry and returns found record", async () => {
+    it("searches for hash by details.revoked_id and reports revoked when present", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.search).mockResolvedValue({
@@ -144,26 +148,52 @@ describe("DeDiClient (adapter)", () => {
             record_name: "abc",
             registry: REVOCATION_REGISTRY,
             namespace: "example.com",
-            details: {
-              hash: "abc",
-              revoked: true,
-              revokedAt: "2026-01-01T00:00:00Z",
-            },
+            details: { revoked_id: "abc" },
             state: "live",
             version: "1",
             created_at: "2026-01-01T00:00:00Z",
-            updated_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-02T00:00:00Z",
           },
         ],
       });
 
       const result = await client.queryRevocationHash("abc");
 
+      // Search query targets the canonical revoke schema's revoked_id field.
       expect(api.search).toHaveBeenCalledWith("example.com", {
         registry_name: REVOCATION_REGISTRY,
-        "detail.hash": "abc",
+        "details.revoked_id": "abc",
       });
-      expect(result).toEqual(expect.objectContaining({ hash: "abc", revoked: true }));
+      // revokedAt sourced from the envelope's updated_at; no reason on this record.
+      expect(result).toEqual({ revoked: true, revokedAt: "2026-01-02T00:00:00Z" });
+    });
+
+    it("surfaces optional reason from the record details", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.search).mockResolvedValue({
+        message: "ok",
+        data: [
+          {
+            record_name: "abc",
+            registry: REVOCATION_REGISTRY,
+            namespace: "example.com",
+            details: { revoked_id: "abc", reason: "Key compromised" },
+            state: "live",
+            version: "1",
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-02T00:00:00Z",
+          },
+        ],
+      });
+
+      const result = await client.queryRevocationHash("abc");
+
+      expect(result).toEqual({
+        revoked: true,
+        revokedAt: "2026-01-02T00:00:00Z",
+        reason: "Key compromised",
+      });
     });
 
     it("returns { revoked: false } when hash not found", async () => {
@@ -173,7 +203,7 @@ describe("DeDiClient (adapter)", () => {
 
       const result = await client.queryRevocationHash("missing");
 
-      expect(result).toEqual({ hash: "missing", revoked: false });
+      expect(result).toEqual({ revoked: false });
     });
 
     it("throws on 404 instead of treating as not-revoked", async () => {
@@ -190,30 +220,6 @@ describe("DeDiClient (adapter)", () => {
       vi.mocked(api.search).mockRejectedValue(new DeDiClientError("DeDi API error: 500", 502));
 
       await expect(client.queryRevocationHash("hash")).rejects.toThrow("DeDi API error: 500");
-    });
-
-    it("throws when revoked record is missing revokedAt", async () => {
-      const client = createClient("example.com");
-      const api = mockApi();
-      vi.mocked(api.search).mockResolvedValue({
-        message: "ok",
-        data: [
-          {
-            record_name: "abc",
-            registry: REVOCATION_REGISTRY,
-            namespace: "example.com",
-            details: { hash: "abc", revoked: true },
-            state: "live",
-            version: "1",
-            created_at: "2026-01-01T00:00:00Z",
-            updated_at: "2026-01-01T00:00:00Z",
-          },
-        ],
-      });
-
-      await expect(client.queryRevocationHash("abc")).rejects.toThrow(
-        "Revocation hash detail missing required field: revokedAt",
-      );
     });
   });
 
@@ -337,12 +343,13 @@ describe("DeDiClient (adapter)", () => {
       expect(api.lookupNamespace).toHaveBeenCalledWith("example.com");
       expect(api.createNamespace).toHaveBeenCalledWith("example.com", expect.any(String));
       expect(api.createRegistry).toHaveBeenCalledTimes(4);
+      // Revocation registry now uses DeDi's canonical "revoke" tag — no
+      // custom schema body, the tag drives server-side validation.
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
         REVOCATION_REGISTRY,
-        expect.objectContaining({
-          properties: expect.objectContaining({ hash: { type: "string" } }),
-        }),
+        {},
+        "revoke",
       );
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",

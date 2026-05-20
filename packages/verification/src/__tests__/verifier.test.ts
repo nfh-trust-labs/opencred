@@ -303,7 +303,6 @@ describe("verifyCredential — Data Integrity", () => {
 
     const mockDediClient = {
       queryRevocationHash: vi.fn().mockResolvedValue({
-        hash: "abc",
         revoked: true,
         revokedAt: "2026-06-01T00:00:00Z",
       }),
