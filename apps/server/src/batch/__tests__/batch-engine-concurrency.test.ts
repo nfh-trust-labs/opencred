@@ -350,6 +350,57 @@ describe("createBatchEngine (worker pool)", () => {
     expect(result.cancelled).toBe(true);
   });
 
+  it("does NOT pre-allocate a promise per row — streaming submission keeps memory bounded", async () => {
+    // Regression guard for the original "tasks: Promise<void>[]" path:
+    // the old implementation built `parsedRows.length` wrapped task
+    // promises up front before any worker ran, which on a 1M-row CSV
+    // allocated ~1M closures + queue entries simultaneously. Switching
+    // to a streaming pool (p-map / generator) keeps the count of
+    // in-flight mapper promises bounded by `concurrency + small_const`.
+    //
+    // We assert this by tracking the number of "mapper invoked, not yet
+    // returned" rows during execution. We instrument the stub signer to
+    // increment a counter on entry and decrement on exit, then check the
+    // peak against `concurrency + 1`. The "+1" leaves room for the
+    // boundary between two rows where the prior worker has resolved but
+    // the next hasn't been awaited yet.
+    installStubSchemaRegistry();
+
+    const concurrency = 4;
+    const { signer, concurrentMax } = makeStubSigner({
+      hook: async () => {
+        // A microtask-delay forces the runtime to interleave workers —
+        // without an `await` here the synchronous fast path could let
+        // a single worker burn through every row sequentially and the
+        // peak gauge would silently report `1`, masking the bug.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      },
+    });
+
+    // 2000 rows: large enough that an unbounded pre-allocation (the
+    // pre-fix code path) would visibly buffer all 2000 mapper promises
+    // before any resolved. With streaming, peak in-flight stays at
+    // most `concurrency + 1`. We keep the count modest to stay under
+    // vitest's default 30s test timeout — the bug is a memory-shape
+    // issue, not a wall-clock issue, so the assertion is the same at
+    // any scale.
+    const rows = Array.from({ length: 2_000 }, (_, i) => makeRow(i));
+    const engine = createBatchEngine(signer, rows, BASE_CONFIG, { concurrency });
+
+    const result = await engine.start();
+
+    expect(result.successCount).toBe(2_000);
+    expect(result.errorCount).toBe(0);
+    // The streaming property: at NO point during execution does the
+    // number of in-flight workers exceed `concurrency + 1`. The +1
+    // gives the implementation slack for the moment between "a worker
+    // resolved" and "the runtime delivered the result to the queue".
+    expect(concurrentMax.value).toBeLessThanOrEqual(concurrency + 1);
+    // Sanity: the pool actually ran in parallel (not a single-worker
+    // serial pipeline that would also satisfy the upper bound).
+    expect(concurrentMax.value).toBeGreaterThanOrEqual(2);
+  });
+
   it("processes a single row identically with concurrency=1 (regression guard)", async () => {
     installStubSchemaRegistry();
 

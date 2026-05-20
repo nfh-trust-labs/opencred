@@ -46,6 +46,7 @@
     "hono": "^4.12.12",
     "hono-rate-limiter": "^0.5.3",
     "p-limit": "^7.3.0",
+    "p-map": "^7.0.4",
     "pdfkit": "^0.15.0",
     "pino": "^9.6.0",
     "prom-client": "^15.1.0",

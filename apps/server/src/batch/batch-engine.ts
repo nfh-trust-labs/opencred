@@ -11,7 +11,7 @@
 
 import { randomUUID, createHash } from "node:crypto";
 import { cpus } from "node:os";
-import pLimit from "p-limit";
+import pMap from "p-map";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import { getValidator } from "../validator-singleton.js";
@@ -256,47 +256,47 @@ export function createBatchEngine(
       progress.running = true;
       progress.cancelled = false;
 
-      // Bounded-concurrency worker pool. p-limit guarantees the mapper is
-      // invoked in input order (even though completion order is racy),
-      // and `progress.rows[i]` is always seated at index `i` from the
-      // pre-allocated array above — output ordering is therefore preserved.
+      // Streaming bounded-concurrency worker pool. `p-map` iterates the
+      // input lazily, so at any moment the runtime holds AT MOST
+      // `concurrency + 1` pending mapper promises — not one per row. For a
+      // 1M-row CSV that is the difference between allocating ~1M wrapped
+      // promises up front (memory-unbounded) and a small fixed slab.
       //
-      // Per-row error semantics: every `processRow` swallows its own
-      // exception and writes status="error" on the row. The outer
-      // `Promise.all` cannot reject — a single bad row never aborts the
-      // batch, mirroring the pre-pool serial-loop behaviour.
-      const limit = pLimit(concurrency);
+      // Ordering: `p-map` preserves input order in its result array (we
+      // don't read it — every row's outcome is written into the
+      // pre-allocated `progress.rows[i]` slot at the index we pass to the
+      // mapper), and `progress.rows[i]` is keyed by `i` directly, so
+      // output ordering is preserved regardless of completion order.
+      //
+      // Per-row error semantics: `processRow` swallows its own exception
+      // and writes status="error" on the row, so the mapper never throws.
+      // We still pass `stopOnError: false` defensively — a future change
+      // that lets a row exception escape will then degrade to "skip the
+      // failing row" rather than "abort the whole batch", matching the
+      // documented contract.
+      await pMap(
+        parsedRows,
+        async (parsedRow, i) => {
+          const rowResult = progress.rows[i];
 
-      // Snapshot cancellation per scheduled row at enqueue time. Rows
-      // already in flight finish naturally; rows still queued behind the
-      // semaphore short-circuit to "skipped" the moment they run.
-      const tasks: Promise<void>[] = [];
-      for (let i = 0; i < parsedRows.length; i++) {
-        const parsedRow = parsedRows[i];
-        const rowResult = progress.rows[i];
+          // Parse-failed and already-skipped rows are accounted for in the
+          // initial progress object — nothing to schedule.
+          if (!parsedRow.valid || rowResult.status === "skipped") return;
 
-        // Parse-failed and already-skipped rows are accounted for in the
-        // initial progress object — nothing to schedule.
-        if (!parsedRow.valid || rowResult.status === "skipped") continue;
-
-        tasks.push(
-          limit(async () => {
-            // Cancellation check inside the worker so already-queued rows
-            // short-circuit cleanly. Matches the serial loop's behaviour:
-            // unstarted work is marked "skipped" with "Batch cancelled".
-            if (progress.cancelled) {
-              rowResult.status = "skipped";
-              rowResult.error = "Batch cancelled";
-              progress.skippedCount++;
-              progress.completed++;
-              return;
-            }
-            await processRow(parsedRow, rowResult);
-          }),
-        );
-      }
-
-      await Promise.all(tasks);
+          // Cancellation check inside the worker so already-queued rows
+          // short-circuit cleanly. Matches the serial loop's behaviour:
+          // unstarted work is marked "skipped" with "Batch cancelled".
+          if (progress.cancelled) {
+            rowResult.status = "skipped";
+            rowResult.error = "Batch cancelled";
+            progress.skippedCount++;
+            progress.completed++;
+            return;
+          }
+          await processRow(parsedRow, rowResult);
+        },
+        { concurrency, stopOnError: false },
+      );
 
       progress.running = false;
       return { ...progress, rows: [...progress.rows] };

@@ -269,6 +269,9 @@ importers:
       p-limit:
         specifier: ^7.3.0
         version: 7.3.0
+      p-map:
+        specifier: ^7.0.4
+        version: 7.0.4
       pdfkit:
         specifier: ^0.15.0
         version: 0.15.2
