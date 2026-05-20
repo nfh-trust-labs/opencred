@@ -13,17 +13,18 @@ import { randomUUID, createHash } from "node:crypto";
 import { cpus } from "node:os";
 import pMap from "p-map";
 import { CredentialBuilder } from "@opencred/vc-core";
-import type { VerifiableCredential } from "@opencred/vc-core";
+import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
 import { getValidator } from "../validator-singleton.js";
 import {
   prepareVcJwtProof,
   completeVcJwtProof,
-  prepareProof,
   completeProof,
-  prepareEdDsaProof,
   completeEdDsaProof,
   prepareSdJwtVcProof,
   completeSdJwtVcProof,
+  precomputeProofConfig,
+  prepareProofWithPrecomputedConfig,
+  type PrecomputedProofConfig,
 } from "@opencred/crypto";
 import type { Signer } from "@opencred/signing";
 import type { ParsedRow } from "./csv-parser.js";
@@ -142,6 +143,67 @@ export function createBatchEngine(
   progress.skippedCount = progress.rows.filter((r) => r.status === "skipped").length;
   progress.completed = progress.skippedCount;
 
+  // Build an UnsignedCredential for the given row using the shared batch config.
+  // Pure function over (row, config) — extracted so the proof-config
+  // precomputation step (#571 — scale Tier 1 #4) can reuse it both for the
+  // template (first row's @context) and per-row signing without duplication.
+  function buildUnsignedForRow(parsedRow: ParsedRow): UnsignedCredential {
+    const builder = new CredentialBuilder()
+      .setIssuer(config.issuerDid)
+      .setValidFrom(config.validFrom);
+
+    builder.setCredentialSubject(parsedRow.mappedSubject as Record<string, unknown>);
+
+    if (config.additionalTypes) {
+      for (const type of config.additionalTypes) builder.addType(type);
+    }
+    if (config.validUntil) builder.setValidUntil(config.validUntil);
+    if (config.revocationRegistryUrl) {
+      const credentialUuid = randomUUID();
+      builder.setId(`urn:uuid:${credentialUuid}`);
+      const revocationHash = createHash("sha256").update(credentialUuid).digest("hex");
+      const statusListCredential = config.revocationRegistryUrl;
+      const lookupUrl = statusListCredential.replace("/dedi/query/", "/dedi/lookup/");
+      builder.setCredentialStatus({
+        id: `${lookupUrl}/${revocationHash}`,
+        type: "dedi",
+        statusPurpose: "revocation",
+        statusListCredential,
+      });
+    }
+    if (config.credentialSchemaUrl) {
+      builder.setSchema({ id: config.credentialSchemaUrl, type: "JsonSchema" });
+    }
+    return builder.build();
+  }
+
+  // Pre-computed proof-config bundle for data-integrity batches.
+  //
+  // The W3C ecdsa-rdfc-2019 / eddsa-rdfc-2022 signing input is
+  //   hash(canonicalize(proofConfig)) || hash(canonicalize(document))
+  // The first term is invariant across rows that share the same
+  // `@context`, `verificationMethod`, `proofPurpose`, and `created`
+  // timestamp. Every row in this batch shares those four fields, so we
+  // canonicalize-and-hash the proof config exactly once, lazily on the
+  // first row that needs it. Subsequent rows reuse the same hash bytes
+  // (and the same `created` timestamp) which is the operational meaning
+  // of "this batch was issued at time T" — see comments on
+  // `precomputeProofConfig` in `@opencred/crypto`.
+  //
+  // Concurrency safety: with `OPENCRED_BATCH_CONCURRENCY > 1` multiple
+  // rows enter `processRow` simultaneously, so a naive `if (cache ===
+  // null)` guard would let several workers race past and each generate
+  // its own bundle with its own `created` timestamp. We gate on the
+  // promise reference itself: the first row that finds it `null`
+  // installs the precompute promise, every other row awaits that same
+  // promise. Result: exactly one bundle per batch, one timestamp, one
+  // canonicalized proof-config hash — even on a 16-worker pool.
+  //
+  // For non-data-integrity proof formats this stays null; VC-JWT and
+  // SD-JWT-VC don't perform JSON-LD canonicalization at all and would
+  // gain nothing from the hoist.
+  let precomputedProofConfigPromise: Promise<PrecomputedProofConfig> | null = null;
+
   async function processRow(parsedRow: ParsedRow, rowResult: BatchRowResult): Promise<void> {
     rowResult.status = "processing";
 
@@ -152,35 +214,7 @@ export function createBatchEngine(
         parsedRow.mappedSubject as Record<string, unknown>,
       );
 
-      // Build
-      const builder = new CredentialBuilder()
-        .setIssuer(config.issuerDid)
-        .setValidFrom(config.validFrom);
-
-      builder.setCredentialSubject(parsedRow.mappedSubject as Record<string, unknown>);
-
-      if (config.additionalTypes) {
-        for (const type of config.additionalTypes) builder.addType(type);
-      }
-      if (config.validUntil) builder.setValidUntil(config.validUntil);
-      if (config.revocationRegistryUrl) {
-        const credentialUuid = randomUUID();
-        builder.setId(`urn:uuid:${credentialUuid}`);
-        const revocationHash = createHash("sha256").update(credentialUuid).digest("hex");
-        const statusListCredential = config.revocationRegistryUrl;
-        const lookupUrl = statusListCredential.replace("/dedi/query/", "/dedi/lookup/");
-        builder.setCredentialStatus({
-          id: `${lookupUrl}/${revocationHash}`,
-          type: "dedi",
-          statusPurpose: "revocation",
-          statusListCredential,
-        });
-      }
-      if (config.credentialSchemaUrl) {
-        builder.setSchema({ id: config.credentialSchemaUrl, type: "JsonSchema" });
-      }
-
-      const unsigned = builder.build();
+      const unsigned = buildUnsignedForRow(parsedRow);
       const proofFormat = config.proofFormat ?? "vc-jwt";
       const vct = config.additionalTypes?.[0] ?? config.schemaId;
 
@@ -203,17 +237,31 @@ export function createBatchEngine(
         }
         case "data-integrity": {
           const proofOptions = { verificationMethod: signer.id, proofPurpose: "assertionMethod" };
-          if (signer.algorithm === "Ed25519") {
-            const { dataToSign, proofConfig } = await prepareEdDsaProof(unsigned, proofOptions);
-            const signatureBytes = await signer.sign(dataToSign);
-            rowResult.credential = completeEdDsaProof(unsigned, proofConfig, signatureBytes);
-          } else {
-            const { dataToSign, proofConfig } = await prepareProof(
+          // Single-flight precompute. The first row to find the promise
+          // slot `null` installs the precompute promise; every other row
+          // (in concurrent execution) awaits the SAME promise. This is the
+          // critical guard for `OPENCRED_BATCH_CONCURRENCY > 1`: without
+          // it, the first `concurrency` rows each enter the if-branch and
+          // generate independent bundles with independent `created`
+          // timestamps, breaking the "one batch, one timestamp" invariant
+          // and producing N times as much canonicalization work as we set
+          // out to avoid.
+          if (precomputedProofConfigPromise === null) {
+            precomputedProofConfigPromise = precomputeProofConfig(
               unsigned,
               proofOptions,
-              signer.algorithm as "P-256" | "P-384",
+              signer.algorithm,
             );
-            const signatureBytes = await signer.sign(dataToSign);
+          }
+          const precomputed = await precomputedProofConfigPromise;
+          const { dataToSign, proofConfig } = await prepareProofWithPrecomputedConfig(
+            unsigned,
+            precomputed,
+          );
+          const signatureBytes = await signer.sign(dataToSign);
+          if (signer.algorithm === "Ed25519") {
+            rowResult.credential = completeEdDsaProof(unsigned, proofConfig, signatureBytes);
+          } else {
             rowResult.credential = completeProof(unsigned, proofConfig, signatureBytes);
           }
           rowResult.isCompactToken = false;

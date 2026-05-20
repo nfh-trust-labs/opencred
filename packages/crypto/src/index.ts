@@ -25,7 +25,10 @@ export {
   rawToDer,
   canonicalize,
   computeSigningInput,
+  precomputeProofConfig,
+  prepareProofWithPrecomputedConfig,
 } from "./data-integrity.js";
+export type { PrecomputedProofConfig } from "./data-integrity.js";
 
 export {
   prepareEdDsaProof,
