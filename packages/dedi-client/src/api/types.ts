@@ -9,15 +9,18 @@ export type DeDiRegistryState = "active" | "archived" | "revoked";
 
 export type DeDiNamespaceState = "active" | "archived" | "revoked";
 
-// Tag values are case-sensitive schema names from dedi.global/schemas registry.
-// "custom" indicates a registry with no fixed schema (e.g., JSON-LD contexts).
-// The real DeDi API expects lowercase tag values on the wire — verified
-// against the `develop` Postman collection on 2026-05-19.
+// Tag values are case-sensitive record names from the dedi.global/schemas
+// registry. Verified directly against api.dedi.global on 2026-05-21:
+// "Revoke" / "Membership" / "Public_key" / "Public-Data-Set" / etc. are the
+// exact strings the server accepts. Lowercase ("revoke", "membership") and
+// the previously-assumed "custom" tag are rejected with
+// `400 Invalid input: tag is not valid` — DeDi has no no-schema tag, so
+// registries that store free-form payloads must pass an inline JSON schema.
 export type DeDiRegistryTag =
-  | "custom"
-  | "membership"
-  | "public_key"
-  | "revoke"
+  | "Membership"
+  | "Public-Data-Set"
+  | "Public_key"
+  | "Revoke"
   | "beckn_subscriber"
   | "beckn_subscriber_reference";
 
