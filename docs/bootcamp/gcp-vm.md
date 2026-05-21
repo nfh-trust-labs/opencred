@@ -351,8 +351,10 @@ The flow is identical to the local bootcamp once the tunnel is up.
 > curl examples below are the same calls in shell form.
 
 ```
+# The /v1/keys response gives the verification-method id (DID#fragment);
+# strip the fragment to get the bare DID expected by the issue endpoint.
 LOCAL$ ISSUER_DID="$(curl -s http://localhost:3100/v1/keys \
-        -H "Authorization: Bearer $OPENCRED_API_KEY" | jq -r '.keys[0].id')"
+        -H "Authorization: Bearer $OPENCRED_API_KEY" | jq -r '.keys[0].id | split("#")[0]')"
 LOCAL$ echo "$ISSUER_DID"
 
 LOCAL$ curl -s http://localhost:3100/v1/credentials/issue \
@@ -371,7 +373,10 @@ LOCAL$ curl -s http://localhost:3100/v1/credentials/issue \
     \"proofFormat\": \"vc-jwt\"
   }" | tee credential.json | jq .credential
 
-LOCAL$ jq '{credential: (.credential | tostring)}' credential.json | \
+# vc-jwt verification: send the compact JWS string (the .proof.jwt value)
+# as the `credential` field. For data-integrity / sd-jwt-vc, see the
+# proof-format notes below for the matching input shapes.
+LOCAL$ jq -n --arg c "$(jq -r '.credential.proof.jwt' credential.json)" '{credential: $c}' | \
   curl -s http://localhost:3100/v1/credentials/verify \
     -H "Authorization: Bearer $OPENCRED_API_KEY" \
     -H "Content-Type: application/json" \
@@ -922,7 +927,7 @@ docker run -d --name opencred -p 3100:3100 \
 export OPENCRED_API_KEY="paste-the-same-token"
 curl -s http://localhost:3100/v1/health | jq
 ISSUER_DID="$(curl -s http://localhost:3100/v1/keys \
-  -H "Authorization: Bearer $OPENCRED_API_KEY" | jq -r '.keys[0].id')"
+  -H "Authorization: Bearer $OPENCRED_API_KEY" | jq -r '.keys[0].id | split("#")[0]')"
 # Issue/verify exactly as in the local bootcamp
 
 # Teardown — don't forget
