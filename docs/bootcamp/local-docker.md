@@ -262,12 +262,14 @@ curl -s http://localhost:3100/v1/keys \
 ```
 
 You should see one entry with a `did:key:...` id, an `algorithm` of `P-256`,
-`type: "software"`, and `source: "software-file"`. Note the `id` — that DID is
-your **issuer DID** for the next step. Save it:
+`type: "software"`, and `source: "software-file"`. The `id` field is the
+**verification-method ID** — DID plus a `#fragment` identifying the
+specific key — so strip the fragment to get the bare DID for the next
+step:
 
 ```bash
 export ISSUER_DID="$(curl -s http://localhost:3100/v1/keys \
-  -H "Authorization: Bearer $OPENCRED_API_KEY" | jq -r '.keys[0].id')"
+  -H "Authorization: Bearer $OPENCRED_API_KEY" | jq -r '.keys[0].id | split("#")[0]')"
 echo "$ISSUER_DID"
 ```
 
@@ -311,8 +313,10 @@ Now you have a signed VC on disk. The `proof` block carries a compact JWS in `pr
 **Verify** the credential you just issued:
 
 ```bash
-# The verify endpoint takes the credential as a JSON-stringified body field.
-jq '{credential: (.credential | tostring)}' credential.json | \
+# vc-jwt verification: send the compact JWS string (the .proof.jwt value)
+# as the `credential` field. For data-integrity / sd-jwt-vc, see §6b for
+# the matching input shapes.
+jq -n --arg c "$(jq -r '.credential.proof.jwt' credential.json)" '{credential: $c}' | \
   curl -s http://localhost:3100/v1/credentials/verify \
     -H "Authorization: Bearer $OPENCRED_API_KEY" \
     -H "Content-Type: application/json" \
@@ -331,9 +335,9 @@ You want `"valid": true` and a `checks` array where every entry has
 **Tamper test** (do this — it is the demo punchline):
 
 ```bash
-# Change one character of the subject name and re-verify.
-jq '.credential.credentialSubject.name = "Jane Tampered"' credential.json | \
-  jq '{credential: (.credential | tostring)}' | \
+# Flip one character of the JWT signature segment and re-verify.
+JWT=$(jq -r '.credential.proof.jwt' credential.json)
+jq -n --arg c "${JWT%?}X" '{credential: $c}' | \
   curl -s http://localhost:3100/v1/credentials/verify \
     -H "Authorization: Bearer $OPENCRED_API_KEY" \
     -H "Content-Type: application/json" \
@@ -1019,9 +1023,9 @@ docker run -d --name opencred -p 3100:3100 \
 # Health (public)
 curl -s http://localhost:3100/v1/health | jq
 
-# Issuer DID
+# Issuer DID (strip the #fragment off the verification-method id)
 ISSUER_DID="$(curl -s http://localhost:3100/v1/keys \
-  -H "Authorization: Bearer $OPENCRED_API_KEY" | jq -r '.keys[0].id')"
+  -H "Authorization: Bearer $OPENCRED_API_KEY" | jq -r '.keys[0].id | split("#")[0]')"
 
 # Issue
 curl -s http://localhost:3100/v1/credentials/issue \
@@ -1033,8 +1037,8 @@ curl -s http://localhost:3100/v1/credentials/issue \
        "validFrom":"2026-04-26T00:00:00Z","proofFormat":"vc-jwt"}' \
   | tee credential.json | jq
 
-# Verify
-jq '{credential: (.credential | tostring)}' credential.json \
+# Verify (vc-jwt: send the compact JWS string)
+jq -n --arg c "$(jq -r '.credential.proof.jwt' credential.json)" '{credential: $c}' \
   | curl -s http://localhost:3100/v1/credentials/verify \
       -H "Authorization: Bearer $OPENCRED_API_KEY" \
       -H "Content-Type: application/json" -d @- | jq
