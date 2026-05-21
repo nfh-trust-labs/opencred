@@ -550,7 +550,7 @@ describe("DeDiClient (adapter)", () => {
         name: "test",
         namespace: "example.com",
         schema: {},
-        tag: "revoke",
+        tag: "Revoke",
         state: "active",
         record_count: 0,
         created_at: "",
@@ -562,13 +562,15 @@ describe("DeDiClient (adapter)", () => {
       expect(api.lookupNamespace).toHaveBeenCalledWith("example.com");
       expect(api.createNamespace).toHaveBeenCalledWith("example.com", expect.any(String));
       expect(api.createRegistry).toHaveBeenCalledTimes(4);
-      // Revocation registry now uses DeDi's canonical "revoke" tag — no
-      // custom schema body, the tag drives server-side validation.
+      // Revocation registry uses DeDi's canonical "Revoke" tag — the tag
+      // drives server-side validation, so we pass no inline schema. The
+      // string MUST be capital-R "Revoke"; lowercase is rejected with 400
+      // by api.dedi.global (regression guard for #609).
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
         REVOCATION_REGISTRY,
         {},
-        "revoke",
+        "Revoke",
       );
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
@@ -589,11 +591,17 @@ describe("DeDiClient (adapter)", () => {
           properties: expect.objectContaining({ schemaId: { type: "string" } }),
         }),
       );
+      // CONTEXT_REGISTRY uses an inline schema (no tag) because DeDi has
+      // no no-schema "custom" tag — the previously-assumed "custom" was
+      // rejected with 400 by api.dedi.global (regression guard for #609).
       expect(api.createRegistry).toHaveBeenCalledWith(
         "example.com",
         CONTEXT_REGISTRY,
-        expect.any(Object),
-        "custom",
+        expect.objectContaining({
+          properties: expect.objectContaining({ "@context": expect.any(Object) }),
+          required: ["@context"],
+          additionalProperties: true,
+        }),
       );
     });
 
@@ -615,7 +623,7 @@ describe("DeDiClient (adapter)", () => {
         name: "test",
         namespace: "example.com",
         schema: {},
-        tag: "revoke",
+        tag: "Revoke",
         state: "active",
         record_count: 0,
         created_at: "",
@@ -661,7 +669,7 @@ describe("DeDiClient (adapter)", () => {
         name: "test",
         namespace: "example.com",
         schema: {},
-        tag: "revoke",
+        tag: "Revoke",
         state: "active",
         record_count: 0,
         created_at: "",

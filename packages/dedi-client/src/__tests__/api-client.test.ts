@@ -221,7 +221,7 @@ describe("DeDiApiClient", () => {
         name: "revocation_list",
         namespace: "example.com",
         schema: {},
-        tag: "custom",
+        tag: "Revoke",
         state: "active",
         record_count: 0,
         created_at: "",

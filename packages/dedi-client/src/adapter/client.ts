@@ -509,11 +509,13 @@ export class DeDiClient {
     }
 
     await Promise.all([
-      // REVOCATION_REGISTRY uses DeDi's canonical "revoke" tag (schema
+      // REVOCATION_REGISTRY uses DeDi's canonical "Revoke" tag (schema
       // https://dedi.global/revoke.json). DeDi enforces the
       // `{ revoked_id, reason? }` shape server-side via the tag, so we
-      // pass no custom schema body. Record existence ⇒ revoked.
-      ignoreConflict(() => this.api.createRegistry(namespace, REVOCATION_REGISTRY, {}, "revoke")),
+      // pass no custom schema body. Record existence ⇒ revoked. The tag
+      // string is case-sensitive: dedi.global/schemas exposes "Revoke"
+      // (capital R) — lowercase is rejected with 400 (see #609).
+      ignoreConflict(() => this.api.createRegistry(namespace, REVOCATION_REGISTRY, {}, "Revoke")),
       ignoreConflict(() =>
         this.api.createRegistry(namespace, PUBLIC_KEY_REGISTRY, {
           $schema: "http://json-schema.org/draft-07/schema#",
@@ -546,9 +548,22 @@ export class DeDiClient {
           required: ["schemaId", "version", "schema"],
         }),
       ),
-      // CONTEXT_REGISTRY uses "custom" tag (no JSON schema) because JSON-LD
-      // context documents are dynamic and don't fit a fixed schema.
-      ignoreConflict(() => this.api.createRegistry(namespace, CONTEXT_REGISTRY, {}, "custom")),
+      // CONTEXT_REGISTRY stores JSON-LD context documents, which are dynamic
+      // and don't fit a fixed schema. DeDi has no no-schema "custom" tag
+      // (verified against api.dedi.global, #609), so we pass a permissive
+      // inline schema: only `@context` is required, anything else passes.
+      ignoreConflict(() =>
+        this.api.createRegistry(namespace, CONTEXT_REGISTRY, {
+          $schema: "http://json-schema.org/draft-07/schema#",
+          type: "object",
+          description: "OpenCred JSON-LD context registry",
+          properties: {
+            "@context": {},
+          },
+          required: ["@context"],
+          additionalProperties: true,
+        }),
+      ),
     ]);
   }
 
