@@ -270,33 +270,44 @@ describe("DeDiApiClient", () => {
   // ── Record endpoints ─────────────────────────────────────────────
 
   describe("record endpoints", () => {
-    it("publishRecord POSTs to /dedi/{ns}/{reg}/save-record-as-draft?publish=true", async () => {
-      const envelope = {
-        message: "Record published",
-        data: {
-          record_name: "abc",
-          registry: "r",
-          namespace: "ns",
-          details: {},
-          state: "live",
-          version: "1",
-          created_at: "",
-          updated_at: "",
-        },
+    it("publishRecord chains save-record-as-draft then publish-records (#610)", async () => {
+      // Regression guard: `?publish=true` returns 201 but leaves the record
+      // as a draft on api.dedi.global — the canonical publish flow is the
+      // two-call sequence. Verify both calls fire in order with the right
+      // shapes, and the synthesized envelope carries the OpenCred payload.
+      const saveResponse = {
+        message: "record saved as draft",
+        data: { record_name: "abc" },
       };
-      mockFetch.mockResolvedValue(jsonResponse(envelope));
+      const publishResponse = {
+        message: "Records are in publish queue",
+        data: { count: 1, record_ids: ["76EU7…"] },
+      };
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse(saveResponse))
+        .mockResolvedValueOnce(jsonResponse(publishResponse));
 
       const client = new DeDiApiClient(createConfig());
       const result = await client.publishRecord("ns", "r", "abc", { hash: "abc" });
 
-      const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/ns/r/save-record-as-draft?publish=true");
-      expect(init?.method).toBe("POST");
-      const body = JSON.parse(init?.body as string);
-      expect(body.record_name).toBe("abc");
-      expect(body.details).toEqual({ hash: "abc" });
-      // The api-client returns the envelope verbatim; adapter unwraps.
-      expect(result).toEqual(envelope);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const [saveUrl, saveInit] = mockFetch.mock.calls[0]!;
+      expect(saveUrl).toBe("https://dedi.example.com/dedi/ns/r/save-record-as-draft");
+      expect(saveInit?.method).toBe("POST");
+      const saveBody = JSON.parse(saveInit?.body as string);
+      expect(saveBody.record_name).toBe("abc");
+      expect(saveBody.details).toEqual({ hash: "abc" });
+
+      const [publishUrl, publishInit] = mockFetch.mock.calls[1]!;
+      expect(publishUrl).toBe("https://dedi.example.com/dedi/ns/r/publish-records");
+      expect(publishInit?.method).toBe("POST");
+      const publishBody = JSON.parse(publishInit?.body as string);
+      expect(publishBody).toEqual({ records: ["abc"] });
+
+      // Synthesized envelope keeps the contract callers depend on
+      // (`data.record_name`, `data.details`).
+      expect(result.data.record_name).toBe("abc");
+      expect(result.data.details).toEqual({ hash: "abc" });
     });
 
     it("lookupRecord GETs /dedi/lookup/{ns}/{reg}/{record}", async () => {

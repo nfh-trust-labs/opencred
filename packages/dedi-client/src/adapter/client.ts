@@ -207,24 +207,6 @@ function extractProof(envelopeData: unknown): DeDiProof | undefined {
   return result;
 }
 
-/**
- * Validate that a search response matches the real DeDi envelope shape
- * — `{ message, data: DeDiRecord<T>[] }`. The payload lives under
- * `data` as an array of records; pagination is communicated out-of-band
- * by the server.
- */
-function assertSearchResultShape(
-  value: unknown,
-): asserts value is { message: string; data: unknown[] } {
-  if (value == null || typeof value !== "object") {
-    throw new DeDiClientError("DeDi API search response is missing or not an object", 502);
-  }
-  const env = value as Record<string, unknown>;
-  if (!Array.isArray(env["data"])) {
-    throw new DeDiClientError("DeDi API search response field 'data' must be an array", 502);
-  }
-}
-
 export class DeDiClient {
   private readonly api: DeDiApiClient;
   private readonly defaultNamespace?: string;
@@ -272,37 +254,38 @@ export class DeDiClient {
 
   /**
    * Query the `vc-revocation-registry` for a record keyed by VC hash.
-   * Record existence ⇒ revoked (DeDi canonical `revoke` tag semantics).
+   * Record existence ⇒ revoked (DeDi canonical "Revoke" tag semantics).
    * Returns `{ revoked: false }` when no record is found.
+   *
+   * Uses direct `lookupRecord` because `publishRevocationHash` writes the
+   * hash as the record_name (so the hash is the primary key, not just a
+   * details field). The earlier `/dedi/search` path returned empty `data`
+   * for `details.revoked_id` filters on api.dedi.global — a separate
+   * issue, but moot since the direct lookup is both correct and faster.
    */
   async queryRevocationHash(hash: string, namespace?: string): Promise<RevocationHashRecord> {
     const ns = this.resolveNamespace(namespace);
 
-    const response = await this.api.search(ns, {
-      registry_name: REVOCATION_REGISTRY,
-      "details.revoked_id": hash,
-    });
-    assertSearchResultShape(response);
-
-    if (response.data.length === 0) {
-      return { revoked: false };
+    let response;
+    try {
+      response = await this.api.lookupRecord(ns, REVOCATION_REGISTRY, hash);
+    } catch (err) {
+      if (err instanceof DeDiClientError && err.statusCode === 404) {
+        return { revoked: false };
+      }
+      throw err;
     }
+    assertDeDiRecordShape(response, "lookupRecord");
 
-    assertDeDiRecordPayload(response.data[0], "search record");
-    // Search payload is a bare DeDiRecord; assertDeDiRecordPayload only
-    // narrows the minimum required fields. Cast through the wire shape
-    // so we can read the envelope's `updated_at` revocation timestamp.
-    const record = response.data[0] as {
-      record_name: string;
-      details: unknown;
-      updated_at?: string;
-    };
-    const details = record.details as Record<string, unknown> | null | undefined;
+    // The full record envelope carries `updated_at`; fall back to "" when
+    // a non-conforming DeDi build omits it.
+    const data = response.data as { record_name: string; details: unknown; updated_at?: string };
+    const details = data.details as Record<string, unknown> | null | undefined;
     const reason =
       details && typeof details["reason"] === "string" ? (details["reason"] as string) : undefined;
     return {
       revoked: true,
-      revokedAt: record.updated_at ?? "",
+      revokedAt: data.updated_at ?? "",
       ...(reason !== undefined ? { reason } : {}),
     };
   }

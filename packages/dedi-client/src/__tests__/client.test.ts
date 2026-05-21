@@ -52,21 +52,25 @@ describe("DeDiClient (adapter)", () => {
     it("uses defaultNamespace when no explicit namespace provided", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockResolvedValue({ message: "ok", data: [] });
+      vi.mocked(api.lookupRecord).mockRejectedValue(
+        new DeDiClientError("Record not found", 404),
+      );
 
       await client.queryRevocationHash("abc");
 
-      expect(api.search).toHaveBeenCalledWith("example.com", expect.any(Object));
+      expect(api.lookupRecord).toHaveBeenCalledWith("example.com", REVOCATION_REGISTRY, "abc");
     });
 
     it("uses explicit namespace over defaultNamespace", async () => {
       const client = createClient("default.com");
       const api = mockApi();
-      vi.mocked(api.search).mockResolvedValue({ message: "ok", data: [] });
+      vi.mocked(api.lookupRecord).mockRejectedValue(
+        new DeDiClientError("Record not found", 404),
+      );
 
       await client.queryRevocationHash("abc", "explicit.com");
 
-      expect(api.search).toHaveBeenCalledWith("explicit.com", expect.any(Object));
+      expect(api.lookupRecord).toHaveBeenCalledWith("explicit.com", REVOCATION_REGISTRY, "abc");
     });
 
     it("throws when no namespace available", async () => {
@@ -140,53 +144,48 @@ describe("DeDiClient (adapter)", () => {
   // ── queryRevocationHash ──────────────────────────────────────────
 
   describe("queryRevocationHash", () => {
-    it("searches for hash by details.revoked_id and reports revoked when present", async () => {
+    it("looks up by record_name and reports revoked when present", async () => {
+      // The hash IS the record_name (set by publishRevocationHash), so a
+      // direct lookupRecord is correct and faster than search — and works
+      // around the `details.revoked_id` filter being empty-on-arrival on
+      // api.dedi.global. Regression guard for #610.
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockResolvedValue({
+      vi.mocked(api.lookupRecord).mockResolvedValue({
         message: "ok",
-        data: [
-          {
-            record_name: "abc",
-            registry: REVOCATION_REGISTRY,
-            namespace: "example.com",
-            details: { revoked_id: "abc" },
-            state: "live",
-            version: "1",
-            created_at: "2026-01-01T00:00:00Z",
-            updated_at: "2026-01-02T00:00:00Z",
-          },
-        ],
+        data: {
+          record_name: "abc",
+          registry: REVOCATION_REGISTRY,
+          namespace: "example.com",
+          details: { revoked_id: "abc" },
+          state: "live",
+          version: "1",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-02T00:00:00Z",
+        },
       });
 
       const result = await client.queryRevocationHash("abc");
 
-      // Search query targets the canonical revoke schema's revoked_id field.
-      expect(api.search).toHaveBeenCalledWith("example.com", {
-        registry_name: REVOCATION_REGISTRY,
-        "details.revoked_id": "abc",
-      });
-      // revokedAt sourced from the envelope's updated_at; no reason on this record.
+      expect(api.lookupRecord).toHaveBeenCalledWith("example.com", REVOCATION_REGISTRY, "abc");
       expect(result).toEqual({ revoked: true, revokedAt: "2026-01-02T00:00:00Z" });
     });
 
     it("surfaces optional reason from the record details", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockResolvedValue({
+      vi.mocked(api.lookupRecord).mockResolvedValue({
         message: "ok",
-        data: [
-          {
-            record_name: "abc",
-            registry: REVOCATION_REGISTRY,
-            namespace: "example.com",
-            details: { revoked_id: "abc", reason: "Key compromised" },
-            state: "live",
-            version: "1",
-            created_at: "2026-01-01T00:00:00Z",
-            updated_at: "2026-01-02T00:00:00Z",
-          },
-        ],
+        data: {
+          record_name: "abc",
+          registry: REVOCATION_REGISTRY,
+          namespace: "example.com",
+          details: { revoked_id: "abc", reason: "Key compromised" },
+          state: "live",
+          version: "1",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-02T00:00:00Z",
+        },
       });
 
       const result = await client.queryRevocationHash("abc");
@@ -198,28 +197,24 @@ describe("DeDiClient (adapter)", () => {
       });
     });
 
-    it("returns { revoked: false } when hash not found", async () => {
+    it("returns { revoked: false } when lookup returns 404", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockResolvedValue({ message: "ok", data: [] });
+      vi.mocked(api.lookupRecord).mockRejectedValue(
+        new DeDiClientError("Record not found", 404),
+      );
 
       const result = await client.queryRevocationHash("missing");
 
       expect(result).toEqual({ revoked: false });
     });
 
-    it("throws on 404 instead of treating as not-revoked", async () => {
-      const client = createClient("example.com");
-      const api = mockApi();
-      vi.mocked(api.search).mockRejectedValue(new DeDiClientError("DeDi API error: 404", 404));
-
-      await expect(client.queryRevocationHash("missing")).rejects.toThrow(DeDiClientError);
-    });
-
     it("re-throws non-404 errors", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockRejectedValue(new DeDiClientError("DeDi API error: 500", 502));
+      vi.mocked(api.lookupRecord).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 500", 502),
+      );
 
       await expect(client.queryRevocationHash("hash")).rejects.toThrow("DeDi API error: 500");
     });
@@ -1331,26 +1326,26 @@ describe("DeDiClient (adapter)", () => {
     });
   });
 
-  // ── Search result wrapper validation ────────────────────────────
+  // ── Lookup result wrapper validation ────────────────────────────
 
-  describe("search result wrapper validation", () => {
-    it("throws when search returns response without data array", async () => {
+  describe("lookup result wrapper validation", () => {
+    it("throws when lookup returns envelope without data field", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockResolvedValue({ message: "ok" } as never);
+      vi.mocked(api.lookupRecord).mockResolvedValue({ message: "ok" } as never);
 
       await expect(client.queryRevocationHash("abc")).rejects.toThrow(
-        "DeDi API search response field 'data' must be an array",
+        "DeDi API lookupRecord response missing required field: data",
       );
     });
 
-    it("throws when search returns null", async () => {
+    it("throws when lookup returns null", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.search).mockResolvedValue(null as never);
+      vi.mocked(api.lookupRecord).mockResolvedValue(null as never);
 
       await expect(client.queryRevocationHash("abc")).rejects.toThrow(
-        "DeDi API search response is missing or not an object",
+        "DeDi API lookupRecord response is missing or not an object",
       );
     });
   });
