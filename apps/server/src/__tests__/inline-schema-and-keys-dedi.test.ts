@@ -374,6 +374,58 @@ describe("POST /v1/keys/publish", () => {
     expect(res.status).toBe(400);
   });
 
+  it("accepts a did:key publish without a document (200 — schema document is optional)", async () => {
+    // For did:key the adapter drops `document` anyway (did:key documents
+    // are derivable from the DID itself), so requiring it at the route
+    // schema layer was an unnecessary friction point for the bootcamp's
+    // Postman publish demo. The route schema now allows omitting it; the
+    // adapter still requires it for did:web (covered by the test below).
+    const calls: Array<{ did: string; document: unknown }> = [];
+    const mockClient = {
+      publishDID: async (did: string, document: unknown) => {
+        calls.push({ did, document });
+        return { published: true, recordName: did, namespace: "default-ns" };
+      },
+    } as never;
+    setDeDiClient(mockClient);
+
+    const res = await app.request("/v1/keys/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ did: "did:key:z6MkfooBar" }),
+    });
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.did).toBe("did:key:z6MkfooBar");
+    expect(calls[0]!.document).toBeUndefined();
+  });
+
+  it("still rejects a did:web publish without a document (adapter raises 400)", async () => {
+    // The route schema is permissive; the adapter (publishDID in
+    // packages/dedi-client) is the authoritative check for "did:web
+    // requires a document." This test asserts the rejection still
+    // happens via the adapter throwing DeDiClientError(400, …).
+    const { DeDiClientError } = await import("@opencred/shared");
+    const mockClient = {
+      publishDID: async (did: string, document: unknown) => {
+        // Mirror the real adapter check so we exercise the end-to-end
+        // 400 path through the error middleware, not just the mock.
+        if (did.startsWith("did:web:") && (document == null || typeof document !== "object")) {
+          throw new DeDiClientError("publishDID: did:web records require a DID Document", 400);
+        }
+        return { published: true, recordName: did, namespace: "default-ns" };
+      },
+    } as never;
+    setDeDiClient(mockClient);
+
+    const res = await app.request("/v1/keys/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ did: "did:web:bootcamp.example.org" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("rejects a payload that smuggles a private key in the document", async () => {
     const mockClient = { publishDID: async () => ({}) } as never;
     setDeDiClient(mockClient);

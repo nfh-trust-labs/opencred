@@ -104,8 +104,18 @@ const publishKeySchema = z.object({
    * describe public keys. Private keys must NEVER appear here; the
    * recursive `rejectKeyMaterial()` walk over the request body enforces
    * that as a defense-in-depth check.
+   *
+   * **Optional at this layer.** The schema accepts publish requests
+   * without a `document` for did:key issuers — the adapter
+   * (`packages/dedi-client/src/adapter/client.ts:publishDID`) drops the
+   * document for did:key anyway, since did:key documents are derivable
+   * from the DID itself. For did:web, the adapter still enforces that
+   * `document` is required (otherwise there's nothing to cache). Making
+   * the route schema optional lets the bootcamp Postman collection ship
+   * a minimal `{"did": "{{issuerDid}}"}` body for did:key publish demos
+   * without contorting around a 400 from Zod.
    */
-  document: z.record(z.unknown()),
+  document: z.record(z.unknown()).optional(),
   /**
    * Optional namespace override. When omitted, DeDi's `defaultNamespace`
    * (configured via `OPENCRED_DEDI_NAMESPACE`) is used.
