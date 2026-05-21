@@ -290,7 +290,12 @@ describe("DeDiClient 404 error propagation", () => {
     vi.useRealTimers();
   });
 
-  it("throws on 404 instead of treating as not-revoked", async () => {
+  it("treats lookupRecord 404 as not-revoked (no error)", async () => {
+    // For the revocation registry, record existence ⇒ revoked, so 404
+    // from lookupRecord means "not revoked". A 404 must NOT bubble up as
+    // a DEDI_CLIENT_ERROR — that would block every verify of a fresh,
+    // non-revoked credential. (Earlier behaviour pre-#610 was to throw;
+    // see the corresponding adapter test that pins `{ revoked: false }`.)
     const logger = createLogger();
 
     mockFetch.mockResolvedValue(new Response(null, { status: 404 }));
@@ -305,7 +310,9 @@ describe("DeDiClient 404 error propagation", () => {
       logger,
     });
 
-    await expect(client.queryRevocationHash("missing-hash")).rejects.toThrow();
+    await expect(client.queryRevocationHash("missing-hash")).resolves.toEqual({
+      revoked: false,
+    });
   });
 });
 

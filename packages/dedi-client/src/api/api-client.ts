@@ -208,12 +208,15 @@ export class DeDiApiClient {
     name: string,
     details: T,
   ): Promise<DeDiResponse<DeDiRecord<T>>> {
-    // The real DeDi API wraps the published record in the standard
-    // `{ message, data: DeDiRecord<T> }` envelope — see Postman `develop`
-    // collection, 2026-05-19. We return the envelope verbatim so the
-    // adapter layer (DeDiClient) decides how to validate and unwrap it.
-    return this.request<DeDiResponse<DeDiRecord<T>>>(
-      `/dedi/${enc(ns)}/${enc(reg)}/save-record-as-draft?publish=true`,
+    // DeDi requires a two-step publish: `save-record-as-draft` creates the
+    // record in DRAFT state, then `publish-records` advances it to LIVE
+    // and makes it visible to `lookup/`. The `?publish=true` query-string
+    // shortcut returns 201 but on `api.dedi.global` it does NOT actually
+    // publish — the record stays a draft and every subsequent
+    // `lookup/{ns}/{reg}/{record_name}` returns 404 (#610). The two-call
+    // sequence is the canonical flow per the DeDi Postman collection.
+    const saveResponse = await this.request<{ message: string; data: { record_name: string } }>(
+      `/dedi/${enc(ns)}/${enc(reg)}/save-record-as-draft`,
       {
         method: "POST",
         body: JSON.stringify({
@@ -223,7 +226,33 @@ export class DeDiApiClient {
           meta: {},
         }),
       },
+      { retryable: false },
     );
+
+    const savedName = saveResponse?.data?.record_name ?? name;
+    await this.request<{ message: string; data: { count: number; record_ids: string[] } }>(
+      `/dedi/${enc(ns)}/${enc(reg)}/publish-records`,
+      {
+        method: "POST",
+        body: JSON.stringify({ records: [savedName] }),
+      },
+      { retryable: false },
+    );
+
+    // Synthesize the envelope so callers that read `data.record_name` /
+    // `data.details` / `data.updated_at` keep working. The only field we
+    // can't observe from the two-step calls is `updated_at` — callers
+    // already fall back to "now" when it's missing (see
+    // `client.publishRevocationHash`). A follow-up `lookupRecord` could
+    // populate it, but that costs a third round-trip and the timestamp
+    // is informational, not load-bearing for downstream verification.
+    return {
+      message: "Record published",
+      data: {
+        record_name: savedName,
+        details,
+      },
+    } as DeDiResponse<DeDiRecord<T>>;
   }
 
   async lookupRecord<T = unknown>(
