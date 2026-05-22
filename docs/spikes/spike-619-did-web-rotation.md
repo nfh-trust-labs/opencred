@@ -140,20 +140,26 @@ Content-Type: application/json
 Same pattern as `/v1/keys/publish` but **read-merge-write** instead of insert:
 
 1. Resolve the issuer's current DID from the loaded signer (`getActiveSigner()`).
-2. Verify the configured `OPENCRED_ISSUER_DID_METHOD === "web"`. For `did:key`, return `400 KEY_METHOD_MISMATCH` with a hint pointing the operator at the existing key-generation flow (which produces a new DID, not a rotation).
+2. Verify the active signer's DID starts with `did:web:` (derived from `signer.metadata.did`, not from `OPENCRED_ISSUER_DID_METHOD` — the env var is informational only and the signer is the source of truth). For `did:key`, return `400 KEY_METHOD_MISMATCH` with a hint pointing the operator at the existing key-generation flow (which produces a new DID, not a rotation).
 3. `dediClient.resolveDID(did, namespace)` to fetch the existing document.
 4. Compute the next fragment counter (`#key-N+1`) by scanning the existing `verificationMethod[]` IDs.
 5. Build the new VM entry from the loaded signer's `publicKeyJwk`.
-6. Mark each prior VM entry without `supersededAt` as superseded **now** (idempotent — re-running rotate on a still-current key is a no-op if the active key matches the latest VM entry).
-7. Replace `assertionMethod` to point at the new VM only.
-8. Write the merged document back via `dediClient.api.updateRecord(ns, PUBLIC_KEY_REGISTRY, recordName, { did, document })`.
-9. Return `200 { rotated: true, did, currentKeyId, superseded: [...] }`.
+6. **Short-circuit check:** if the existing document's most-recent VM (the one without `supersededAt`) already has a `publicKeyJwk` whose JCS canonicalisation matches `signer.publicKeyJwk`, return `200 { rotated: false, did, currentKeyId, reason: "already-current" }` without writing. This makes the endpoint safely re-runnable after a transient network failure and avoids spurious warn-log noise from §5.
+7. Mark each prior VM entry without `supersededAt` as superseded **now**.
+8. Replace `assertionMethod` to point at the new VM only.
+9. Write the merged document back via `dediClient.api.updateRecord(ns, PUBLIC_KEY_REGISTRY, recordName, { did, document })`.
+10. Return `200 { rotated: true, did, currentKeyId, superseded: [...] }`.
+
+### Authorisation and read-only mode
+
+`POST /v1/keys/rotate` lives under the `/v1/keys/` prefix, which is already in [`apps/server/src/middleware/read-only.ts`](../../apps/server/src/middleware/read-only.ts)'s `WRITE_PREFIXES` list. The endpoint is therefore automatically gated by `OPENCRED_READ_ONLY=true`: a read-only replica returns `403 READ_ONLY_MODE` without ever entering the handler. No middleware changes required.
 
 ### Error cases
 
 | Status | Code | Cause |
 |---|---|---|
 | 400 | `KEY_METHOD_MISMATCH` | Issuer DID method is `key`, not `web`. Hint: regenerate the key (new DID), not rotate. |
+| 403 | `READ_ONLY_MODE` | Replica is configured with `OPENCRED_READ_ONLY=true`. Rotate from a primary replica only. |
 | 404 | `DID_NOT_PUBLISHED` | DeDi has no record for this DID. Caller must call `/v1/keys/publish` first. |
 | 503 | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
 | 502 | `DEDI_CLIENT_ERROR` | Any other DeDi failure (network, auth, registry shape). |
@@ -162,9 +168,8 @@ Same pattern as `/v1/keys/publish` but **read-merge-write** instead of insert:
 
 Calling rotate twice in a row with the **same loaded signer** is a no-op after the first call:
 
-- Step 4 finds the same `#key-N+1` fragment already in `verificationMethod[]`.
-- Step 6 skips marking it superseded (it's already the current key — no `supersededAt`).
-- Steps 7-8 write the same payload.
+- Step 6's short-circuit returns `200 { rotated: false }` before any write hits DeDi.
+- No `updateRecord` is issued; no spurious version bump in DeDi; no warn log from §5.
 
 This matters for operator ergonomics (re-running after a transient network failure is safe) but also for the concurrency story below.
 
@@ -195,7 +200,7 @@ Multi-key rotation **breaks both**:
 - The **default deployment** is a single OpenCred container with one signing key — rotation is an operator-initiated event, not concurrent.
 - Multi-replica deployments (`OPENCRED_BATCH_DISPATCH=queue` + horizontal scaling) are the only case where two rotations could fire simultaneously. Operators running that topology already understand they need external coordination for control-plane operations.
 - The warn log surfaces the loss when it happens: "Rotation completed but the previous resolved document had N keys, the final document has N+1 — possible concurrent rotation."
-- This unblocks v1. Option (a) becomes the right answer once DeDi exposes optimistic concurrency — track separately.
+- This unblocks v1. Option (a) becomes the right answer once DeDi exposes optimistic concurrency — to be raised with the DeDi team as a roadmap request when the impl PR opens (tracked separately; link from the follow-up issue when filed).
 
 The implementation issue MUST call this out under "Risks" so the rollout knows the limit.
 
@@ -210,13 +215,14 @@ After this lands, `markDIDRotated` behaves differently per DID method:
 | `did:key` | Flips entire DID record's `keyStatus` to `"rotated"`. Desktop's key-generation hook calls this for every prior DID owned by the client. | **Unchanged.** A new did:key key = a new DID, so flipping the OLD did:key's `keyStatus` remains the right action. |
 | `did:web` | Same `keyStatus` flip on the entire DID record. **Wrong** — the DID isn't rotated, only one of its keys is. | **No-op at the DID-record level.** Rotation is recorded inside `document.verificationMethod[]` instead. The DID record's `keyStatus` field stays `"current"` for the lifetime of the DID. |
 
-The adapter implementation:
+The adapter implementation (return type stays `Promise<void>` — current signature preserved so no caller updates are required):
 
 ```ts
-async markDIDRotated(did: string, namespace?: string): Promise<DIDRecord> {
+async markDIDRotated(did: string, namespace?: string): Promise<void> {
   // did:key keeps existing semantics — the entire record's keyStatus flips.
   if (did.startsWith("did:key:")) {
-    return this.flipKeyStatusToRotated(did, namespace);
+    await this.flipKeyStatusToRotated(did, namespace);
+    return;
   }
   // did:web: rotation lives inside verificationMethod[]. The whole-record
   // status flip would be wrong (the DID isn't rotated, just one of its
@@ -228,10 +234,10 @@ async markDIDRotated(did: string, namespace?: string): Promise<DIDRecord> {
       "markDIDRotated called for did:web — semantics differ; use rotateDIDWeb instead. " +
         "No-op at the DID record level.",
     );
-    return this.resolveDID(did, namespace);
+    return;
   }
   // Future-proof: unknown methods get the conservative whole-record flip.
-  return this.flipKeyStatusToRotated(did, namespace);
+  await this.flipKeyStatusToRotated(did, namespace);
 }
 ```
 
