@@ -174,12 +174,20 @@ export function buildSigner(
   const id = deriveVerificationMethodId(publicKey, algorithm);
   const fingerprint = computeKeyFingerprint(publicKey);
 
+  // Export public key JWK once at signer-build time. Used by callers that
+  // need to assemble a DID Document (e.g. did:web auto-publish at startup).
+  // `KeyObject.export({ format: "jwk" })` returns ONLY public parameters for
+  // a public KeyObject (`kty`, `crv`, `x`, `y` for EC; `kty`, `n`, `e` for
+  // RSA) — never `d`/`p`/`q`. Safe to surface via SignerMetadata.
+  const publicKeyJwk = publicKey.export({ format: "jwk" }) as Record<string, unknown>;
+
   const metadata: SignerMetadata = {
     id,
     algorithm,
     type: "software",
     fingerprint,
     label,
+    publicKeyJwk,
   };
   if (certificateChain && certificateChain.length > 0) {
     metadata.certificateChain = certificateChain;

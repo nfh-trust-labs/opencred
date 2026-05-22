@@ -23,6 +23,7 @@ import { authMiddleware } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { getActiveSigner, loadSigningKey, setActiveSigner } from "./signing/key-manager.js";
 import { encodeDidWeb, verifyDidWeb } from "@opencred/did";
+import { runAutoPublishIfEnabled } from "./auto-publish.js";
 import { createSignerFromConfig } from "./signing/cloud-hsm/factory.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -33,6 +34,7 @@ import { setSchemaRegistry } from "./schema-registry-singleton.js";
 import { setValidator } from "./validator-singleton.js";
 import { createDeDiClientFromConfig } from "./dedi-factory.js";
 import { setDeDiClient } from "./dedi-singleton.js";
+import { setDidAutoPublishedAtStartup } from "./startup-state.js";
 import { health } from "./routes/health.js";
 import { schemas } from "./routes/schemas.js";
 import { credentials } from "./routes/credentials.js";
@@ -215,14 +217,15 @@ if (cloudSigner) {
     // method === "web"
     const issuerDid = encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!);
     if (config.OPENCRED_DEDI_HOST_DID_DOC) {
-      // DeDi will host the DID document — the operator's own domain won't
-      // serve `.well-known/did.json`, so a plain-HTTPS probe here would
-      // always fail. DeDi client init runs later in the bootstrap and will
-      // surface any actual hosting failures at that point.
+      // DeDi will host the DID document instead of (or in addition to)
+      // the operator's own domain. Skip the plain-HTTPS reachability
+      // probe here; the actual publish runs later, after the DeDi client
+      // is initialised — see the auto-publish block below the DeDi
+      // ensureRegistries() call.
       logger.info(
         { issuerDid, didMethod: "web" },
         "did:web hosted via DeDi; boot reachability probe skipped — " +
-          "DeDi client will surface hosting failures later",
+          "DID document will be published after DeDi client init",
       );
     } else {
       const result = await verifyDidWeb(issuerDid).catch((err: unknown) => ({
@@ -310,8 +313,20 @@ if (dediClient) {
     { baseUrl: config.OPENCRED_DEDI_BASE_URL, namespace: config.OPENCRED_DEDI_NAMESPACE },
     "DeDi client initialized",
   );
+
+  // Auto-publish issuer DID at startup (opt-in via OPENCRED_AUTO_PUBLISH_KEY
+  // or OPENCRED_DEDI_HOST_DID_DOC=true + did:web). Helper is non-throwing
+  // and returns a structured outcome we surface via /v1/health.
+  const autoPublishResult = await runAutoPublishIfEnabled(
+    config,
+    dediClient,
+    getActiveSigner(),
+    logger,
+  );
+  setDidAutoPublishedAtStartup(autoPublishResult.didPublish);
 } else {
   logger.info("DeDi not configured — revocation checks disabled");
+  setDidAutoPublishedAtStartup(false);
 }
 
 // ---------------------------------------------------------------------------
