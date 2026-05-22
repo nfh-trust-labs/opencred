@@ -364,6 +364,7 @@ describe("OpenCredError — kind discriminator + typed code enum (HIGH-19)", () 
       [new SchemaValidationError("x"), OpenCredErrorCode.SCHEMA_VALIDATION],
       [new DelegationError("x"), OpenCredErrorCode.DELEGATION],
       [new DeDiClientError("x"), OpenCredErrorCode.DEDI_CLIENT],
+      [new DeDiRecordExistsError("x", "y"), OpenCredErrorCode.DEDI_RECORD_EXISTS],
       [new SessionExpiredError(), OpenCredErrorCode.SESSION_EXPIRED],
       [new VerificationError("x"), OpenCredErrorCode.VERIFICATION],
       [new NotImplementedError(), OpenCredErrorCode.NOT_IMPLEMENTED],
