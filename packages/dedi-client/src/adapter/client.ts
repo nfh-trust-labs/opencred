@@ -1,4 +1,4 @@
-import { DeDiClientError } from "@opencred/shared";
+import { DeDiClientError, DeDiRecordExistsError } from "@opencred/shared";
 import { DeDiApiClient } from "../api/api-client.js";
 import type { DeDiProof } from "../api/types.js";
 import type { DeDiLogger } from "../logger.js";
@@ -236,7 +236,23 @@ export class DeDiClient {
     const ns = this.resolveNamespace(namespace);
     const detailsToPublish: { revoked_id: string; reason?: string } = { revoked_id: hash };
     if (reason !== undefined) detailsToPublish.reason = reason;
-    const response = await this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, detailsToPublish);
+    let response;
+    try {
+      response = await this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, detailsToPublish);
+    } catch (err) {
+      // DeDi returns 409 "duplicate record name" when the hash is already
+      // published. Surface this as a specific error so HTTP clients can
+      // distinguish "already revoked" (success-after-prior-run) from
+      // generic DeDi failures. See {@link isDuplicateRecordBody}.
+      if (isDuplicateRecordBody(err)) {
+        throw new DeDiRecordExistsError(
+          "This hash is already in the revocation registry",
+          "Use POST /v1/credentials/revocation-status to confirm the prior revoke landed",
+          (err as DeDiClientError).responseBody,
+        );
+      }
+      throw err;
+    }
     assertDeDiRecordShape(response, "publishRecord");
     // Post-publish, the record exists ⇒ revoked. Use the envelope's
     // `updated_at` as the revocation timestamp (DeDi's canonical answer
@@ -327,7 +343,23 @@ export class DeDiClient {
       detail.document = document as Record<string, unknown>;
     }
 
-    await this.api.publishRecord(ns, PUBLIC_KEY_REGISTRY, recordName, detail);
+    try {
+      await this.api.publishRecord(ns, PUBLIC_KEY_REGISTRY, recordName, detail);
+    } catch (err) {
+      // DeDi returns 409 "duplicate record name" when the DID was already
+      // published — the public-key registry uses the DID as record_name,
+      // so the same DID can't be republished. Surface this distinctly so
+      // callers can fall through to `resolveDID` instead of treating it
+      // as a hard failure.
+      if (isDuplicateRecordBody(err)) {
+        throw new DeDiRecordExistsError(
+          "This DID is already in the public key registry",
+          "Use POST /v1/keys/resolve to fetch the existing record",
+          (err as DeDiClientError).responseBody,
+        );
+      }
+      throw err;
+    }
     return { published: true, recordName, namespace: ns };
   }
 
@@ -603,4 +635,52 @@ function isAlreadyExistsBody(error: unknown): boolean {
     (rec["error"] as { code?: unknown } | undefined)?.code,
   ];
   return candidates.some((c) => typeof c === "string" && ALREADY_EXISTS_BODY_CODE_PATTERN.test(c));
+}
+
+/**
+ * Matches the duplicate-record-name signal that DeDi's
+ * `save-record-as-draft` returns when a publish collides with an existing
+ * `record_name`. Observed wire shape on `api.dedi.global`:
+ *
+ *   {
+ *     "message": "duplicate record name",
+ *     "data": "Record with the same name already exists in the registry - vc-revocation-registry"
+ *   }
+ *
+ * Distinct from {@link isAlreadyExistsBody} (which keys off structured `code`
+ * fields used by namespace/registry creation). This helper inspects the
+ * human-readable `message`/`data` text — robust against minor wording drift
+ * by checking both fields and JSON-stringified fallback. Used by
+ * `publishRevocationHash` and `publishDID` to translate the bare 409 from
+ * `publishRecord` into a `DeDiRecordExistsError` with an actionable hint.
+ */
+const DUPLICATE_RECORD_TEXT_PATTERNS: readonly RegExp[] = [
+  /duplicate.*record/i,
+  /record.*already.*exists/i,
+];
+
+function isDuplicateRecordBody(error: unknown): boolean {
+  if (!(error instanceof DeDiClientError) || error.statusCode !== 409) {
+    return false;
+  }
+  const body = error.responseBody;
+  if (body == null) return false;
+  const candidates: string[] = [];
+  if (typeof body === "string") {
+    candidates.push(body);
+  } else if (typeof body === "object") {
+    const rec = body as Record<string, unknown>;
+    if (typeof rec["message"] === "string") candidates.push(rec["message"] as string);
+    if (typeof rec["data"] === "string") candidates.push(rec["data"] as string);
+    // Last-resort: stringify the whole body so unusual shapes still match.
+    try {
+      candidates.push(JSON.stringify(body));
+    } catch {
+      // Body has cycles / non-serializable members — the string fields above
+      // are the only signal we can trust.
+    }
+  }
+  return candidates.some((text) =>
+    DUPLICATE_RECORD_TEXT_PATTERNS.some((pattern) => pattern.test(text)),
+  );
 }

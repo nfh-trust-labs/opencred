@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DeDiClientError } from "@opencred/shared";
+import { DeDiClientError, DeDiRecordExistsError } from "@opencred/shared";
 import { DeDiClient } from "../adapter/client.js";
 import { DeDiApiClient } from "../api/api-client.js";
 import type { ContextRecord, SchemaRecord } from "../adapter/types.js";
@@ -134,6 +134,97 @@ describe("DeDiClient (adapter)", () => {
         revokedAt: "2026-01-01T00:00:00Z",
         reason: "Key compromised",
       });
+    });
+
+    it("rewraps DeDi 409 duplicate-record as DeDiRecordExistsError with hint", async () => {
+      // Real DeDi 409 body shape observed on api.dedi.global:
+      //   { message: "duplicate record name",
+      //     data: "Record with the same name already exists in the registry - vc-revocation-registry" }
+      // The adapter must surface this as a specific error so HTTP clients
+      // can distinguish "already revoked" (success-after-prior-run) from
+      // generic DeDi failures. Regression guard for the bootcamp confusion
+      // documented in docs/bootcamp/post-bootcamp-followups.md §6.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 409", 409, {
+          message: "duplicate record name",
+          data: "Record with the same name already exists in the registry - vc-revocation-registry",
+        }),
+      );
+
+      await expect(client.publishRevocationHash("abc")).rejects.toBeInstanceOf(
+        DeDiRecordExistsError,
+      );
+      try {
+        await client.publishRevocationHash("abc");
+      } catch (err) {
+        expect(err).toBeInstanceOf(DeDiRecordExistsError);
+        const recordExists = err as DeDiRecordExistsError;
+        expect(recordExists.statusCode).toBe(409);
+        expect(recordExists.code).toBe("DEDI_RECORD_EXISTS");
+        expect(recordExists.hint).toContain("revocation-status");
+        // Original DeDi response body is preserved for debugging.
+        expect(recordExists.responseBody).toMatchObject({
+          message: "duplicate record name",
+        });
+      }
+    });
+
+    it("rewraps duplicate-record signal carried only on data field (no message)", async () => {
+      // Defensive: future DeDi wording may move the duplicate signal
+      // entirely into `data`. Helper checks both fields.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 409", 409, {
+          data: "Record with the same name already exists in the registry - vc-revocation-registry",
+        }),
+      );
+      await expect(client.publishRevocationHash("abc")).rejects.toBeInstanceOf(
+        DeDiRecordExistsError,
+      );
+    });
+
+    it("rewraps duplicate-record signal carried as a raw string body", async () => {
+      // Some DeDi error responses may surface as bare text rather than JSON.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 409", 409, "duplicate record name"),
+      );
+      await expect(client.publishRevocationHash("abc")).rejects.toBeInstanceOf(
+        DeDiRecordExistsError,
+      );
+    });
+
+    it("passes through non-duplicate 409s as the original DeDiClientError", async () => {
+      // Not every 409 is a duplicate. A future "concurrent rotation"
+      // conflict, for example, must NOT be silently reclassified.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 409", 409, {
+          message: "version conflict",
+          data: "Record version is stale; retry with current version",
+        }),
+      );
+      await expect(client.publishRevocationHash("abc")).rejects.toBeInstanceOf(DeDiClientError);
+      await expect(client.publishRevocationHash("abc")).rejects.not.toBeInstanceOf(
+        DeDiRecordExistsError,
+      );
+    });
+
+    it("passes through non-409 errors unchanged", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 500", 500, "internal server error"),
+      );
+      await expect(client.publishRevocationHash("abc")).rejects.toBeInstanceOf(DeDiClientError);
+      await expect(client.publishRevocationHash("abc")).rejects.not.toBeInstanceOf(
+        DeDiRecordExistsError,
+      );
     });
   });
 
@@ -806,6 +897,52 @@ describe("DeDiClient (adapter)", () => {
       );
       await expect(client.publishDID("did:web:example.com", undefined)).rejects.toThrow(
         "publishDID: did:web records require a DID Document",
+      );
+    });
+
+    it("rewraps DeDi 409 duplicate-record as DeDiRecordExistsError with resolve hint", async () => {
+      // public_key_registry uses the DID as record_name, so republishing
+      // the same DID returns DeDi's "duplicate record name" 409. The adapter
+      // must surface this as a specific error so the operator/UI knows the
+      // DID is already in DeDi and they should use /v1/keys/resolve.
+      // Regression guard for docs/bootcamp/post-bootcamp-followups.md §6.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 409", 409, {
+          message: "duplicate record name",
+          data: "Record with the same name already exists in the registry - public_key_registry",
+        }),
+      );
+
+      await expect(client.publishDID("did:key:z6Mkfoo", undefined)).rejects.toBeInstanceOf(
+        DeDiRecordExistsError,
+      );
+      try {
+        await client.publishDID("did:key:z6Mkfoo", undefined);
+      } catch (err) {
+        expect(err).toBeInstanceOf(DeDiRecordExistsError);
+        const recordExists = err as DeDiRecordExistsError;
+        expect(recordExists.statusCode).toBe(409);
+        expect(recordExists.code).toBe("DEDI_RECORD_EXISTS");
+        expect(recordExists.hint).toContain("resolve");
+        expect(recordExists.responseBody).toMatchObject({ message: "duplicate record name" });
+      }
+    });
+
+    it("publishDID passes through non-duplicate 409s unchanged", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 409", 409, {
+          message: "version conflict",
+        }),
+      );
+      await expect(client.publishDID("did:key:z6Mkfoo", undefined)).rejects.toBeInstanceOf(
+        DeDiClientError,
+      );
+      await expect(client.publishDID("did:key:z6Mkfoo", undefined)).rejects.not.toBeInstanceOf(
+        DeDiRecordExistsError,
       );
     });
   });

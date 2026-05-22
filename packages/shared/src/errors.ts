@@ -189,6 +189,7 @@ export const OpenCredErrorCode = {
   SCHEMA_VALIDATION: "SCHEMA_VALIDATION_ERROR",
   DELEGATION: "DELEGATION_ERROR",
   DEDI_CLIENT: "DEDI_CLIENT_ERROR",
+  DEDI_RECORD_EXISTS: "DEDI_RECORD_EXISTS",
   SESSION_EXPIRED: "SESSION_EXPIRED",
   VERIFICATION: "VERIFICATION_ERROR",
   NOT_IMPLEMENTED: "NOT_IMPLEMENTED",
@@ -219,6 +220,7 @@ export type OpenCredErrorKind =
   | "SchemaValidationError"
   | "DelegationError"
   | "DeDiClientError"
+  | "DeDiRecordExistsError"
   | "SessionExpiredError"
   | "VerificationError"
   | "NotImplementedError"
@@ -472,6 +474,51 @@ export class DeDiClientError extends OpenCredError {
     super(message, "DEDI_CLIENT_ERROR", statusCode, { kind: "DeDiClientError" });
     this.name = "DeDiClientError";
     this.responseBody = responseBody;
+  }
+}
+
+/**
+ * Thrown by the DeDi adapter when a publish (revocation hash or DID
+ * document) is rejected because the record already exists in DeDi —
+ * i.e. the operation already succeeded in a prior call. Carries an
+ * operation-specific `hint` pointing the caller at the right
+ * "read-the-state" endpoint (e.g. `/v1/credentials/revocation-status`
+ * for revoke, `/v1/keys/resolve` for DID publish).
+ *
+ * HTTP shape: 409 with body
+ *   `{ error: { code: "DEDI_RECORD_EXISTS", message, hint, statusCode: 409 } }`
+ *
+ * Why this is distinct from `DeDiClientError`: a generic 409 from DeDi
+ * could mean other things (e.g. concurrent registry creation, future
+ * conflict semantics). This subclass exists precisely for the case
+ * where the adapter has *verified* via the response body that the
+ * cause is a duplicate record_name — turning an opaque "DEDI_CLIENT_ERROR: 409"
+ * into a specific, actionable error code for clients.
+ */
+export class DeDiRecordExistsError extends OpenCredError {
+  /** Pointer at the right "read the state" endpoint for the caller. */
+  readonly hint: string;
+  /**
+   * The raw DeDi response body (string or parsed JSON) that the adapter
+   * inspected to classify this as a duplicate. Kept for debuggability.
+   */
+  readonly responseBody?: unknown;
+  constructor(message: string, hint: string, responseBody?: unknown) {
+    super(message, "DEDI_RECORD_EXISTS", 409, { kind: "DeDiRecordExistsError" });
+    this.name = "DeDiRecordExistsError";
+    this.hint = hint;
+    this.responseBody = responseBody;
+  }
+
+  override toJSON(): OpenCredErrorBody {
+    const base = super.toJSON();
+    return {
+      error: {
+        ...base.error,
+        hint: this.hint,
+        statusCode: 409,
+      },
+    };
   }
 }
 

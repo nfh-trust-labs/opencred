@@ -898,6 +898,39 @@ describe("POST /credentials/revoke", () => {
     expect(body.hash.length).toBe(64);
     resetDeDiClient();
   });
+
+  it("returns 409 DEDI_RECORD_EXISTS with hint when the hash is already revoked", async () => {
+    // The dedi-client adapter rewraps DeDi's "duplicate record name" 409 as
+    // DeDiRecordExistsError so re-running revoke (after a container restart,
+    // for example) surfaces an actionable response rather than the opaque
+    // DEDI_CLIENT_ERROR users hit during the 2026-05-21 bootcamp dry-run.
+    // See docs/bootcamp/post-bootcamp-followups.md §6.
+    const { DeDiRecordExistsError } = await import("@opencred/shared");
+    const mockClient = {
+      publishRevocationHash: async () => {
+        throw new DeDiRecordExistsError(
+          "This hash is already in the revocation registry",
+          "Use POST /v1/credentials/revocation-status to confirm the prior revoke landed",
+          { message: "duplicate record name" },
+        );
+      },
+    } as never;
+    setDeDiClient(mockClient);
+
+    const res = await app.request("/credentials/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hash: "a".repeat(64) }),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; hint: string; statusCode: number };
+    };
+    expect(body.error.code).toBe("DEDI_RECORD_EXISTS");
+    expect(body.error.hint).toContain("revocation-status");
+    expect(body.error.statusCode).toBe(409);
+    resetDeDiClient();
+  });
 });
 
 // ---------------------------------------------------------------------------
