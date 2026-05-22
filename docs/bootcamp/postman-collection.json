@@ -14,7 +14,9 @@
     { "key": "apiKey", "value": "", "type": "string" },
     { "key": "issuerDid", "value": "", "type": "string" },
     { "key": "lastCredential", "value": "", "type": "string" },
-    { "key": "lastRevocationHash", "value": "", "type": "string" }
+    { "key": "lastFullCredential", "value": "", "type": "string" },
+    { "key": "lastRevocationHash", "value": "", "type": "string" },
+    { "key": "lastPublishedDid", "value": "", "type": "string" }
   ],
   "item": [
     {
@@ -322,6 +324,24 @@
                   "        asString = JSON.stringify(body.credential);",
                   "    }",
                   "    pm.collectionVariables.set('lastCredential', asString);",
+                  "    // Save the full VC envelope (object form) so revocation-hash and",
+                  "    // package requests can pull the JSON-LD shape without re-parsing.",
+                  "    if (typeof body.credential === 'object' && body.credential !== null) {",
+                  "        pm.collectionVariables.set('lastFullCredential', JSON.stringify(body.credential));",
+                  "    }",
+                  "    // When `revocationRegistryUrl` is set on the issue request, the",
+                  "    // server embeds the per-credential SHA-256 hash as the LAST URL",
+                  "    // segment of `credential.credentialStatus.id`. Extract it so the",
+                  "    // /credentials/revoke request has the right hash auto-threaded —",
+                  "    // no separate /revocation-hash call needed for OpenCred-issued VCs.",
+                  "    const statusId = body.credential && body.credential.credentialStatus && body.credential.credentialStatus.id;",
+                  "    if (typeof statusId === 'string') {",
+                  "        const match = String(statusId).match(/([a-f0-9]{64})$/);",
+                  "        if (match) {",
+                  "            pm.collectionVariables.set('lastRevocationHash', match[1]);",
+                  "            console.log('Saved lastRevocationHash from credentialStatus.id =', match[1]);",
+                  "        }",
+                  "    }",
                   "}"
                 ]
               }
@@ -332,31 +352,66 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"schemaId\": \"electricity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"customerProfile\": {\n      \"customerNumber\": \"BESCOM-1234567890\",\n      \"meterNumber\": \"MTR-99887766\",\n      \"meterType\": \"AMI\"\n    },\n    \"customerDetails\": {\n      \"fullName\": \"Jane Doe\",\n      \"installationAddress\": {\n        \"address\": \"42 MG Road, Bengaluru\",\n        \"area_code\": \"560001\",\n        \"country\": { \"name\": \"India\", \"code\": \"IN\" }\n      },\n      \"serviceConnectionDate\": \"2024-04-15T00:00:00Z\"\n    }\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"validUntil\": \"2027-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\"\n}"
+              "raw": "{\n  \"schemaId\": \"electricity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"customerProfile\": {\n      \"customerNumber\": \"BESCOM-1234567890\",\n      \"meterNumber\": \"MTR-99887766\",\n      \"meterType\": \"AMI\"\n    },\n    \"customerDetails\": {\n      \"fullName\": \"Jane Doe\",\n      \"installationAddress\": {\n        \"address\": \"42 MG Road, Bengaluru\",\n        \"area_code\": \"560001\",\n        \"city\":    { \"name\": \"Bengaluru\", \"code\": \"BLR\" },\n        \"state\":   { \"name\": \"Karnataka\", \"code\": \"KA\" },\n        \"country\": { \"name\": \"India\", \"code\": \"IN\" },\n        \"gps\": \"12.9716,77.5946\"\n      },\n      \"serviceConnectionDate\": \"2024-04-15T00:00:00Z\"\n    },\n    \"consumptionProfile\": {\n      \"premisesType\": \"Residential\",\n      \"connectionType\": \"Single-phase\",\n      \"sanctionedLoadKW\": 5,\n      \"tariffCategoryCode\": \"LT-2A\"\n    },\n    \"generationProfile\": {\n      \"assetId\": \"SOLAR-001\",\n      \"generationType\": \"Solar\",\n      \"capacityKW\": 3.2,\n      \"commissioningDate\": \"2025-06-01T00:00:00Z\",\n      \"manufacturer\": \"Tata Power Solar\",\n      \"modelNumber\": \"TP-320M\"\n    },\n    \"storageProfile\": {\n      \"assetId\": \"BAT-001\",\n      \"storageCapacityKWh\": 10,\n      \"powerRatingKW\": 5,\n      \"commissioningDate\": \"2025-06-01T00:00:00Z\",\n      \"storageType\": \"LithiumIon\"\n    }\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"validUntil\": \"2027-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\",\n  \"revocationRegistryUrl\": \"https://your-dedi-instance.example.org/dedi/lookup/your-namespace/vc-revocation-registry\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/v1/credentials/issue",
               "host": ["{{baseUrl}}"],
               "path": ["v1", "credentials", "issue"]
             },
-            "description": "Issue a Beckn-flavored electricity-customer credential (`schemaId: electricity/v1`). Three friction points to watch for:\n\n- `installationAddress.country` is `{ name?, code }`, where `code` matches ISO 3166-1 alpha-2 (`^[A-Z]{2}$`). Not a bare string.\n- `serviceConnectionDate` is `date-time` (full ISO 8601), not `date`.\n- `meterType` is an enum: `AMR | AMI | Electromechanical | Forward | Reverse | Bidirectional | Prepaid | NetMeter | Other`.\n\n`proofFormat: vc-jwt` is required — `data-integrity` against this schema currently returns `CRYPTO_ERROR: Invalid JSON-LD syntax; tried to redefine a protected term` (tracked as opencred#596).\n\nOnly `customerProfile` is required under `credentialSubject`; `customerDetails`, `consumptionProfile`, `generationProfile`, and `storageProfile` are optional."
+            "description": "Issue a Beckn-flavored electricity-customer credential (`schemaId: electricity/v1`) with **all five `credentialSubject` profile blocks** populated (`customerProfile`, `customerDetails`, `consumptionProfile`, `generationProfile`, `storageProfile`) and a DeDi-backed `credentialStatus` via `revocationRegistryUrl`.\n\nThree friction points to watch for:\n\n- `installationAddress.country` (and `city`, `state`) is `{ name?, code }`, where `code` matches ISO 3166-1 alpha-2 (`^[A-Z]{2}$`). Not a bare string.\n- All date fields in this schema are `date-time` (full ISO 8601 with timezone), not `date`. Applies to `serviceConnectionDate`, `commissioningDate`, etc.\n- Enums everywhere: `meterType` (`AMR | AMI | Electromechanical | Forward | Reverse | Bidirectional | Prepaid | NetMeter | Other`), `premisesType`, `connectionType`, `generationType`, `storageType`.\n\n`proofFormat: vc-jwt` is required — `data-integrity` against this schema currently returns `CRYPTO_ERROR: Invalid JSON-LD syntax; tried to redefine a protected term` (tracked as opencred#596).\n\nOnly `customerProfile` is required under `credentialSubject`; the other four blocks are optional but populated here so you can demo the full schema in one click.\n\n**Update the `revocationRegistryUrl`** to your DeDi instance's canonical lookup URL: `https://<host>/dedi/lookup/<namespace>/vc-revocation-registry`. The server stamps this verbatim into `credentialStatus.statusListCredential` and appends the per-credential SHA-256 hash to make `credentialStatus.id`.\n\n**Auto-threading**: the post-test script saves the JWT string into `{{lastCredential}}`, the full VC object into `{{lastFullCredential}}`, AND extracts the revocation hash from `credentialStatus.id` into `{{lastRevocationHash}}`. Click straight to **Revocation (DeDi) → POST /v1/credentials/revoke**; no separate hash call needed."
           }
         },
         {
           "name": "POST /v1/credentials/issue (with revocation registry URL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.credential) {",
+                  "    let asString;",
+                  "    if (typeof body.credential === 'string') {",
+                  "        asString = body.credential;",
+                  "    } else if (body.credential.proof && typeof body.credential.proof.jwt === 'string') {",
+                  "        asString = body.credential.proof.jwt;",
+                  "    } else {",
+                  "        asString = JSON.stringify(body.credential);",
+                  "    }",
+                  "    pm.collectionVariables.set('lastCredential', asString);",
+                  "    if (typeof body.credential === 'object' && body.credential !== null) {",
+                  "        pm.collectionVariables.set('lastFullCredential', JSON.stringify(body.credential));",
+                  "    }",
+                  "    // Extract per-credential revocation hash from credentialStatus.id (the",
+                  "    // server appends the hash as the last URL segment when revocationRegistryUrl",
+                  "    // is set). Auto-threads lastRevocationHash for the /revoke request.",
+                  "    const statusId = body.credential && body.credential.credentialStatus && body.credential.credentialStatus.id;",
+                  "    if (typeof statusId === 'string') {",
+                  "        const match = String(statusId).match(/([a-f0-9]{64})$/);",
+                  "        if (match) {",
+                  "            pm.collectionVariables.set('lastRevocationHash', match[1]);",
+                  "        }",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\",\n  \"revocationRegistryUrl\": \"https://your-dedi-instance.example.org\"\n}"
+              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\",\n  \"revocationRegistryUrl\": \"https://your-dedi-instance.example.org/dedi/lookup/your-namespace/vc-revocation-registry\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/v1/credentials/issue",
               "host": ["{{baseUrl}}"],
               "path": ["v1", "credentials", "issue"]
             },
-            "description": "When `revocationRegistryUrl` is set, the server attaches a `credentialStatus` block of type `dedi` and generates a `urn:uuid:` credential id. The hash is computed automatically. Use the Revocation requests to publish/query status."
+            "description": "When `revocationRegistryUrl` is set, the server attaches a `credentialStatus` block of type `dedi` and generates a `urn:uuid:` credential id. The per-credential SHA-256 hash is embedded as the LAST URL segment of `credentialStatus.id`.\n\nUse the canonical DeDi lookup URL — `https://<host>/dedi/lookup/<namespace>/vc-revocation-registry` — so the credential is self-describing for W3C-compliant verifiers.\n\n**Auto-threading**: the post-test script saves `{{lastCredential}}`, `{{lastFullCredential}}`, and `{{lastRevocationHash}}` (extracted from `credentialStatus.id`) — click straight to **Revocation (DeDi) → POST /v1/credentials/revoke** next."
           }
         },
         {
@@ -428,7 +483,46 @@
       "name": "Public-key registry (DeDi)",
       "item": [
         {
-          "name": "POST /v1/keys/publish",
+          "name": "POST /v1/keys/publish (did:key, auto from {{issuerDid}})",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body && (body.published === true || typeof body.recordName === 'string')) {",
+                  "    // Echo the DID we published so /v1/keys/resolve can pick it up via",
+                  "    // {{lastPublishedDid}}. For did:key publish the route doesn't echo the",
+                  "    // DID directly; fall back to the request-body issuerDid the user sent.",
+                  "    const issuerDid = pm.collectionVariables.get('issuerDid');",
+                  "    if (issuerDid) {",
+                  "        pm.collectionVariables.set('lastPublishedDid', issuerDid);",
+                  "        console.log('Saved lastPublishedDid =', issuerDid);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"did\": \"{{issuerDid}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/keys/publish",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "keys", "publish"]
+            },
+            "description": "Publish the issuer's DID (defaults to the loaded did:key from `{{issuerDid}}`) to the DeDi `public_key_registry` so verifiers can resolve it without a separate registrar.\n\n**Body shape:**\n- did:key — `{ \"did\": \"...\" }` is sufficient. The server drops `document` for did:key (the doc is derivable from the DID).\n- did:web — `{ \"did\": \"did:web:<your-domain>\", \"document\": {...full DID Document...} }` is required. The adapter rejects did:web publish without a document.\n\n**On 409 `DEDI_RECORD_EXISTS`**: the DID is already published — switch to **POST /v1/keys/resolve** below to fetch the existing record. The error response carries a `hint` pointing you there.\n\nThe `rejectKeyMaterial` defense-in-depth guard runs on the body — a `privateKey` field, or any string starting with `-----BEGIN ... PRIVATE KEY-----`, fails 400 before anything reaches DeDi.\n\nReturns `503 DEDI_NOT_CONFIGURED` until `OPENCRED_DEDI_*` env vars are set.\n\nThe post-test script saves the issuer DID into `{{lastPublishedDid}}` so the resolve request below picks it up automatically.",
+            "auth": null
+          }
+        },
+        {
+          "name": "POST /v1/keys/publish (did:web with document)",
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
@@ -441,24 +535,42 @@
               "host": ["{{baseUrl}}"],
               "path": ["v1", "keys", "publish"]
             },
-            "description": "Publish a DID document (public keys + verification methods) to the DeDi `public_key_registry` so verifiers can resolve the issuer's keys without a separate DID registrar.\n\nThe same `rejectKeyMaterial` defense-in-depth guard runs on the body — a `privateKey` field, or any string starting with `-----BEGIN ... PRIVATE KEY-----`, fails 400 before anything reaches DeDi.\n\nReturns `503 DEDI_NOT_CONFIGURED` until `OPENCRED_DEDI_*` env vars are set."
+            "description": "Full did:web publish with the document body the adapter needs. Use this form when your issuer runs as did:web (`OPENCRED_ISSUER_DID_METHOD=web`). Replace `bootcamp.example.org` with your own domain and `<paste-x>` / `<paste-y>` with the P-256 public-key JWK coordinates from `GET /v1/keys`."
           }
         },
         {
-          "name": "POST /v1/keys/resolve",
+          "name": "POST /v1/keys/resolve (auto from {{lastPublishedDid}} or {{issuerDid}})",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Default to {{lastPublishedDid}} if a prior /v1/keys/publish set it;",
+                  "// otherwise fall back to {{issuerDid}}. Either way the body is auto-filled.",
+                  "const lastPublished = pm.collectionVariables.get('lastPublishedDid');",
+                  "const issuerDid = pm.collectionVariables.get('issuerDid');",
+                  "const did = lastPublished || issuerDid;",
+                  "if (did) {",
+                  "    pm.request.body.raw = JSON.stringify({ did });",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"did\": \"did:web:bootcamp.example.org\"\n}"
+              "raw": "{\n  \"did\": \"{{lastPublishedDid}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/v1/keys/resolve",
               "host": ["{{baseUrl}}"],
               "path": ["v1", "keys", "resolve"]
             },
-            "description": "Resolve a DID document from the DeDi `public_key_registry`. POST (not GET) so DIDs containing colons or slashes don't have to be URL-encoded.\n\nReturns `{ did, document?, keyStatus }`. `document` is omitted for `did:key` records (the verifier derives it from the DID itself); `keyStatus` is `\"current\"` or `\"rotated\"`. The response may also include a `proof` block (CORD-blockchain anchor metadata) when DeDi anchored the record on-chain.\n\n503 if DeDi isn't configured."
+            "description": "Resolve a DID document from the DeDi `public_key_registry`. POST (not GET) so DIDs containing colons or slashes don't have to be URL-encoded.\n\nReturns `{ did, document?, keyStatus }`. `document` is omitted for `did:key` records (the verifier derives it from the DID itself); `keyStatus` is `\"current\"` or `\"rotated\"`. The response may also include a `proof` block (CORD-blockchain anchor metadata) when DeDi anchored the record on-chain.\n\n**Auto-threading**: pre-request script picks `{{lastPublishedDid}}` (set by the publish request above) if available, otherwise falls back to `{{issuerDid}}`. So a click-chain `Inspect → GET /v1/keys` → `Publish` → `Resolve` works without manual variable copying.\n\n503 if DeDi isn't configured."
           }
         }
       ]
@@ -551,7 +663,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["v1", "credentials", "revoke"]
             },
-            "description": "Publish the hash to DeDi as revoked. Returns 503 DEDI_NOT_CONFIGURED unless `OPENCRED_DEDI_BASE_URL` (and friends) are set on the server.\n\nYou can also send `{ \"credential\": {...} }` and the server will hash it for you. Add `\"namespace\": \"...\"` to override the configured default.\n\n`reason` is an optional free-text descriptor (per the DeDi canonical revoke.json schema) — typical values are short tags like `\"key-compromised\"`, `\"superseded\"`, or `\"holder-request\"`. When supplied, it is stored on the DeDi record and echoed by `/v1/credentials/revocation-status`."
+            "description": "Publish the hash to DeDi as revoked. Returns 503 DEDI_NOT_CONFIGURED unless `OPENCRED_DEDI_BASE_URL` (and friends) are set on the server.\n\n**`{{lastRevocationHash}}` auto-populates from the issue request when `revocationRegistryUrl` is set** — no separate `/v1/credentials/revocation-hash` call needed for OpenCred-issued VCs. The server embeds the hash as the last URL segment of `credentialStatus.id` at issue time, and the issue request's post-test script extracts it.\n\nYou can also send `{ \"credential\": {...} }` and the server will hash it for you. Add `\"namespace\": \"...\"` to override the configured default.\n\n`reason` is an optional free-text descriptor (per the DeDi canonical revoke.json schema) — typical values are short tags like `\"key-compromised\"`, `\"superseded\"`, or `\"holder-request\"`. When supplied, it is stored on the DeDi record and echoed by `/v1/credentials/revocation-status`.\n\n**On 409 `DEDI_RECORD_EXISTS`** (introduced in #615): the hash is already revoked in DeDi from a prior run. The error response carries a `hint` pointing you at `/v1/credentials/revocation-status` to confirm the prior revoke landed."
           }
         },
         {
