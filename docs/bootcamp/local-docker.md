@@ -254,6 +254,22 @@ DeDi-dependent stretch sections (§7c revocation, §7d key publish/resolve)
 will return `503 DEDI_NOT_CONFIGURED` if you set `dediConfigured: false`;
 either repeat §3a + restart the container, or skip those sections.
 
+> **Heads-up — the issuer's DID is not published to DeDi automatically.**
+> Container startup creates the four empty registries (`vc-revocation-registry`,
+> `public_key_registry`, `schema_registry`, `context_registry`) and loads
+> your signing key into memory, but it does not write your DID into
+> `public_key_registry`. The `Issuer identity configured` log line you see
+> at boot is purely an in-memory configuration message. To make verifiers
+> discover your public key via DeDi, you have to explicitly call
+> `POST /v1/keys/publish` (see §7d). Until then, `/v1/keys/resolve` returns
+> 404.
+>
+> `OPENCRED_DEDI_HOST_DID_DOC=true` is documented as the "DeDi-hosted
+> `did.json`" flag for did:web issuers, but **it's a no-op at startup
+> today** — the validation passes but no publish actually happens. Until
+> that gap is closed (tracked as an open follow-up issue), assume you need
+> the explicit `/v1/keys/publish` call for any DID method.
+
 Now confirm the API key works on a protected endpoint:
 
 ```bash
@@ -785,6 +801,24 @@ endpoint first, and falls back to DeDi when the well-known URL is
 unreachable. This means an issuer can stop hosting their own
 `.well-known/did.json` and let DeDi serve as the discovery layer.
 
+> **Heads-up — this step is explicit, not automatic.** Container startup
+> only initializes the empty `public_key_registry`; it does not publish
+> your issuer DID. The `Issuer identity configured` log line at boot
+> means "the server is configured to sign with this DID," NOT "this DID
+> is published to DeDi." Verifiers calling `/v1/keys/resolve` will
+> return 404 until you run the `POST /v1/keys/publish` call below at
+> least once.
+>
+> **Heads-up — key rotation under did:web is not yet supported.** Today,
+> rotating a did:web signing key (swap `OPENCRED_KEY_PATH`, restart)
+> produces signatures that nothing in DeDi or `.well-known/did.json`
+> reflects, because there is no flow to update the hosted DID Document.
+> Track [issue #619](https://github.com/nfh-trust-labs/opencred/issues/619)
+> for the multi-key DID Document + `POST /v1/keys/rotate` design work
+> (and the linked design spike doc) that closes this gap. Until then,
+> keep `did:web` issuers on a stable key for the lifetime of the
+> deployment.
+
 ```bash
 # Publish — body is { did, document, namespace? }. The "document" is a
 # standard W3C DID Core document; verificationMethod entries hold public
@@ -954,10 +988,18 @@ you outgrow the single-instance model.
 | `500 CRYPTO_ERROR` on `data-integrity` | Tried to use `data-integrity` with an RSA key | Use `vc-jwt` or `sd-jwt-vc`, or regenerate the key as EC P-256 |
 | `Schema 'education' not found` (or any 404 / "no such schema") | That id is not in the built-in registry | List what's actually available: `curl -s http://localhost:3100/v1/schemas -H "Authorization: Bearer $OPENCRED_API_KEY" \| jq '.[].id'` |
 | `503 DEDI_NOT_CONFIGURED` on `/v1/credentials/revoke` or `/revocation-status` | DeDi env vars are missing — `dediConfigured: false` in `/v1/health` | Set `OPENCRED_DEDI_BASE_URL`, `OPENCRED_DEDI_AUTH_TYPE`, `OPENCRED_DEDI_NAMESPACE`, and the matching auth pair (`OPENCRED_DEDI_API_KEY` for `api-key`, or `OPENCRED_DEDI_EMAIL`+`OPENCRED_DEDI_PASSWORD` for `bearer`), then restart the container |
+| `409 DEDI_RECORD_EXISTS` on `/v1/credentials/revoke` (response body has a `hint` field) | The hash you're publishing is already revoked in `vc-revocation-registry` from a prior run. The DeDi record uses the hash as `record_name`, so re-revoking the same VC is a duplicate-key collision. | This is "success on a prior run" — confirm with `POST /v1/credentials/revocation-status` (the response `hint` points there). For a fresh revoke demo, issue a NEW credential with `revocationRegistryUrl` set: every issue mints a fresh `urn:uuid:` → fresh hash → no collision. |
+| `409 DEDI_RECORD_EXISTS` on `/v1/keys/publish` (response body has a `hint` field) | This DID was already published in a prior run — `public_key_registry` uses the DID as `record_name`, so republishing the same DID is a duplicate-key collision. | Skip the publish and call `POST /v1/keys/resolve` instead (the response `hint` points there) — the previous publish landed and the document is available. To demo a fresh publish, use a unique `did:web:<your-domain>` you haven't published before. |
 | Container exits with `OPENCRED_DEDI_AUTH_TYPE is required when OPENCRED_DEDI_BASE_URL is set` (or similar) | Partial DeDi config | Either set the full DeDi quartet (URL + auth-type + namespace + auth secret) or unset `OPENCRED_DEDI_BASE_URL` entirely. Run `opencred config validate` to catch this before `docker run`. |
 | Startup log shows DeDi lookup URL with `%E2%80%9C` / `%E2%80%9D` wrapping your namespace (e.g. `/dedi/lookup/%E2%80%9Cverifaistudio.co%E2%80%9D` → `404 Namespace not found` → `401 Invalid API key`) | Your `OPENCRED_DEDI_NAMESPACE` (or API key) was pasted with **Unicode smart quotes** (`"…"` instead of ASCII `"…"`), usually from a chat app, docs page, or note-taking app that auto-corrects | Re-export with straight ASCII quotes — or no quotes at all if the value has no spaces: `export OPENCRED_DEDI_NAMESPACE=verifaistudio.co`. Verify before `docker run` with `printf '%s\n' "$OPENCRED_DEDI_NAMESPACE" \| od -c \| head -1` — anything other than plain ASCII bytes means a smart quote slipped in. |
 | Build hangs at "fetching pnpm" | Conference Wi-Fi blocking npmjs.org | Use a phone hotspot, or distribute a pre-built image via `docker save`/`docker load` |
 | `port is already allocated` | Something is on 3100 already | Pick a different host port: `-p 3200:3100`, then point curl at `:3200`. The server still listens on 3100 inside the container. |
+
+> **Note on the `DEDI_RECORD_EXISTS` rows above.** The `DEDI_RECORD_EXISTS`
+> error code and its `hint` response field are introduced by [PR #620](https://github.com/nfh-trust-labs/opencred/pull/620).
+> If you're running an older server build, the same 409 surfaces as the
+> generic `DEDI_CLIENT_ERROR` (no `hint` field) — the underlying cause
+> and the fix are identical, only the code name changes.
 
 ### 9. What you should have
 
