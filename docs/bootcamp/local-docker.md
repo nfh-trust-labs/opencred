@@ -813,10 +813,11 @@ unreachable. This means an issuer can stop hosting their own
 > rotating a did:web signing key (swap `OPENCRED_KEY_PATH`, restart)
 > produces signatures that nothing in DeDi or `.well-known/did.json`
 > reflects, because there is no flow to update the hosted DID Document.
-> Track [the rotation design spike](../spikes/spike-619-did-web-rotation.md)
-> for the multi-key DID Document + `POST /v1/keys/rotate` work that
-> closes this gap. Until then, keep `did:web` issuers on a stable key
-> for the lifetime of the deployment.
+> Track [issue #619](https://github.com/nfh-trust-labs/opencred/issues/619)
+> for the multi-key DID Document + `POST /v1/keys/rotate` design work
+> (and the linked design spike doc) that closes this gap. Until then,
+> keep `did:web` issuers on a stable key for the lifetime of the
+> deployment.
 
 ```bash
 # Publish — body is { did, document, namespace? }. The "document" is a
@@ -993,6 +994,12 @@ you outgrow the single-instance model.
 | Startup log shows DeDi lookup URL with `%E2%80%9C` / `%E2%80%9D` wrapping your namespace (e.g. `/dedi/lookup/%E2%80%9Cverifaistudio.co%E2%80%9D` → `404 Namespace not found` → `401 Invalid API key`) | Your `OPENCRED_DEDI_NAMESPACE` (or API key) was pasted with **Unicode smart quotes** (`"…"` instead of ASCII `"…"`), usually from a chat app, docs page, or note-taking app that auto-corrects | Re-export with straight ASCII quotes — or no quotes at all if the value has no spaces: `export OPENCRED_DEDI_NAMESPACE=verifaistudio.co`. Verify before `docker run` with `printf '%s\n' "$OPENCRED_DEDI_NAMESPACE" \| od -c \| head -1` — anything other than plain ASCII bytes means a smart quote slipped in. |
 | Build hangs at "fetching pnpm" | Conference Wi-Fi blocking npmjs.org | Use a phone hotspot, or distribute a pre-built image via `docker save`/`docker load` |
 | `port is already allocated` | Something is on 3100 already | Pick a different host port: `-p 3200:3100`, then point curl at `:3200`. The server still listens on 3100 inside the container. |
+
+> **Note on the `DEDI_RECORD_EXISTS` rows above.** The `DEDI_RECORD_EXISTS`
+> error code and its `hint` response field are introduced by [PR #620](https://github.com/nfh-trust-labs/opencred/pull/620).
+> If you're running an older server build, the same 409 surfaces as the
+> generic `DEDI_CLIENT_ERROR` (no `hint` field) — the underlying cause
+> and the fix are identical, only the code name changes.
 
 ### 9. What you should have
 
