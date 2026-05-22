@@ -159,11 +159,7 @@ if (cloudSigner) {
     // `Signer.type` so OS-cert / PKCS#11 / software paths show
     // distinct breakdowns in dashboards.
     const kind: SignerKind =
-      loaded.type === "pkcs11"
-        ? "pkcs11"
-        : loaded.type === "os-cert"
-          ? "os-cert"
-          : "software";
+      loaded.type === "pkcs11" ? "pkcs11" : loaded.type === "os-cert" ? "os-cert" : "software";
     setActiveSigner(wrapSignerWithTracing(loaded, kind));
   }
 }

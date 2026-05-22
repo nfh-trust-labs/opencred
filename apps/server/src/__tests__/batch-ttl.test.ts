@@ -65,11 +65,7 @@ describe("MemoryJobStore TTL", () => {
 
     // Advance to just before TTL, then update → expect another full 60s.
     now += 55_000;
-    const updated = await store.update(
-      "job-1",
-      (cur) => ({ ...cur, status: "running" }),
-      60,
-    );
+    const updated = await store.update("job-1", (cur) => ({ ...cur, status: "running" }), 60);
     expect(updated).not.toBeNull();
     expect(updated?.status).toBe("running");
 

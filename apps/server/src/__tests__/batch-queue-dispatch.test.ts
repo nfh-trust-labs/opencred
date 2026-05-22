@@ -20,16 +20,8 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import {
-  createTestApp,
-  generateTestKey,
-  type TestKeyPair,
-} from "./helpers.js";
-import {
-  setBatchQueue,
-  setJobStore,
-  __resetBatchStateForTesting,
-} from "../routes/batch.js";
+import { createTestApp, generateTestKey, type TestKeyPair } from "./helpers.js";
+import { setBatchQueue, setJobStore, __resetBatchStateForTesting } from "../routes/batch.js";
 import { setActiveSigner } from "../signing/key-manager.js";
 import { MemoryJobStore } from "../batch/job-store/memory.js";
 import type { BatchQueue } from "../batch/queue.js";
@@ -173,8 +165,6 @@ describe("POST /credentials/batch — queue dispatch (Tier 3 #8)", () => {
     // The route opts surface; the BullMQ-side dedup (jobId == OpenCred
     // jobId) is asserted in batch/__tests__/queue.test.ts where the
     // BullMqQueueLike fake records the raw `add` call.
-    expect((opts as { removeOnCompleteAgeSec: number }).removeOnCompleteAgeSec).toBeGreaterThan(
-      0,
-    );
+    expect((opts as { removeOnCompleteAgeSec: number }).removeOnCompleteAgeSec).toBeGreaterThan(0);
   });
 });

@@ -148,11 +148,7 @@ describe("prepareProofWithPrecomputedConfig", () => {
 
   it("yields verifiable credentials when signed and stitched", async () => {
     const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
-    const bundle = await precomputeProofConfig(
-      makeUnsigned("alice"),
-      proofOptions,
-      "P-256",
-    );
+    const bundle = await precomputeProofConfig(makeUnsigned("alice"), proofOptions, "P-256");
 
     const unsigned = makeUnsigned("alice");
     const { dataToSign, proofConfig } = await prepareProofWithPrecomputedConfig(unsigned, bundle);

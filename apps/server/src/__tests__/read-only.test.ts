@@ -15,7 +15,12 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
-import { createTestApp, generateTestKey, VALID_ISSUE_REQUEST, type TestKeyPair } from "./helpers.js";
+import {
+  createTestApp,
+  generateTestKey,
+  VALID_ISSUE_REQUEST,
+  type TestKeyPair,
+} from "./helpers.js";
 import { setActiveSigner } from "../signing/key-manager.js";
 import { resetDeDiClient } from "../dedi-singleton.js";
 import { isAllowedUnderReadOnly } from "../middleware/read-only.js";

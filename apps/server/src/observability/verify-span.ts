@@ -46,12 +46,10 @@ export function wrapDidResolverWithTracing(resolver: DIDResolver): DIDResolver {
   return {
     resolve(did: string) {
       const method = did.startsWith("did:")
-        ? did.slice(4).split(":", 1)[0] ?? "unknown"
+        ? (did.slice(4).split(":", 1)[0] ?? "unknown")
         : "unknown";
-      return runInSpan(
-        "verify.did_resolve",
-        { "did.method": method, "did": clampAttr(did) },
-        () => resolver.resolve(did),
+      return runInSpan("verify.did_resolve", { "did.method": method, did: clampAttr(did) }, () =>
+        resolver.resolve(did),
       );
     },
   };

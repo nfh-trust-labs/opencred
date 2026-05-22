@@ -33,10 +33,7 @@
  */
 
 import type { Logger } from "pino";
-import type {
-  BatchJob,
-  WebhookDeliveryJob,
-} from "@opencred/shared";
+import type { BatchJob, WebhookDeliveryJob } from "@opencred/shared";
 import { BATCH_QUEUE_NAME, WEBHOOK_QUEUE_NAME } from "@opencred/shared";
 import type { ServerConfig } from "../config.js";
 import { safeRedisInfo } from "./job-store/factory.js";
@@ -101,11 +98,7 @@ interface QueueDeps {
  * can provide a fake without installing bullmq.
  */
 export interface BullMqQueueLike {
-  add(
-    jobName: string,
-    payload: unknown,
-    opts?: Record<string, unknown>,
-  ): Promise<unknown>;
+  add(jobName: string, payload: unknown, opts?: Record<string, unknown>): Promise<unknown>;
   close(): Promise<void>;
 }
 
@@ -136,16 +129,10 @@ export async function buildQueues(
 
   const tls = config.OPENCRED_REDIS_URL.startsWith("rediss://");
   const make =
-    deps.createQueue ??
-    (await loadRealBullMq(config.OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED));
+    deps.createQueue ?? (await loadRealBullMq(config.OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED));
 
   const batchQueue = make(BATCH_QUEUE_NAME, config.OPENCRED_REDIS_URL, tls, true);
-  const webhookQueue = make(
-    WEBHOOK_QUEUE_NAME,
-    config.OPENCRED_REDIS_URL,
-    tls,
-    true,
-  );
+  const webhookQueue = make(WEBHOOK_QUEUE_NAME, config.OPENCRED_REDIS_URL, tls, true);
 
   logger.info(
     {
@@ -160,8 +147,7 @@ export async function buildQueues(
   return {
     batch: {
       async add(payload, opts) {
-        const removeOnCompleteAgeSec =
-          opts?.removeOnCompleteAgeSec ?? config.OPENCRED_SESSION_TTL;
+        const removeOnCompleteAgeSec = opts?.removeOnCompleteAgeSec ?? config.OPENCRED_SESSION_TTL;
         await batchQueue.add(BATCH_QUEUE_NAME, payload, {
           // Use the OpenCred-assigned jobId as BullMQ's job id so a
           // duplicate enqueue is a no-op rather than a parallel run.
@@ -204,12 +190,7 @@ export async function buildQueues(
 async function loadRealBullMq(
   rejectUnauthorized: boolean,
 ): Promise<
-  (
-    name: string,
-    redisUrl: string,
-    tls: boolean,
-    enforceJobId: boolean,
-  ) => BullMqQueueLike
+  (name: string, redisUrl: string, tls: boolean, enforceJobId: boolean) => BullMqQueueLike
 > {
   const { Queue } = await import("bullmq");
   const { Redis } = await import("ioredis");

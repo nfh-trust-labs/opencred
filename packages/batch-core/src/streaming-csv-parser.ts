@@ -400,7 +400,10 @@ async function takeHeaderRecord(
   let buf = "";
   let inQuotes = false;
 
-  while (true) {
+  // `while (true)` would trigger eslint's `no-constant-condition`. Using a
+  // flag we never read post-loop expresses the same "read until the iterator
+  // signals done" intent without the lint complaint.
+  for (;;) {
     const next = await iterator.next();
     if (next.done) {
       // No header terminator seen — the entire input is the header
@@ -442,15 +445,18 @@ async function takeHeaderRecord(
         // Build a tail iterable that re-emits `rest` then continues
         // pulling from the original iterator. Order matters — `rest`
         // is the leftover from the chunk that contained the header
-        // terminator.
-        async function* tail(): AsyncIterable<string> {
+        // terminator. Declared as a function expression rather than a
+        // declaration to keep eslint's `no-inner-declarations` happy
+        // (function declarations inside `for` loops are hoisted in
+        // browser/strict-mode-unclear ways).
+        const tail = async function* (): AsyncIterable<string> {
           if (rest.length > 0) yield rest;
-          while (true) {
+          for (;;) {
             const n = await iterator.next();
             if (n.done) return;
             yield n.value;
           }
-        }
+        };
 
         return { header, tail: tail() };
       }

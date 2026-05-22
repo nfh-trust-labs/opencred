@@ -188,11 +188,7 @@ describe("RedisJobStore — TTL", () => {
     const store = new RedisJobStore({ client: fake });
     await store.set("job-1", makeRecord("job-1"), 60);
     clock += 55_000; // just before the original 60s TTL
-    const updated = await store.update(
-      "job-1",
-      (cur) => ({ ...cur, status: "running" }),
-      60,
-    );
+    const updated = await store.update("job-1", (cur) => ({ ...cur, status: "running" }), 60);
     expect(updated?.status).toBe("running");
     clock += 55_000; // 55s after the update — still inside the refreshed TTL
     expect(await store.get("job-1")).not.toBeNull();
@@ -242,11 +238,7 @@ describe("RedisJobStore — retry semantics", () => {
 
     // Cause the *first* SET inside the update loop to fail.
     fake.failNextSet = true;
-    const out = await store.update(
-      "job-1",
-      (cur) => ({ ...cur, status: "running" }),
-      60,
-    );
+    const out = await store.update("job-1", (cur) => ({ ...cur, status: "running" }), 60);
     expect(out?.status).toBe("running");
   });
 

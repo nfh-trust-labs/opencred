@@ -248,11 +248,7 @@ export async function precomputeProofConfig(
     );
   }
 
-  const proofConfig = buildProofConfig(
-    contextTemplate as UnsignedCredential,
-    options,
-    cryptosuite,
-  );
+  const proofConfig = buildProofConfig(contextTemplate as UnsignedCredential, options, cryptosuite);
   const hash = hashAlgorithm === "sha384" ? sha384 : sha256;
   const canonicalProofConfig = await canonicalize(
     proofConfig as unknown as Record<string, unknown>,

@@ -55,10 +55,7 @@ import {
 } from "@opencred/shared";
 import type { ParsedRow } from "./batch/csv-parser.js";
 import { cpus } from "node:os";
-import {
-  deriveWorkerStatus as deriveStatus,
-  wireRowToParsedRow,
-} from "./batch/worker-helpers.js";
+import { deriveWorkerStatus as deriveStatus, wireRowToParsedRow } from "./batch/worker-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

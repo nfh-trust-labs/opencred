@@ -77,10 +77,7 @@ describe("safeRedisInfo", () => {
 describe("createJobStore", () => {
   it("returns a MemoryJobStore when OPENCRED_JOB_STORE=memory", async () => {
     const { logger } = makeLogger();
-    const store = await createJobStore(
-      makeConfig({ OPENCRED_JOB_STORE: "memory" }),
-      logger,
-    );
+    const store = await createJobStore(makeConfig({ OPENCRED_JOB_STORE: "memory" }), logger);
     expect(store).toBeInstanceOf(MemoryJobStore);
     await store.close();
   });

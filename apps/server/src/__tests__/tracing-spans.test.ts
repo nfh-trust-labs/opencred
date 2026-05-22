@@ -18,11 +18,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { InMemorySpanExporter, type ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import type { Hono } from "hono";
 
-import {
-  createTestApp,
-  generateTestKey,
-  type TestKeyPair,
-} from "./helpers.js";
+import { createTestApp, generateTestKey, type TestKeyPair } from "./helpers.js";
 import { setActiveSigner } from "../signing/key-manager.js";
 import { wrapSignerWithTracing } from "../observability/signer-span.js";
 import { setInMemoryExporter, resetTracingForTesting } from "../tracing.js";
@@ -250,7 +246,12 @@ describe("DeDi adapter spans", () => {
     // a no-op.
     const stub = {
       apiClient: {} as never,
-      logger: { info: () => undefined, warn: () => undefined, error: () => undefined, debug: () => undefined },
+      logger: {
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+        debug: () => undefined,
+      },
       async publishRevocationHash() {
         return { revoked: true, revokedAt: new Date().toISOString() } as const;
       },

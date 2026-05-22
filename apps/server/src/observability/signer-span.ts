@@ -32,7 +32,13 @@ import { runInSpan } from "./span-helpers.js";
  * we want to distinguish "AWS KMS" from "local PEM" even when both
  * report the same Signer.type.
  */
-export type SignerKind = "software" | "pkcs11" | "os-cert" | "cloud-hsm-aws" | "cloud-hsm-azure" | "cloud-hsm-gcp";
+export type SignerKind =
+  | "software"
+  | "pkcs11"
+  | "os-cert"
+  | "cloud-hsm-aws"
+  | "cloud-hsm-azure"
+  | "cloud-hsm-gcp";
 
 /**
  * Wrap a Signer so every `sign()` call is instrumented with a
