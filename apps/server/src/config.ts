@@ -191,6 +191,25 @@ const configSchema = z.object({
    */
   OPENCRED_DEDI_HOST_DID_DOC: booleanFromString,
 
+  /**
+   * When true and DeDi is configured, the server publishes its issuer
+   * DID to the DeDi `public_key_registry` at startup.
+   *
+   * Independent of `OPENCRED_DEDI_HOST_DID_DOC`:
+   * - For did:key, `OPENCRED_AUTO_PUBLISH_KEY` is the only way to
+   *   auto-publish at startup (HOST_DID_DOC is did:web-specific).
+   * - For did:web, either flag triggers the same publish path. Setting
+   *   both is harmless — the publish runs once.
+   *
+   * Behaviour on conflict / failure:
+   * - If the DID is already published (DeDi returns 409 → adapter rewraps
+   *   as `DeDiRecordExistsError`), we log a friendly "idempotent skip"
+   *   message and continue. The publish is treated as success.
+   * - Any other DeDi error is logged at warn level and the server still
+   *   starts. Auto-publish is a convenience, not a precondition.
+   */
+  OPENCRED_AUTO_PUBLISH_KEY: booleanFromString,
+
   // --- Cloud HSM (KMS) configuration ---
 
   /** KMS provider: aws | azure | gcp | none. Default: none (file-based). */
@@ -572,6 +591,19 @@ export function loadConfig(): ServerConfig {
           "Set OPENCRED_DEDI_BASE_URL, OPENCRED_DEDI_AUTH_TYPE, and OPENCRED_DEDI_NAMESPACE.",
       );
     }
+  }
+
+  // OPENCRED_AUTO_PUBLISH_KEY=true is meaningless without DeDi — without a
+  // configured client, the auto-publish hook silently no-ops, which is exactly
+  // the failure mode that motivated the flag's existence. Fail fast so the
+  // operator sees the problem at startup rather than wondering why nothing
+  // got published.
+  if (parsed.OPENCRED_AUTO_PUBLISH_KEY && !parsed.OPENCRED_DEDI_BASE_URL) {
+    throw new ConfigError(
+      "OPENCRED_AUTO_PUBLISH_KEY=true requires DeDi to be configured. " +
+        "Set OPENCRED_DEDI_BASE_URL, OPENCRED_DEDI_AUTH_TYPE, and OPENCRED_DEDI_NAMESPACE, " +
+        "or unset OPENCRED_AUTO_PUBLISH_KEY if you don't intend to publish at startup.",
+    );
   }
 
   // --- DeDi cross-field validation ---

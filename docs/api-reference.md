@@ -75,6 +75,7 @@ Health and readiness probe. Always public -- no authentication required.
   "ready": true,
   "signingKeyLoaded": true,
   "dediConfigured": false,
+  "didAutoPublished": false,
   "timestamp": "2026-04-13T10:00:00.000Z"
 }
 ```
@@ -87,6 +88,7 @@ Health and readiness probe. Always public -- no authentication required.
   "ready": false,
   "signingKeyLoaded": false,
   "dediConfigured": false,
+  "didAutoPublished": false,
   "timestamp": "2026-04-13T10:00:00.000Z"
 }
 ```
@@ -97,6 +99,7 @@ Health and readiness probe. Always public -- no authentication required.
 | `ready` | boolean | `true` when the signing key is loaded |
 | `signingKeyLoaded` | boolean | Whether a signer was loaded at startup |
 | `dediConfigured` | boolean | Whether a DeDi client is configured |
+| `didAutoPublished` | boolean | `true` when the issuer DID was auto-published to DeDi at startup (via `OPENCRED_AUTO_PUBLISH_KEY=true` or `OPENCRED_DEDI_HOST_DID_DOC=true` for did:web). Stays `false` when the flag is off, when the publish failed (warn-logged, non-blocking), or when DeDi is not configured. An already-published DID is also reported as `true` (the idempotent skip path is treated as success). |
 | `timestamp` | string | ISO-8601 server timestamp |
 
 **Example:**

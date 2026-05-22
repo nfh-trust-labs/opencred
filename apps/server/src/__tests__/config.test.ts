@@ -374,6 +374,25 @@ describe("Config — issuer identity (DID method)", () => {
     expect(() => loadConfig()).toThrow(/requires DeDi to be configured/);
   });
 
+  it("accepts OPENCRED_AUTO_PUBLISH_KEY=true with DeDi configured (did:key)", () => {
+    process.env.OPENCRED_AUTO_PUBLISH_KEY = "true";
+    process.env.OPENCRED_DEDI_BASE_URL = "https://dedi.example.com";
+    process.env.OPENCRED_DEDI_AUTH_TYPE = "api-key";
+    process.env.OPENCRED_DEDI_API_KEY = "test-key";
+    process.env.OPENCRED_DEDI_NAMESPACE = "test-ns";
+    const config = loadConfig();
+    expect(config.OPENCRED_AUTO_PUBLISH_KEY).toBe(true);
+  });
+
+  it("rejects OPENCRED_AUTO_PUBLISH_KEY=true without DeDi configured", () => {
+    // This is the exact silent-no-op the flag was created to prevent, so the
+    // validator must fail closed rather than tolerate the misconfiguration.
+    process.env.OPENCRED_AUTO_PUBLISH_KEY = "true";
+    delete process.env.OPENCRED_DEDI_BASE_URL;
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/OPENCRED_AUTO_PUBLISH_KEY=true requires DeDi/);
+  });
+
   // --- Job store (Tier 2 #5 of nfh-trust-labs/opencred#446) ---
 
   it("defaults OPENCRED_JOB_STORE to memory", () => {

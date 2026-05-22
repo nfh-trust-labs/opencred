@@ -77,6 +77,28 @@ describe("GET /health", () => {
     expect(body.dediConfigured).toBe(true);
     resetDeDiClient();
   });
+
+  it("includes didAutoPublished in the response (defaults to false)", async () => {
+    // didAutoPublished is set by index.ts at startup; in unit tests the
+    // singleton starts as false. Existence + type checks here; the actual
+    // true-state flip is exercised by auto-publish.test.ts.
+    const { resetStartupState } = await import("../startup-state.js");
+    resetStartupState();
+    const res = await app.request("/health");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toHaveProperty("didAutoPublished");
+    expect(typeof body.didAutoPublished).toBe("boolean");
+    expect(body.didAutoPublished).toBe(false);
+  });
+
+  it("flips didAutoPublished to true after setDidAutoPublishedAtStartup(true)", async () => {
+    const { setDidAutoPublishedAtStartup, resetStartupState } = await import("../startup-state.js");
+    setDidAutoPublishedAtStartup(true);
+    const res = await app.request("/health");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.didAutoPublished).toBe(true);
+    resetStartupState();
+  });
 });
 
 // ---------------------------------------------------------------------------
