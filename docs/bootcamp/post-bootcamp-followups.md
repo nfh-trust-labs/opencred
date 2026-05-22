@@ -1,10 +1,30 @@
 # Post-Bootcamp Follow-ups
 
-Issues and gaps surfaced while dry-running the Local-Docker bootcamp on 2026-05-21. Fix order is roughly priority-descending. None of these block the bootcamp itself once the new image is published; they are the cleanup pass to make the published `:latest` actually match what `docs/bootcamp/` claims.
+Issues and gaps surfaced while dry-running the Local-Docker bootcamp on
+2026-05-21. None of these block the bootcamp itself once the new image is
+published; they were the cleanup pass to make the published `:latest`
+actually match what `docs/bootcamp/` claims.
+
+**Status as of 2026-05-22:** §2–§8 all landed (or filed for follow-up
+where the spike-protocol applies). §1 (release ops) is owned outside
+this doc.
+
+| § | Item | Status |
+|---|---|---|
+| 1 | Cut release with dedi-client revoke/publish fix | Owned by release flow (not closed by this doc) |
+| 2 | Postman — Issue → Revoke threading | ✅ **Implemented** in [PR #621](https://github.com/nfh-trust-labs/opencred/pull/621) |
+| 3 | Postman — DID publish + resolve | ✅ **Implemented** in [PR #621](https://github.com/nfh-trust-labs/opencred/pull/621) |
+| 4 | Bootcamp doc — clarify when publish happens | ✅ **Implemented** in [PR #623](https://github.com/nfh-trust-labs/opencred/pull/623) |
+| 5 | Bootcamp doc — 409 troubleshooting rows | ✅ **Implemented** in [PR #623](https://github.com/nfh-trust-labs/opencred/pull/623) |
+| 6 | Better 409 → `DEDI_RECORD_EXISTS` error | ✅ **Implemented** in [PR #620](https://github.com/nfh-trust-labs/opencred/pull/620) |
+| 7 | did:web key rotation | 🟡 **Design spike landed** in [PR #622](https://github.com/nfh-trust-labs/opencred/pull/622); impl tracked at [issue #619](https://github.com/nfh-trust-labs/opencred/issues/619) |
+| 8 | Opt-in startup auto-publish | ✅ **Implemented** in [PR #624](https://github.com/nfh-trust-labs/opencred/pull/624) |
+
+---
 
 ## 1. Cut a new release with the dedi-client revoke/publish fix
 
-**Status**: code is on `main` (commit `34c830d3` — `fix(dedi-client): chain publish-records + use lookup for revocation queries (#612)`); not yet in any published image.
+**Status**: code is on `main` (commit `34c830d3` — `fix(dedi-client): chain publish-records + use lookup for revocation queries (#612)`); release-please cuts the next published image.
 
 **Symptom**: image tag `:latest` resolves to `v1.4.1` (2026-05-15). On that image, both `POST /v1/credentials/revoke` and `POST /v1/keys/publish` hit DeDi with the `?publish=true` shortcut, which returns 201 but leaves the record in DRAFT. The OpenCred dedi-client then asserts `record_name` on a response shape that does not carry it and returns:
 
@@ -17,127 +37,107 @@ Retries return DeDi 409 `"duplicate record name"` because the DRAFT record block
 
 **Action**: tag and publish `v1.4.2` (or whatever the next semver is) so the published image actually carries the fix. Until then, the bootcamp §7c (revocation) and §7d (DID publish/resolve) sections only work for users who build from source.
 
-## 2. Postman collection — Issue → Revoke threading
+## 2. Postman collection — Issue → Revoke threading ✅
 
-**Gap**: `POST /v1/credentials/revocation-hash` is the only path that auto-saves `lastRevocationHash`, and its body is a hardcoded sample VC, so the click-chain `Issue → Revoke` does not work as documented.
+**Status**: **Implemented** in [PR #621](https://github.com/nfh-trust-labs/opencred/pull/621).
 
-**Better fix (no extra call needed)**: when `revocationRegistryUrl` is set on the issue request, the server embeds the hash as the last URL segment of `credential.credentialStatus.id` (apps/server/src/routes/credentials.ts:477-499). Postman's post-test script on the issue requests can extract it directly:
+**Gap**: `POST /v1/credentials/revocation-hash` was the only path that auto-saved `lastRevocationHash`, and its body was a hardcoded sample VC, so the click-chain `Issue → Revoke` did not work as documented.
+
+**Better fix (no extra call needed)**: when `revocationRegistryUrl` is set on the issue request, the server embeds the hash as the last URL segment of `credential.credentialStatus.id` (apps/server/src/routes/credentials.ts:477-499). Postman's post-test script on the issue requests extracts it directly:
 
 ```
 const m = /([a-f0-9]{64})$/.exec(body?.credential?.credentialStatus?.id ?? "");
 if (m) pm.collectionVariables.set("lastRevocationHash", m[1]);
 ```
 
-**Action**:
-- Add the extractor above to every `POST /v1/credentials/issue (*)` post-test script that uses `revocationRegistryUrl` (today: only the electricity request; after this fix this becomes the recommended way to demo revoke).
-- Also save the full VC envelope into a new `lastCredentialObject` collection variable so the existing `/v1/credentials/revocation-hash` request can be pre-request-script-threaded (same pattern as `/v1/credentials/package` already uses) for non-OpenCred VCs.
-- Update `/v1/credentials/revoke` description to say "use `{{lastRevocationHash}}` — already populated by the issue request when `revocationRegistryUrl` is set, no separate hash call needed."
+**Landed**:
+- Extractor added to every `POST /v1/credentials/issue (*)` post-test script.
+- Full VC envelope also saved into `lastFullCredential` (existing variable — reused, not a new one).
+- `/v1/credentials/revoke` request description updated to point at `{{lastRevocationHash}}` and clarify no separate hash call is needed.
 
-## 3. Postman collection — DID publish + resolve
+## 3. Postman collection — DID publish + resolve ✅
 
-**Gap**: the Postman collection has zero requests for the §7d DID-publish/resolve flow. The bootcamp doc shows shell-only examples; Postman users have no Send-button path.
+**Status**: **Implemented** in [PR #621](https://github.com/nfh-trust-labs/opencred/pull/621). Includes the server-side schema relaxation (`document` is now optional on `/v1/keys/publish`).
 
-**Action**: add a new section **"Key publish / resolve (DeDi)"** with:
+**Gap**: the Postman collection had zero requests for the §7d DID-publish/resolve flow. Bootcamp doc showed shell-only examples; Postman users had no Send-button path.
 
-- `POST /v1/keys/publish (did:key, auto from {{issuerDid}})` — pre-request script builds `{"did": "{{issuerDid}}"}` body. For did:key the server drops the document anyway, so a minimal body works.
-- `POST /v1/keys/resolve (auto from {{issuerDid}})` — `{"did": "{{issuerDid}}"}` body.
-- Optionally: `POST /v1/keys/publish (did:web fresh)` that builds `did:web:bootcamp-<timestamp>.example.org` with the issuer's real P-256 public key (pulled from `GET /v1/keys`), so the publish is guaranteed-fresh (no 409) for live demos.
+**Landed**: new top-level section **"Public-key registry (DeDi)"** with:
 
-Save the published DID to a new `lastPublishedDid` collection variable so the resolve request can be wired to either `{{issuerDid}}` or `{{lastPublishedDid}}`.
+- `POST /v1/keys/publish (did:key, auto from {{issuerDid}})` — minimal body, the adapter drops the document for did:key.
+- `POST /v1/keys/resolve (auto from {{issuerDid}})`.
+- `POST /v1/keys/publish (did:web fresh, advanced)` — pre-request script builds `did:web:bootcamp-<timestamp>.example.org` and assembles a document from the live `/v1/keys` output. Useful for guaranteed-fresh demo publishes that won't 409.
 
-## 4. Bootcamp doc — clarify when publish actually happens
+Published DID saved to new `lastPublishedDid` collection variable. Also: the server-side Zod schema on `POST /v1/keys/publish` was relaxed (`document` is now optional) so did:key callers don't need to send a placeholder document — the adapter still enforces "did:web requires a document".
 
-**Gap**: `docs/bootcamp/local-docker.md` §7d describes the publish/resolve endpoints but does not make explicit that **the issuer's DID is not auto-published at container startup**. Startup only runs `ensureRegistries()`, which creates the empty registries; the DID stays out of DeDi until `POST /v1/keys/publish` is called. The §4 log line `Issuer identity configured` is purely an in-memory configuration message — easy to misread as "and also published it."
+## 4. Bootcamp doc — clarify when publish actually happens ✅
 
-**Action**: add a callout under §4 (right after the `/v1/health` block) and again under §7d:
+**Status**: **Implemented** in [PR #623](https://github.com/nfh-trust-labs/opencred/pull/623). Behavior subsequently changed by [PR #624](https://github.com/nfh-trust-labs/opencred/pull/624) — see note below.
 
-> **Heads-up — the issuer's DID is not published to DeDi automatically.** Container startup creates the four empty registries (`vc-revocation-registry`, `public_key_registry`, `schema_registry`, `context_registry`) and loads your signing key into memory, but it does not write your DID into `public_key_registry`. To make verifiers discover your public key via DeDi, you have to explicitly call `POST /v1/keys/publish`. Until then, `/v1/keys/resolve` returns 404.
+**Gap (at the time)**: `docs/bootcamp/local-docker.md` §7d described the publish/resolve endpoints but did not make explicit that **the issuer's DID was not auto-published at container startup**. Startup only ran `ensureRegistries()`. The §4 log line `Issuer identity configured` was purely an in-memory configuration message — easy to misread as "and also published it."
 
-## 5. Bootcamp doc — clarify 409 semantics for revoke + publish
+**Landed**: callouts added under §4 (right after the `/v1/health` block) and again under §7d.
 
-**Gap**: §7c and §7d do not explain that running the same revoke/publish twice (across container restarts, prior bootcamp runs, etc.) will return DeDi 409, which propagates out of OpenCred as `DEDI_CLIENT_ERROR: DeDi API error: 409`. First-time attendees hit this and assume something is broken.
+**Note**: after PR #624 landed, an operator who explicitly sets `OPENCRED_AUTO_PUBLISH_KEY=true` (or `OPENCRED_DEDI_HOST_DID_DOC=true` for did:web) **does** get auto-publish at startup. The callouts still apply for the default (flag off) case.
 
-**Action**: add a row to the §8 troubleshooting table:
+## 5. Bootcamp doc — clarify 409 semantics for revoke + publish ✅
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| `POST /v1/credentials/revoke` returns `409 "duplicate record name"` | The hash you are trying to publish is already revoked in `vc-revocation-registry` (typical after re-running the bootcamp without re-issuing) | Issue a NEW credential with `revocationRegistryUrl` set — each issue mints a fresh `urn:uuid:` → fresh hash → no collision. To confirm the prior revoke actually landed, hit `/v1/credentials/revocation-status` with the existing hash. |
-| `POST /v1/keys/publish` returns `409 "duplicate record name"` | This DID was already published in a prior run (record_name = DID) | Either run `/v1/keys/resolve` instead (the previous publish landed; the resolve is the demo), or publish a fresh `did:web:<unique>` you have not used before. |
+**Status**: **Implemented** in [PR #623](https://github.com/nfh-trust-labs/opencred/pull/623). The error code referenced is `DEDI_RECORD_EXISTS` from PR #620 (§6 below).
 
-## 6. (Decision needed) Make `/v1/credentials/revoke` and `/v1/keys/publish` idempotent
+**Gap (at the time)**: §7c and §7d did not explain that running the same revoke/publish twice (across container restarts, prior bootcamp runs, etc.) returns DeDi 409, which surfaced as the generic `DEDI_CLIENT_ERROR: DeDi API error: 409`. First-time attendees hit this and assumed something was broken.
 
-**Open question — needs a decision, not a code change yet.**
+**Landed**: two rows added to the §8 troubleshooting table — one for revoke, one for publish — both referencing the new `DEDI_RECORD_EXISTS` code and pointing at the response `hint` field for the resolution path. A version-stamp note under the table clarifies that older server builds surface the same 409 as the generic `DEDI_CLIENT_ERROR`.
 
-Today both endpoints surface DeDi 409 as `DEDI_CLIENT_ERROR: 409`. The semantic "this hash/DID is already in the registry" arguably means the operation already succeeded earlier, so 409 could be treated as success (200 with a hint like `{"alreadyRevoked": true}` / `{"alreadyPublished": true}`).
+## 6. Better DeDi 409 — `DEDI_RECORD_EXISTS` ✅
 
-**For**:
-- Idempotent ops are easier to retry; bootcamp demos would be more forgiving.
-- The end state DeDi reaches is identical whether the call succeeded for the first time or was a no-op.
+**Status**: **Implemented** in [PR #620](https://github.com/nfh-trust-labs/opencred/pull/620).
 
-**Against**:
-- Hides accidental hash collisions (two different VCs that share a hash would silently overwrite — though that is a SHA-256 collision, not actually a concern).
-- Hides operational mistakes — e.g. publishing the wrong DID twice gets silently masked.
-- Changes the contract of a security-sensitive endpoint without a migration path.
+**Original framing** (decision needed): treat DeDi 409 as success-with-hint, or keep strict 409 with a better error code? Resolved in favour of strict 409 + typed error class — preserves audit signal while making the response self-describing.
 
-**Proposed**: keep strict 409 behavior on both endpoints. Add a clear hint in the error response that points users to the status/resolve endpoint instead:
+**Landed**:
+- New `DeDiRecordExistsError` class in `@opencred/shared` (code `DEDI_RECORD_EXISTS`, status 409, `hint` field).
+- `dedi-client` adapter rewraps 409 "duplicate record name" responses on both `publishRevocationHash` and `publishDID`, matching DeDi's response body via robust regex (`/duplicate.*record/i` OR `/record.*already.*exists/i` on `message`, `data`, or the stringified body).
+- Response shape:
+  ```json
+  { "error": {
+      "code": "DEDI_RECORD_EXISTS",
+      "message": "This hash is already in the revocation registry",
+      "hint": "Use POST /v1/credentials/revocation-status to confirm the prior revoke landed",
+      "statusCode": 409
+  }}
+  ```
+- Same shape for the publish path (with a hint pointing at `/v1/keys/resolve`).
 
-```
-{ "error": {
-    "code": "DEDI_RECORD_EXISTS",
-    "message": "This hash is already in the revocation registry",
-    "hint": "Use POST /v1/credentials/revocation-status to confirm the prior revoke landed",
-    "statusCode": 409
-}}
-```
+## 7. Key rotation under did:web 🟡
 
-Same shape for publish. This preserves the audit signal while making the error self-describing.
+**Status**: **Design spike landed** in [PR #622](https://github.com/nfh-trust-labs/opencred/pull/622) (`docs/spikes/spike-619-did-web-rotation.md`). Implementation tracked at [issue #619](https://github.com/nfh-trust-labs/opencred/issues/619) — follow-up issue filed for the actual production change.
 
-**Action**: file an issue, gather input before implementing.
+**Spike recommendation (summary)**: multi-key DID Documents for did:web (append new key to `verificationMethod[]`, mark prior keys with `supersededAt`), backed by an opt-in `POST /v1/keys/rotate` endpoint. did:key rotation keeps current single-key flag-flip semantics. Concurrency: last-writer-wins with a warn log on the rotation path; surface limitation explicitly for multi-replica operators.
 
-## 7. Key rotation under did:web is not fully wired
+**Verifier impact: none.** `packages/verification/src/vc-jwt.ts:179-213` already iterates `verificationMethod[]` and matches by `kid` — the multi-key shape works on the verify side today.
 
-**Status**: significant gap, needs design before code.
+**Out of scope of the spike (filed for separate follow-ups)**:
+- KMS-backed key rotation orchestration
+- Per-key revocation (`revoked: true` semantics distinct from `supersededAt`)
+- Rotation audit log
+- Multi-region replicated rotations
 
-**Today's behavior**:
+**Constraint documented**: `docs/bootcamp/local-docker.md` §7d carries a "did:web key rotation not yet supported" callout linking to issue #619, so production did:web operators know to keep their keys stable until the impl PR lands.
 
-- **did:key**: rotation = generating a new key, which produces a new DID. Old credentials remain cryptographically valid against the old did:key forever. The desktop's `markDIDRotated` hook correctly flips the OLD did:key record's `keyStatus` to `"rotated"` in DeDi when a new key is generated. Server (Docker) has no rotation hook at all — operators just restart with a new `OPENCRED_KEY_PATH`, but for did:key that means a different issuer DID, so consumers need to know that.
+## 8. Opt-in startup auto-publish ✅
 
-- **did:web**: rotation = the DID stays the same (`did:web:your-domain`), but the public key inside the DID Document changes. **OpenCred has no flow that updates the DID document on key change.** The `markDIDRotated` desktop hook flips the entire did:web record to `"rotated"`, which is wrong semantics — the DID isn't rotated, just one of its keys is. The right thing is to update the DID document's `verificationMethod` to add the new key and mark the prior key as superseded, leaving the DID itself stable.
+**Status**: **Implemented** in [PR #624](https://github.com/nfh-trust-labs/opencred/pull/624). Default is OFF.
 
-**What did:web rotation should look like** (proposed):
+**Original framing** (decision needed): make auto-publish default? Resolved as **opt-in only**. Default explicit-publish flow is preserved.
 
-1. A new endpoint `POST /v1/keys/rotate` (Docker) or IPC `KEY_ROTATE` (Desktop) that:
-   - Loads the new key (file swap on Docker, generate on Desktop)
-   - Reads the existing DID document (from `.well-known/did.json` or DeDi)
-   - Produces an updated document with the new key appended to `verificationMethod`, the old key kept and tagged with rotation metadata (`revoked: false, supersededAt: <timestamp>`) so already-issued credentials still verify
-   - Re-publishes the updated document (`.well-known/did.json` re-host is operator's job; DeDi-hosted is handled via DeDi `update-record`)
-2. Verifier behaviour stays unchanged — `verificationMethod` is plural by design; verifiers pick the right key by `kid`.
-3. The `markDIDRotated` DeDi flag becomes did:key-only. For did:web, the DID record's `details` carries the multi-key document and there's no top-level `keyStatus: "rotated"` flip on a per-DID basis (each key inside the document has its own lifecycle).
+**Landed**:
+- New `OPENCRED_AUTO_PUBLISH_KEY=true` env var (default false) that publishes the issuer DID to DeDi at startup. Works for both did:key and did:web.
+- Cross-field validation: setting the flag without `OPENCRED_DEDI_BASE_URL` throws at startup (fails closed — without this, the flag silently no-ops, which was the exact failure mode it was created to prevent).
+- Architecture: `apps/server/src/auto-publish.ts` carries `runAutoPublishIfEnabled(config, dediClient, signer, logger)` returning a discriminated `AutoPublishResult` (disabled, no-signer, no-jwk, published, already-published, publish-failed). Idempotent: treats `DeDiRecordExistsError` as success.
+- Server startup never blocks on DeDi failure (warn-logged, continues).
+- `/v1/health` payload extended with `didAutoPublished: boolean` so operators can verify at a glance.
+- **Side-effect fix**: the longstanding `OPENCRED_DEDI_HOST_DID_DOC=true` no-op is now wired up. That flag has been in the config since v1.3 but never actually published anything at startup; it now does (for did:web).
 
-**Why this matters for operators**:
-
-- An issuer using did:web is signing up for a long-lived public identity. Forcing them to generate a new DID every time they rotate would defeat the point of did:web (key rotation under a stable identity is exactly the feature they're paying the DNS/hosting cost for).
-- Today, if a Docker operator running did:web swaps their key file and restarts, every new credential's signature will fail to verify against the still-published OLD public key — silent breakage until someone tries to verify.
-
-**Action**:
-
-1. File a design issue under `phase-3` or a new `did-web-rotation` label — explicitly call out the multi-key DID Document shape, the rotation endpoint, and the DeDi record migration story.
-2. Decide whether the existing `dediPublishedDIDs` list (desktop) carries forward, or whether did:web rotation becomes a fundamentally different code path from did:key rotation.
-3. Pull `markDIDRotated` semantics apart: did:key keeps current "rotated entire record" semantics; did:web introduces per-key rotation inside the document.
-4. Until this lands, **document the constraint**: in `docs/bootcamp/local-docker.md` §7d and in the deployment doc, say "did:web key rotation requires manually republishing the DID document; OpenCred does not handle this today."
-
-## 8. (Decision needed) Auto-publish the issuer DID at first boot (opt-in)
-
-**Open question — almost certainly NOT a default.**
-
-Today users have to remember to call `/v1/keys/publish` once after first container boot. An optional env var like `OPENCRED_AUTO_PUBLISH_KEY=true` could trigger `dediClient.publishDID(getActiveKey().did, getActiveKey().didDocument)` from the startup hook, making the DID resolvable via DeDi immediately.
-
-**Against making this default**:
-- Side effects in startup hooks are nasty to reason about — current `ensureRegistries()` is idempotent; auto-publish writes business data and is harder to roll back.
-- It mints a DeDi record on every fresh deploy, polluting the registry with throwaway DIDs from test/staging environments.
-- For `did:web` issuers, the DID document needs to be assembled at startup, which adds another failure mode.
-
-**Action**: park this until someone hits the friction in production. The current explicit-publish flow is the right default; we just need to make it more discoverable (see §4 + §3 above).
+**Follow-up parked**: KMS-backed signer auto-publish is not in scope — today `signer.publicKeyJwk` is only exposed by the software-signer path. Hardware-token / KMS public-key extraction is its own future PR.
 
 ---
 
@@ -146,10 +146,10 @@ Today users have to remember to call `/v1/keys/publish` once after first contain
 | Fix | Unblocks |
 |---|---|
 | §1 publish v1.4.2 image | §7c (revoke) + §7d (publish/resolve) actually working from `:latest` |
-| §2 Postman post-script | Click-through Issue → Revoke demo |
-| §3 Postman publish/resolve requests | Click-through DID publish demo |
-| §4 doc callout | Stops users assuming startup auto-publishes |
-| §5 doc 409 troubleshooting | Reduces support pings |
-| §6 (decision) | Future ergonomic improvement; not blocking |
-| §7 did:web rotation | Production did:web is unsafe to operate until this is addressed |
-| §8 (decision) | Future opt-in feature; not blocking |
+| §2 Postman post-script ✅ | Click-through Issue → Revoke demo |
+| §3 Postman publish/resolve ✅ | Click-through DID publish demo |
+| §4 doc callout ✅ | Stops users assuming startup auto-publishes |
+| §5 doc 409 troubleshooting ✅ | Reduces support pings |
+| §6 DEDI_RECORD_EXISTS ✅ | Self-describing 409s |
+| §7 did:web rotation 🟡 | Production did:web is unsafe to operate until the impl PR for issue #619 lands |
+| §8 auto-publish opt-in ✅ | First-boot ergonomics for operators who opt in |

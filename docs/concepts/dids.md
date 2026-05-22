@@ -92,6 +92,12 @@ The rotation flag is **advisory**:
 - The OpenCred verifier emits this as the `keyRotation` check on the verify response — `passed: false` when DeDi reports rotation, `passed: true` (and silent) otherwise. The headline `valid` boolean is unchanged by rotation.
 - The flag is monotone (`current → rotated`, never back) and append-only, so concurrent `markDIDRotated` writes are safe without optimistic locking on the DeDi side. See `packages/dedi-client/src/adapter/types.ts` for the invariant discussion.
 
+> **Caveat — did:web rotation is not yet fully wired.** Today's `markDIDRotated` flow is semantically correct for `did:key` (each new key produces a new DID, so the prior DID record is logically retired in its entirety) but wrong for `did:web` (the DID stays stable across rotations; only one of its keys changes). The correct shape is multi-entry `verificationMethod[]` with per-key `supersededAt` metadata, backed by a new `POST /v1/keys/rotate` endpoint. Design recorded in [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md); implementation tracked at [issue #619](https://github.com/nfh-trust-labs/opencred/issues/619). Until that lands, **keep did:web issuers on a stable key for the lifetime of the deployment** — swapping `OPENCRED_KEY_PATH` and restarting will produce signatures that nothing in DeDi or `.well-known/did.json` reflects. The verifier already iterates `verificationMethod[]` and matches by `kid`, so the multi-key shape works on the verify side today — the gap is publish-side only.
+
+### Auto-publishing the issuer DID at startup (opt-in)
+
+Operators can opt into having the container publish its issuer DID to DeDi at startup, instead of running `POST /v1/keys/publish` manually after first boot. Set `OPENCRED_AUTO_PUBLISH_KEY=true` alongside the DeDi configuration. Works for both did:key and did:web. The publish is idempotent (the second boot logs an "already published" skip), and `/v1/health` reports `didAutoPublished: true` once the publish (or idempotent skip) succeeds. The flag fails closed at startup if DeDi is not configured — there is no silent no-op. For did:web specifically, `OPENCRED_DEDI_HOST_DID_DOC=true` is an alias that also triggers the publish path; the two flags are mutually compatible. Default for both is OFF — the explicit-publish flow remains the documented default.
+
 ## CompositeDIDResolver
 
 `packages/did/src/composite-resolver.ts` ties the three methods together. The Docker server and Desktop client both use a composite resolver during verification:

@@ -172,7 +172,8 @@ All configuration is loaded from environment variables at startup and parsed by 
 | `OPENCRED_OTEL_ENABLED` | No | `false` | Master switch for OpenTelemetry critical-path tracing (`http.server.duration`, `batch.row.process`, `signer.sign`, `verify.*`, `dedi.*`). When enabled, standard `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_TRACES_SAMPLER*` env vars apply. See [Observability → Tracing](observability.md#tracing). | `true` |
 | `OPENCRED_ISSUER_DID_METHOD` | No | `key` | Which DID method the issuer identity uses. `key` derives `did:key:z…` from the signer's public key (offline-verifiable). `web` uses `did:web:<OPENCRED_ISSUER_DOMAIN>` and requires the operator to serve the DID document. | `web` |
 | `OPENCRED_ISSUER_DOMAIN` | When `OPENCRED_ISSUER_DID_METHOD=web` | _(unset)_ | Domain for `did:web`. The server does NOT host the DID document — operator serves it at `https://<domain>/.well-known/did.json` or via DeDi bundled hosting. | `issuer.example.com` |
-| `OPENCRED_DEDI_HOST_DID_DOC` | No | `false` | When `true` and DeDi is configured, the server publishes its DID document to DeDi at startup as bundled hosting for did:web. Ignored when `OPENCRED_ISSUER_DID_METHOD=key`. | `true` |
+| `OPENCRED_DEDI_HOST_DID_DOC` | No | `false` | When `true` and DeDi is configured, the server publishes its DID document to DeDi at startup as bundled hosting for did:web. Ignored when `OPENCRED_ISSUER_DID_METHOD=key`. Rejected at startup if DeDi is not configured. | `true` |
+| `OPENCRED_AUTO_PUBLISH_KEY` | No | `false` | When `true`, the server publishes its issuer DID to DeDi at startup. Works for both `did:key` and `did:web`. Idempotent: re-publishing an existing DID is treated as success (logged as already-published, no error). Requires DeDi to be configured — rejected at startup otherwise. Surfaced on `/v1/health` as `didAutoPublished: true` once the publish succeeds (also reported `true` for the idempotent skip path on a re-boot). | `true` |
 | `OPENCRED_READ_ONLY` | No | `false` | When `true`, write endpoints (issue, batch, revoke, publish, schemas/generate, dedi/*) return `405 READ_ONLY_MODE`. Read surface (verify, key resolve, schemas, health, metrics) stays enabled. See [Read-tier deployment](deployment.md#read-tier-deployment). | `true` |
 
 [^1]: A signing key is required for `POST /v1/credentials/issue` to succeed. If neither `OPENCRED_KEY_PATH` nor a Cloud HSM provider is configured, the server still starts and `/v1/health` reports `signingKeyLoaded: false`, but every issue request returns `500 INTERNAL_ERROR` (the sanitized fallback for the unhandled `requireSigner()` throw — see [Observability → Health Checks](observability.md#health-checks)).
@@ -201,6 +202,7 @@ Returns `200` when `signingKeyLoaded` is true and `503` when false.
   "ready": true,
   "signingKeyLoaded": true,
   "dediConfigured": false,
+  "didAutoPublished": false,
   "timestamp": "2026-04-08T10:00:00.000Z"
 }
 ```
@@ -211,6 +213,7 @@ Returns `200` when `signingKeyLoaded` is true and `503` when false.
 | `ready` | `boolean` | `true` when the signing key is loaded — the minimum requirement for issuing credentials. |
 | `signingKeyLoaded` | `boolean` | `true` if a signer was successfully loaded at startup. If `false`, issue endpoints return `500 INTERNAL_ERROR`. |
 | `dediConfigured` | `boolean` | `true` if a DeDi client is configured for revocation. |
+| `didAutoPublished` | `boolean` | `true` when the issuer DID was auto-published to DeDi at startup (`OPENCRED_AUTO_PUBLISH_KEY=true`, or `OPENCRED_DEDI_HOST_DID_DOC=true` for did:web). Reported `true` for both first-publish-success and the idempotent already-published path on re-boots. Stays `false` when the flag is off, when DeDi is not configured, or when the publish failed (warn-logged at startup; server continues). |
 | `timestamp` | `string` | Current ISO-8601 timestamp from the server clock. |
 
 **Example**
@@ -301,7 +304,7 @@ Publish a DID document to the DeDi `public_key_registry`. Lets verifiers resolve
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `did` | `string` | Yes | The DID this document belongs to (e.g. `did:web:bootcamp.example.org`). |
-| `document` | `object` | Yes | The full W3C DID Core document. `verificationMethod` entries hold public keys only. |
+| `document` | `object` | No (`did:key`) / Yes (`did:web`) | The full W3C DID Core document. `verificationMethod` entries hold public keys only. Optional for `did:key` — the adapter derives the document from the DID itself; pass `{ "did": "did:key:z..." }` and the server fills in the rest. Required for `did:web`. |
 | `namespace` | `string` | No | DeDi namespace override. When omitted, `OPENCRED_DEDI_NAMESPACE` is used. |
 
 **Security.** The same `rejectKeyMaterial()` guard that protects every other POST route runs over the body before anything reaches DeDi. A `privateKey` field anywhere in `document` (or any nested string starting with `-----BEGIN ... PRIVATE KEY-----`) returns `400 VALIDATION_ERROR`.
@@ -321,7 +324,9 @@ Publish a DID document to the DeDi `public_key_registry`. Lets verifiers resolve
 | Status | Code | When |
 |---|---|---|
 | `400` | `VALIDATION_ERROR` | Body failed Zod parsing, contained a forbidden key, or contained a PEM string. |
+| `400` | `DEDI_CLIENT_ERROR` | did:web request without a `document` payload (the adapter rejects it). |
 | `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
+| `409` | `DEDI_RECORD_EXISTS` | This DID is already in the registry from a prior publish. Response carries a `hint` field pointing at `POST /v1/keys/resolve`. |
 | `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. Set `OPENCRED_DEDI_BASE_URL`, `OPENCRED_DEDI_AUTH_TYPE`, `OPENCRED_DEDI_NAMESPACE`, and the matching auth secret. |
 
 ---
@@ -376,7 +381,7 @@ A conditional request with a matching `If-None-Match` returns `304 Not Modified`
 |---|---|---|
 | `did` | `string` | The DID string this record represents. |
 | `document` | `object` _(optional)_ | The W3C DID document. **Omitted for `did:key` records** because the verifier derives the document from the DID itself via the canonical did:key resolution algorithm. Always present for `did:web` records (DeDi acts as a cache of the domain-hosted `.well-known/did.json`). |
-| `keyStatus` | `"current" \| "rotated"` | `"current"` while the key is in active use. Flipped to `"rotated"` by `markDIDRotated` when the issuer publishes a new key from the desktop. The flag is **advisory** — credentials signed under a rotated key remain cryptographically valid; the rotation marker exists so verifier UIs can surface "key rotated" without rejecting the credential. |
+| `keyStatus` | `"current" \| "rotated"` | `"current"` while the key is in active use. Flipped to `"rotated"` by `markDIDRotated` when the issuer publishes a new key from the desktop. The flag is **advisory** — credentials signed under a rotated key remain cryptographically valid; the rotation marker exists so verifier UIs can surface "key rotated" without rejecting the credential. **Heads-up for did:web operators:** the current `keyStatus` flip is correct for did:key but not for did:web — the right shape for did:web rotation is multi-key DID Documents (multiple entries in `verificationMethod[]`, each with rotation metadata). The design is recorded in [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md); implementation tracked at [issue #619](https://github.com/nfh-trust-labs/opencred/issues/619). Until that lands, keep did:web issuers on a stable key for the lifetime of the deployment. |
 | `proof` | `object` _(optional)_ | CORD-blockchain anchor metadata. Set server-side by DeDi when the record was published to CORD; surfaced unchanged here so verifier callers can confirm the record was anchored on-chain by the claimed creator DID. Absence simply means DeDi did not include a proof for this response. See [Concepts → DIDs → CORD anchoring](../concepts/dids.md#cord-anchoring-as-supplementary-provenance). |
 
 **Example — `did:web` record (with `document` and a CORD `proof`)**
@@ -1059,7 +1064,16 @@ Either `credential` or `hash` must be provided. If `credential` is given, the ha
 | `revokedAt` | `string` | ISO 8601 timestamp from the DeDi envelope's `updated_at`. |
 | `reason` | `string` _(optional)_ | Echoed only when the publish supplied a reason. Omitted otherwise (no empty-string placeholder). |
 
-Returns `503 DEDI_NOT_CONFIGURED` if DeDi is not set up. `rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/revocation.ts`.
+**Error responses**
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Neither `credential` nor `hash` was supplied, or the body failed Zod parsing. |
+| `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
+| `409` | `DEDI_RECORD_EXISTS` | This hash is already in the revocation registry from a prior call (idempotent failure mode — the previous revoke landed). Response carries a `hint` field pointing at `POST /v1/credentials/revocation-status`. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
+
+`rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/revocation.ts`.
 
 ---
 
@@ -1189,6 +1203,7 @@ Zod parse failures from request body validation use the same envelope and add a 
 | `CRYPTO_ERROR` | 500 | `CryptoError` | Signing or proof construction failed (e.g. RSA + `data-integrity`). |
 | `DID_RESOLUTION_ERROR` | 500 | `DIDResolutionError` | A DID could not be resolved. |
 | `DEDI_CLIENT_ERROR` | 502 | `DeDiClientError` | DeDi registry call failed. |
+| `DEDI_RECORD_EXISTS` | 409 | `DeDiRecordExistsError` | The record being published is already in DeDi (idempotent failure mode — a prior call succeeded). Response carries a `hint` field pointing at the read endpoint that confirms the prior state. Returned by `POST /v1/credentials/revoke` (hint → `/v1/credentials/revocation-status`) and `POST /v1/keys/publish` (hint → `/v1/keys/resolve`). |
 | `INTERNAL_ERROR` | 500 | unhandled fallback | Any error not in the `OpenCredError` hierarchy. The original error is logged but not echoed. |
 | `NOT_IMPLEMENTED` | 501 | `NotImplementedError` | Endpoint stubbed out (e.g. Cloud HSM provider not yet wired). |
 | `DEDI_NOT_CONFIGURED` | 503 | inline (DeDi-backed routes) | DeDi client not configured. Returned by `POST /v1/credentials/revoke`, `POST /v1/credentials/revocation-status`, `POST /v1/keys/publish`, `POST /v1/keys/resolve`, and `POST /v1/dedi/namespace/ensure` when `OPENCRED_DEDI_BASE_URL` is not set. |
