@@ -128,7 +128,9 @@ export function initTracing(): TracerHandle | null {
   if (endpoint) {
     // OTLP/HTTP — endpoint should be the collector base; we append the
     // standard /v1/traces path the OTLP/HTTP spec defines.
-    const url = endpoint.endsWith("/v1/traces") ? endpoint : `${endpoint.replace(/\/$/, "")}/v1/traces`;
+    const url = endpoint.endsWith("/v1/traces")
+      ? endpoint
+      : `${endpoint.replace(/\/$/, "")}/v1/traces`;
     const exporter = new OTLPTraceExporter({ url });
     provider.addSpanProcessor(new BatchSpanProcessor(exporter));
   }

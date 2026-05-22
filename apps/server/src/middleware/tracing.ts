@@ -27,11 +27,7 @@
 
 import type { Context, Next } from "hono";
 
-import {
-  runInSpan,
-  SpanKind,
-  SpanStatusCode,
-} from "../observability/span-helpers.js";
+import { runInSpan, SpanKind, SpanStatusCode } from "../observability/span-helpers.js";
 
 /**
  * Normalise a raw URL path the same way `metricsMiddleware` does —

@@ -127,11 +127,21 @@ describe("batch route — heartbeat (Tier 2 #6 of #446)", () => {
   });
 
   it("tears the heartbeat timer down when the engine settles", async () => {
-    const jobId = await postBatch(2);
+    // Use a 50-row batch so the engine is reliably still running when we
+    // check the heartbeat-timer count below. A 2-row batch races with CI
+    // schedulers: under load the engine can already settle (and tear the
+    // timer down) by the time the assertion runs, producing a spurious
+    // "expected 0 to be greater than 0" failure. Other tests in this
+    // suite that need the engine running also use 50 rows (see the
+    // "refreshes lastSeenAt" and "finalizeAllRunningJobs" tests). The
+    // assertion's semantic is "the timer ran, then was torn down" — the
+    // row count doesn't affect that contract.
+    const jobId = await postBatch(50);
     expect(__getHeartbeatTimerCount()).toBeGreaterThan(0);
 
-    // Poll until completed; cap at ~3 s to avoid hanging on a slow CI.
-    for (let i = 0; i < 60; i += 1) {
+    // Poll until completed; cap at ~5 s to absorb a slower 50-row run on
+    // a loaded CI runner.
+    for (let i = 0; i < 100; i += 1) {
       await new Promise((r) => setTimeout(r, 50));
       const res = await app.request(`/credentials/batch/${jobId}`);
       const body = (await res.json()) as { status: string };

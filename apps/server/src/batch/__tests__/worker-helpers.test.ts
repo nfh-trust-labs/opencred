@@ -35,14 +35,12 @@ describe("deriveWorkerStatus", () => {
     expect(deriveWorkerStatus(progress({ running: true }))).toBe("queued");
   });
   it("running with >0 completed => running", () => {
-    expect(deriveWorkerStatus(progress({ running: true, completed: 1, total: 5 }))).toBe(
-      "running",
-    );
+    expect(deriveWorkerStatus(progress({ running: true, completed: 1, total: 5 }))).toBe("running");
   });
   it("cancelled wins over running", () => {
-    expect(
-      deriveWorkerStatus(progress({ running: true, completed: 1, cancelled: true })),
-    ).toBe("cancelled");
+    expect(deriveWorkerStatus(progress({ running: true, completed: 1, cancelled: true }))).toBe(
+      "cancelled",
+    );
   });
   it("errors only with no successes => failed", () => {
     expect(deriveWorkerStatus(progress({ errorCount: 3 }))).toBe("failed");

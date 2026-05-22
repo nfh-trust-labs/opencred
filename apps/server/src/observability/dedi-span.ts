@@ -117,10 +117,8 @@ export function wrapDeDiClientWithTracing(client: DeDiClient, baseUrl: string): 
     );
 
   wrapped.resolveSchema = (schemaId, version, namespace) =>
-    runInSpan(
-      "dedi.lookup_record",
-      { "dedi.host": host, "dedi.registry": "schema_registry" },
-      () => client.resolveSchema(schemaId, version, namespace),
+    runInSpan("dedi.lookup_record", { "dedi.host": host, "dedi.registry": "schema_registry" }, () =>
+      client.resolveSchema(schemaId, version, namespace),
     );
 
   // ── Context registry ────────────────────────────────────────────

@@ -91,7 +91,10 @@ function makeRow(idx: number): ParsedRow {
  * test stays decoupled from PFX/JWK loaders — we just need a Signer that
  * produces real ECDSA signatures so {@link verifyProof} accepts them.
  */
-function makeRealP256Signer(): { signer: Signer; publicKey: ReturnType<typeof generateKeyPairSync>["publicKey"] } {
+function makeRealP256Signer(): {
+  signer: Signer;
+  publicKey: ReturnType<typeof generateKeyPairSync>["publicKey"];
+} {
   const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
   const id = deriveDidKeyId(publicKey);
   return {
@@ -133,7 +136,10 @@ describe("batch engine — proof-config hoist", () => {
 
     if (result.errorCount > 0) {
       // eslint-disable-next-line no-console
-      console.log("Row errors:", result.rows.filter((r) => r.status === "error").map((r) => r.error));
+      console.log(
+        "Row errors:",
+        result.rows.filter((r) => r.status === "error").map((r) => r.error),
+      );
     }
     expect(result.successCount).toBe(25);
     expect(result.errorCount).toBe(0);

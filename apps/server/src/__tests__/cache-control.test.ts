@@ -71,7 +71,7 @@ describe("computeETag", () => {
     expect(computeETag(body)).toBe(computeETag(body));
   });
 
-  it("returns the weak-validator form W/\"<hex>\"", () => {
+  it('returns the weak-validator form W/"<hex>"', () => {
     const tag = computeETag({ a: 1 });
     expect(tag).toMatch(/^W\/"[0-9a-f]{64}"$/);
   });

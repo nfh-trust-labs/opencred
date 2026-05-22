@@ -13,15 +13,8 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import {
-  createTestApp,
-  generateTestKey,
-  type TestKeyPair,
-} from "./helpers.js";
-import {
-  setJobStore,
-  __resetBatchStateForTesting,
-} from "../routes/batch.js";
+import { createTestApp, generateTestKey, type TestKeyPair } from "./helpers.js";
+import { setJobStore, __resetBatchStateForTesting } from "../routes/batch.js";
 import { setActiveSigner } from "../signing/key-manager.js";
 import { MemoryJobStore } from "../batch/job-store/memory.js";
 import { RedisJobStore, type RedisLike } from "../batch/job-store/redis.js";
@@ -51,12 +44,7 @@ class FakeRedis implements RedisLike {
     return entry.value;
   }
 
-  async set(
-    key: string,
-    value: string,
-    _mode: "EX",
-    ttlSeconds: number,
-  ): Promise<"OK" | null> {
+  async set(key: string, value: string, _mode: "EX", ttlSeconds: number): Promise<"OK" | null> {
     this.data.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
     return "OK";
   }

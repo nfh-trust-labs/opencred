@@ -49,7 +49,10 @@ function makeLogger() {
   };
 }
 
-function makeFakeQueue(): BullMqQueueLike & { addCalls: Array<{ name: string; payload: unknown; opts?: Record<string, unknown> }>; closed: boolean } {
+function makeFakeQueue(): BullMqQueueLike & {
+  addCalls: Array<{ name: string; payload: unknown; opts?: Record<string, unknown> }>;
+  closed: boolean;
+} {
   const addCalls: Array<{ name: string; payload: unknown; opts?: Record<string, unknown> }> = [];
   let closed = false;
   return {

@@ -18,12 +18,7 @@
  *     buffers, or PII.
  */
 
-import {
-  SpanKind,
-  SpanStatusCode,
-  type Attributes,
-  type Span,
-} from "@opentelemetry/api";
+import { SpanKind, SpanStatusCode, type Attributes, type Span } from "@opentelemetry/api";
 
 import { getTracer } from "../tracing.js";
 

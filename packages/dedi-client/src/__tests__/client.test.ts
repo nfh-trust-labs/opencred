@@ -52,9 +52,7 @@ describe("DeDiClient (adapter)", () => {
     it("uses defaultNamespace when no explicit namespace provided", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.lookupRecord).mockRejectedValue(
-        new DeDiClientError("Record not found", 404),
-      );
+      vi.mocked(api.lookupRecord).mockRejectedValue(new DeDiClientError("Record not found", 404));
 
       await client.queryRevocationHash("abc");
 
@@ -64,9 +62,7 @@ describe("DeDiClient (adapter)", () => {
     it("uses explicit namespace over defaultNamespace", async () => {
       const client = createClient("default.com");
       const api = mockApi();
-      vi.mocked(api.lookupRecord).mockRejectedValue(
-        new DeDiClientError("Record not found", 404),
-      );
+      vi.mocked(api.lookupRecord).mockRejectedValue(new DeDiClientError("Record not found", 404));
 
       await client.queryRevocationHash("abc", "explicit.com");
 
@@ -200,9 +196,7 @@ describe("DeDiClient (adapter)", () => {
     it("returns { revoked: false } when lookup returns 404", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.lookupRecord).mockRejectedValue(
-        new DeDiClientError("Record not found", 404),
-      );
+      vi.mocked(api.lookupRecord).mockRejectedValue(new DeDiClientError("Record not found", 404));
 
       const result = await client.queryRevocationHash("missing");
 
