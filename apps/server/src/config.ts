@@ -593,6 +593,19 @@ export function loadConfig(): ServerConfig {
     }
   }
 
+  // OPENCRED_AUTO_PUBLISH_KEY=true is meaningless without DeDi — without a
+  // configured client, the auto-publish hook silently no-ops, which is exactly
+  // the failure mode that motivated the flag's existence. Fail fast so the
+  // operator sees the problem at startup rather than wondering why nothing
+  // got published.
+  if (parsed.OPENCRED_AUTO_PUBLISH_KEY && !parsed.OPENCRED_DEDI_BASE_URL) {
+    throw new ConfigError(
+      "OPENCRED_AUTO_PUBLISH_KEY=true requires DeDi to be configured. " +
+        "Set OPENCRED_DEDI_BASE_URL, OPENCRED_DEDI_AUTH_TYPE, and OPENCRED_DEDI_NAMESPACE, " +
+        "or unset OPENCRED_AUTO_PUBLISH_KEY if you don't intend to publish at startup.",
+    );
+  }
+
   // --- DeDi cross-field validation ---
   // When DeDi is enabled (BASE_URL set), auth type and namespace are required.
   // When auth type is api-key, the DeDi API key is required.

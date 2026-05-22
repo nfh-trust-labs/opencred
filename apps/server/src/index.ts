@@ -216,15 +216,17 @@ if (cloudSigner) {
   } else {
     // method === "web"
     const issuerDid = encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!);
-    if (config.OPENCRED_DEDI_HOST_DID_DOC) {
-      // DeDi will host the DID document instead of (or in addition to)
-      // the operator's own domain. Skip the plain-HTTPS reachability
-      // probe here; the actual publish runs later, after the DeDi client
-      // is initialised — see the auto-publish block below the DeDi
-      // ensureRegistries() call.
+    // Skip the plain-HTTPS reachability probe when DeDi will host the DID
+    // document OR when the operator opted into startup auto-publish — in
+    // both cases the document is published a few steps later (after the
+    // DeDi client init / ensureRegistries call), so a "not reachable" warn
+    // here would contradict the success log emitted seconds later.
+    const willPublishToDeDi =
+      config.OPENCRED_DEDI_HOST_DID_DOC || config.OPENCRED_AUTO_PUBLISH_KEY;
+    if (willPublishToDeDi) {
       logger.info(
         { issuerDid, didMethod: "web" },
-        "did:web hosted via DeDi; boot reachability probe skipped — " +
+        "did:web will be published via DeDi at startup; boot reachability probe skipped — " +
           "DID document will be published after DeDi client init",
       );
     } else {
