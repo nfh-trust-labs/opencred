@@ -37,7 +37,9 @@ function makeLogger(): Pick<Logger, "info" | "warn"> & {
   return { info: vi.fn(), warn: vi.fn() };
 }
 
-function makeSoftwareSigner(opts: { didKey?: string; publicKeyJwk?: Record<string, unknown> } = {}): Signer {
+function makeSoftwareSigner(
+  opts: { didKey?: string; publicKeyJwk?: Record<string, unknown> } = {},
+): Signer {
   const didKey = opts.didKey ?? "did:key:z6MkTestKey123";
   const id = `${didKey}#z6MkTestKey123`;
   const metadata: SignerMetadata = {

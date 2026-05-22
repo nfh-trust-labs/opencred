@@ -92,9 +92,7 @@ describe("GET /health", () => {
   });
 
   it("flips didAutoPublished to true after setDidAutoPublishedAtStartup(true)", async () => {
-    const { setDidAutoPublishedAtStartup, resetStartupState } = await import(
-      "../startup-state.js"
-    );
+    const { setDidAutoPublishedAtStartup, resetStartupState } = await import("../startup-state.js");
     setDidAutoPublishedAtStartup(true);
     const res = await app.request("/health");
     const body = (await res.json()) as Record<string, unknown>;

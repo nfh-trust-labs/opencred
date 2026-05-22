@@ -221,8 +221,7 @@ if (cloudSigner) {
     // both cases the document is published a few steps later (after the
     // DeDi client init / ensureRegistries call), so a "not reachable" warn
     // here would contradict the success log emitted seconds later.
-    const willPublishToDeDi =
-      config.OPENCRED_DEDI_HOST_DID_DOC || config.OPENCRED_AUTO_PUBLISH_KEY;
+    const willPublishToDeDi = config.OPENCRED_DEDI_HOST_DID_DOC || config.OPENCRED_AUTO_PUBLISH_KEY;
     if (willPublishToDeDi) {
       logger.info(
         { issuerDid, didMethod: "web" },
