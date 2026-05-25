@@ -550,4 +550,219 @@ describe("auth on the new endpoints", () => {
     });
     expect(res.status).toBe(401);
   });
+
+  it("rejects /v1/keys/rotate without Bearer token", async () => {
+    const authedApp = createTestApp({ apiKey: "secret-token" });
+    setActiveSigner(testKey.signer);
+    const res = await authedApp.request("/v1/keys/rotate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/keys/rotate — verification matrix from spike §10
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a synthetic did:web signer for rotation tests. The active signer's
+ * `id` and `metadata.publicKeyJwk` are what the route handler reads to
+ * derive the rotation target DID and the new VM payload.
+ */
+function buildDidWebSigner(
+  host: string,
+  publicKeyJwk: Record<string, unknown>,
+): Parameters<typeof setActiveSigner>[0] {
+  const did = `did:web:${host}`;
+  return {
+    id: `${did}#key-1`,
+    algorithm: "P-256",
+    type: "software",
+    metadata: {
+      id: `${did}#key-1`,
+      algorithm: "P-256",
+      type: "software",
+      fingerprint: "deadbeef".repeat(8),
+      label: "test-did-web-key",
+      publicKeyJwk,
+    },
+    async sign() {
+      throw new Error("not used by /v1/keys/rotate tests");
+    },
+  };
+}
+
+describe("POST /v1/keys/rotate", () => {
+  const HOST = "issuer.test.local";
+  const DID = `did:web:${HOST}`;
+  const NEW_JWK = { kty: "EC", crv: "P-256", x: "x-new", y: "y-new" };
+
+  it("returns 503 when DeDi is not configured", async () => {
+    setActiveSigner(buildDidWebSigner(HOST, NEW_JWK));
+    const res = await app.request("/v1/keys/rotate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("DEDI_NOT_CONFIGURED");
+  });
+
+  it("returns 400 KEY_METHOD_MISMATCH when the active signer is did:key", async () => {
+    // testKey is a did:key signer (built by generateTestKey).
+    setActiveSigner(testKey.signer);
+    // Even with DeDi configured, the route rejects did:key before reaching DeDi.
+    setDeDiClient({ rotateDIDWeb: async () => ({ rotated: true }) } as never);
+    const res = await app.request("/v1/keys/rotate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; activeDid: string } };
+    expect(body.error.code).toBe("KEY_METHOD_MISMATCH");
+    expect(body.error.activeDid).toMatch(/^did:key:/);
+  });
+
+  it("returns 400 VALIDATION_ERROR when the signer has no publicKeyJwk", async () => {
+    // Construct a did:web signer whose metadata lacks publicKeyJwk —
+    // this is the KMS-backed-signer case the route guards against.
+    const noJwkSigner: Parameters<typeof setActiveSigner>[0] = {
+      id: `${DID}#key-1`,
+      algorithm: "P-256",
+      type: "pkcs11",
+      metadata: {
+        id: `${DID}#key-1`,
+        algorithm: "P-256",
+        type: "pkcs11",
+        fingerprint: "deadbeef".repeat(8),
+      },
+      async sign() {
+        throw new Error("unused");
+      },
+    };
+    setActiveSigner(noJwkSigner);
+    setDeDiClient({ rotateDIDWeb: async () => ({ rotated: true }) } as never);
+    const res = await app.request("/v1/keys/rotate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; signerType: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.signerType).toBe("pkcs11");
+  });
+
+  it("calls rotateDIDWeb with the derived DID + signer JWK and forwards the response", async () => {
+    setActiveSigner(buildDidWebSigner(HOST, NEW_JWK));
+    const calls: Array<{
+      did: string;
+      jwk: Record<string, unknown>;
+      namespace?: string;
+    }> = [];
+    setDeDiClient({
+      rotateDIDWeb: async (did: string, jwk: Record<string, unknown>, namespace?: string) => {
+        calls.push({ did, jwk, namespace });
+        return {
+          rotated: true,
+          did,
+          currentKeyId: `${did}#key-2`,
+          superseded: [`${did}#key-1`],
+          namespace: namespace ?? "default-ns",
+        };
+      },
+    } as never);
+
+    const res = await app.request("/v1/keys/rotate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      rotated: boolean;
+      did: string;
+      currentKeyId: string;
+      superseded: string[];
+    };
+    expect(body.rotated).toBe(true);
+    expect(body.did).toBe(DID);
+    expect(body.currentKeyId).toBe(`${DID}#key-2`);
+    expect(body.superseded).toEqual([`${DID}#key-1`]);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.did).toBe(DID);
+    expect(calls[0]!.jwk).toEqual(NEW_JWK);
+  });
+
+  it("surfaces the idempotent {rotated:false} short-circuit response shape", async () => {
+    setActiveSigner(buildDidWebSigner(HOST, NEW_JWK));
+    setDeDiClient({
+      rotateDIDWeb: async (did: string) => ({
+        rotated: false as const,
+        did,
+        currentKeyId: `${did}#key-1`,
+        reason: "already-current" as const,
+        namespace: "default-ns",
+      }),
+    } as never);
+
+    const res = await app.request("/v1/keys/rotate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      rotated: boolean;
+      reason?: string;
+      currentKeyId: string;
+    };
+    expect(body.rotated).toBe(false);
+    expect(body.reason).toBe("already-current");
+    expect(body.currentKeyId).toBe(`${DID}#key-1`);
+  });
+
+  it("forwards the namespace override to the adapter", async () => {
+    setActiveSigner(buildDidWebSigner(HOST, NEW_JWK));
+    const calls: Array<{ namespace?: string }> = [];
+    setDeDiClient({
+      rotateDIDWeb: async (did: string, _jwk: Record<string, unknown>, namespace?: string) => {
+        calls.push({ namespace });
+        return {
+          rotated: true,
+          did,
+          currentKeyId: `${did}#key-2`,
+          superseded: [`${did}#key-1`],
+          namespace: namespace ?? "default-ns",
+        };
+      },
+    } as never);
+
+    const res = await app.request("/v1/keys/rotate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ namespace: "explicit-ns" }),
+    });
+    expect(res.status).toBe(200);
+    expect(calls[0]!.namespace).toBe("explicit-ns");
+  });
+
+  it("returns 400 when no signer is loaded", async () => {
+    setActiveSigner(null);
+    setDeDiClient({ rotateDIDWeb: async () => ({}) } as never);
+    const res = await app.request("/v1/keys/rotate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
 });

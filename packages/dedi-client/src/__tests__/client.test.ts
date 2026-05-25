@@ -998,34 +998,21 @@ describe("DeDiClient (adapter)", () => {
       );
     });
 
-    it("preserves the document on rotated did:web records", async () => {
+    it("is a no-op for did:web — rotation lives inside verificationMethod[] now (issue #627)", async () => {
+      // Per docs/spikes/spike-619-did-web-rotation.md, did:web rotation is
+      // per-key inside the DID Document (handled by rotateDIDWeb), NOT a
+      // whole-record keyStatus flip. markDIDRotated for did:web therefore
+      // becomes a record-level no-op: no lookupRecord, no updateRecord,
+      // just a warn log so callers who mis-routed here see the misuse.
       const client = createClient("example.com");
       const api = mockApi();
-      const document = { id: "did:web:acme.com", verificationMethod: [] };
-      vi.mocked(api.lookupRecord).mockResolvedValue({
-        message: "ok",
-        data: {
-          record_name: "did-web-acme.com",
-          registry: PUBLIC_KEY_REGISTRY,
-          namespace: "example.com",
-          details: { did: "did:web:acme.com", document, keyStatus: "current" },
-          state: "live",
-          version: "1",
-          created_at: "",
-          updated_at: "",
-        },
-      });
+      vi.mocked(api.lookupRecord).mockResolvedValue({} as never);
       vi.mocked(api.updateRecord).mockResolvedValue({} as never);
 
       await client.markDIDRotated("did:web:acme.com");
 
-      expect(api.updateRecord).toHaveBeenCalledWith(
-        "example.com",
-        PUBLIC_KEY_REGISTRY,
-        "did-web-acme.com",
-        // document preserved alongside the flipped keyStatus
-        { did: "did:web:acme.com", document, keyStatus: "rotated" },
-      );
+      expect(api.lookupRecord).not.toHaveBeenCalled();
+      expect(api.updateRecord).not.toHaveBeenCalled();
     });
 
     it("propagates 404 when the record does not exist", async () => {
@@ -1095,6 +1082,306 @@ describe("DeDiClient (adapter)", () => {
         "did-key-z6Mkfoo",
         expect.objectContaining({ keyStatus: "rotated" }),
       );
+    });
+  });
+
+  // ── rotateDIDWeb ─────────────────────────────────────────────────
+  // See docs/spikes/spike-619-did-web-rotation.md for the design these
+  // tests pin down.
+
+  describe("rotateDIDWeb", () => {
+    const did = "did:web:acme.com";
+    const oldJwk = { kty: "EC", crv: "P-256", x: "x-old", y: "y-old" };
+    const newJwk = { kty: "EC", crv: "P-256", x: "x-new", y: "y-new" };
+
+    function mockLookupReturnsDocWithVms(
+      api: InstanceType<typeof DeDiApiClient>,
+      vms: Record<string, unknown>[],
+    ) {
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-web-acme.com",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          details: {
+            did,
+            document: {
+              "@context": ["https://www.w3.org/ns/did/v1"],
+              id: did,
+              verificationMethod: vms,
+              assertionMethod: [vms[vms.length - 1]?.["id"]],
+            },
+            keyStatus: "current",
+          },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+    }
+
+    it("appends a new VM, marks the prior current key superseded, points assertionMethod at the new key", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      mockLookupReturnsDocWithVms(api, [
+        {
+          id: `${did}#key-1`,
+          type: "JsonWebKey2020",
+          controller: did,
+          publicKeyJwk: oldJwk,
+        },
+      ]);
+      vi.mocked(api.updateRecord).mockResolvedValue({} as never);
+
+      const result = await client.rotateDIDWeb(did, newJwk);
+
+      expect(result.rotated).toBe(true);
+      if (result.rotated) {
+        expect(result.did).toBe(did);
+        expect(result.currentKeyId).toBe(`${did}#key-2`);
+        expect(result.superseded).toEqual([`${did}#key-1`]);
+        expect(result.namespace).toBe("example.com");
+      }
+
+      expect(api.updateRecord).toHaveBeenCalledTimes(1);
+      const writeCall = vi.mocked(api.updateRecord).mock.calls[0]!;
+      expect(writeCall[0]).toBe("example.com");
+      expect(writeCall[1]).toBe(PUBLIC_KEY_REGISTRY);
+      expect(writeCall[2]).toBe("did-web-acme.com");
+      const written = writeCall[3] as {
+        did: string;
+        document: {
+          verificationMethod: Record<string, unknown>[];
+          assertionMethod: string[];
+        };
+        keyStatus: string;
+      };
+      // Two VM entries now: old (with supersededAt) + new (no supersededAt)
+      expect(written.document.verificationMethod).toHaveLength(2);
+      expect(written.document.verificationMethod[0]).toMatchObject({
+        id: `${did}#key-1`,
+        publicKeyJwk: oldJwk,
+        supersededAt: expect.any(String),
+      });
+      expect(written.document.verificationMethod[1]).toMatchObject({
+        id: `${did}#key-2`,
+        publicKeyJwk: newJwk,
+      });
+      expect(written.document.verificationMethod[1]).not.toHaveProperty("supersededAt");
+      // assertionMethod points at the NEW key only
+      expect(written.document.assertionMethod).toEqual([`${did}#key-2`]);
+      // keyStatus stays "current" — did:web rotation does NOT flip
+      // the parent record's status (per spike §6).
+      expect(written.keyStatus).toBe("current");
+    });
+
+    it("idempotent short-circuit: returns {rotated:false} without writing when the active key already matches the latest VM", async () => {
+      // The exact same JWK is in the document already — re-running
+      // rotate is a no-op (no DeDi version bump, no warn-log noise).
+      const client = createClient("example.com");
+      const api = mockApi();
+      mockLookupReturnsDocWithVms(api, [
+        {
+          id: `${did}#key-1`,
+          type: "JsonWebKey2020",
+          controller: did,
+          publicKeyJwk: newJwk,
+        },
+      ]);
+      vi.mocked(api.updateRecord).mockResolvedValue({} as never);
+
+      const result = await client.rotateDIDWeb(did, newJwk);
+
+      expect(result.rotated).toBe(false);
+      if (!result.rotated) {
+        expect(result.did).toBe(did);
+        expect(result.currentKeyId).toBe(`${did}#key-1`);
+        expect(result.reason).toBe("already-current");
+      }
+      // No write issued
+      expect(api.updateRecord).not.toHaveBeenCalled();
+    });
+
+    it("idempotent short-circuit handles JWK property order (canonicalised comparison)", async () => {
+      // Same key, different property order — the canonicalised
+      // comparison must treat them as equal.
+      const client = createClient("example.com");
+      const api = mockApi();
+      const storedJwk = { y: "y-new", x: "x-new", crv: "P-256", kty: "EC" };
+      const incomingJwk = { kty: "EC", crv: "P-256", x: "x-new", y: "y-new" };
+      mockLookupReturnsDocWithVms(api, [
+        {
+          id: `${did}#key-1`,
+          type: "JsonWebKey2020",
+          controller: did,
+          publicKeyJwk: storedJwk,
+        },
+      ]);
+
+      const result = await client.rotateDIDWeb(did, incomingJwk);
+
+      expect(result.rotated).toBe(false);
+      expect(api.updateRecord).not.toHaveBeenCalled();
+    });
+
+    it("computes next fragment counter from the max existing #key-N", async () => {
+      // Document has key-1 (superseded), key-5 (current). Next should
+      // be key-6 — we pick max+1, not count+1, to tolerate gaps.
+      const client = createClient("example.com");
+      const api = mockApi();
+      mockLookupReturnsDocWithVms(api, [
+        {
+          id: `${did}#key-1`,
+          type: "JsonWebKey2020",
+          controller: did,
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "x1", y: "y1" },
+          supersededAt: "2025-01-01T00:00:00Z",
+        },
+        {
+          id: `${did}#key-5`,
+          type: "JsonWebKey2020",
+          controller: did,
+          publicKeyJwk: oldJwk,
+        },
+      ]);
+      vi.mocked(api.updateRecord).mockResolvedValue({} as never);
+
+      const result = await client.rotateDIDWeb(did, newJwk);
+
+      expect(result.rotated).toBe(true);
+      if (result.rotated) {
+        expect(result.currentKeyId).toBe(`${did}#key-6`);
+        // Only #key-5 was un-superseded going in, so only it is
+        // newly marked superseded.
+        expect(result.superseded).toEqual([`${did}#key-5`]);
+      }
+    });
+
+    it("rejects did:key with 400 KEY_METHOD_MISMATCH-style DeDiClientError", async () => {
+      const client = createClient("example.com");
+      await expect(client.rotateDIDWeb("did:key:z6MkAbc", newJwk)).rejects.toThrow(DeDiClientError);
+      await expect(client.rotateDIDWeb("did:key:z6MkAbc", newJwk)).rejects.toThrow(
+        /only did:web rotation is supported/,
+      );
+    });
+
+    it("propagates 404 when the DID has no existing DeDi record", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 404", 404),
+      );
+      await expect(client.rotateDIDWeb(did, newJwk)).rejects.toThrow(DeDiClientError);
+      expect(api.updateRecord).not.toHaveBeenCalled();
+    });
+
+    it("rejects an existing record that has no document (502)", async () => {
+      // Shouldn't happen in practice — did:web records always carry a
+      // document — but if it does, fail closed rather than silently
+      // create a `verificationMethod` array out of thin air.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: "did-web-acme.com",
+          registry: PUBLIC_KEY_REGISTRY,
+          namespace: "example.com",
+          // No document — shape-asserter still passes since document is
+          // optional on DIDRecord.
+          details: { did, keyStatus: "current" },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+      await expect(client.rotateDIDWeb(did, newJwk)).rejects.toThrow(/has no document/);
+      expect(api.updateRecord).not.toHaveBeenCalled();
+    });
+
+    it("uses an explicit namespace override when provided", async () => {
+      const client = createClient("default-ns");
+      const api = mockApi();
+      mockLookupReturnsDocWithVms(api, [
+        {
+          id: `${did}#key-1`,
+          type: "JsonWebKey2020",
+          controller: did,
+          publicKeyJwk: oldJwk,
+        },
+      ]);
+      vi.mocked(api.updateRecord).mockResolvedValue({} as never);
+
+      const result = await client.rotateDIDWeb(did, newJwk, "explicit-ns");
+
+      expect(result.rotated).toBe(true);
+      expect(api.lookupRecord).toHaveBeenCalledWith(
+        "explicit-ns",
+        PUBLIC_KEY_REGISTRY,
+        "did-web-acme.com",
+      );
+      expect(api.updateRecord).toHaveBeenCalledWith(
+        "explicit-ns",
+        PUBLIC_KEY_REGISTRY,
+        "did-web-acme.com",
+        expect.any(Object),
+      );
+    });
+
+    it("multi-call sequence: rotate twice produces 3 VMs with 2 superseded", async () => {
+      // The first rotation produces a 2-key doc. Re-running rotate
+      // with yet another key against that doc should append #key-3 and
+      // mark only the most-recent un-superseded entry (#key-2) as
+      // superseded; #key-1 stays superseded with its original
+      // timestamp (preserved, not re-stamped).
+      const client = createClient("example.com");
+      const api = mockApi();
+      const key3Jwk = { kty: "EC", crv: "P-256", x: "x-3", y: "y-3" };
+      mockLookupReturnsDocWithVms(api, [
+        {
+          id: `${did}#key-1`,
+          type: "JsonWebKey2020",
+          controller: did,
+          publicKeyJwk: oldJwk,
+          supersededAt: "2025-01-01T00:00:00Z",
+        },
+        {
+          id: `${did}#key-2`,
+          type: "JsonWebKey2020",
+          controller: did,
+          publicKeyJwk: newJwk,
+        },
+      ]);
+      vi.mocked(api.updateRecord).mockResolvedValue({} as never);
+
+      await client.rotateDIDWeb(did, key3Jwk);
+
+      const written = vi.mocked(api.updateRecord).mock.calls[0]![3] as {
+        document: { verificationMethod: Record<string, unknown>[] };
+      };
+      expect(written.document.verificationMethod).toHaveLength(3);
+      // key-1 superseded timestamp preserved exactly
+      expect(written.document.verificationMethod[0]).toMatchObject({
+        id: `${did}#key-1`,
+        supersededAt: "2025-01-01T00:00:00Z",
+      });
+      // key-2 newly superseded
+      expect(written.document.verificationMethod[1]).toMatchObject({
+        id: `${did}#key-2`,
+      });
+      expect(written.document.verificationMethod[1]).toHaveProperty("supersededAt");
+      expect(written.document.verificationMethod[1]!["supersededAt"]).not.toBe(
+        "2025-01-01T00:00:00Z",
+      );
+      // key-3 is the new current key, no supersededAt
+      expect(written.document.verificationMethod[2]).toMatchObject({
+        id: `${did}#key-3`,
+        publicKeyJwk: key3Jwk,
+      });
+      expect(written.document.verificationMethod[2]).not.toHaveProperty("supersededAt");
     });
   });
 

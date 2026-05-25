@@ -92,7 +92,32 @@ The rotation flag is **advisory**:
 - The OpenCred verifier emits this as the `keyRotation` check on the verify response — `passed: false` when DeDi reports rotation, `passed: true` (and silent) otherwise. The headline `valid` boolean is unchanged by rotation.
 - The flag is monotone (`current → rotated`, never back) and append-only, so concurrent `markDIDRotated` writes are safe without optimistic locking on the DeDi side. See `packages/dedi-client/src/adapter/types.ts` for the invariant discussion.
 
-> **Caveat — did:web rotation is not yet fully wired.** Today's `markDIDRotated` flow is semantically correct for `did:key` (each new key produces a new DID, so the prior DID record is logically retired in its entirety) but wrong for `did:web` (the DID stays stable across rotations; only one of its keys changes). The correct shape is multi-entry `verificationMethod[]` with per-key `supersededAt` metadata, backed by a new `POST /v1/keys/rotate` endpoint. Design recorded in [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md); implementation tracked at [issue #619](https://github.com/nfh-trust-labs/opencred/issues/619). Until that lands, **keep did:web issuers on a stable key for the lifetime of the deployment** — swapping `OPENCRED_KEY_PATH` and restarting will produce signatures that nothing in DeDi or `.well-known/did.json` reflects. The verifier already iterates `verificationMethod[]` and matches by `kid`, so the multi-key shape works on the verify side today — the gap is publish-side only.
+### did:web key rotation
+
+`did:web` issuers rotate keys via **`POST /v1/keys/rotate`** without changing the DID. The server appends the new key to `verificationMethod[]`, stamps `supersededAt` on the prior current key (so already-issued credentials continue to verify against it via `kid`), and points `assertionMethod` at the new key. The DID itself stays stable across rotations — that stability is the whole point of paying for did:web hosting.
+
+```
+Operator: swap OPENCRED_KEY_PATH, restart container, then:
+
+  curl -X POST http://localhost:3100/v1/keys/rotate \
+    -H "Authorization: Bearer $OPENCRED_API_KEY"
+
+  → { rotated: true,
+      did: "did:web:issuer.example.org",
+      currentKeyId: "did:web:issuer.example.org#key-2",
+      superseded: ["did:web:issuer.example.org#key-1"],
+      namespace: "issuer.example.org" }
+```
+
+**Idempotency**: re-running rotate against a document that already carries the active key returns `{rotated: false, reason: "already-current"}` without writing — safe to retry after a transient network failure.
+
+**Verifier impact**: none. `packages/verification/src/vc-jwt.ts` already iterates `verificationMethod[]` and matches by `kid` from the JWT header, so credentials signed under any prior (now-superseded) key still verify against their original key. The verifier's existing `keyStatus: rotated` badge is unused for did:web — rotation lives inside the document, not on the DID record's status flag.
+
+**`markDIDRotated` semantic split (since #627)**: the desktop-side `markDIDRotated` hook (used by the desktop's key-generate path) is now did:key-only. For did:web, it logs a warn and no-ops at the record level; rotation is the `/v1/keys/rotate` endpoint's job.
+
+**Concurrency**: today's `rotateDIDWeb` is last-writer-wins. Multi-replica deployments running simultaneous rotations against the same DID risk one rotation clobbering the other. DeDi-side optimistic concurrency is the right long-term fix — see [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md) §5.
+
+**Out of scope for v1**: KMS-backed signer rotation (KMS public-key extraction is a separate work item — today only software signers expose `publicKeyJwk`), per-key revocation flags distinct from `supersededAt`, and rotation audit log.
 
 ### Auto-publishing the issuer DID at startup (opt-in)
 

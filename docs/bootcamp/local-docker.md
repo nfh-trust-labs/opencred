@@ -809,15 +809,17 @@ unreachable. This means an issuer can stop hosting their own
 > return 404 until you run the `POST /v1/keys/publish` call below at
 > least once.
 >
-> **Heads-up — key rotation under did:web is not yet supported.** Today,
-> rotating a did:web signing key (swap `OPENCRED_KEY_PATH`, restart)
-> produces signatures that nothing in DeDi or `.well-known/did.json`
-> reflects, because there is no flow to update the hosted DID Document.
-> Track [issue #619](https://github.com/nfh-trust-labs/opencred/issues/619)
-> for the multi-key DID Document + `POST /v1/keys/rotate` design work
-> (and the linked design spike doc) that closes this gap. Until then,
-> keep `did:web` issuers on a stable key for the lifetime of the
-> deployment.
+> **Key rotation under did:web — use `POST /v1/keys/rotate`.** Swap
+> `OPENCRED_KEY_PATH` to the new key, restart the container, then call
+> `POST /v1/keys/rotate` (no request body needed beyond an optional
+> `namespace`). The server appends the new key to the DID Document's
+> `verificationMethod[]`, stamps `supersededAt` on the prior current
+> key (so already-issued credentials continue to verify against it),
+> and points `assertionMethod` at the new key. The DID itself stays
+> stable. Idempotent: re-running rotate against a document that
+> already carries the active key returns `{rotated: false}` without
+> writing. See [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md)
+> for the design.
 
 ```bash
 # Publish — body is { did, document, namespace? }. The "document" is a

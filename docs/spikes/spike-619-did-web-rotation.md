@@ -1,11 +1,11 @@
 # Spike 619 — did:web Key Rotation
 
-**Status:** Recommendation
+**Status:** **Implemented** (closes [#627](https://github.com/nfh-trust-labs/opencred/issues/627) — production code; this doc is preserved as design rationale)
 **Parent issue:** [#619 — did:web key rotation design](https://github.com/nfh-trust-labs/opencred/issues/619)
 **Followups doc:** [`docs/bootcamp/post-bootcamp-followups.md`](../bootcamp/post-bootcamp-followups.md) §7
 **Spike protocol:** `CLAUDE.md` → "Spike Protocol"
 **Author:** Spike branch `spike/619-did-web-rotation`
-**Date:** 2026-05-22
+**Date:** 2026-05-22 (spike) / 2026-05-22 (implementation)
 
 ## TL;DR
 

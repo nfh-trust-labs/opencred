@@ -17,7 +17,7 @@ this doc.
 | 4 | Bootcamp doc — clarify when publish happens | ✅ **Implemented** in [PR #623](https://github.com/nfh-trust-labs/opencred/pull/623) |
 | 5 | Bootcamp doc — 409 troubleshooting rows | ✅ **Implemented** in [PR #623](https://github.com/nfh-trust-labs/opencred/pull/623) |
 | 6 | Better 409 → `DEDI_RECORD_EXISTS` error | ✅ **Implemented** in [PR #620](https://github.com/nfh-trust-labs/opencred/pull/620) |
-| 7 | did:web key rotation | 🟡 **Design spike landed** in [PR #622](https://github.com/nfh-trust-labs/opencred/pull/622); impl tracked at [issue #619](https://github.com/nfh-trust-labs/opencred/issues/619) |
+| 7 | did:web key rotation | ✅ **Implemented** (design spike [PR #622](https://github.com/nfh-trust-labs/opencred/pull/622); implementation closing [issue #627](https://github.com/nfh-trust-labs/opencred/issues/627)) |
 | 8 | Opt-in startup auto-publish | ✅ **Implemented** in [PR #624](https://github.com/nfh-trust-labs/opencred/pull/624) |
 
 ---
@@ -107,21 +107,27 @@ Published DID saved to new `lastPublishedDid` collection variable. Also: the ser
   ```
 - Same shape for the publish path (with a hint pointing at `/v1/keys/resolve`).
 
-## 7. Key rotation under did:web 🟡
+## 7. Key rotation under did:web ✅
 
-**Status**: **Design spike landed** in [PR #622](https://github.com/nfh-trust-labs/opencred/pull/622) (`docs/spikes/spike-619-did-web-rotation.md`). Implementation tracked at [issue #619](https://github.com/nfh-trust-labs/opencred/issues/619) — follow-up issue filed for the actual production change.
+**Status**: **Implemented**. Design spike merged via [PR #622](https://github.com/nfh-trust-labs/opencred/pull/622) (`docs/spikes/spike-619-did-web-rotation.md`); production code closes [issue #627](https://github.com/nfh-trust-labs/opencred/issues/627).
 
-**Spike recommendation (summary)**: multi-key DID Documents for did:web (append new key to `verificationMethod[]`, mark prior keys with `supersededAt`), backed by an opt-in `POST /v1/keys/rotate` endpoint. did:key rotation keeps current single-key flag-flip semantics. Concurrency: last-writer-wins with a warn log on the rotation path; surface limitation explicitly for multi-replica operators.
+**Landed**:
 
-**Verifier impact: none.** `packages/verification/src/vc-jwt.ts:179-213` already iterates `verificationMethod[]` and matches by `kid` — the multi-key shape works on the verify side today.
+- New `POST /v1/keys/rotate` endpoint. Reads the active signer, validates the DID is `did:web:`, pulls `publicKeyJwk` from signer metadata, and calls the new adapter method.
+- New `DeDiClient.rotateDIDWeb(did, newKeyJwk, namespace?)` adapter method. Read-merge-write against the existing `public_key_registry` record: appends new VM entry, marks every prior un-superseded VM with `supersededAt: now`, points `assertionMethod` at the new VM only, writes via `updateRecord`. Returns a discriminated `RotateResult` union (`{ rotated: true, did, currentKeyId, superseded[], namespace }` or `{ rotated: false, did, currentKeyId, reason: "already-current", namespace }`).
+- **Idempotent short-circuit**: if the active signer's `publicKeyJwk` already matches the most-recent un-superseded VM (canonicalised JWK comparison), no DeDi write is issued.
+- **`markDIDRotated` semantic split**: did:key keeps its whole-record `keyStatus` flip behaviour; did:web becomes a no-op at the record level with a warn log (rotation lives inside the document, not on the parent record). Signature preserved (`Promise<void>`) — no breaking change to existing desktop callers.
+- **Read-only gating**: free — `/v1/keys/` is already in `WRITE_PREFIXES`, so a read-tier replica returns `403 READ_ONLY_MODE` automatically.
+- **Verifier impact: none** — `packages/verification/src/vc-jwt.ts:179-213` already iterates `verificationMethod[]` and matches by `kid` from the JWT header, so credentials signed under any prior (now-superseded) key still verify.
 
-**Out of scope of the spike (filed for separate follow-ups)**:
-- KMS-backed key rotation orchestration
-- Per-key revocation (`revoked: true` semantics distinct from `supersededAt`)
-- Rotation audit log
-- Multi-region replicated rotations
+**Out of scope (filed for separate follow-ups, still parked)**:
 
-**Constraint documented**: `docs/bootcamp/local-docker.md` §7d carries a "did:web key rotation not yet supported" callout linking to issue #619, so production did:web operators know to keep their keys stable until the impl PR lands.
+- KMS-backed key rotation orchestration. Today only software signers expose `publicKeyJwk`; hardware-token / KMS public-key extraction is its own work item.
+- Per-key revocation (`revoked: true` semantics distinct from `supersededAt`). Credentials signed under a revoked-because-compromised key should fail verification; the current verifier doesn't consult per-key revoke flags.
+- Rotation audit log.
+- DeDi-side optimistic concurrency. Current implementation is **last-writer-wins** — multi-replica deployments running simultaneous rotations against the same DID risk one rotation clobbering the other. The right fix is DeDi exposing an `If-Match`-style primitive; raised separately with the DeDi team.
+
+**Doc surface**: `docs/concepts/dids.md` carries the operator-facing "did:web key rotation" section; `docs/bootcamp/local-docker.md` §7d describes the rotate flow alongside publish/resolve.
 
 ## 8. Opt-in startup auto-publish ✅
 
