@@ -4,6 +4,25 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.0](https://github.com/nfh-trust-labs/opencred/compare/v1.5.0...v1.6.0) (2026-05-25)
+
+
+### Features
+
+* **dedi-client:** surface DeDi 409 as DEDI_RECORD_EXISTS with hint ([#620](https://github.com/nfh-trust-labs/opencred/issues/620)) ([b0203be](https://github.com/nfh-trust-labs/opencred/commit/b0203bed15bb0641b26b4dbf4103a5526fe64868))
+* did:web multi-key rotation (POST /v1/keys/rotate) ([#628](https://github.com/nfh-trust-labs/opencred/issues/628)) ([73dcba8](https://github.com/nfh-trust-labs/opencred/commit/73dcba8174696736a611dcbb7fdbcec6d355b9b9))
+* **server,bootcamp:** Postman click-through for Issue-&gt;Revoke + Key publish/resolve ([#621](https://github.com/nfh-trust-labs/opencred/issues/621)) ([da32b84](https://github.com/nfh-trust-labs/opencred/commit/da32b848fe2138ac9c8c6a274bec9d94bdeecb4e)), closes [#616](https://github.com/nfh-trust-labs/opencred/issues/616)
+* **server:** startup auto-publish issuer DID + fix HOST_DID_DOC no-op ([#624](https://github.com/nfh-trust-labs/opencred/issues/624)) ([f863391](https://github.com/nfh-trust-labs/opencred/commit/f863391d14aa9811570e191e3d699ee8a4bb5d63))
+
+
+### Bug Fixes
+
+* **ci:** drop committed node_modules symlink ([#606](https://github.com/nfh-trust-labs/opencred/issues/606)) ([3acc64e](https://github.com/nfh-trust-labs/opencred/commit/3acc64e7d9b6a0529db789a0a2dc437268cd5552))
+* **ci:** drop orphan opencred-website gitlink ([#603](https://github.com/nfh-trust-labs/opencred/issues/603)) ([810a0e4](https://github.com/nfh-trust-labs/opencred/commit/810a0e46ee17805a466daffbc3afb5daaa297cb5)), closes [#601](https://github.com/nfh-trust-labs/opencred/issues/601)
+* **dedi-client:** chain publish-records + use lookup for revocation queries ([#612](https://github.com/nfh-trust-labs/opencred/issues/612)) ([34c830d](https://github.com/nfh-trust-labs/opencred/commit/34c830d3a0a3e70023f0958ac4c02d3781d2fc8a))
+* **dedi-client:** use case-sensitive Revoke tag + inline schema for context ([#611](https://github.com/nfh-trust-labs/opencred/issues/611)) ([c73ee0d](https://github.com/nfh-trust-labs/opencred/commit/c73ee0d3c977323e7f301de9d1e450d438e01645))
+* **desktop:** route did:web rotate IPC through rotateDIDWeb ([#631](https://github.com/nfh-trust-labs/opencred/issues/631)) ([1450e9d](https://github.com/nfh-trust-labs/opencred/commit/1450e9dbb9cadbdcec38761d4b64db6513f4c934))
+
 ## [1.5.0](https://github.com/nfh-trust-labs/opencred/compare/v1.4.1...v1.5.0) (2026-05-20)
 
 
