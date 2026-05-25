@@ -169,6 +169,95 @@ keys.post("/keys/publish", async (c) => {
   return c.json(result);
 });
 
+const rotateKeySchema = z.object({
+  namespace: z.string().optional(),
+});
+
+/**
+ * POST /keys/rotate
+ *
+ * Rotate the active signer's did:web key inside its DID Document.
+ * The DID stays stable; the new key is appended to verificationMethod[]
+ * and the prior current key is marked supersededAt. See
+ * docs/spikes/spike-619-did-web-rotation.md for the design.
+ *
+ * Scope: did:web only. did:key rotation produces a new DID — issuers
+ * should regenerate their key instead. The endpoint sits under
+ * /v1/keys/ which is in WRITE_PREFIXES, so OPENCRED_READ_ONLY=true
+ * gates it to 403 READ_ONLY_MODE automatically.
+ */
+keys.post("/keys/rotate", async (c) => {
+  const body = await parseJsonBody(c);
+  rejectKeyMaterial(body);
+  const parsed = rotateKeySchema.parse(body);
+
+  const signer = getActiveSigner();
+  if (!signer) {
+    return c.json(
+      {
+        error: {
+          code: "VALIDATION_ERROR",
+          message:
+            "No signing key configured. Set OPENCRED_KEY_PATH or a Cloud HSM provider before calling /v1/keys/rotate.",
+        },
+      },
+      400,
+    );
+  }
+
+  // Derive the issuer DID from the signer (signer.id is the verification
+  // method ID, e.g. did:web:issuer.example.org#key-1). Strip the fragment.
+  const issuerDid = signer.id.split("#")[0]!;
+  if (!issuerDid.startsWith("did:web:")) {
+    return c.json(
+      {
+        error: {
+          code: "KEY_METHOD_MISMATCH",
+          message:
+            "/v1/keys/rotate supports did:web issuers only. did:key rotation produces a new DID — " +
+            "regenerate the signing key instead (the new key derives a new did:key automatically).",
+          activeDid: issuerDid,
+        },
+      },
+      400,
+    );
+  }
+
+  const publicKeyJwk = signer.metadata.publicKeyJwk;
+  if (!publicKeyJwk) {
+    return c.json(
+      {
+        error: {
+          code: "VALIDATION_ERROR",
+          message:
+            "Active signer does not expose publicKeyJwk on its metadata. Rotation requires a " +
+            "software-backed signer; KMS-backed signers are not yet supported by /v1/keys/rotate.",
+          signerType: signer.type,
+        },
+      },
+      400,
+    );
+  }
+
+  const dediClient = getDeDiClient();
+  if (!dediClient) {
+    return c.json(
+      {
+        error: {
+          code: "DEDI_NOT_CONFIGURED",
+          message:
+            "DeDi is not configured. Set OPENCRED_DEDI_BASE_URL, OPENCRED_DEDI_AUTH_TYPE, " +
+            "OPENCRED_DEDI_NAMESPACE, and the matching auth secret to enable this endpoint.",
+        },
+      },
+      503,
+    );
+  }
+
+  const result = await dediClient.rotateDIDWeb(issuerDid, publicKeyJwk, parsed.namespace);
+  return c.json(result);
+});
+
 /**
  * POST /keys/resolve
  *
