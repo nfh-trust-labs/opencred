@@ -197,6 +197,151 @@ Source: `apps/server/src/routes/keys.ts`
 
 ---
 
+### POST /v1/keys/publish
+
+Publish a DID document to the DeDi `public_key_registry`. Lets verifiers resolve an issuer's public keys via DeDi instead of relying on `did:web` HTTPS lookups.
+
+**Auth:** Required.
+
+**Request body**
+
+```ts
+{
+  did: string;                          // e.g. "did:web:issuer.example.org"
+  document?: Record<string, unknown>;   // required for did:web; ignored for did:key
+  namespace?: string;                   // override OPENCRED_DEDI_NAMESPACE
+}
+```
+
+`document` is optional at the route layer — for `did:key` the adapter derives the document from the DID itself, so the route accepts a minimal `{"did":"did:key:z..."}` body. For `did:web` the adapter enforces that `document` is required.
+
+**Response `200 OK`**
+
+```json
+{
+  "published": true,
+  "recordName": "did-web-issuer-example-org",
+  "namespace": "issuer.example.org"
+}
+```
+
+**Error responses**
+
+| Status | Code | When |
+|--------|------|------|
+| `400` | `VALIDATION_ERROR` | Body failed Zod parsing or contained a PEM string. |
+| `400` | `DEDI_CLIENT_ERROR` | did:web request without `document`. |
+| `409` | `DEDI_RECORD_EXISTS` | This DID is already in the registry from a prior publish. Response carries a `hint` pointing at `POST /v1/keys/resolve`. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
+
+Source: `apps/server/src/routes/keys.ts`
+
+---
+
+### POST /v1/keys/rotate
+
+Rotate the active signer's `did:web` key inside its existing DID Document. The DID itself stays stable; the new key is appended to `verificationMethod[]` and the prior current key is marked `supersededAt`. Already-issued credentials continue to verify against the prior key via `kid`. See [`docs/spikes/spike-619-did-web-rotation.md`](spikes/spike-619-did-web-rotation.md) for the design.
+
+**Scope:** `did:web` only. `did:key` issuers should regenerate their key (which produces a new DID) instead.
+
+**Auth:** Required.
+
+**Request body**
+
+```ts
+{
+  namespace?: string;  // override OPENCRED_DEDI_NAMESPACE
+}
+```
+
+The rotation target DID is **derived from the active signer** — there is no `did` field on the request.
+
+**Response `200 OK` — rotated**
+
+```json
+{
+  "rotated": true,
+  "did": "did:web:issuer.example.org",
+  "currentKeyId": "did:web:issuer.example.org#key-2",
+  "superseded": ["did:web:issuer.example.org#key-1"],
+  "namespace": "issuer.example.org"
+}
+```
+
+**Response `200 OK` — idempotent skip**
+
+When the active signer's `publicKeyJwk` already matches the most-recent un-superseded `verificationMethod` entry, the call is a no-op:
+
+```json
+{
+  "rotated": false,
+  "did": "did:web:issuer.example.org",
+  "currentKeyId": "did:web:issuer.example.org#key-2",
+  "reason": "already-current",
+  "namespace": "issuer.example.org"
+}
+```
+
+Re-running rotate after a transient network failure is therefore safe.
+
+**Error responses**
+
+| Status | Code | When |
+|--------|------|------|
+| `400` | `VALIDATION_ERROR` | No active signer, or signer doesn't expose `publicKeyJwk` (KMS-backed signers not yet supported). |
+| `400` | `KEY_METHOD_MISMATCH` | Active signer's DID is `did:key:` (not `did:web:`). |
+| `403` | `READ_ONLY_MODE` | Replica running with `OPENCRED_READ_ONLY=true`. |
+| `404` | `DEDI_CLIENT_ERROR` | DID has no existing DeDi record. Call `POST /v1/keys/publish` first. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
+
+**Concurrency caveat**: today's implementation is **last-writer-wins**. Multi-replica deployments running simultaneous rotations against the same DID risk one rotation clobbering the other. DeDi-side optimistic concurrency is the right long-term fix — see [`docs/spikes/spike-619-did-web-rotation.md`](spikes/spike-619-did-web-rotation.md) §5.
+
+Source: `apps/server/src/routes/keys.ts`
+
+---
+
+### POST /v1/keys/resolve
+
+Resolve a DID document from the DeDi `public_key_registry`.
+
+**Auth:** Required.
+
+**Request body**
+
+```ts
+{
+  did: string;
+  namespace?: string;
+}
+```
+
+POST (not GET) is used so DIDs containing colons (e.g. `did:web:example.org:users:alice`) don't have to be URL-encoded.
+
+**Response `200 OK`**
+
+```json
+{
+  "did": "did:web:issuer.example.org",
+  "document": { "@context": ["https://www.w3.org/ns/did/v1"], "...": "..." },
+  "keyStatus": "current"
+}
+```
+
+`document` is omitted for `did:key` records (the verifier derives it from the DID). `keyStatus` is **did:key-only** semantics: `"current"` until `markDIDRotated` flips it (`did:key` rotation = new DID, so OLD record gets flipped). For `did:web`, `keyStatus` stays `"current"` for the lifetime of the deployment — rotation lives inside `document.verificationMethod[]` (each VM entry carries its own `supersededAt` metadata) and is performed via `POST /v1/keys/rotate`.
+
+A `GET /v1/keys/resolve?did=...&namespace=...` variant exists for CDN-cacheable reads.
+
+**Error responses**
+
+| Status | Code | When |
+|--------|------|------|
+| `400` | `VALIDATION_ERROR` | Missing or invalid `did`. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
+
+Source: `apps/server/src/routes/keys.ts`
+
+---
+
 ### GET /v1/schemas
 
 List available credential schemas. Supports optional `?category=` query parameter to filter by schema category.

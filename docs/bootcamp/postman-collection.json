@@ -572,6 +572,23 @@
             },
             "description": "Resolve a DID document from the DeDi `public_key_registry`. POST (not GET) so DIDs containing colons or slashes don't have to be URL-encoded.\n\nReturns `{ did, document?, keyStatus }`. `document` is omitted for `did:key` records (the verifier derives it from the DID itself); `keyStatus` is `\"current\"` or `\"rotated\"`. The response may also include a `proof` block (CORD-blockchain anchor metadata) when DeDi anchored the record on-chain.\n\n**Auto-threading**: pre-request script picks `{{lastPublishedDid}}` (set by the publish request above) if available, otherwise falls back to `{{issuerDid}}`. So a click-chain `Inspect → GET /v1/keys` → `Publish` → `Resolve` works without manual variable copying.\n\n503 if DeDi isn't configured."
           }
+        },
+        {
+          "name": "POST /v1/keys/rotate (did:web only)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/keys/rotate",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "keys", "rotate"]
+            },
+            "description": "Rotate the active signer's did:web key inside its DID Document. The DID stays stable; the new key is appended to `verificationMethod[]` and the prior current key is marked `supersededAt`. Already-issued credentials continue to verify against the prior key (the verifier matches by `kid`).\n\n**Scope**: did:web only. did:key rotation produces a new DID — regenerate the signing key instead.\n\n**Body**: `{ namespace?: string }`. The rotation target is derived from the active signer — no `did` field.\n\n**Workflow**:\n1. Stop the OpenCred container.\n2. Swap `OPENCRED_KEY_PATH` to the new key file.\n3. Restart the container.\n4. Hit this endpoint.\n\n**Response (rotated)**: `{ rotated: true, did, currentKeyId, superseded: [...], namespace }`.\n\n**Response (idempotent skip)**: `{ rotated: false, did, currentKeyId, reason: \"already-current\", namespace }` — fired when the active signer's `publicKeyJwk` already matches the latest VM. Safe to retry.\n\n**Errors**:\n- `400 KEY_METHOD_MISMATCH` — active issuer is did:key (use the regenerate flow instead).\n- `400 VALIDATION_ERROR` — signer doesn't expose `publicKeyJwk` (KMS-backed signers not yet supported).\n- `404 DEDI_CLIENT_ERROR` — DID has no existing DeDi record (call `/v1/keys/publish` first).\n- `503 DEDI_NOT_CONFIGURED` — DeDi env vars not set.\n\n**Concurrency**: last-writer-wins. Multi-replica deployments running simultaneous rotations against the same DID risk one rotation clobbering the other — see `docs/spikes/spike-619-did-web-rotation.md` §5."
+          }
         }
       ]
     },
