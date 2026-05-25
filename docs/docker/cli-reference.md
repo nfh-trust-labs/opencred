@@ -137,7 +137,8 @@ OPENCRED_ISSUER_DOMAIN=issuer.example.com \
 | `OPENCRED_ISSUER_DID_METHOD` | No | `key` (default) or `web`. Drives DID derivation. |
 | `OPENCRED_ISSUER_DOMAIN` | When `OPENCRED_ISSUER_DID_METHOD=web` | Domain for did:web. |
 | `OPENCRED_DEDI_BASE_URL` | No | Surfaces DeDi configuration status in the output. |
-| `OPENCRED_DEDI_HOST_DID_DOC` | No | When `true`, output reports DeDi as the DID-doc host. |
+| `OPENCRED_DEDI_HOST_DID_DOC` | No | When `true`, output reports DeDi as the DID-doc host. Requires DeDi to be configured (rejected by `config validate` otherwise). |
+| `OPENCRED_AUTO_PUBLISH_KEY` | No | When `true`, the server publishes the issuer DID to DeDi at startup. Requires DeDi to be configured. Works for both did:key and did:web. |
 
 The output lists DID method, derived issuer DID, verification-method ID, signing algorithm, key fingerprint, key source (file / KMS / hardware token), and DeDi configuration state.
 
