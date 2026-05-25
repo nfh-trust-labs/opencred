@@ -88,6 +88,7 @@ const mockEnsureSchemaPublished = vi.fn();
 const mockPublishDIDDocument = vi.fn();
 const mockEnsureRegistries = vi.fn();
 const mockMarkDIDRotated = vi.fn();
+const mockRotateDIDWeb = vi.fn();
 
 vi.mock("@opencred/dedi-client", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
@@ -98,6 +99,7 @@ vi.mock("@opencred/dedi-client", async (importOriginal) => {
       publishDIDDocument: mockPublishDIDDocument,
       ensureRegistries: mockEnsureRegistries,
       markDIDRotated: mockMarkDIDRotated,
+      rotateDIDWeb: mockRotateDIDWeb,
       getPublishedSchemaIds: () => [],
     })),
     DeDiPublishManager: vi.fn(),
@@ -356,6 +358,228 @@ describe("IPC Handler Integration Tests", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // DEDI_MARK_DID_ROTATED — per-method routing (issue #629)
+  // -----------------------------------------------------------------------
+  //
+  // The IPC handler must route the user-triggered rotation differently
+  // depending on the DID method:
+  //   - did:key -> mgr.markDIDRotated (whole-record flip)
+  //   - did:web -> mgr.rotateDIDWeb (per-key rotation inside the document)
+  //
+  // Prior to the fix, both paths went through markDIDRotated, but the
+  // dedi-client now no-ops markDIDRotated for did:web — so the renderer
+  // would show a misleading "key marked as rotated" toast while nothing
+  // was written to DeDi.
+  describe("DEDI_MARK_DID_ROTATED — per-method routing", () => {
+    /**
+     * Provision a DeDi-configured publish manager and reset the
+     * cached singleton so the next handler call sees the new mocks.
+     * Mirrors the pattern used in the KEY_GENERATE rotation tests.
+     */
+    async function setupConfiguredDeDi(): Promise<void> {
+      const baseConfig = {
+        baseUrl: "https://dedi.example.com",
+        namespace: "test-ns",
+        authType: "api-key" as const,
+      };
+      const prefs = {
+        dediCredentialEncrypted: Buffer.from(JSON.stringify({ apiKey: "dk_test" })).toString(
+          "base64",
+        ),
+      };
+      storeData["dediConfig"] = baseConfig;
+      storeData["preferences"] = prefs;
+
+      // Drop the cached publishManager singleton so the configured
+      // mocks (rotateDIDWeb / markDIDRotated) wire in fresh.
+      const disconnect = registeredHandlers[IPC_CHANNELS.DEDI_DISCONNECT];
+      await disconnect(fakeEvent);
+
+      // disconnect nukes config; restore it for the actual test body.
+      storeData["dediConfig"] = baseConfig;
+      storeData["preferences"] = prefs;
+    }
+
+    it("did:key: calls markDIDRotated and returns success:true", async () => {
+      await setupConfiguredDeDi();
+      mockMarkDIDRotated.mockResolvedValue(true);
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_MARK_DID_ROTATED];
+      const result = (await handler(fakeEvent, { did: "did:key:z6Mkold" })) as {
+        success: boolean;
+        rotation?: unknown;
+      };
+
+      expect(result.success).toBe(true);
+      // No rotation block on the did:key path — it's a whole-record
+      // flip, the renderer doesn't need per-key data.
+      expect(result.rotation).toBeUndefined();
+      expect(mockMarkDIDRotated).toHaveBeenCalledTimes(1);
+      expect(mockMarkDIDRotated).toHaveBeenCalledWith("did:key:z6Mkold");
+      expect(mockRotateDIDWeb).not.toHaveBeenCalled();
+    });
+
+    it("did:web: routes to rotateDIDWeb with the active signer's publicKeyJwk", async () => {
+      await setupConfiguredDeDi();
+
+      // Generate a fresh keypair so loadedSigners has a software signer
+      // whose metadata.publicKeyJwk is populated. This mirrors the real
+      // Self-Published Keys (did:web) wizard flow: the issuer generated
+      // a key locally and is now rotating their published did:web doc
+      // to point at it.
+      const genHandler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const gen = (await genHandler(fakeEvent, {})) as {
+        success: boolean;
+        key: { id: string };
+      };
+      expect(gen.success).toBe(true);
+      const keyId = gen.key.id;
+
+      mockRotateDIDWeb.mockResolvedValue({
+        rotated: true,
+        did: "did:web:issuer.example.org",
+        currentKeyId: "did:web:issuer.example.org#key-2",
+        superseded: ["did:web:issuer.example.org#key-1"],
+        namespace: "test-ns",
+      });
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_MARK_DID_ROTATED];
+      const result = (await handler(fakeEvent, {
+        did: "did:web:issuer.example.org",
+        keyId,
+      })) as {
+        success: boolean;
+        rotation?: {
+          rotated: boolean;
+          did: string;
+          currentKeyId: string;
+          superseded?: string[];
+          namespace: string;
+        };
+      };
+
+      expect(result.success).toBe(true);
+      // markDIDRotated must NOT be called for did:web — that's the
+      // whole point of the routing split.
+      expect(mockMarkDIDRotated).not.toHaveBeenCalled();
+      expect(mockRotateDIDWeb).toHaveBeenCalledTimes(1);
+
+      // Inspect the JWK passed to rotateDIDWeb: must be the public JWK
+      // for an EC P-256 key (kty/crv/x/y), never private fields.
+      const callArgs = mockRotateDIDWeb.mock.calls[0]!;
+      expect(callArgs[0]).toBe("did:web:issuer.example.org");
+      const jwk = callArgs[1] as Record<string, unknown>;
+      expect(jwk.kty).toBe("EC");
+      expect(jwk.crv).toBe("P-256");
+      expect(jwk.x).toBeDefined();
+      expect(jwk.y).toBeDefined();
+      // Security invariant: never log/transmit private key material.
+      expect(jwk.d).toBeUndefined();
+
+      // Response carries the rotation result so the renderer can show
+      // a useful confirmation.
+      expect(result.rotation).toBeDefined();
+      expect(result.rotation?.rotated).toBe(true);
+      expect(result.rotation?.did).toBe("did:web:issuer.example.org");
+      expect(result.rotation?.currentKeyId).toBe("did:web:issuer.example.org#key-2");
+      expect(result.rotation?.superseded).toEqual(["did:web:issuer.example.org#key-1"]);
+      expect(result.rotation?.namespace).toBe("test-ns");
+    });
+
+    it("did:web: surfaces idempotent no-op (rotated:false) from rotateDIDWeb", async () => {
+      await setupConfiguredDeDi();
+      const genHandler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const gen = (await genHandler(fakeEvent, {})) as { success: boolean; key: { id: string } };
+      const keyId = gen.key.id;
+
+      mockRotateDIDWeb.mockResolvedValue({
+        rotated: false,
+        did: "did:web:issuer.example.org",
+        currentKeyId: "did:web:issuer.example.org#key-1",
+        reason: "already-current",
+        namespace: "test-ns",
+      });
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_MARK_DID_ROTATED];
+      const result = (await handler(fakeEvent, {
+        did: "did:web:issuer.example.org",
+        keyId,
+      })) as {
+        success: boolean;
+        rotation?: { rotated: boolean; superseded?: string[] };
+      };
+
+      expect(result.success).toBe(true);
+      expect(result.rotation?.rotated).toBe(false);
+      // No superseded list on a no-op response.
+      expect(result.rotation?.superseded).toBeUndefined();
+    });
+
+    it("did:web: returns success:false when keyId is missing", async () => {
+      await setupConfiguredDeDi();
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_MARK_DID_ROTATED];
+      const result = (await handler(fakeEvent, {
+        did: "did:web:issuer.example.org",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/keyId/);
+      expect(mockRotateDIDWeb).not.toHaveBeenCalled();
+      expect(mockMarkDIDRotated).not.toHaveBeenCalled();
+    });
+
+    it("did:web: returns success:false when keyId is unknown", async () => {
+      await setupConfiguredDeDi();
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_MARK_DID_ROTATED];
+      const result = (await handler(fakeEvent, {
+        did: "did:web:issuer.example.org",
+        keyId: "did:key:zNotLoaded#abc",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/no signer loaded/);
+    });
+
+    it("returns success:false when DeDi is not configured", async () => {
+      // Default beforeEach already clears dediConfig — still drop the
+      // cached publishManager so the unconfigured branch hits.
+      const disconnect = registeredHandlers[IPC_CHANNELS.DEDI_DISCONNECT];
+      await disconnect(fakeEvent);
+      delete storeData["dediConfig"];
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_MARK_DID_ROTATED];
+      const result = (await handler(fakeEvent, { did: "did:key:z6Mkold" })) as {
+        success: boolean;
+        error?: string;
+      };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not configured/);
+    });
+
+    it("did:web: surfaces error when rotateDIDWeb fails", async () => {
+      await setupConfiguredDeDi();
+      const genHandler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const gen = (await genHandler(fakeEvent, {})) as { success: boolean; key: { id: string } };
+      const keyId = gen.key.id;
+
+      // The publish-manager wraps the adapter and returns `null` on
+      // failure; the handler translates that into a success:false
+      // response so the renderer can toast the error.
+      mockRotateDIDWeb.mockResolvedValue(null);
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_MARK_DID_ROTATED];
+      const result = (await handler(fakeEvent, {
+        did: "did:web:issuer.example.org",
+        keyId,
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/Failed to rotate/);
     });
   });
 

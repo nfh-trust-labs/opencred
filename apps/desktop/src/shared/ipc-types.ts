@@ -748,12 +748,37 @@ export interface DeDiPublishDIDRequest {
 
 export interface DeDiMarkDIDRotatedRequest {
   /**
-   * The DID whose `keyStatus` should be flipped from `"current"` to
-   * `"rotated"`. Must already be published to DeDi — otherwise the
-   * underlying update-record call returns a 404 which the handler
-   * swallows (the response is `success: false` so callers can log).
+   * The DID being rotated.
+   *
+   * - For `did:key` issuers (and any unknown method) the handler flips
+   *   the whole DeDi record's `keyStatus` from `"current"` to
+   *   `"rotated"` — the new key produces a new DID, so the old DID is
+   *   retired as a unit.
+   * - For `did:web` issuers the handler routes to
+   *   {@link DeDiClient.rotateDIDWeb}: the DID is stable, the new key is
+   *   appended to the document's `verificationMethod[]`, prior entries
+   *   are stamped `supersededAt`, and `assertionMethod` is repointed
+   *   at the new key. This requires the new key's public JWK (see
+   *   `keyId` below).
+   *
+   * Must already be published to DeDi — otherwise the underlying
+   * update-record call returns a 404 which the handler swallows (the
+   * response is `success: false` so callers can log).
    */
   did: string;
+  /**
+   * Optional key ID of the active signer whose public JWK should be
+   * written into the rotated `did:web` Document. Required for `did:web`
+   * rotation; ignored for `did:key`. The handler looks up the public
+   * JWK from the in-memory signer registry — private key material is
+   * never transmitted across the IPC boundary.
+   *
+   * For backwards compatibility this is optional. did:web rotations
+   * without a `keyId` fail with `success: false, error:
+   * "rotation requires keyId for did:web"` rather than silently
+   * no-oping.
+   */
+  keyId?: string;
 }
 
 export interface DeDiPublishSchemaRequest {
@@ -765,6 +790,25 @@ export interface DeDiPublishResponse {
   success: boolean;
   recordName?: string;
   error?: string;
+  /**
+   * Set by `DEDI_MARK_DID_ROTATED` when the DID was a `did:web`. Carries
+   * the result of the underlying `rotateDIDWeb` call so the renderer can
+   * distinguish:
+   *   - a fresh rotation (`rotated: true`, includes `currentKeyId` and
+   *     the list of `superseded` verification method IDs);
+   *   - an idempotent no-op (`rotated: false`, `currentKeyId` is the
+   *     active key that already matched the document).
+   * Absent for non-did:web flows (e.g. did:key rotation, publish,
+   * schema publish).
+   */
+  rotation?: {
+    rotated: boolean;
+    did: string;
+    currentKeyId: string;
+    /** Set only when `rotated: true`. */
+    superseded?: string[];
+    namespace: string;
+  };
 }
 
 export interface DeDiEnsureRegistriesResponse {

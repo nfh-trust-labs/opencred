@@ -2836,13 +2836,38 @@ async function handleDeDiPublishDID(
 }
 
 /**
- * DEDI_MARK_DID_ROTATED — flip a previously-published DID's
- * `keyStatus` to `"rotated"` in DeDi.
+ * DEDI_MARK_DID_ROTATED — record a key rotation for a previously-
+ * published DID in DeDi. Routes per DID method:
+ *
+ *   - `did:key` (and unknown methods): whole-record flip — the DID
+ *     record's `keyStatus` goes `"current"` → `"rotated"`. A new
+ *     did:key key produces a new DID, so retiring the old DID as a
+ *     unit is the correct semantic.
+ *
+ *   - `did:web`: the DID itself is stable across rotations; only one
+ *     of its keys changes. We route to `DeDiClient.rotateDIDWeb`,
+ *     which appends a new `verificationMethod` entry to the cached
+ *     DID Document, stamps prior un-superseded entries with
+ *     `supersededAt`, and repoints `assertionMethod` at the new
+ *     fragment. Requires `request.keyId` so the handler can look up
+ *     the new key's public JWK from the in-memory signer registry;
+ *     calling without `keyId` (or with a `keyId` whose signer doesn't
+ *     expose `publicKeyJwk`) returns `success: false` rather than
+ *     silently no-oping — that footgun (issue #629) is why this
+ *     handler now exists.
  *
  * Used by the renderer-side key-rotation UX (and by the in-process
- * key-generation hook below). The DeDi publish manager wraps this in a
- * try/catch so a DeDi outage doesn't break the caller; the returned
- * `success` flag tells the UI whether to surface a "saved" toast.
+ * key-generation hook above for did:key DIDs). The DeDi publish manager
+ * wraps both adapter calls in a try/catch so a DeDi outage doesn't
+ * break the caller; the returned `success` flag tells the UI whether
+ * to surface a "saved" toast.
+ *
+ * Security invariant (CLAUDE.md #2): the `publicKeyJwk` looked up from
+ * the signer registry is the **public** JWK — Node's
+ * `KeyObject.export({ format: "jwk" })` on a public KeyObject returns
+ * only `kty/crv/x/y` (EC) or `kty/n/e` (RSA), never `d/p/q`. We pass it
+ * through to the DeDi client unmodified; no logging of the JWK
+ * happens here.
  */
 async function handleDeDiMarkDIDRotated(
   _event: IpcMainInvokeEvent,
@@ -2850,6 +2875,72 @@ async function handleDeDiMarkDIDRotated(
 ): Promise<DeDiPublishResponse> {
   const mgr = getDeDiPublishManager();
   if (!mgr) return { success: false, error: "DeDi not configured" };
+
+  if (request.did.startsWith("did:web:")) {
+    // did:web: rotate the key inside the document. Caller must
+    // identify which active signer holds the new key; we never
+    // accept the JWK over the IPC wire (defense-in-depth — public
+    // JWKs are safe to log but private material is not, and the
+    // contract is cleaner if the IPC surface only references keys
+    // by ID).
+    if (!request.keyId) {
+      return {
+        success: false,
+        error:
+          "did:web rotation requires keyId so the handler can resolve the new key's public JWK " +
+          "from the local signer registry",
+      };
+    }
+    const signer = loadedSigners.get(request.keyId);
+    if (!signer) {
+      return {
+        success: false,
+        error: `did:web rotation: no signer loaded for keyId ${request.keyId}`,
+      };
+    }
+    // Software signers expose `metadata.publicKeyJwk` directly.
+    // For generated keys we also cache the JWK in `loadedPublicKeyJwks`
+    // (a hold-over from the Self-Published Keys export flow); prefer
+    // the signer's metadata so we share the same canonical source as
+    // the server-side `/v1/keys/rotate` flow.
+    const publicKeyJwk = signer.metadata.publicKeyJwk ?? loadedPublicKeyJwks.get(request.keyId);
+    if (!publicKeyJwk) {
+      // KMS/PKCS#11/OS-cert signers don't currently expose publicKeyJwk —
+      // graceful skip per scope note in issue #629 (KMS-backed signer
+      // rotation is out of scope today).
+      return {
+        success: false,
+        error: `did:web rotation not supported for signer type "${signer.type}" — publicKeyJwk is not exposed for this signer`,
+      };
+    }
+
+    const result = await mgr.rotateDIDWeb(request.did, publicKeyJwk);
+    if (!result) {
+      return { success: false, error: "Failed to rotate did:web key in DeDi" };
+    }
+    const response: DeDiPublishResponse = {
+      success: true,
+      rotation: result.rotated
+        ? {
+            rotated: true,
+            did: result.did,
+            currentKeyId: result.currentKeyId,
+            superseded: result.superseded,
+            namespace: result.namespace,
+          }
+        : {
+            rotated: false,
+            did: result.did,
+            currentKeyId: result.currentKeyId,
+            namespace: result.namespace,
+          },
+    };
+    return response;
+  }
+
+  // did:key (and other methods): preserve historical whole-record flip
+  // behaviour. New did:key produces a new DID, so flipping the OLD
+  // record's keyStatus correctly retires the prior DID.
   const ok = await mgr.markDIDRotated(request.did);
   return ok
     ? { success: true }
