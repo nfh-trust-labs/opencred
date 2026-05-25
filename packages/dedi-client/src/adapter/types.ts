@@ -83,3 +83,37 @@ export interface PublishResult {
   recordName: string;
   namespace: string;
 }
+
+/**
+ * Result of a `did:web` rotation via `DeDiClient.rotateDIDWeb`.
+ *
+ * Two outcomes are distinguished:
+ *
+ * - `rotated: true` — the rotation produced a new `verificationMethod`
+ *   entry and the document was written back to DeDi. `currentKeyId` is
+ *   the fragment ID (e.g. `did:web:acme.com#key-2`) of the new active
+ *   key; `superseded` is the list of fragment IDs that were marked
+ *   `supersededAt` as part of this call.
+ *
+ * - `rotated: false` — idempotent short-circuit. The active signer's
+ *   `publicKeyJwk` already matched the most recent VM entry, so no
+ *   write was issued. `currentKeyId` is the fragment ID that was
+ *   already current; `reason` describes why the call was a no-op. This
+ *   lets callers re-run rotate safely after a transient network
+ *   failure without spurious DeDi version bumps or warn-log noise.
+ */
+export type RotateResult =
+  | {
+      rotated: true;
+      did: string;
+      currentKeyId: string;
+      superseded: string[];
+      namespace: string;
+    }
+  | {
+      rotated: false;
+      did: string;
+      currentKeyId: string;
+      reason: "already-current";
+      namespace: string;
+    };

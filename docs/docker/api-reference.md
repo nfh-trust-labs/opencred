@@ -331,6 +331,69 @@ Publish a DID document to the DeDi `public_key_registry`. Lets verifiers resolve
 
 ---
 
+### `POST /v1/keys/rotate`
+
+Rotate the active signer's `did:web` key inside its existing DID Document. The DID itself stays stable; the new key is appended to `verificationMethod[]` and the prior current key is marked `supersededAt`. See [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md) for the design.
+
+**Scope**: `did:web` only. `did:key` issuers should regenerate their key (which produces a new DID) instead of calling this endpoint.
+
+**Auth**: required.
+**Content-Type**: `application/json`.
+
+**Request body**
+
+```ts
+{
+  namespace?: string;  // DeDi namespace override; defaults to OPENCRED_DEDI_NAMESPACE
+}
+```
+
+The target DID is **derived from the active signer** — there is no `did` field on the request. Rotating a DID that doesn't belong to this server's signing identity would be a misuse.
+
+**Response: `200 OK` — rotated**
+
+```json
+{
+  "rotated": true,
+  "did": "did:web:issuer.example.org",
+  "currentKeyId": "did:web:issuer.example.org#key-2",
+  "superseded": ["did:web:issuer.example.org#key-1"],
+  "namespace": "issuer.example.org"
+}
+```
+
+**Response: `200 OK` — idempotent skip**
+
+When the active signer's `publicKeyJwk` already matches the most-recent un-superseded `verificationMethod` entry, the call is a no-op and returns:
+
+```json
+{
+  "rotated": false,
+  "did": "did:web:issuer.example.org",
+  "currentKeyId": "did:web:issuer.example.org#key-2",
+  "reason": "already-current",
+  "namespace": "issuer.example.org"
+}
+```
+
+Re-running rotate after a transient network failure is therefore safe: no DeDi version bump, no warn-log noise.
+
+**Error responses**
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | No active signer, or active signer's metadata does not expose `publicKeyJwk` (KMS-backed signers not yet supported). |
+| `400` | `KEY_METHOD_MISMATCH` | Active signer's DID is `did:key:` (not `did:web:`). Regenerate the key instead of calling rotate. |
+| `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
+| `403` | `READ_ONLY_MODE` | Replica configured with `OPENCRED_READ_ONLY=true`. Rotate from a primary replica only. |
+| `404` | `DEDI_CLIENT_ERROR` | The DID has no existing DeDi record. Call `POST /v1/keys/publish` first. |
+| `502` | `DEDI_CLIENT_ERROR` | The existing DeDi record has no `document` — re-publish via `POST /v1/keys/publish` first. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
+
+**Concurrency caveat**: today's implementation is **last-writer-wins**. The default single-issuer-node deployment never hits this; multi-replica deployments running simultaneous rotations against the same DID risk one rotation clobbering the other. DeDi-side optimistic concurrency is the right long-term fix — see [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md) §5.
+
+---
+
 ### `POST /v1/keys/resolve`
 
 Resolve a DID document from the DeDi `public_key_registry`.
@@ -381,7 +444,7 @@ A conditional request with a matching `If-None-Match` returns `304 Not Modified`
 |---|---|---|
 | `did` | `string` | The DID string this record represents. |
 | `document` | `object` _(optional)_ | The W3C DID document. **Omitted for `did:key` records** because the verifier derives the document from the DID itself via the canonical did:key resolution algorithm. Always present for `did:web` records (DeDi acts as a cache of the domain-hosted `.well-known/did.json`). |
-| `keyStatus` | `"current" \| "rotated"` | `"current"` while the key is in active use. Flipped to `"rotated"` by `markDIDRotated` when the issuer publishes a new key from the desktop. The flag is **advisory** — credentials signed under a rotated key remain cryptographically valid; the rotation marker exists so verifier UIs can surface "key rotated" without rejecting the credential. **Heads-up for did:web operators:** the current `keyStatus` flip is correct for did:key but not for did:web — the right shape for did:web rotation is multi-key DID Documents (multiple entries in `verificationMethod[]`, each with rotation metadata). The design is recorded in [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md); implementation tracked at [issue #619](https://github.com/nfh-trust-labs/opencred/issues/619). Until that lands, keep did:web issuers on a stable key for the lifetime of the deployment. |
+| `keyStatus` | `"current" \| "rotated"` | **did:key only.** `"current"` while the key is in active use; flipped to `"rotated"` by `markDIDRotated` when the issuer generates a new did:key key (each new did:key key is a new DID, so the OLD record is logically retired). For **did:web**, this flag stays `"current"` for the lifetime of the deployment — rotation lives inside `document.verificationMethod[]` (each VM entry carries its own `supersededAt` metadata) and is performed via `POST /v1/keys/rotate`. The flag is **advisory** either way — credentials signed under a rotated/superseded key remain cryptographically valid. See [Concepts → DIDs → did:web key rotation](../concepts/dids.md#didweb-key-rotation). |
 | `proof` | `object` _(optional)_ | CORD-blockchain anchor metadata. Set server-side by DeDi when the record was published to CORD; surfaced unchanged here so verifier callers can confirm the record was anchored on-chain by the claimed creator DID. Absence simply means DeDi did not include a proof for this response. See [Concepts → DIDs → CORD anchoring](../concepts/dids.md#cord-anchoring-as-supplementary-provenance). |
 
 **Example — `did:web` record (with `document` and a CORD `proof`)**

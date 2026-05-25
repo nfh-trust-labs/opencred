@@ -10,6 +10,7 @@ import type {
   SchemaRecord,
   ContextRecord,
   PublishResult,
+  RotateResult,
 } from "./types.js";
 import {
   REVOCATION_REGISTRY,
@@ -377,36 +378,52 @@ export class DeDiClient {
   /**
    * Flip a published DID's `keyStatus` from `"current"` to `"rotated"`.
    *
-   * Called when the issuer rotates to a new key — old credentials remain
-   * cryptographically valid against the prior key, but verifier UIs can
-   * surface a "key rotated" badge so consumers know to expect a different
-   * DID on fresh credentials going forward.
+   * **Per-method semantics** (see `docs/spikes/spike-619-did-web-rotation.md`):
    *
-   * The DeDi `update-record` endpoint replaces `details` wholesale, so we
-   * read-merge-write: look up the existing record first to preserve
-   * `did` and (for did:web) `document`, then send the merged payload back
-   * with `keyStatus` flipped.
+   * - `did:key`: keeps the original whole-record flip. A new did:key key
+   *   produces a new DID, so flipping the OLD did:key record's
+   *   `keyStatus` correctly marks the entire DID as retired.
    *
-   * Concurrency story: DeDi's `update-record` has no `If-Match` /
-   * `expected_version` parameter, so the naïve read-merge-write would race
-   * if two desktops rotated the same DID simultaneously. This is safe
-   * today because of two structural facts:
+   * - `did:web`: **no-op at the record level** plus a warn log. The DID
+   *   itself isn't rotated — only one of its keys changes — so flipping
+   *   the parent record's `keyStatus` would be the wrong semantic.
+   *   Rotation for did:web lives inside `document.verificationMethod[]`
+   *   and is performed by `rotateDIDWeb` below. Callers that hit this
+   *   path probably meant to call `rotateDIDWeb` instead; the warn log
+   *   surfaces the misuse without breaking fire-and-forget desktop
+   *   flows.
+   *
+   * - Unknown methods: conservative whole-record flip (matches the
+   *   historical behaviour for forwards-compat).
+   *
+   * Concurrency story (did:key only): DeDi's `update-record` has no
+   * `If-Match` / `expected_version` parameter, so the naïve
+   * read-merge-write would race if two desktops rotated the same DID
+   * simultaneously. This is safe for did:key because:
    *   1. The flip is monotone — `current` → `rotated`, never reversed.
    *   2. `did` is the record key (immutable) and `document` is written
    *      only by `publishDID`, not mutated here — so concurrent calls
    *      send identical payloads.
    * Concurrent callers therefore converge to the same state, and the
-   * idempotent fast-path below short-circuits any caller whose read sees
-   * the record already rotated. Extending `DIDRecord` with a non-monotone
-   * field (e.g. `rotatedAt`, `supersededBy`, multi-key state) would break
-   * this property — see `DIDRecord` in `./types.ts` before changing the
-   * shape.
+   * idempotent fast-path below short-circuits any caller whose read
+   * sees the record already rotated.
    *
-   * Throws if the record isn't already published. Callers in
-   * fire-and-forget paths (e.g. `handleKeyGenerate`) wrap this in
-   * `try/catch` to keep a DeDi outage from breaking local key generation.
+   * Signature stays `Promise<void>` — no breaking change to existing
+   * callers (`apps/desktop/src/main/ipc-handlers.ts:416-432` etc.).
+   * Throws if the record isn't already published (did:key path); the
+   * did:web no-op path never throws on a missing record (since rotation
+   * for did:web is the rotateDIDWeb endpoint's job, not this one).
    */
   async markDIDRotated(did: string, namespace?: string): Promise<void> {
+    if (did.startsWith("did:web:")) {
+      this.logger.warn(
+        "markDIDRotated called for did:web — no-op at the record level; " +
+          "use rotateDIDWeb (or POST /v1/keys/rotate) for per-key rotation inside the DID Document",
+        { did },
+      );
+      return;
+    }
+
     const ns = this.resolveNamespace(namespace);
     const recordName = didToRecordName(did);
     const existing = await this.resolveDID(did, ns);
@@ -424,6 +441,166 @@ export class DeDiClient {
     };
     await this.api.updateRecord(ns, PUBLIC_KEY_REGISTRY, recordName, updatedDetails);
     this.logger.info("DID marked as rotated in DeDi", { did, namespace: ns });
+  }
+
+  /**
+   * Rotate a `did:web` issuer's signing key while keeping the DID itself
+   * stable.
+   *
+   * Read-merge-write against the existing DeDi `public_key_registry`
+   * record:
+   *
+   *   1. Resolve the existing DID Document.
+   *   2. If the most-recent (un-superseded) `verificationMethod` entry
+   *      already carries this key's `publicKeyJwk`, return
+   *      `{ rotated: false }` without writing. Idempotency: re-runs
+   *      after a transient network failure don't produce spurious DeDi
+   *      version bumps or warn-log noise.
+   *   3. Otherwise, mint the next fragment ID (`#key-N+1`), append the
+   *      new VM, mark every prior un-superseded VM with
+   *      `supersededAt: now`, and point `assertionMethod` at the new
+   *      VM only.
+   *   4. Write the merged document back via `updateRecord`.
+   *
+   * **Concurrency (see spike §5).** DeDi has no optimistic-locking
+   * primitive today, so two simultaneous rotations against the same DID
+   * are last-writer-wins. The default single-issuer-node deployment
+   * never hits this; multi-replica deployments running simultaneous
+   * rotations risk one rotation clobbering the other. Option (a) from
+   * the spike — DeDi-side optimistic concurrency — is the right
+   * long-term fix and is tracked separately.
+   *
+   * Throws `DeDiClientError(400)` if `did` is not a `did:web` DID;
+   * `DeDiClientError(404)` if the DID has no existing DeDi record
+   * (caller must `publishDID` first).
+   */
+  async rotateDIDWeb(
+    did: string,
+    newKeyJwk: Record<string, unknown>,
+    namespace?: string,
+  ): Promise<RotateResult> {
+    if (!did.startsWith("did:web:")) {
+      throw new DeDiClientError(
+        "rotateDIDWeb: only did:web rotation is supported by this method; " +
+          "did:key issuers should regenerate (producing a new DID) instead",
+        400,
+      );
+    }
+
+    const ns = this.resolveNamespace(namespace);
+    const recordName = didToRecordName(did);
+
+    // Read existing record. resolveDID throws on 404 — let it propagate so
+    // the caller surfaces a clear "publish first" error.
+    const existing = await this.resolveDID(did, ns);
+    if (!existing.document || typeof existing.document !== "object") {
+      throw new DeDiClientError(
+        "rotateDIDWeb: existing did:web record has no document — cannot rotate keys " +
+          "inside a missing DID Document. Re-publish via /v1/keys/publish first.",
+        502,
+      );
+    }
+
+    const doc = existing.document as Record<string, unknown>;
+    const vms = Array.isArray(doc["verificationMethod"])
+      ? (doc["verificationMethod"] as Record<string, unknown>[])
+      : [];
+
+    // Idempotent short-circuit: if the most-recent un-superseded VM
+    // already carries this exact JWK, the rotation is a no-op. We
+    // canonicalise via JSON.stringify of a sorted-key copy — sufficient
+    // because the JWK fields we emit (kty/crv/x/y or kty/e/n) are flat
+    // strings, no nested objects.
+    const currentVms = vms.filter((vm) => vm["supersededAt"] === undefined);
+    const newKeyCanonical = canonicalJwk(newKeyJwk);
+    const latestCurrent = currentVms[currentVms.length - 1];
+    if (
+      latestCurrent &&
+      latestCurrent["publicKeyJwk"] &&
+      canonicalJwk(latestCurrent["publicKeyJwk"] as Record<string, unknown>) === newKeyCanonical
+    ) {
+      const currentKeyId = String(latestCurrent["id"] ?? "");
+      this.logger.info(
+        "rotateDIDWeb: active key already matches the latest verificationMethod; skipping update",
+        { did, currentKeyId, namespace: ns },
+      );
+      return {
+        rotated: false,
+        did,
+        currentKeyId,
+        reason: "already-current",
+        namespace: ns,
+      };
+    }
+
+    // Compute the next fragment counter. Existing fragments use the
+    // pattern `<did>#key-N` (matching what `generateDidWebDocument`
+    // emits). For robustness we tolerate any `#key-N` regardless of the
+    // preceding DID prefix, picking the next integer above the max we
+    // see.
+    const fragmentRe = /#key-(\d+)$/;
+    let maxN = 0;
+    for (const vm of vms) {
+      const id = String(vm["id"] ?? "");
+      const match = id.match(fragmentRe);
+      if (match) {
+        const n = Number.parseInt(match[1]!, 10);
+        if (Number.isFinite(n) && n > maxN) maxN = n;
+      }
+    }
+    const nextFragmentId = `${did}#key-${maxN + 1}`;
+    const nowIso = new Date().toISOString();
+
+    // Build the merged VM list: prior un-superseded entries gain a
+    // `supersededAt` timestamp; previously-superseded entries are
+    // passed through unchanged; the new entry is appended.
+    const supersededIds: string[] = [];
+    const mergedVms: Record<string, unknown>[] = vms.map((vm) => {
+      if (vm["supersededAt"] === undefined) {
+        supersededIds.push(String(vm["id"] ?? ""));
+        return { ...vm, supersededAt: nowIso };
+      }
+      return vm;
+    });
+    mergedVms.push({
+      id: nextFragmentId,
+      type: "JsonWebKey2020",
+      controller: did,
+      publicKeyJwk: newKeyJwk,
+    });
+
+    const mergedDoc: Record<string, unknown> = {
+      ...doc,
+      verificationMethod: mergedVms,
+      // assertionMethod points at the new key only — verifiers that
+      // walk assertionMethod[] pick up the new key for fresh
+      // credentials. Verifiers that match by `kid` from a JWT header
+      // continue to find old credentials' keys in verificationMethod[]
+      // (now annotated with `supersededAt`).
+      assertionMethod: [nextFragmentId],
+    };
+
+    const updatedDetails: DIDRecord = {
+      did: existing.did,
+      keyStatus: existing.keyStatus,
+      document: mergedDoc,
+    };
+
+    await this.api.updateRecord(ns, PUBLIC_KEY_REGISTRY, recordName, updatedDetails);
+    this.logger.info("did:web key rotated in DeDi", {
+      did,
+      currentKeyId: nextFragmentId,
+      superseded: supersededIds,
+      namespace: ns,
+    });
+
+    return {
+      rotated: true,
+      did,
+      currentKeyId: nextFragmentId,
+      superseded: supersededIds,
+      namespace: ns,
+    };
   }
 
   async publishSchema(schema: SchemaRecord, namespace?: string): Promise<PublishResult> {
@@ -594,6 +771,26 @@ export class DeDiClient {
 function didToRecordName(did: string): string {
   // Replace characters that aren't safe for DeDi record names
   return did.replace(/:/g, "-");
+}
+
+/**
+ * Canonicalise a JWK for equality comparison.
+ *
+ * Used by `rotateDIDWeb` to decide whether the active signer's key is
+ * already the most-recent VM entry in the existing DID Document
+ * (idempotent short-circuit). We don't need full JCS canonicalisation
+ * here — JWK fields we emit (`kty`, `crv`, `x`, `y`, `kid`, `e`, `n`)
+ * are flat strings, so a sorted-key `JSON.stringify` of the top level
+ * is sufficient to detect "same key, byte-equal."
+ *
+ * Returns a stable string suitable for `===` comparison.
+ */
+function canonicalJwk(jwk: Record<string, unknown>): string {
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(jwk).sort()) {
+    sorted[key] = jwk[key];
+  }
+  return JSON.stringify(sorted);
 }
 
 async function ignoreConflict(fn: () => Promise<unknown>): Promise<void> {
