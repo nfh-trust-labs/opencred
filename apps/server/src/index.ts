@@ -216,6 +216,26 @@ if (cloudSigner) {
   } else {
     // method === "web"
     const issuerDid = encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!);
+
+    // Fail-closed: ensure the loaded signer's verification-method ID is the
+    // did:web URL we expect, not the signer-derived did:key. See #632 —
+    // before the key-manager override landed, a method=web server would
+    // silently sign credentials with `kid = did:key:…`, breaking every
+    // verifier walking did:web's verificationMethod[]. The override is
+    // applied inside `loadSigningKey`; this check catches future regressions
+    // (e.g. a KMS-backed signer path that forgets to plumb the override).
+    if (!activeSigner.id.startsWith(`${issuerDid}#`) && !activeSigner.id.startsWith("did:web:")) {
+      const msg =
+        `OPENCRED_ISSUER_DID_METHOD=web with OPENCRED_ISSUER_DOMAIN=${config.OPENCRED_ISSUER_DOMAIN} ` +
+        `but the loaded signer's verification-method id (${activeSigner.id}) is not a did:web URL. ` +
+        "This means issued credentials' JWT `kid` will point at the wrong DID and verifiers will fail. " +
+        "If you are using a software signer this should be fixed automatically — please file a bug. " +
+        "If you are using a KMS-backed signer, did:web is not yet supported there; track issue #632.";
+      logger.fatal(msg);
+      process.stderr.write(`\n[opencred-server] FATAL: ${msg}\n\n`);
+      process.exit(1);
+    }
+
     // Skip the plain-HTTPS reachability probe when DeDi will host the DID
     // document OR when the operator opted into startup auto-publish — in
     // both cases the document is published a few steps later (after the

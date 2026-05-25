@@ -13,10 +13,38 @@
 
 import { createSoftwareSigner } from "@opencred/signing";
 import type { Signer } from "@opencred/signing";
+import { didWebVerificationMethodId, encodeDidWeb } from "@opencred/did";
 import { getConfig } from "../config.js";
 import { getLogger } from "../logger.js";
 
 let activeSigner: Signer | null = null;
+
+/**
+ * Compute the verification-method override the software signer should use
+ * given the configured issuer DID method.
+ *
+ * `OPENCRED_ISSUER_DID_METHOD=web` requires the JWT `kid` header on every
+ * issued credential to point at `did:web:<domain>#key-0` so that
+ * verifiers fetching `did.json` find the matching `verificationMethod`
+ * entry. Before issue #632 the signer derived its `id` purely from key
+ * bytes (`did:key:…` / `did:jwk:…`), the override here flips it to the
+ * did:web verification-method URL when the operator opts into method=web.
+ *
+ * Returns `undefined` for method=key — the derived `did:key:…` value is
+ * the correct identifier in that case and no override is needed.
+ *
+ * `#key-0` matches what `generateDidWebDocument` (used by the startup
+ * auto-publish path and the rotate endpoint's existing-doc reader)
+ * already emits, keeping the JOSE header and the published DID Document
+ * in lockstep.
+ */
+function computeVerificationMethodIdOverride(
+  method: "key" | "web",
+  domain: string | undefined,
+): string | undefined {
+  if (method !== "web" || !domain) return undefined;
+  return didWebVerificationMethodId(encodeDidWeb(domain));
+}
 
 /**
  * Load the signing key from the configured file path.
@@ -33,10 +61,16 @@ export function loadSigningKey(): Signer | null {
 
   logger.info("Loading signing key from configured path");
 
+  const verificationMethodIdOverride = computeVerificationMethodIdOverride(
+    config.OPENCRED_ISSUER_DID_METHOD,
+    config.OPENCRED_ISSUER_DOMAIN,
+  );
+
   const { signer, format } = createSoftwareSigner(
     config.OPENCRED_KEY_PATH,
     config.OPENCRED_KEY_LABEL,
     config.OPENCRED_KEY_PASSWORD,
+    verificationMethodIdOverride,
   );
 
   activeSigner = signer;
@@ -48,6 +82,10 @@ export function loadSigningKey(): Signer | null {
       fingerprint: signer.metadata.fingerprint,
       algorithm: signer.algorithm,
       format,
+      didMethod: config.OPENCRED_ISSUER_DID_METHOD,
+      ...(verificationMethodIdOverride
+        ? { verificationMethodIdOverride: true }
+        : {}),
     },
     "Signing key loaded successfully",
   );
