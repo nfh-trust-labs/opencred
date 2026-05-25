@@ -5,6 +5,7 @@ import type {
   SchemaRecord,
   ContextRecord,
   PublishResult,
+  RotateResult,
 } from "./adapter/types.js";
 import type { DeDiLogger } from "./logger.js";
 
@@ -131,6 +132,50 @@ export class DeDiPublishManager {
         error: error instanceof Error ? error.message : String(error),
       });
       return false;
+    }
+  }
+
+  /**
+   * Rotate a `did:web` issuer's signing key inside its existing DID
+   * Document. Delegates to `DeDiClient.rotateDIDWeb` — see that method's
+   * docstring for the full semantics (read-merge-write,
+   * `supersededAt`-stamping the prior verificationMethod entries,
+   * appending the new VM, repointing `assertionMethod`, idempotent
+   * short-circuit when the active key already matches the latest VM).
+   *
+   * Why this lives here and not just as a `rawClient.rotateDIDWeb()`
+   * call: the publish-manager is the boundary where DeDi failures are
+   * downgraded from "throws" to "returns null / logged warn". User-
+   * triggered rotation should surface failure to the UI (so we don't
+   * blanket-swallow as `markDIDRotated` does), but the manager still
+   * owns the logging contract — a DeDi outage shouldn't crash the
+   * desktop, it should return `null` and let the IPC handler decide
+   * whether to show an error toast.
+   *
+   * Returns the {@link RotateResult} from the adapter on success, or
+   * `null` when DeDi was unreachable / the record was missing /
+   * `rotateDIDWeb` rejected. Callers should treat `null` as "rotation
+   * not applied" — never as silent success.
+   */
+  async rotateDIDWeb(
+    did: string,
+    newKeyJwk: Record<string, unknown>,
+    namespace?: string,
+  ): Promise<RotateResult | null> {
+    try {
+      const result = await this.client.rotateDIDWeb(did, newKeyJwk, namespace);
+      this.logger.debug("did:web key rotated in DeDi", {
+        did,
+        rotated: result.rotated,
+        currentKeyId: result.currentKeyId,
+      });
+      return result;
+    } catch (error) {
+      this.logger.error("Failed to rotate did:web key in DeDi (non-fatal)", {
+        did,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
     }
   }
 
