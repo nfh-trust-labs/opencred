@@ -112,6 +112,66 @@ describe("buildSigner", () => {
 
     expect(signer.metadata.certificateChain).toBeUndefined();
   });
+
+  // Issue #632: verificationMethodIdOverride lets callers (the server's
+  // key-manager when OPENCRED_ISSUER_DID_METHOD=web) replace the derived
+  // did:key/did:jwk with a did:web verification-method URL.
+  describe("verificationMethodIdOverride (issue #632)", () => {
+    it("replaces the derived did:key id on signer.id and metadata.id for EC keys", () => {
+      const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const override = "did:web:issuer.example.org#key-0";
+      const signer = buildSigner(privateKey, publicKey, "ec-web", undefined, override);
+
+      expect(signer.id).toBe(override);
+      expect(signer.metadata.id).toBe(override);
+      // Algorithm + fingerprint still derived from the actual key material.
+      expect(signer.algorithm).toBe("P-256");
+      expect(signer.metadata.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it("replaces the derived did:jwk id for RSA keys too", () => {
+      const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      const override = "did:web:rsa-issuer.example.org#key-0";
+      const signer = buildSigner(privateKey, publicKey, "rsa-web", undefined, override);
+
+      expect(signer.id).toBe(override);
+      expect(signer.metadata.id).toBe(override);
+      expect(signer.algorithm).toBe("RSA-2048");
+    });
+
+    it("leaves the derived id untouched when override is undefined", () => {
+      const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const signer = buildSigner(privateKey, publicKey, "ec-key");
+
+      expect(signer.id).toMatch(/^did:key:z/);
+      expect(signer.metadata.id).toBe(signer.id);
+    });
+
+    it("forwards the override through buildSignerFromPfx", () => {
+      const buffer = readFileSync(resolve(FIXTURES_DIR, "test-rsa2048.pfx"));
+      const override = "did:web:pfx-issuer.example.org#key-0";
+      const signer = buildSignerFromPfx(buffer, "test123", "pfx-web", override);
+
+      expect(signer.id).toBe(override);
+      expect(signer.metadata.id).toBe(override);
+    });
+
+    it("forwards the override through createSoftwareSignerFromBuffer", () => {
+      const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const pem = Buffer.from(privateKey.export({ format: "pem", type: "pkcs8" }) as string);
+      const override = "did:web:buf-issuer.example.org#key-0";
+      const { signer } = createSoftwareSignerFromBuffer(
+        pem,
+        "buf-web",
+        undefined,
+        undefined,
+        override,
+      );
+
+      expect(signer.id).toBe(override);
+      expect(signer.metadata.id).toBe(override);
+    });
+  });
 });
 
 describe("sign + verify round trip", () => {

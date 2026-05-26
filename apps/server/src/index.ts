@@ -216,6 +216,35 @@ if (cloudSigner) {
   } else {
     // method === "web"
     const issuerDid = encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!);
+
+    // Fail-closed: ensure the loaded signer's verification-method ID is
+    // EXACTLY the did:web URL we expect (matching the configured
+    // OPENCRED_ISSUER_DOMAIN), not the signer-derived did:key and not a
+    // did:web for some other domain. See #632 — before the key-manager
+    // override landed, a method=web server would silently sign credentials
+    // with `kid = did:key:…`, breaking every verifier walking did:web's
+    // verificationMethod[]. The override is applied inside `loadSigningKey`;
+    // this check catches future regressions where override drift from the
+    // configured domain (e.g. a KMS-backed signer path that doesn't yet
+    // honour the override — tracked in #635).
+    //
+    // The strict prefix check is `${issuerDid}#`; we don't accept "any
+    // did:web URL" because that would let a misconfigured signer sign under
+    // the wrong issuer identity without anyone noticing.
+    if (!activeSigner.id.startsWith(`${issuerDid}#`)) {
+      const msg =
+        `OPENCRED_ISSUER_DID_METHOD=web with OPENCRED_ISSUER_DOMAIN=${config.OPENCRED_ISSUER_DOMAIN} ` +
+        `expects signer.id to start with ${issuerDid}#, but the loaded signer's verification-method ` +
+        `id is ${activeSigner.id}. This means issued credentials' JWT \`kid\` will not match the ` +
+        "published DID Document and verifiers will fail. " +
+        "If you are using a software signer this should be fixed automatically — please file a bug. " +
+        "If you are using a KMS-backed signer (AWS KMS / Azure Key Vault / GCP Cloud KMS), did:web " +
+        "support is not yet wired through — track issue #635.";
+      logger.fatal(msg);
+      process.stderr.write(`\n[opencred-server] FATAL: ${msg}\n\n`);
+      process.exit(1);
+    }
+
     // Skip the plain-HTTPS reachability probe when DeDi will host the DID
     // document OR when the operator opted into startup auto-publish — in
     // both cases the document is published a few steps later (after the
