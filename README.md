@@ -9,6 +9,7 @@ Open-source toolkit for issuing and verifying W3C Verifiable Credentials.
 - **W3C VC 2.0 compliant** -- supports vc-jwt, data-integrity, and sd-jwt-vc proof formats
 - **34+ bundled credential schemas** across 8 categories (identity, education, health, energy, finance, traceability, open badges, DIF)
 - **DeDi integration** for revocation and directory services
+- **did:web issuance and key rotation** -- self-host the DID Document at your domain or publish to DeDi's `public_key_registry`; rotate keys in-place via `POST /v1/keys/rotate` without changing the DID
 - **QR code generation** with PixelPass compression
 - **Credential customization** -- colors, logos, seals, and issuer branding
 - **PKCS#11 hardware token support** for HSM-backed signing
@@ -71,6 +72,12 @@ Full documentation is in the [`docs/`](docs/README.md) directory:
 - [Deployment Guide](docs/deployment-guide.md) -- Docker, Compose, nginx, environment variables
 - [Credential Customization](docs/credential-customization.md) -- branding, colors, logos
 - [Architecture Overview](docs/architecture.md) -- monorepo structure and package responsibilities
+
+### did:web setup
+
+Running an issuer under `did:web`? The DID Document can be **self-hosted at your own domain** (the canonical, standards-compliant path that works with every W3C did:web verifier) OR **published to DeDi's `public_key_registry`** (no domain needed, but only OpenCred-aware verifiers can resolve it). Both paths share the same signing key — only discovery differs. For key rotation under did:web, the server appends the new key to `verificationMethod[]` and keeps the old key around (annotated with `supersededAt`) so already-issued credentials continue to verify against their original `kid`.
+
+Start with [`docs/bootcamp/local-docker.md`](docs/bootcamp/local-docker.md) §7d.i ("did:web in 5 minutes — Path A vs Path B") for the step-by-step walkthrough, or [`docs/concepts/dids.md`](docs/concepts/dids.md#publishing-your-didweb-did-document) for the trade-off discussion.
 
 ### Existing Docs
 

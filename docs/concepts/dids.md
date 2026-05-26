@@ -58,6 +58,58 @@ These guarantees are non-negotiable; see the [SSRF invariant](../security/invari
 
 The resolver also accepts an optional fallback (typically a DeDi-backed DID resolver). The fallback is **only** tried when the primary HTTPS resolution fails — and it is **not** tried on SSRF violations, since those are security boundaries, not transient errors.
 
+### Publishing your did:web DID Document
+
+Once you've decided to issue under `did:web`, you need to make the DID Document resolvable. There are two independent paths — they are NOT alternatives that "fall through" to each other. Generic W3C did:web resolvers walk the canonical HTTPS URL only; DeDi-aware resolvers can use either path.
+
+#### Path A — Self-host on your own domain (canonical did:web)
+
+The standards-compliant way. The DID Document lives at a well-known HTTPS URL on your domain.
+
+```
+did:web:issuer.example.com              → https://issuer.example.com/.well-known/did.json
+did:web:example.com:tenants:acme        → https://example.com/tenants/acme/did.json
+```
+
+Operator workflow:
+
+1. Start the server with `OPENCRED_ISSUER_DID_METHOD=web` and `OPENCRED_ISSUER_DOMAIN=<your-domain>`. No DeDi config is required.
+2. Generate the DID Document using the canonical shape from `generateDidWebDocument` (`packages/did/src/did-web.ts:59`): a `@context` array, the DID as `id`, one `verificationMethod` entry with `type: "JsonWebKey"` and the issuer's `publicKeyJwk`, and the verification-method ID listed under `assertionMethod`, `authentication`, `capabilityInvocation`, and `capabilityDelegation`.
+3. Serve that JSON at `https://<your-domain>/.well-known/did.json` (S3, GitHub Pages, nginx, Caddy — any static-JSON-over-HTTPS host works).
+4. Verify with `curl -fsSL https://<your-domain>/.well-known/did.json`. The document's `id` MUST equal the requested DID, or OpenCred's verifier (`packages/verification/src/did-web.ts`) will reject it.
+
+Pros: works with any standards-compliant did:web verifier. No DeDi dependency for issuance or verification.
+
+Cons: requires a domain, TLS, and a place to host static JSON. Key rotation means re-publishing the document.
+
+> **SSRF guardrails apply to the verifier side.** OpenCred's did:web resolver enforces HTTPS-only, no redirects, public-IP-only (no private / loopback / link-local / IPv4-mapped IPv6), and a 10-second timeout. CDNs that return a 302 redirect, hosts behind a private IP, or HTTP-only setups will fail resolution. See the [SSRF invariant](../security/invariants.md#7-didweb-resolution-requires-ssrf-protection).
+
+#### Path B — Publish to DeDi's `public_key_registry`
+
+Useful when you don't control a domain, you're running a demo/bootcamp, or your verifier audience all uses OpenCred-aware tooling (`@opencred/verify` SDK or the OpenCred verifier).
+
+Operator workflow:
+
+1. Start the server with `OPENCRED_ISSUER_DID_METHOD=web`, `OPENCRED_ISSUER_DOMAIN=<your-domain>`, the DeDi env vars (`OPENCRED_DEDI_BASE_URL`, auth, `OPENCRED_DEDI_NAMESPACE`), AND `OPENCRED_AUTO_PUBLISH_KEY=true` (or the equivalent did:web-only alias `OPENCRED_DEDI_HOST_DID_DOC=true`).
+2. The container logs `Issuer DID auto-published to DeDi at startup` on first boot, and `Issuer DID already published to DeDi (idempotent skip)` on subsequent restarts. `/v1/health` reports `didAutoPublished: true`.
+3. Alternatively, leave the flag off and call `POST /v1/keys/publish` once with the DID Document body — same outcome.
+4. Verifiers configured with the same DeDi instance resolve the document via `POST /v1/keys/resolve` (or DeDi's `/dedi/lookup/{ns}/public_key_registry/{record}` directly).
+
+Pros: zero hosting infrastructure beyond DeDi. Key rotation is `POST /v1/keys/rotate` (read-merge-write on the existing record, `kid` continuity preserved for old credentials — see below).
+
+Cons: **DeDi-hosted did:web documents are NOT reachable at `https://<your-domain>/.well-known/did.json`** unless you ALSO upload them there. Pure W3C did:web resolvers (one not configured with DeDi as a fallback / wired via `createDeDiDIDWebFallback` in `packages/verification/src/did-web.ts`) will get a 404 on the canonical URL. If you need both audiences, follow Path A and Path B in parallel — the two are independent and do not conflict at the issuer side.
+
+#### Choosing between A and B
+
+| Need | Path |
+|---|---|
+| Production / interop with any W3C did:web verifier | **A** (self-host) |
+| You already operate DeDi, your verifiers are OpenCred-aware | **B** (DeDi publish) — easier ops |
+| Demo / bootcamp / no domain | **B** (DeDi publish) |
+| Maximum reach (DeDi-aware + generic verifiers) | **A + B** in parallel |
+
+The signing path is identical for both — your VC signatures don't change. Only the discovery path for the public key differs.
+
 ### CORD anchoring as supplementary provenance
 
 When an issuer publishes a DID document via DeDi (`POST /v1/keys/publish` on the Docker server, or the Desktop "publish to DeDi" action), the DeDi instance may additionally anchor that record on the [CORD blockchain](https://cord.network/). Subsequent `/v1/keys/resolve` responses then carry an extra `proof` block alongside the DID document, e.g.:
