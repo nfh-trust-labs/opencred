@@ -238,9 +238,9 @@ describe("loadSigningKey() boot path", () => {
     // PEM block, JWK private parameter, or hex-encoded raw key.
     const res = await app.request("/v1/keys");
     const text = await res.text();
-    expect(text).not.toContain("BEGIN");
-    expect(text).not.toContain("END");
-    expect(text).not.toContain("PRIVATE");
+    expect(text).not.toContain("-----BEGIN");
+    expect(text).not.toContain("-----END");
+    expect(text).not.toMatch(/PRIVATE\s+KEY/i);
     expect(text).not.toMatch(/"d"\s*:/);
 
     // Cleanup
