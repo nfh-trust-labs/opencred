@@ -4,6 +4,13 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.1](https://github.com/nfh-trust-labs/opencred/compare/v1.6.0...v1.6.1) (2026-05-26)
+
+
+### Bug Fixes
+
+* **signing,server:** override signer VM ID to did:web when method=web ([#632](https://github.com/nfh-trust-labs/opencred/issues/632)) ([#634](https://github.com/nfh-trust-labs/opencred/issues/634)) ([6becfbe](https://github.com/nfh-trust-labs/opencred/commit/6becfbe7b2b32d5ccfbc48d30a83d452b5e440cd))
+
 ## [1.6.0](https://github.com/nfh-trust-labs/opencred/compare/v1.5.0...v1.6.0) (2026-05-25)
 
 
