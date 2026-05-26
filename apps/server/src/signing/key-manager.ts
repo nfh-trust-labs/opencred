@@ -83,9 +83,7 @@ export function loadSigningKey(): Signer | null {
       algorithm: signer.algorithm,
       format,
       didMethod: config.OPENCRED_ISSUER_DID_METHOD,
-      ...(verificationMethodIdOverride
-        ? { verificationMethodIdOverride: true }
-        : {}),
+      ...(verificationMethodIdOverride ? { verificationMethodIdOverride: true } : {}),
     },
     "Signing key loaded successfully",
   );
