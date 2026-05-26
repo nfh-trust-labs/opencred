@@ -241,6 +241,7 @@ You want to see:
   "ready": true,
   "signingKeyLoaded": true,
   "dediConfigured": false,
+  "didAutoPublished": false,
   "timestamp": "..."
 }
 ```
@@ -254,21 +255,27 @@ DeDi-dependent stretch sections (§7c revocation, §7d key publish/resolve)
 will return `503 DEDI_NOT_CONFIGURED` if you set `dediConfigured: false`;
 either repeat §3a + restart the container, or skip those sections.
 
-> **Heads-up — the issuer's DID is not published to DeDi automatically.**
+`didAutoPublished` is `true` when the container published your issuer DID
+to DeDi at startup — see [§7d](#7d-publish-a-public-key-did-document-to-dedi)
+for the `OPENCRED_AUTO_PUBLISH_KEY=true` / `OPENCRED_DEDI_HOST_DID_DOC=true`
+opt-in. With the default (flags off), the DID is **not** auto-published —
+you call `POST /v1/keys/publish` once, as walked through in §7d.
+
+> **Heads-up — the issuer's DID is not published to DeDi by default.**
 > Container startup creates the four empty registries (`vc-revocation-registry`,
 > `public_key_registry`, `schema_registry`, `context_registry`) and loads
 > your signing key into memory, but it does not write your DID into
-> `public_key_registry`. The `Issuer identity configured` log line you see
-> at boot is purely an in-memory configuration message. To make verifiers
-> discover your public key via DeDi, you have to explicitly call
-> `POST /v1/keys/publish` (see §7d). Until then, `/v1/keys/resolve` returns
-> 404.
+> `public_key_registry` unless you opt in. The `Issuer identity configured`
+> log line at boot is purely an in-memory configuration message. To make
+> verifiers discover your public key via DeDi, either set
+> `OPENCRED_AUTO_PUBLISH_KEY=true` (works for did:key and did:web) or call
+> `POST /v1/keys/publish` explicitly (see §7d). Until one of those happens,
+> `/v1/keys/resolve` returns 404.
 >
-> `OPENCRED_DEDI_HOST_DID_DOC=true` is documented as the "DeDi-hosted
-> `did.json`" flag for did:web issuers, but **it's a no-op at startup
-> today** — the validation passes but no publish actually happens. Until
-> that gap is closed (tracked as an open follow-up issue), assume you need
-> the explicit `/v1/keys/publish` call for any DID method.
+> For did:web specifically, `OPENCRED_DEDI_HOST_DID_DOC=true` is an
+> equivalent opt-in that triggers the same auto-publish at startup
+> (since [PR #624](https://github.com/nfh-trust-labs/opencred/pull/624)).
+> Both flags fail closed at startup if DeDi is not configured.
 
 Now confirm the API key works on a protected endpoint:
 
@@ -801,14 +808,25 @@ endpoint first, and falls back to DeDi when the well-known URL is
 unreachable. This means an issuer can stop hosting their own
 `.well-known/did.json` and let DeDi serve as the discovery layer.
 
-> **Heads-up — this step is explicit, not automatic.** Container startup
-> only initializes the empty `public_key_registry`; it does not publish
-> your issuer DID. The `Issuer identity configured` log line at boot
-> means "the server is configured to sign with this DID," NOT "this DID
-> is published to DeDi." Verifiers calling `/v1/keys/resolve` will
-> return 404 until you run the `POST /v1/keys/publish` call below at
+> **Two ways to publish, and you need to pick one.** There are two
+> independent paths to make your did:web DID Document resolvable by
+> verifiers. They are NOT alternatives that "fall through" to each
+> other — non-DeDi verifiers will only walk the canonical HTTPS URL.
+> See [§7d.i below](#7di-did-web-in-5-minutes-path-a-vs-path-b) for the
+> trade-off and a step-by-step walkthrough of each path. The rest of
+> this section (the `POST /v1/keys/publish` / `resolve` / `rotate`
+> calls) is the request surface used by Path B.
+
+> **Heads-up — publish-to-DeDi is opt-in.** With default flags off,
+> container startup only initializes the empty `public_key_registry`;
+> it does not publish your issuer DID. The `Issuer identity configured`
+> log line at boot means "the server is configured to sign with this
+> DID," NOT "this DID is published to DeDi." Verifiers calling
+> `/v1/keys/resolve` will return 404 until you either set
+> `OPENCRED_AUTO_PUBLISH_KEY=true` (or `OPENCRED_DEDI_HOST_DID_DOC=true`
+> for did:web) and restart, or call `POST /v1/keys/publish` below at
 > least once.
->
+
 > **Key rotation under did:web — use `POST /v1/keys/rotate`.** Swap
 > `OPENCRED_KEY_PATH` to the new key, restart the container, then call
 > `POST /v1/keys/rotate` (no request body needed beyond an optional
@@ -818,8 +836,10 @@ unreachable. This means an issuer can stop hosting their own
 > and points `assertionMethod` at the new key. The DID itself stays
 > stable. Idempotent: re-running rotate against a document that
 > already carries the active key returns `{rotated: false}` without
-> writing. See [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md)
-> for the design.
+> writing. did:key issuers cannot rotate this way — regenerate the
+> key (which produces a new DID). See
+> [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md)
+> for the design (Status: Implemented in [PR #628](https://github.com/nfh-trust-labs/opencred/pull/628)).
 
 ```bash
 # Publish — body is { did, document, namespace? }. The "document" is a
@@ -862,7 +882,182 @@ and flips to `"rotated"` after the desktop's auto-rotation hook runs (see
 Both endpoints return `503 DEDI_NOT_CONFIGURED` if the DeDi env vars from §7c
 aren't set.
 
-> **The takeaway**: once you've run §7d, you can stop serving a `did:web` document from a webserver entirely — OpenCred's verifier falls back to DeDi automatically whenever the canonical endpoint is unreachable. The signature on every issued VC is the same as before; only the discovery path for the public key changes. To make this work for verifiers you don't control, they need to be running OpenCred (or any verifier that wires `createDeDiDIDWebFallback` into its resolver) and have the same `OPENCRED_DEDI_*` env vars set. Pure off-the-shelf did:web resolvers without DeDi awareness will still need the canonical HTTPS endpoint.
+> **The takeaway**: once you've run §7d, OpenCred-aware verifiers (and the
+> `@opencred/verify` SDK, or any verifier that wires `createDeDiDIDWebFallback`
+> into its resolver and has the same `OPENCRED_DEDI_*` env vars set) can
+> resolve your public key via DeDi. **Pure off-the-shelf did:web resolvers
+> without DeDi awareness still need the canonical HTTPS endpoint at
+> `https://<your-domain>/.well-known/did.json`** — DeDi publishing alone
+> does not make a did:web document reachable to a generic W3C did:web
+> resolver. If you want both audiences, host the document at your domain
+> AND publish to DeDi (the two paths are independent and do not conflict).
+> Either way, the signature on every issued VC is unchanged; only the
+> discovery path for the public key differs.
+
+##### 7d.i. did:web in 5 minutes — Path A vs Path B
+
+A first-time did:web operator has two options for making their DID
+Document resolvable. Both are valid; pick based on whether you control
+a domain and whether your verifiers know how to talk to DeDi.
+
+| | **Path A — Self-host on your domain** | **Path B — Publish to DeDi** |
+|---|---|---|
+| **When to pick** | Production / interop with any W3C did:web verifier. | Demo / bootcamp / no domain available, AND your verifier is OpenCred-aware. |
+| **Where the DID Document lives** | `https://<your-domain>/.well-known/did.json` | DeDi `public_key_registry` (under your namespace). |
+| **Who can resolve it** | Anyone with a standards-compliant did:web resolver. | Only OpenCred-aware verifiers / `@opencred/verify` clients configured with the same DeDi. |
+| **DeDi required?** | No. | Yes. |
+| **Key rotation** | You re-publish the document with a new `verificationMethod[0]` entry. | `POST /v1/keys/rotate` (read-merge-write on the DeDi record, same kid continuity). |
+| **Cost** | Domain + TLS + a static host (S3, Pages, nginx, etc.). | Zero infra beyond DeDi. |
+
+**Path A — self-host on your own domain.**
+
+1. Run the container with `OPENCRED_ISSUER_DID_METHOD=web` plus
+   `OPENCRED_ISSUER_DOMAIN=issuer.example.com` and your normal
+   `OPENCRED_KEY_PATH`. No DeDi env vars are required.
+
+   ```bash
+   docker run -d --name opencred -p 3100:3100 \
+     -e OPENCRED_API_KEY="$OPENCRED_API_KEY" \
+     -e OPENCRED_KEY_PATH=/secrets/issuer-key.pem \
+     -e OPENCRED_ISSUER_DID_METHOD=web \
+     -e OPENCRED_ISSUER_DOMAIN=issuer.example.com \
+     -v "$HOME/opencred-bootcamp/keys/issuer-key.pem:/secrets/issuer-key.pem:ro" \
+     opencred:bootcamp
+   ```
+
+2. Pull the issuer's public key JWK from `GET /v1/keys`:
+
+   ```bash
+   curl -s http://localhost:3100/v1/keys \
+     -H "Authorization: Bearer $OPENCRED_API_KEY" | jq '.keys[0]'
+   # The `id` is "did:web:issuer.example.com#key-0".
+   # The corresponding publicKeyJwk lives inside the signer metadata —
+   # see `packages/did/src/did-web.ts:59` (`generateDidWebDocument`)
+   # for the exact document shape the bootcamp uses below.
+   ```
+
+3. Assemble the DID Document. The shape produced by
+   `generateDidWebDocument` (`packages/did/src/did-web.ts:59`) is:
+
+   ```json
+   {
+     "@context": [
+       "https://www.w3.org/ns/did/v1",
+       "https://w3id.org/security/suites/jws-2020/v1"
+     ],
+     "id": "did:web:issuer.example.com",
+     "verificationMethod": [
+       {
+         "id": "did:web:issuer.example.com#key-0",
+         "type": "JsonWebKey",
+         "controller": "did:web:issuer.example.com",
+         "publicKeyJwk": {
+           "kty": "EC",
+           "crv": "P-256",
+           "x": "<paste-x>",
+           "y": "<paste-y>"
+         }
+       }
+     ],
+     "authentication": ["did:web:issuer.example.com#key-0"],
+     "assertionMethod": ["did:web:issuer.example.com#key-0"],
+     "capabilityInvocation": ["did:web:issuer.example.com#key-0"],
+     "capabilityDelegation": ["did:web:issuer.example.com#key-0"]
+   }
+   ```
+
+4. Upload that JSON to `https://issuer.example.com/.well-known/did.json`
+   (S3 + CloudFront, GitHub Pages, nginx, Caddy — anything that serves
+   static JSON over HTTPS). For path-style did:web
+   (e.g. `did:web:example.com:tenants:acme`), upload to
+   `https://example.com/tenants/acme/did.json` instead.
+
+5. Verify with a plain curl:
+
+   ```bash
+   curl -fsSL https://issuer.example.com/.well-known/did.json | jq
+   # The `id` field MUST equal "did:web:issuer.example.com"
+   # — OpenCred's verifier (packages/verification/src/did-web.ts) rejects
+   # documents whose `id` doesn't match the requested DID.
+   ```
+
+> **SSRF guardrails apply to the verifier side.** OpenCred verifies
+> did:web DID Documents over HTTPS only, refuses redirects, blocks
+> private / loopback / link-local IPs, and times out at 10 s — see
+> the [SSRF invariant](../security/invariants.md#7-didweb-resolution-requires-ssrf-protection)
+> in CLAUDE.md and `packages/verification/src/did-web.ts`. If your
+> hosting setup serves the file from a CDN behind a 302, that will
+> fail verification.
+
+**Path B — publish to DeDi.**
+
+1. Run the container with the same did:web env vars *plus* DeDi
+   configuration *plus* the auto-publish flag:
+
+   ```bash
+   docker run -d --name opencred -p 3100:3100 \
+     -e OPENCRED_API_KEY="$OPENCRED_API_KEY" \
+     -e OPENCRED_KEY_PATH=/secrets/issuer-key.pem \
+     -e OPENCRED_ISSUER_DID_METHOD=web \
+     -e OPENCRED_ISSUER_DOMAIN=bootcamp.example.org \
+     -e OPENCRED_AUTO_PUBLISH_KEY=true \
+     -e OPENCRED_DEDI_BASE_URL="$OPENCRED_DEDI_BASE_URL" \
+     -e OPENCRED_DEDI_AUTH_TYPE="$OPENCRED_DEDI_AUTH_TYPE" \
+     -e OPENCRED_DEDI_API_KEY="$OPENCRED_DEDI_API_KEY" \
+     -e OPENCRED_DEDI_NAMESPACE="$OPENCRED_DEDI_NAMESPACE" \
+     -v "$HOME/opencred-bootcamp/keys/issuer-key.pem:/secrets/issuer-key.pem:ro" \
+     opencred:bootcamp
+   ```
+
+   On first boot the logs include `Issuer DID auto-published to DeDi at startup`.
+   On subsequent boots they include `Issuer DID already published to DeDi (idempotent skip)`.
+   `OPENCRED_DEDI_HOST_DID_DOC=true` is an equivalent alias specifically
+   for did:web.
+
+2. Confirm with the health check:
+
+   ```bash
+   curl -s http://localhost:3100/v1/health | jq .didAutoPublished
+   # => true
+   ```
+
+3. Verify the document is on DeDi:
+
+   ```bash
+   curl -s http://localhost:3100/v1/keys/resolve \
+     -H "Authorization: Bearer $OPENCRED_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{ "did": "did:web:bootcamp.example.org" }' | jq
+   # Returns { did, document, keyStatus: "current", proof? }.
+   # `proof` is present if DeDi anchored the record on CORD.
+   ```
+
+> **DeDi-hosted did:web documents are NOT reachable at the canonical
+> `.well-known/did.json` URL.** A pure W3C did:web resolver (one not
+> aware of DeDi) will walk `https://bootcamp.example.org/.well-known/did.json`
+> and get a 404 — DeDi serves the document at
+> `/dedi/lookup/{namespace}/public_key_registry/{record}`, not on
+> your domain. If you need interop with non-DeDi verifiers AS WELL,
+> follow Path A in parallel (the two are independent — no env-var
+> conflict).
+
+4. To rotate the key later: swap `OPENCRED_KEY_PATH`, restart, then:
+
+   ```bash
+   curl -s -X POST http://localhost:3100/v1/keys/rotate \
+     -H "Authorization: Bearer $OPENCRED_API_KEY" \
+     -H "Content-Type: application/json" -d '{}' | jq
+   # rotated: true on the first call after a key swap;
+   # rotated: false, reason: "already-current" on retries.
+   # Old credentials still verify because the prior key stays in
+   # `verificationMethod[]` with a `supersededAt` stamp, and the verifier
+   # matches by `kid` from the JWT header.
+   ```
+
+The shell-level `POST /v1/keys/publish` / `resolve` / `rotate` calls
+documented immediately below are the manual equivalents of the
+auto-publish flow above. Use them when you want fine-grained control
+or when `OPENCRED_AUTO_PUBLISH_KEY` is left off.
 
 #### 7e. Cloud HSM (read-through, not a live exercise)
 
@@ -1109,4 +1304,5 @@ All under `/v1/*`. Auth: `Authorization: Bearer $OPENCRED_API_KEY` except where 
 | `POST /v1/credentials/revocation-status` | required | Current revocation status (DeDi required) |
 | `POST /v1/credentials/package` | required | Render packaged outputs (QR, PDF, etc.) for a signed VC |
 | `POST /v1/keys/publish` | required | Publish a DID document to the DeDi `public_key_registry` (DeDi required) |
-| `POST /v1/keys/resolve` | required | Resolve a DID document from DeDi (DeDi required) |
+| `POST /v1/keys/resolve` | required | Resolve a DID document from DeDi (DeDi required). Looks up the DeDi record only — does NOT walk the canonical `https://<domain>/.well-known/did.json`. |
+| `POST /v1/keys/rotate` | required | Rotate an issuer's did:web key in-place inside the existing DID Document on DeDi (did:web only; DeDi required). |

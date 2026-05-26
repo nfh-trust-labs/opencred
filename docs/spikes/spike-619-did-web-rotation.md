@@ -1,6 +1,7 @@
 # Spike 619 — did:web Key Rotation
 
-**Status:** **Implemented** (closes [#627](https://github.com/nfh-trust-labs/opencred/issues/627) — production code; this doc is preserved as design rationale)
+**Status:** **Implemented** in [PR #628](https://github.com/nfh-trust-labs/opencred/pull/628) (closes [#627](https://github.com/nfh-trust-labs/opencred/issues/627) — production code; this doc is preserved as design rationale). Released in v1.6.0.
+**Route docs:** [`POST /v1/keys/rotate`](../api-reference.md#post-v1keysrotate) (top-level), [`POST /v1/keys/rotate`](../docker/api-reference.md#post-v1keysrotate) (docker)
 **Parent issue:** [#619 — did:web key rotation design](https://github.com/nfh-trust-labs/opencred/issues/619)
 **Followups doc:** [`docs/bootcamp/post-bootcamp-followups.md`](../bootcamp/post-bootcamp-followups.md) §7
 **Spike protocol:** `CLAUDE.md` → "Spike Protocol"

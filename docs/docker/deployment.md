@@ -184,6 +184,29 @@ See [Horizontal scale](#horizontal-scale) below for when and how to flip between
 | `OPENCRED_DEDI_NAMESPACE` | string | — | Default DeDi namespace. Required when `OPENCRED_DEDI_BASE_URL` is set. |
 | `OPENCRED_DEDI_TIMEOUT_MS` | integer (ms) | `10000` | DeDi request timeout. Range: 1000-30000. |
 
+### Issuer DID method (did:key vs did:web)
+
+The issuer's DID is derived at startup. `did:key` is the default and works fully offline. `did:web` requires a domain you control (and optionally DeDi-side hosting). For a full walkthrough, see [Concepts → DIDs → Publishing your did:web DID Document](../concepts/dids.md#publishing-your-didweb-did-document).
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `OPENCRED_ISSUER_DID_METHOD` | enum (`key` / `web`) | `key` | DID method the issuer signs under. `key` derives `did:key:z…` from the loaded public key (offline-verifiable). `web` uses `did:web:<OPENCRED_ISSUER_DOMAIN>`; the JWT `kid` header is forced to `did:web:<domain>#key-0` so verifiers can match it against the published DID Document (since [PR #634](https://github.com/nfh-trust-labs/opencred/pull/634), released in v1.6.1). |
+| `OPENCRED_ISSUER_DOMAIN` | string | — | Required when `OPENCRED_ISSUER_DID_METHOD=web`. The domain (and optional path) for the issuer's `did:web`. E.g. `issuer.example.com` → `did:web:issuer.example.com`. |
+| `OPENCRED_AUTO_PUBLISH_KEY` | boolean | `false` | When `true`, the server publishes its issuer DID Document to DeDi's `public_key_registry` at startup. Works for both `did:key` and `did:web`. Idempotent — restarts log "already published" and continue. Surfaced as `didAutoPublished: true` on `/v1/health`. Fails closed at startup if DeDi is not configured (no silent no-op). |
+| `OPENCRED_DEDI_HOST_DID_DOC` | boolean | `false` | did:web-only alias of `OPENCRED_AUTO_PUBLISH_KEY`. Triggers the same auto-publish path at startup. Ignored when `OPENCRED_ISSUER_DID_METHOD=key`. Compatible with `OPENCRED_AUTO_PUBLISH_KEY` (both can be set simultaneously). |
+
+**What each combination does**
+
+| `DID_METHOD` | `ISSUER_DOMAIN` | DeDi configured? | `AUTO_PUBLISH_KEY` or `HOST_DID_DOC` | Result |
+|---|---|---|---|---|
+| `key` | — | no | — | Default. Offline-only `did:key:z…` issuance; verifiers derive the public key from the DID itself. No publish step needed. |
+| `key` | — | yes | `false` | did:key issuance with DeDi available for revocation. Call `POST /v1/keys/publish` once to advertise the DID via DeDi (optional — verifiers can still resolve did:key without it). |
+| `key` | — | yes | `true` | did:key issuance, DID auto-published to DeDi at startup (idempotent on reboots). |
+| `web` | set | no | — | did:web issuance. **You must host `https://<domain>/.well-known/did.json` yourself** — see [Path A](../concepts/dids.md#path-a--self-host-on-your-own-domain-canonical-didweb). No DeDi-side discovery. |
+| `web` | set | yes | `false` | did:web issuance. Host the DID Document at your domain (Path A) OR call `POST /v1/keys/publish` manually to put it on DeDi (Path B). |
+| `web` | set | yes | `true` | did:web issuance with **DeDi as the host** for the DID Document (Path B). Container publishes the document at startup; OpenCred-aware verifiers resolve via DeDi. Plain W3C did:web resolvers will NOT see it at the canonical `.well-known/did.json` URL unless you also host it on your domain (combine with Path A for maximum reach). |
+| `web` | unset | — | — | Startup fails: `OPENCRED_ISSUER_DOMAIN` is required when `OPENCRED_ISSUER_DID_METHOD=web`. |
+
 ## Key sources
 
 | Key source | Configure with | Notes |

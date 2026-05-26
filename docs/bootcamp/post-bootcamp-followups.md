@@ -5,7 +5,7 @@ Issues and gaps surfaced while dry-running the Local-Docker bootcamp on
 published; they were the cleanup pass to make the published `:latest`
 actually match what `docs/bootcamp/` claims.
 
-**Status as of 2026-05-22:** §2–§8 all landed (or filed for follow-up
+**Status as of 2026-05-26:** §2–§9 all landed (or filed for follow-up
 where the spike-protocol applies). §1 (release ops) is owned outside
 this doc.
 
@@ -17,8 +17,9 @@ this doc.
 | 4 | Bootcamp doc — clarify when publish happens | ✅ **Implemented** in [PR #623](https://github.com/nfh-trust-labs/opencred/pull/623) |
 | 5 | Bootcamp doc — 409 troubleshooting rows | ✅ **Implemented** in [PR #623](https://github.com/nfh-trust-labs/opencred/pull/623) |
 | 6 | Better 409 → `DEDI_RECORD_EXISTS` error | ✅ **Implemented** in [PR #620](https://github.com/nfh-trust-labs/opencred/pull/620) |
-| 7 | did:web key rotation | ✅ **Implemented** (design spike [PR #622](https://github.com/nfh-trust-labs/opencred/pull/622); implementation closing [issue #627](https://github.com/nfh-trust-labs/opencred/issues/627)) |
-| 8 | Opt-in startup auto-publish | ✅ **Implemented** in [PR #624](https://github.com/nfh-trust-labs/opencred/pull/624) |
+| 7 | did:web key rotation | ✅ **Implemented** in [PR #628](https://github.com/nfh-trust-labs/opencred/pull/628) (design spike [PR #622](https://github.com/nfh-trust-labs/opencred/pull/622); closes [issue #627](https://github.com/nfh-trust-labs/opencred/issues/627); released in v1.6.0) |
+| 8 | Opt-in startup auto-publish | ✅ **Implemented** in [PR #624](https://github.com/nfh-trust-labs/opencred/pull/624) (released in v1.6.0) |
+| 9 | did:web JWT `kid` correctness (signer VM ID matches published DID Document) | ✅ **Implemented** in [PR #634](https://github.com/nfh-trust-labs/opencred/pull/634) (closes [#632](https://github.com/nfh-trust-labs/opencred/issues/632); released in v1.6.1) |
 
 ---
 
@@ -77,7 +78,7 @@ Published DID saved to new `lastPublishedDid` collection variable. Also: the ser
 
 **Landed**: callouts added under §4 (right after the `/v1/health` block) and again under §7d.
 
-**Note**: after PR #624 landed, an operator who explicitly sets `OPENCRED_AUTO_PUBLISH_KEY=true` (or `OPENCRED_DEDI_HOST_DID_DOC=true` for did:web) **does** get auto-publish at startup. The callouts still apply for the default (flag off) case.
+**Note**: after PR #624 landed, an operator who explicitly sets `OPENCRED_AUTO_PUBLISH_KEY=true` (or `OPENCRED_DEDI_HOST_DID_DOC=true` for did:web) **does** get auto-publish at startup. The callouts still apply for the default (flag off) case. PR #624 also fixed the latent `OPENCRED_DEDI_HOST_DID_DOC=true` no-op that the bootcamp surfaced on 2026-05-21 — that flag now publishes at startup (for did:web) instead of silently doing nothing.
 
 ## 5. Bootcamp doc — clarify 409 semantics for revoke + publish ✅
 
@@ -109,7 +110,7 @@ Published DID saved to new `lastPublishedDid` collection variable. Also: the ser
 
 ## 7. Key rotation under did:web ✅
 
-**Status**: **Implemented**. Design spike merged via [PR #622](https://github.com/nfh-trust-labs/opencred/pull/622) (`docs/spikes/spike-619-did-web-rotation.md`); production code closes [issue #627](https://github.com/nfh-trust-labs/opencred/issues/627).
+**Status**: **Implemented** in [PR #628](https://github.com/nfh-trust-labs/opencred/pull/628), released in v1.6.0. Design spike merged via [PR #622](https://github.com/nfh-trust-labs/opencred/pull/622) (`docs/spikes/spike-619-did-web-rotation.md`); production code closes [issue #627](https://github.com/nfh-trust-labs/opencred/issues/627).
 
 **Landed**:
 
@@ -145,6 +146,16 @@ Published DID saved to new `lastPublishedDid` collection variable. Also: the ser
 
 **Follow-up parked**: KMS-backed signer auto-publish is not in scope — today `signer.publicKeyJwk` is only exposed by the software-signer path. Hardware-token / KMS public-key extraction is its own future PR.
 
+## 9. did:web JWT `kid` correctness ✅
+
+**Status**: **Implemented** in [PR #634](https://github.com/nfh-trust-labs/opencred/pull/634), released in v1.6.1. Closes [issue #632](https://github.com/nfh-trust-labs/opencred/issues/632).
+
+**Gap (at the time)**: when `OPENCRED_ISSUER_DID_METHOD=web` was set alongside `OPENCRED_ISSUER_DOMAIN=<domain>`, the signing path still used the key-derived `did:key:…` verification-method ID for the loaded signer. JWTs were emitted with `kid: did:key:…#…` headers, but the published DID Document (whether self-hosted at `.well-known/did.json` or in DeDi) only contained the `did:web:<domain>#key-0` verification method. Verifiers walked `verificationMethod[]` by `kid` (per `packages/verification/src/vc-jwt.ts:179-213`) and found no match → every did:web-issued credential failed verification with `UNRESOLVABLE`.
+
+**Landed**: when `method=web` + `OPENCRED_ISSUER_DOMAIN` are set, the loaded signer's `id` is now overridden to `did:web:<domain>#key-0`. JWT `kid` headers match the published DID Document. did:web verification end-to-end works for the first time.
+
+**Doc surface**: documented as current behaviour in `docs/bootcamp/local-docker.md` §7d.i (Path A / Path B walkthrough) and `docs/concepts/dids.md` (did:web publishing section).
+
 ---
 
 ## Quick reference — which issues are blocked on which fix
@@ -157,5 +168,6 @@ Published DID saved to new `lastPublishedDid` collection variable. Also: the ser
 | §4 doc callout ✅ | Stops users assuming startup auto-publishes |
 | §5 doc 409 troubleshooting ✅ | Reduces support pings |
 | §6 DEDI_RECORD_EXISTS ✅ | Self-describing 409s |
-| §7 did:web rotation 🟡 | Production did:web is unsafe to operate until the impl PR for issue #619 lands |
+| §7 did:web rotation ✅ | Production did:web operators can rotate keys in-place via `POST /v1/keys/rotate` (kid continuity preserved for old credentials) |
 | §8 auto-publish opt-in ✅ | First-boot ergonomics for operators who opt in |
+| §9 did:web JWT kid correctness ✅ | did:web-issued JWTs now carry a `kid` matching the published DID Document — verifiers stop returning `UNRESOLVABLE` |
