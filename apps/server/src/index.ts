@@ -217,20 +217,29 @@ if (cloudSigner) {
     // method === "web"
     const issuerDid = encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!);
 
-    // Fail-closed: ensure the loaded signer's verification-method ID is the
-    // did:web URL we expect, not the signer-derived did:key. See #632 —
-    // before the key-manager override landed, a method=web server would
-    // silently sign credentials with `kid = did:key:…`, breaking every
-    // verifier walking did:web's verificationMethod[]. The override is
-    // applied inside `loadSigningKey`; this check catches future regressions
-    // (e.g. a KMS-backed signer path that forgets to plumb the override).
-    if (!activeSigner.id.startsWith(`${issuerDid}#`) && !activeSigner.id.startsWith("did:web:")) {
+    // Fail-closed: ensure the loaded signer's verification-method ID is
+    // EXACTLY the did:web URL we expect (matching the configured
+    // OPENCRED_ISSUER_DOMAIN), not the signer-derived did:key and not a
+    // did:web for some other domain. See #632 — before the key-manager
+    // override landed, a method=web server would silently sign credentials
+    // with `kid = did:key:…`, breaking every verifier walking did:web's
+    // verificationMethod[]. The override is applied inside `loadSigningKey`;
+    // this check catches future regressions where override drift from the
+    // configured domain (e.g. a KMS-backed signer path that doesn't yet
+    // honour the override — tracked in #635).
+    //
+    // The strict prefix check is `${issuerDid}#`; we don't accept "any
+    // did:web URL" because that would let a misconfigured signer sign under
+    // the wrong issuer identity without anyone noticing.
+    if (!activeSigner.id.startsWith(`${issuerDid}#`)) {
       const msg =
         `OPENCRED_ISSUER_DID_METHOD=web with OPENCRED_ISSUER_DOMAIN=${config.OPENCRED_ISSUER_DOMAIN} ` +
-        `but the loaded signer's verification-method id (${activeSigner.id}) is not a did:web URL. ` +
-        "This means issued credentials' JWT `kid` will point at the wrong DID and verifiers will fail. " +
+        `expects signer.id to start with ${issuerDid}#, but the loaded signer's verification-method ` +
+        `id is ${activeSigner.id}. This means issued credentials' JWT \`kid\` will not match the ` +
+        "published DID Document and verifiers will fail. " +
         "If you are using a software signer this should be fixed automatically — please file a bug. " +
-        "If you are using a KMS-backed signer, did:web is not yet supported there; track issue #632.";
+        "If you are using a KMS-backed signer (AWS KMS / Azure Key Vault / GCP Cloud KMS), did:web " +
+        "support is not yet wired through — track issue #635.";
       logger.fatal(msg);
       process.stderr.write(`\n[opencred-server] FATAL: ${msg}\n\n`);
       process.exit(1);
