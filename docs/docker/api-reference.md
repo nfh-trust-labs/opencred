@@ -284,6 +284,77 @@ The response body is guaranteed by `apps/server/src/__tests__/v1-smoke.test.ts` 
 
 ---
 
+### `GET /v1/keys/did-document`
+
+Return the canonical DID Document JSON the operator should host at `https://<domain>/.well-known/did.json` for Path A (self-host) verifiers. See [Concepts → DIDs → Publishing your did:web DID Document](../concepts/dids.md#publishing-your-didweb-did-document).
+
+**Auth:** required.
+
+**Source preference**:
+
+1. If DeDi is configured AND the DID is already published there → return the DeDi-persisted document verbatim. That document carries rotation history (multi-key `verificationMethod[]` with `supersededAt` timestamps) that the locally-derived document doesn't have.
+2. Otherwise (no DeDi, DeDi misconfigured, or DID not yet published) → derive a fresh single-key document from the active signer's `publicKeyJwk`. Mirrors exactly what `OPENCRED_AUTO_PUBLISH_KEY=true` would push to DeDi at startup, so Path A operators can publish manually and stay in lockstep with what verifiers see via Path B.
+
+**Response: `200 OK`**
+
+```jsonc
+{
+  "did": "did:web:bootcamp.example.org",
+  "document": {
+    "@context": [
+      "https://www.w3.org/ns/did/v1",
+      "https://w3id.org/security/suites/jws-2020/v1"
+    ],
+    "id": "did:web:bootcamp.example.org",
+    "verificationMethod": [
+      {
+        "id": "did:web:bootcamp.example.org#key-0",
+        "type": "JsonWebKey",
+        "controller": "did:web:bootcamp.example.org",
+        "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." }
+      }
+    ],
+    "authentication": ["did:web:bootcamp.example.org#key-0"],
+    "assertionMethod": ["did:web:bootcamp.example.org#key-0"],
+    "capabilityInvocation": ["did:web:bootcamp.example.org#key-0"],
+    "capabilityDelegation": ["did:web:bootcamp.example.org#key-0"]
+  },
+  "source": "active-signer" // or "dedi"
+}
+```
+
+| Field | Description |
+|---|---|
+| `did` | The configured issuer DID — `did:web:<OPENCRED_ISSUER_DOMAIN>` when `OPENCRED_ISSUER_DID_METHOD=web`. |
+| `document` | The W3C DID Document. Upload this verbatim to `https://<domain>/.well-known/did.json`. |
+| `source` | `"dedi"` when read from the DeDi `public_key_registry` (rotation-aware), `"active-signer"` when derived from the loaded key. |
+
+**One-liner to publish the JSON to disk**
+
+```sh
+curl -s http://localhost:3100/v1/keys/did-document \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  | jq .document > did.json
+# upload did.json to https://<your-domain>/.well-known/did.json
+```
+
+**After key rotation (Path A operators)**
+
+The endpoint always reflects the **current** state. After `POST /v1/keys/rotate`:
+
+- If DeDi is configured: re-fetch this endpoint; `source: "dedi"` returns the rotated multi-key document. Re-upload to your `.well-known/did.json`.
+- If DeDi is **not** configured: this endpoint returns a fresh single-key doc with only your new key. **Old credentials signed under the previous key will no longer verify via Path A** unless you maintain a hand-edited multi-key `did.json` on your domain. For multi-key rotation support, configure DeDi alongside Path A (publish to both, fetch from DeDi for the canonical multi-key document).
+
+**Response: error codes**
+
+| HTTP | Code | Trigger |
+|---|---|---|
+| `400` | `UNSUPPORTED_DID_METHOD` | The active issuer DID is `did:key:...`. did:key DIDs are self-resolving — verifiers derive the DID Document from the DID string directly, no `.well-known/did.json` is needed. Response includes the active DID in `error.activeDid`. |
+| `400` | `VALIDATION_ERROR` | The active signer does not expose `publicKeyJwk` on its metadata (KMS-backed signers — AWS KMS / Azure KV / GCP KMS). Tracked in #635. Response includes the signer's `type` in `error.signerType`. |
+| `503` | `NO_SIGNER` | No signing key has been loaded. Set `OPENCRED_KEY_PATH` or a Cloud HSM provider. |
+
+---
+
 ### `POST /v1/keys/publish`
 
 Publish a DID document to the DeDi `public_key_registry`. Lets verifiers resolve an issuer's public keys from DeDi instead of relying on `did:web` HTTPS lookups.
