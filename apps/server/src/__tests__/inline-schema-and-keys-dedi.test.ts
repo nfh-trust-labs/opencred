@@ -813,9 +813,11 @@ describe("GET /v1/keys/did-document", () => {
     const body = (await res.json()) as {
       did: string;
       document: { verificationMethod: Array<{ id: string; publicKeyJwk: Record<string, unknown> }> };
+      keyStatus: "current" | "rotated";
       source: string;
     };
     expect(body.source).toBe("active-signer");
+    expect(body.keyStatus).toBe("current");
     expect(body.did).toBe(DID);
     expect(body.document.verificationMethod[0]!.id).toBe(`${DID}#key-0`);
     expect(body.document.verificationMethod[0]!.publicKeyJwk).toEqual(JWK);
@@ -859,9 +861,14 @@ describe("GET /v1/keys/did-document", () => {
     const body = (await res.json()) as {
       did: string;
       document: { verificationMethod: Array<{ id: string; supersededAt?: string }> };
+      keyStatus: "current" | "rotated";
       source: string;
     };
     expect(body.source).toBe("dedi");
+    // For did:web, keyStatus on the record is always "current"; rotation
+    // history lives inside verificationMethod[]. Passing the field through
+    // verbatim keeps the response shape consistent with /v1/keys/resolve.
+    expect(body.keyStatus).toBe("current");
     expect(body.document.verificationMethod).toHaveLength(2);
     expect(body.document.verificationMethod[0]!.supersededAt).toBe("2026-05-01T00:00:00Z");
     expect(body.document.verificationMethod[1]!.id).toBe(`${DID}#key-1`);

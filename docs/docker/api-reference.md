@@ -319,6 +319,7 @@ Return the canonical DID Document JSON the operator should host at `https://<dom
     "capabilityInvocation": ["did:web:bootcamp.example.org#key-0"],
     "capabilityDelegation": ["did:web:bootcamp.example.org#key-0"]
   },
+  "keyStatus": "current",
   "source": "active-signer" // or "dedi"
 }
 ```
@@ -327,6 +328,7 @@ Return the canonical DID Document JSON the operator should host at `https://<dom
 |---|---|
 | `did` | The configured issuer DID — `did:web:<OPENCRED_ISSUER_DOMAIN>` when `OPENCRED_ISSUER_DID_METHOD=web`. |
 | `document` | The W3C DID Document. Upload this verbatim to `https://<domain>/.well-known/did.json`. |
+| `keyStatus` | `"current" \| "rotated"`. For did:web this is always `"current"` by design — per-key rotation lives inside `document.verificationMethod[].supersededAt`, not the parent flag. Passed through from the DeDi record when `source: "dedi"`; hardcoded `"current"` when `source: "active-signer"`. Same shape and semantics as `POST /v1/keys/resolve`. |
 | `source` | `"dedi"` when read from the DeDi `public_key_registry` (rotation-aware), `"active-signer"` when derived from the loaded key. |
 
 **One-liner to publish the JSON to disk**

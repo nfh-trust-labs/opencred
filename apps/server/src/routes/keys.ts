@@ -174,20 +174,35 @@ keys.get("/keys/did-document", async (c) => {
   // Path 1: prefer DeDi's record (carries rotation history). Falls through
   // on 404 (DID not yet published there); any other DeDi error is logged
   // at warn level so the operator can debug but doesn't block the response.
+  //
+  // `keyStatus` is passed through from the DeDi record. For did:web it's
+  // always "current" by design (per-key rotation lives inside
+  // `document.verificationMethod[]` via `supersededAt`, not the parent
+  // record-level flag) — but emitting it keeps the response shape
+  // grep-able alongside `POST /v1/keys/resolve`.
   const dediClient = getDeDiClient();
   if (dediClient) {
     try {
       const record = await dediClient.resolveDID(issuerDid);
       if (record.document) {
-        return c.json({ did: issuerDid, document: record.document, source: "dedi" });
+        return c.json({
+          did: issuerDid,
+          document: record.document,
+          keyStatus: record.keyStatus,
+          source: "dedi",
+        });
       }
     } catch (err) {
       if (err instanceof DeDiClientError && err.statusCode === 404) {
         // Expected: DID not yet on DeDi. Fall through to local derivation.
       } else {
+        // statusCode is broken out from the message so operators can
+        // distinguish auth (401/403) from server errors (5xx) from network
+        // failures (no statusCode) at a glance in structured logs.
         getLogger().warn(
           {
             err: err instanceof Error ? err.message : String(err),
+            statusCode: err instanceof DeDiClientError ? err.statusCode : undefined,
             issuerDid,
           },
           "GET /v1/keys/did-document: DeDi lookup failed; falling back to active-signer-derived document",
@@ -199,7 +214,8 @@ keys.get("/keys/did-document", async (c) => {
   // Path 2: derive from the active signer's public JWK. Mirrors what
   // generateDidWebDocument emits for the auto-publish path so the
   // self-hosted document matches what verifiers see via DeDi after first
-  // publish.
+  // publish. `keyStatus` is hardcoded to "current" — there is no DeDi
+  // record yet so rotation history is by definition empty.
   const publicKeyJwk = signer.metadata.publicKeyJwk;
   if (!publicKeyJwk) {
     return c.json(
@@ -218,7 +234,12 @@ keys.get("/keys/did-document", async (c) => {
   }
 
   const document = generateDidWebDocument(issuerDid, publicKeyJwk as JWK);
-  return c.json({ did: issuerDid, document, source: "active-signer" });
+  return c.json({
+    did: issuerDid,
+    document,
+    keyStatus: "current" as const,
+    source: "active-signer",
+  });
 });
 
 // --- DeDi public-key registry ---
