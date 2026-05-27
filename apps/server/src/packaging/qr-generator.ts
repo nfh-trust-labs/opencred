@@ -9,58 +9,51 @@
  * This dramatically reduces the QR payload size — a 3KB credential
  * typically compresses to under 1KB, fitting comfortably in a QR code.
  *
- * QR data is prefixed with "OPENCRED1:" so decoders can identify the
- * format and apply the correct decompression pipeline.
+ * **No header / prefix is added to the payload.** Bare PixelPass output
+ * matches `@mosip/pixelpass`'s own default (`generateQRData(data)` with
+ * no second arg) and is what the MOSIP/Inji verifier toolchain — and any
+ * other consumer that calls `pixelpass.decode()` directly — expects. The
+ * format-detection layer (`@opencred/shared`'s `detectCredentialInputFormat`)
+ * identifies these payloads by attempting a decode rather than by sniffing
+ * a magic prefix.
  *
  * Works completely offline — no network requests.
  */
 
-import { createRequire } from "node:module";
 import QRCode from "qrcode";
 import type { VerifiableCredential } from "@opencred/vc-core";
-import { ValidationError } from "@opencred/shared";
+import { ValidationError, encodePixelPass, decodePixelPass } from "@opencred/shared";
 import type { CredentialInput } from "./types.js";
-
-// PixelPass is a CJS module — use createRequire for ESM compatibility
-const require = createRequire(import.meta.url);
-const pixelpass = require("@mosip/pixelpass") as {
-  generateQRData: (data: string, header?: string) => string;
-  decode: (data: string) => string;
-};
-
-/** Header prefix for OpenCred QR codes. */
-const QR_HEADER = "OPENCRED1:";
 
 /**
  * Compress a credential JSON string using the PixelPass pipeline.
  *
  * @param credential - The signed VerifiableCredential.
- * @returns Compressed Base45 string with OPENCRED1: header.
+ * @returns Bare PixelPass-compressed Base45 string (no header).
  */
 export function compressCredentialForQr(credential: VerifiableCredential): string {
-  const json = JSON.stringify(credential);
-  return pixelpass.generateQRData(json, QR_HEADER);
+  return encodePixelPass(JSON.stringify(credential));
 }
 
 /**
  * Decode a PixelPass-compressed QR string back to credential JSON.
  *
- * Strips the OPENCRED1: header if present, then runs the reverse
- * pipeline: Base45 decode → zlib decompress → CBOR decode → JSON.
+ * Runs the reverse pipeline: Base45 decode → zlib decompress → CBOR
+ * decode → JSON. Re-exported via the package surface for callers that
+ * scan a QR and need the underlying JSON without a full verification.
  *
  * @param qrData - The raw string scanned from a QR code.
  * @returns The decompressed credential JSON string.
  * @throws If the data cannot be decoded.
  */
 export function decodeQrData(qrData: string): string {
-  const data = qrData.startsWith(QR_HEADER) ? qrData.slice(QR_HEADER.length) : qrData;
-  return pixelpass.decode(data);
+  return decodePixelPass(qrData);
 }
 
 /**
  * Resolve the QR payload for either a JSON-LD credential (PixelPass
- * compress + `OPENCRED1:` prefix) or a compact JWT/SD-JWT token
- * (embed verbatim — already compact, and verifiers expect the raw token).
+ * compress) or a compact JWT/SD-JWT token (embed verbatim — already
+ * compact, and verifiers expect the raw token).
  *
  * Embedding a compact token verbatim is intentional:
  *

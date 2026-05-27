@@ -714,7 +714,7 @@ Example `400 SCHEMA_VALIDATION_ERROR` body when required fields are missing:
 
 ### `POST /v1/credentials/verify`
 
-Verifies a signed Verifiable Credential. Accepts JSON-LD credentials (Data Integrity), compact JWTs (`vc-jwt`), compact SD-JWT VC tokens, PixelPass-encoded QR data (`OPENCRED1:...`), and **OpenCred-issued PDF certificates** — the input format is selected by `Content-Type`, with auto-detection on the string-shaped formats inside the JSON branch.
+Verifies a signed Verifiable Credential. Accepts JSON-LD credentials (Data Integrity), compact JWTs (`vc-jwt`), compact SD-JWT VC tokens, bare PixelPass-encoded QR data (no prefix — what `@mosip/pixelpass.decode()` consumes), and **OpenCred-issued PDF certificates** — the input format is selected by `Content-Type`, with auto-detection on the string-shaped formats inside the JSON branch.
 
 **Auth:** required.
 **Content-Type:** `application/json` _or_ `application/pdf` — see the two branches below.
@@ -723,13 +723,13 @@ Verifies a signed Verifiable Credential. Accepts JSON-LD credentials (Data Integ
 
 ```ts
 {
-  credential: string;  // a JSON-stringified VC, compact JWT, compact SD-JWT VC, or `OPENCRED1:` QR string
+  credential: string;  // a JSON-stringified VC, compact JWT, compact SD-JWT VC, or bare PixelPass QR string
 }
 ```
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `credential` | `string` | Yes | The credential to verify. For Data Integrity credentials, JSON-stringify the credential object before sending. For compact tokens (`vc-jwt`, `sd-jwt-vc`), pass the token directly. For PixelPass QR data, pass the `OPENCRED1:`-prefixed string verbatim. |
+| `credential` | `string` | Yes | The credential to verify. For Data Integrity credentials, JSON-stringify the credential object before sending. For compact tokens (`vc-jwt`, `sd-jwt-vc`), pass the token directly. For PixelPass QR data, pass the bare Base45 payload (no prefix — what a QR scanner returns). |
 
 The same `rejectKeyMaterial()` defense-in-depth guard runs on this branch. Even verify requests must not contain a private key field or PEM string.
 

@@ -4,10 +4,11 @@
  * OpenCred-issued PDF certificates carry the underlying credential in two
  * places:
  *
- *   1. **Visible scannable QR** — PixelPass-compressed `OPENCRED1:...` data,
+ *   1. **Visible scannable QR** — bare PixelPass-compressed payload,
  *      printed on the certificate page so a third party with a phone can
- *      verify it offline.
- *   2. **PDF info-dictionary metadata** — the same `OPENCRED1:...` string,
+ *      verify it offline. No prefix or header — see
+ *      `apps/server/src/packaging/qr-generator.ts` for the rationale.
+ *   2. **PDF info-dictionary metadata** — the same bare PixelPass string,
  *      embedded as a custom key (`OpenCredCredential`) in the PDF's metadata.
  *      Lossless, deterministic, and recoverable without rendering the page.
  *
@@ -48,8 +49,8 @@ import { verifyCredential } from "./verifier.js";
 /**
  * The PDF info-dictionary key under which the embedded credential is stored.
  *
- * Value is the PixelPass-compressed `OPENCRED1:...` string. The key name is
- * stable across releases — changing it is a backwards-incompatible change.
+ * Value is the bare PixelPass-compressed payload. The key name is stable
+ * across releases — changing it is a backwards-incompatible change.
  */
 export const PDF_CREDENTIAL_INFO_KEY = "OpenCredCredential";
 
@@ -120,11 +121,10 @@ export async function verifyPdf(
 
   // The embedded value mirrors what the visible QR encodes — see the
   // issuance side at `apps/server/src/packaging/pdf-generator.ts` and the
-  // desktop equivalent. For full Verifiable Credentials this is the
-  // PixelPass-compressed `OPENCRED1:...` blob; for compact tokens
-  // (vc-jwt, sd-jwt-vc) it's the raw token. Dispatch by format detection
-  // exactly like the server's `/v1/credentials/verify` route does for
-  // string inputs.
+  // desktop equivalent. For full Verifiable Credentials this is the bare
+  // PixelPass-compressed payload; for compact tokens (vc-jwt, sd-jwt-vc)
+  // it's the raw token. Dispatch by format detection exactly like the
+  // server's `/v1/credentials/verify` route does for string inputs.
   const format = detectCredentialInputFormat(embedded);
 
   let credentialForVerify: Record<string, unknown> | string;
@@ -149,7 +149,7 @@ export async function verifyPdf(
               passed: false,
               detail:
                 "PDF carries an embedded credential value but its format could not be recognized. " +
-                "Expected PixelPass (`OPENCRED1:`), JSON, or a compact JWT/SD-JWT token.",
+                "Expected PixelPass-compressed payload, JSON, or a compact JWT/SD-JWT token.",
             },
           ],
         };

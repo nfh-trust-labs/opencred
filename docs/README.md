@@ -37,9 +37,9 @@ Anyone holding an OpenCred-issued credential has four supported ways to verify i
 
 | Path | Best for | Inputs accepted |
 |---|---|---|
-| **Desktop app — Verify tab** | Casual / one-off verification by humans | Pasted JSON · drag-dropped `.json` / `.jsonld` · QR-code image upload (PNG/JPG) · `.pdf` upload · live camera QR scan · pasted compact tokens (vc-jwt, sd-jwt-vc, `OPENCRED1:` PixelPass) |
-| **Docker server — `POST /v1/credentials/verify`** | Programmatic / server-to-server / CI/CD | JSON body for text-shaped formats (auto-detected: JSON-LD VC, vc-jwt, sd-jwt-vc, `OPENCRED1:` QR data) **or** raw PDF body with `Content-Type: application/pdf` |
-| **`opencred verify` CLI** | One-shot verification from a shell, no HTTP server needed | File path or stdin. Auto-detects JSON-LD, vc-jwt, sd-jwt-vc, `OPENCRED1:`, or PDF. `--json` flag for scripted consumers. Ships inside the public Docker image. |
+| **Desktop app — Verify tab** | Casual / one-off verification by humans | Pasted JSON · drag-dropped `.json` / `.jsonld` · QR-code image upload (PNG/JPG) · `.pdf` upload · live camera QR scan · pasted compact tokens (vc-jwt, sd-jwt-vc, bare PixelPass QR data) |
+| **Docker server — `POST /v1/credentials/verify`** | Programmatic / server-to-server / CI/CD | JSON body for text-shaped formats (auto-detected: JSON-LD VC, vc-jwt, sd-jwt-vc, PixelPass QR data) **or** raw PDF body with `Content-Type: application/pdf` |
+| **`opencred verify` CLI** | One-shot verification from a shell, no HTTP server needed | File path or stdin. Auto-detects JSON-LD, vc-jwt, sd-jwt-vc, PixelPass QR data, or PDF. `--json` flag for scripted consumers. Ships inside the public Docker image. |
 | **`@opencred/verification` library** | Embedding verification inside another Node.js app | Same formats as above, via `verifyCredential` and `verifyPdf` |
 
 In every case the result has the same shape: a top-level `valid: true|false`, an enum `code` (`VALID`, `REVOKED`, `EXPIRED`, `INVALID`, `UNRESOLVABLE`, `CONTEXT_MISSING`), and a per-check breakdown — signature, expiry, key resolution, x5c chain (where applicable), revocation, schema, context.

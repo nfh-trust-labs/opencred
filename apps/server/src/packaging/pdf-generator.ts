@@ -24,9 +24,9 @@ import { compressCredentialForQr, generateQrBuffer } from "./qr-generator.js";
  * PDF info-dictionary key that holds the embedded credential.
  *
  * Read by `verifyPdf()` in `@opencred/verification`. The value is the same
- * PixelPass-compressed `OPENCRED1:...` string that's printed into the QR
- * on the certificate page (or, for compact-token issuance, the raw
- * vc-jwt / sd-jwt-vc token).
+ * bare PixelPass-compressed payload that's printed into the QR on the
+ * certificate page (or, for compact-token issuance, the raw vc-jwt /
+ * sd-jwt-vc token).
  *
  * **What's load-bearing.** The PDF spec (ISO 32000-1) allows arbitrary
  * keys in the info dictionary, but the round-trip here actually relies on
@@ -60,7 +60,7 @@ export interface PdfOptions {
    * Used by the packager when the caller passed a compact-token input:
    * the JWT is already small and a verifier scanning the QR runs a real
    * cryptographic check against the issuer's public key. Wrapping it in
-   * an OPENCRED1: envelope would break that path.
+   * a PixelPass envelope would break that path.
    */
   qrPayloadOverride?: string;
 }
@@ -254,9 +254,9 @@ export async function generatePdf(
 
   // The credential payload that gets embedded in the PDF info dictionary.
   // It mirrors exactly what the visible QR encodes: for full VCs that's the
-  // PixelPass-compressed `OPENCRED1:...` blob; for pre-compact tokens
-  // (vc-jwt / sd-jwt-vc) it's the token itself, embedded verbatim. The
-  // verification side dispatches by format on read — see
+  // bare PixelPass-compressed payload; for pre-compact tokens (vc-jwt /
+  // sd-jwt-vc) it's the token itself, embedded verbatim. The verification
+  // side dispatches by format on read — see
   // `verifyPdf` → `detectCredentialInputFormat`.
   const embeddedCredential =
     qrInput.kind === "compact-token" ? qrInput.token : compressCredentialForQr(qrInput.credential);

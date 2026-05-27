@@ -12,10 +12,11 @@
  *      or re-serializing it is a regression we want to catch loudly.
  *
  *   2. The QR payload embeds the raw token verbatim — it is *not*
- *      PixelPass-compressed. PixelPass-compressed payloads always carry
- *      the `OPENCRED1:` header (see `qr-generator.ts`), so the absence
- *      of that header in the SVG is a sufficient negative test for the
- *      compression-skip path.
+ *      PixelPass-compressed. We assert two things on the SVG output: it
+ *      contains the raw token, and `decodeQrData(token)` throws (a raw
+ *      JWT is not a valid PixelPass payload, so a regression that
+ *      silently routed the token through compression would let this
+ *      decode succeed).
  *
  * Both guarantees would be silently regressed if the discriminated
  * union were collapsed back to a `T | string` overload — a stringified
@@ -86,8 +87,6 @@ describe("packageCredential — kind: compact-token", () => {
     expect(typeof svgOutput!.data).toBe("string");
     const svg = svgOutput!.data as string;
     expect(svg).toContain("<svg");
-    // Negative: no PixelPass header. Compressed payloads always carry it.
-    expect(svg).not.toContain("OPENCRED1:");
     // Negative cross-check via decodeQrData: a raw JWT string is not a valid
     // PixelPass-compressed payload, so the codec rejects it. If a future
     // regression silently routed the token through compression, this call

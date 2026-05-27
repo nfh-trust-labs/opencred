@@ -1,7 +1,7 @@
 {
   "name": "@opencred/verify",
   "version": "0.1.0",
-  "description": "Verify W3C Verifiable Credentials issued by OpenCred. Supports vc-jwt, JSON-LD Data Integrity, sd-jwt-vc, OPENCRED1 PixelPass QR data, and PDF certificates with embedded credentials. Works fully offline for did:key / did:jwk issuers.",
+  "description": "Verify W3C Verifiable Credentials issued by OpenCred. Supports vc-jwt, JSON-LD Data Integrity, sd-jwt-vc, bare PixelPass QR data (interoperable with the MOSIP/Inji verifier toolchain), and PDF certificates with embedded credentials. Works fully offline for did:key / did:jwk issuers.",
   "license": "SEE LICENSE IN LICENSE",
   "homepage": "https://github.com/nfh-trust-labs/opencred-releases#verify-sdk",
   "repository": {
