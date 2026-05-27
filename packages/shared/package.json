@@ -18,6 +18,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@mosip/pixelpass": "^0.6.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {

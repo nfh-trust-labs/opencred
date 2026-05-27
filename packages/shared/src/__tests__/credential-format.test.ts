@@ -1,14 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { detectCredentialInputFormat, isPdfBytes } from "../credential-format.js";
+import { encodePixelPass } from "../pixelpass.js";
 
 describe("detectCredentialInputFormat", () => {
   describe("pixelpass", () => {
-    it("detects OPENCRED1: prefix", () => {
-      expect(detectCredentialInputFormat("OPENCRED1:someBase45data")).toBe("pixelpass");
+    it("detects bare PixelPass by successful decode", () => {
+      // Encode a small JSON payload through PixelPass; the result is bare
+      // Base45 with no prefix. Detection must still classify it.
+      const payload = encodePixelPass('{"@context":["https://www.w3.org/ns/credentials/v2"]}');
+      expect(detectCredentialInputFormat(payload)).toBe("pixelpass");
     });
 
-    it("detects OPENCRED1: with empty payload", () => {
-      expect(detectCredentialInputFormat("OPENCRED1:")).toBe("pixelpass");
+    it("does not false-positive on an empty string", () => {
+      expect(detectCredentialInputFormat("")).toBe("unknown");
     });
   });
 
@@ -53,7 +57,7 @@ describe("detectCredentialInputFormat", () => {
       expect(detectCredentialInputFormat("")).toBe("unknown");
     });
 
-    it("returns unknown for random text", () => {
+    it("returns unknown for random text that is not PixelPass-decodable", () => {
       expect(detectCredentialInputFormat("hello world")).toBe("unknown");
     });
 
@@ -75,12 +79,23 @@ describe("detectCredentialInputFormat", () => {
   });
 
   describe("priority", () => {
-    it("OPENCRED1: takes priority over JSON-like content", () => {
-      expect(detectCredentialInputFormat('OPENCRED1:{"@context":[]}')).toBe("pixelpass");
+    it("JSON detection takes priority over a PixelPass decode attempt", () => {
+      // Leading `{` short-circuits as JSON without invoking the try-decode
+      // fallback (which would also be cheap but the order is contractual).
+      expect(detectCredentialInputFormat('{"@context":[]}')).toBe("json");
     });
 
     it("tilde detection takes priority over dot-based JWT check", () => {
       expect(detectCredentialInputFormat("a.b.c~d")).toBe("jwt-compact");
+    });
+
+    it("JWT shape is detected before falling through to PixelPass try-decode", () => {
+      // A valid-looking JWT must classify as jwt-compact even if the
+      // PixelPass fallback would have thrown on it anyway. This guards
+      // against future regressions where the order is shuffled.
+      expect(detectCredentialInputFormat("eyJhbGciOiJFUzI1NiJ9.eyJ2YyI6e319.sig")).toBe(
+        "jwt-compact",
+      );
     });
   });
 });

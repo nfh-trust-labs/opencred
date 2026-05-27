@@ -9,51 +9,40 @@
  * This dramatically reduces the QR payload size — a 3KB credential
  * typically compresses to under 1KB, fitting comfortably in a QR code.
  *
- * QR data is prefixed with "OPENCRED1:" so decoders can identify the
- * format and apply the correct decompression pipeline.
+ * **No header / prefix is added to the payload.** Bare PixelPass output
+ * matches `@mosip/pixelpass`'s own default (`generateQRData(data)` with
+ * no second arg) and is what the MOSIP/Inji verifier toolchain — and any
+ * other consumer that calls `pixelpass.decode()` directly — expects.
  *
  * Works completely offline — no network requests.
  */
 
-import { createRequire } from "node:module";
 import QRCode from "qrcode";
 import type { VerifiableCredential } from "@opencred/vc-core";
-import { ValidationError } from "@opencred/shared";
-
-// PixelPass is a CJS module — use createRequire for ESM compatibility
-const require = createRequire(import.meta.url);
-const pixelpass = require("@mosip/pixelpass") as {
-  generateQRData: (data: string, header?: string) => string;
-  decode: (data: string) => string;
-};
-
-/** Header prefix for OpenCred QR codes. */
-const QR_HEADER = "OPENCRED1:";
+import { ValidationError, encodePixelPass, decodePixelPass } from "@opencred/shared";
 
 /**
  * Compress a credential JSON string using the PixelPass pipeline.
  *
  * @param credential - The signed VerifiableCredential.
- * @returns Compressed Base45 string with OPENCRED1: header.
+ * @returns Bare PixelPass-compressed Base45 string (no header).
  */
 export function compressCredentialForQr(credential: VerifiableCredential): string {
-  const json = JSON.stringify(credential);
-  return pixelpass.generateQRData(json, QR_HEADER);
+  return encodePixelPass(JSON.stringify(credential));
 }
 
 /**
  * Decode a PixelPass-compressed QR string back to credential JSON.
  *
- * Strips the OPENCRED1: header if present, then runs the reverse
- * pipeline: Base45 decode → zlib decompress → CBOR decode → JSON.
+ * Runs the reverse pipeline: Base45 decode → zlib decompress → CBOR
+ * decode → JSON.
  *
  * @param qrData - The raw string scanned from a QR code.
  * @returns The decompressed credential JSON string.
  * @throws If the data cannot be decoded.
  */
 export function decodeQrData(qrData: string): string {
-  const data = qrData.startsWith(QR_HEADER) ? qrData.slice(QR_HEADER.length) : qrData;
-  return pixelpass.decode(data);
+  return decodePixelPass(qrData);
 }
 
 /**

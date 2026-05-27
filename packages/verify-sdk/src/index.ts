@@ -149,7 +149,7 @@ const noopLogger: NonNullable<VerifySdkOptions["logger"]> = {
  * The verifier function returned by {@link createVerifier}.
  *
  * Calling it with a JWT compact string, JSON-LD VC object, sd-jwt-vc string,
- * or OPENCRED1 PixelPass string returns a `CredentialVerificationResult`.
+ * or bare PixelPass QR data string returns a `CredentialVerificationResult`.
  *
  * Use the `.pdf` method for binary PDF input.
  */

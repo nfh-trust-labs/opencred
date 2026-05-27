@@ -434,6 +434,9 @@ importers:
 
   packages/shared:
     dependencies:
+      '@mosip/pixelpass':
+        specifier: ^0.6.0
+        version: 0.6.0
       zod:
         specifier: ^3.23.0
         version: 3.25.76
@@ -6092,7 +6095,7 @@ snapshots:
       make-fetch-happen: 15.0.5
       nopt: 6.0.0
       proc-log: 2.0.1
-      semver: 7.7.4
+      semver: 7.8.0
       tar: 6.2.1
       which: 2.0.2
     transitivePeerDependencies:

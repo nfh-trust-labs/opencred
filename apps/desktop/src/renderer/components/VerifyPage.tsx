@@ -6,7 +6,7 @@
  *  - Loading a credential from a file via native dialog
  *  - Drag-and-drop of .json files onto the input area
  *  - Scanning QR codes via camera or image file
- *  - Pasting encoded QR strings (OPENCRED1:, JWT, SD-JWT)
+ *  - Pasting encoded QR strings (PixelPass QR data, JWT, SD-JWT)
  *  - Verifying the credential and displaying per-check results
  *  - Downloading a verification report (plain-text)
  *  - Session-scoped recent verification history (last 5)
@@ -804,7 +804,7 @@ export function VerifyPage() {
               setMessage(null);
               setChecks([]);
             }}
-            placeholder="Paste an OPENCRED1:... compressed string, a JWT (eyJ...), or an SD-JWT here"
+            placeholder="Paste PixelPass QR data, a JWT (eyJ...), or an SD-JWT here"
             className="block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
         )}

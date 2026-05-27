@@ -473,7 +473,7 @@ Either path produces the same `outputs[]`/`packagedOutputs[]` array.
 
 | `proofFormat` | What `credential` looks like in the request | What the QR encodes |
 |---|---|---|
-| `data-integrity` | JSON-LD VC object | PixelPass-compressed VC JSON, `OPENCRED1:` prefixed |
+| `data-integrity` | JSON-LD VC object | Bare PixelPass-compressed VC JSON (no prefix) |
 | `vc-jwt` | JSON-LD VC object (the JWT is embedded as `proof.jwt`) | Same as above (the VC wraps the JWT) |
 | `sd-jwt-vc` | Compact `~`-separated string | The raw token, embedded verbatim |
 

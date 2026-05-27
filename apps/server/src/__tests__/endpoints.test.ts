@@ -328,7 +328,7 @@ describe("POST /credentials/verify", () => {
     expect(result.valid).toBe(false);
   });
 
-  it("accepts an OPENCRED1: compressed credential string", async () => {
+  it("accepts a bare PixelPass-compressed credential string", async () => {
     const issueRes = await app.request("/credentials/issue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1298,16 +1298,13 @@ describe("POST /credentials/package — compact-token input", () => {
     expect(wrapper.format).toBe("sd-jwt-vc");
     expect(wrapper.credential).toBe(token);
 
-    // QR SVG must contain the raw token (no PixelPass `OPENCRED1:`
-    // wrapper) so a generic QR scanner sees the same JWT a verifier
-    // would consume.
+    // QR SVG must come back as a valid SVG document. We can't inspect the
+    // QR payload itself (it's encoded as pixels), but the discriminated
+    // unit tests in `packager-discrimination.test.ts` cover the
+    // raw-token-vs-PixelPass branch directly.
     const svgOutput = body.outputs.find((o) => o.format === "qr-svg");
     expect(svgOutput).toBeDefined();
     expect(svgOutput!.data).toContain("<svg");
-    // The raw JWT shouldn't appear textually in the SVG (it's encoded as
-    // QR pixels), but the PixelPass header *would* be present if we
-    // were going through that pipeline. Asserting it isn't is enough.
-    expect(svgOutput!.data).not.toContain("OPENCRED1:");
 
     // PDF comes back base64-encoded with the application/pdf mime type.
     const pdfOutput = body.outputs.find((o) => o.format === "pdf");

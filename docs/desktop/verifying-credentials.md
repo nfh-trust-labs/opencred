@@ -25,9 +25,24 @@ Point your laptop camera at a printed QR code and the app decodes it live. Use t
 
 Paste a compact token directly:
 
-* **`OPENCRED1:...`** — PixelPass-encoded QR data (what gets printed on PDFs)
+* **Bare PixelPass QR data** — what a QR scanner returns when it reads an OpenCred-issued QR (Base45 text, no prefix)
 * **vc-jwt** — `eyJ...` compact JWS
 * **sd-jwt-vc** — compact token with `~`-separated disclosures
+
+## How QR verification works
+
+OpenCred QR codes contain the **credential itself**, not a URL pointing at a verifier. That means scanning verifies offline against the issuer's public key — no network round-trip to any OpenCred service, no link the holder has to trust.
+
+What's inside the QR depends on how the credential was issued:
+
+| Issuance format | QR payload | Notes |
+|---|---|---|
+| `data-integrity` (JSON-LD) | **Bare PixelPass** (`Base45(zlib(CBOR(JSON)))`) | ~1KB from ~3KB, fits a standard QR. No prefix — matches `@mosip/pixelpass`'s own default. |
+| `vc-jwt` / `sd-jwt-vc` | **Raw token verbatim** | Already compact and base64url-encoded; embedded as-is so a generic verifier reads the same string the issuer signed. |
+
+When you paste or scan, the Verify tab auto-detects the format and dispatches to the right decoder. Detection runs cheap pattern checks first (`{` → JSON, `~` → SD-JWT, `header.payload.signature` → vc-jwt), then falls back to a PixelPass decode attempt. The verifier then runs the full check suite — signature, dates, DID resolution, x5c chain (if present), revocation, schema, context.
+
+**Compatibility note.** Because the QR is bare PixelPass with no application prefix, OpenCred QR data is consumable by any MOSIP / Inji-style verifier that calls `@mosip/pixelpass.decode()` directly. The desktop app, Docker server, CLI, and `@opencred/verify` SDK are all four equivalent paths — pick whichever matches your environment.
 
 ## What gets checked
 

@@ -44,4 +44,4 @@ export { CscaTrustStore } from "./csca-trust-store.js";
 export type { CscaTrustStoreOptions, TrustStoreWarningCallback } from "./csca-trust-store.js";
 export { publicKeyFromMultibase } from "./key-utils.js";
 export { verifyPdf, PDF_CREDENTIAL_INFO_KEY } from "./pdf-verifier.js";
-export { decodePixelPass, OPENCRED_PIXELPASS_HEADER } from "./pixelpass.js";
+export { decodePixelPass } from "./pixelpass.js";

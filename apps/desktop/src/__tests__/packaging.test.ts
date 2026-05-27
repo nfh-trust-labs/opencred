@@ -109,8 +109,9 @@ describe("QR Generator", () => {
   it("should roundtrip compress and decode credential data", () => {
     const compressed = compressCredentialForQr(testCredential);
 
-    // Should have OPENCRED1: header
-    expect(compressed).toMatch(/^OPENCRED1:/);
+    // Bare PixelPass payload — no `OPENCRED1:` (or any other) prefix.
+    // Negative assertion guards against an accidental reintroduction.
+    expect(compressed).not.toMatch(/^OPENCRED1:/);
 
     // Roundtrip: compressed data should decode back to the original credential
     const decoded = decodeQrData(compressed);

@@ -36,8 +36,6 @@ const pixelpass = require("@mosip/pixelpass") as {
   generateQRData: (data: string, header?: string) => string;
 };
 
-const QR_HEADER = "OPENCRED1:";
-
 /** Construct a minimal PDF carrying the given embedded credential value. */
 async function buildPdf(embedded: string | undefined): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -178,7 +176,7 @@ describe("verifyPdf", () => {
   });
 
   it("rejects an unrecognized embedded value with `pdf-embedded-credential` failure", async () => {
-    // Not OPENCRED1:, not JSON, not a JWT — verifier can't classify it.
+    // Not PixelPass, not JSON, not a JWT — verifier can't classify it.
     const pdf = await buildPdf("this is not a credential format");
 
     const result = await verifyPdf(pdf);
@@ -209,9 +207,10 @@ describe("verifyPdf", () => {
       publicKeyJwk: publicJwk,
     } as VerificationMethod);
 
-    // Mirror the issuance side: PixelPass-compress the credential and embed
-    // it in the PDF info dictionary under `OpenCredCredential`.
-    const compressed = pixelpass.generateQRData(JSON.stringify(signed), QR_HEADER);
+    // Mirror the issuance side: PixelPass-compress the credential (no
+    // header — bare payload, matching the emitter) and embed it in the PDF
+    // info dictionary under `OpenCredCredential`.
+    const compressed = pixelpass.generateQRData(JSON.stringify(signed));
     const pdf = await buildPdf(compressed);
 
     const result = await verifyPdf(pdf, { didResolver: resolver });
@@ -272,7 +271,7 @@ describe("verifyPdf", () => {
       publicKeyJwk: wrongJwk,
     } as VerificationMethod);
 
-    const compressed = pixelpass.generateQRData(JSON.stringify(signed), QR_HEADER);
+    const compressed = pixelpass.generateQRData(JSON.stringify(signed));
     const pdf = await buildPdf(compressed);
 
     const result = await verifyPdf(pdf, { didResolver: resolver });
