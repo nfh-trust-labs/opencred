@@ -163,17 +163,18 @@ export interface StoreSchema {
   /** Schema IDs that have been published to DeDi (cached to avoid redundant publishes). */
   dediPublishedSchemas: string[];
   /**
-   * DIDs that have been published to DeDi's `public_key_registry` from this
-   * desktop client. Tracking these locally lets us call `markDIDRotated`
-   * when the user regenerates their key — without this list we would have
-   * to either query DeDi on every key generation (slow + leaks DIDs) or
-   * silently leave the prior record showing `keyStatus: "current"`.
+   * Verification methods (key ids) that have been published to DeDi's
+   * key registry from this desktop client. Tracking these locally lets us
+   * call `setKeyStatus(vm, "rotated")` when the user regenerates their key —
+   * without this list we would have to either query DeDi on every key
+   * generation (slow + leaks key ids) or silently leave prior records
+   * showing `status: "active"`.
    *
    * The list is append-only; entries are never removed locally. If the
    * issuer manually deletes their DeDi record we just get a 404 on
-   * `markDIDRotated` and swallow it.
+   * `setKeyStatus(vm, "rotated")` and swallow it.
    */
-  dediPublishedDIDs: string[];
+  dediPublishedKeys: string[];
   /** ISO 8601 date until which the key rotation reminder is snoozed. */
   keyRotationDismissedUntil?: string;
   /** Issuer branding customization for credential templates. */
@@ -195,7 +196,7 @@ const DEFAULTS: StoreSchema = {
   credentialHistory: [],
   customSchemas: [],
   dediPublishedSchemas: [],
-  dediPublishedDIDs: [],
+  dediPublishedKeys: [],
 };
 
 let store: ElectronStore<StoreSchema> | null = null;

@@ -123,7 +123,8 @@ describe("IPC_CHANNELS", () => {
       LOG_TAIL: "log:tail",
       DEDI_SET_CONFIG: "dedi:set-config",
       DEDI_GET_STATUS: "dedi:get-status",
-      DEDI_PUBLISH_DID: "dedi:publish-did",
+      DEDI_PUBLISH_KEY: "dedi:publish-key",
+      DEDI_SET_KEY_STATUS: "dedi:set-key-status",
       DEDI_PUBLISH_SCHEMA: "dedi:publish-schema",
       DEDI_ENSURE_REGISTRIES: "dedi:ensure-registries",
     };

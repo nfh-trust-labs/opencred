@@ -146,7 +146,7 @@ import {
   CONTEXT_REGISTRY,
   SCHEMA_REGISTRY,
 } from "@opencred/dedi-client";
-import type { ContextRecord } from "@opencred/dedi-client";
+import type { ContextRecord, KeyRecord } from "@opencred/dedi-client";
 import { generateInlineContext } from "@opencred/vc-core";
 
 // ---------------------------------------------------------------------------
@@ -404,26 +404,27 @@ async function handleKeyGenerate(
     logger.info("Key generated", { keyId: signer.id, fingerprint: meta.fingerprint });
 
     // If DeDi is configured and we've previously published one or more
-    // DIDs from this client, mark them as rotated so verifiers see
-    // `keyStatus: "rotated"` on credentials signed under the old keys.
+    // keys from this client, set their status to `"rotated"` so verifiers
+    // see `status: "rotated"` on credentials signed under the old keys.
     // Conservative semantics:
-    //   - The new DID (signer.id) is excluded from the "to rotate" list.
+    //   - We rotate EVERY previously-published verification method — the
+    //     newly generated key has not been published yet, so it cannot be
+    //     in this list.
     //   - Failures are swallowed and logged — a DeDi outage must NOT
     //     break local key generation, since the new key is already in
     //     memory and the user expects success.
     //   - The list is append-only; we never auto-remove entries (an
-    //     issuer might re-rotate to a previously-rotated DID, which
-    //     would just be a no-op `update-record` that flips to "rotated"
-    //     again).
+    //     issuer re-rotating an already-rotated key is a no-op /
+    //     monotone-refused on the DeDi side).
     try {
       const store = getStore();
       if (store.get("dediConfig") != null) {
-        const previousDIDs = (store.get("dediPublishedDIDs") ?? []).filter((d) => d !== signer.id);
-        if (previousDIDs.length > 0) {
+        const previousKeys = store.get("dediPublishedKeys") ?? [];
+        if (previousKeys.length > 0) {
           const mgr = getDeDiPublishManager();
           if (mgr) {
-            // Fire-and-forget per DID; the manager catches errors.
-            await Promise.all(previousDIDs.map((did) => mgr.markDIDRotated(did)));
+            // Fire-and-forget per key; the manager catches errors.
+            await Promise.all(previousKeys.map((vm) => mgr.setKeyStatus(vm, "rotated")));
           }
         }
       }
@@ -2624,7 +2625,8 @@ import type {
   DeDiConfigSetRequest,
   DeDiConfigSetResponse,
   DeDiStatusResponse,
-  DeDiPublishDIDRequest,
+  DeDiPublishKeyRequest,
+  DeDiSetKeyStatusRequest,
   DeDiPublishSchemaRequest,
   DeDiPublishResponse,
   DeDiEnsureRegistriesResponse,
@@ -2821,137 +2823,120 @@ async function handleDeDiGetStatus(_event: IpcMainInvokeEvent): Promise<DeDiStat
   };
 }
 
-async function handleDeDiPublishDID(
-  _event: IpcMainInvokeEvent,
-  request: DeDiPublishDIDRequest,
-): Promise<DeDiPublishResponse> {
-  const mgr = getDeDiPublishManager();
-  if (!mgr) return { success: false, error: "DeDi not configured" };
-  const result = await mgr.publishDIDDocument(request.did, request.document);
-  if (!result) {
-    return { success: false, error: "Failed to publish DID to DeDi" };
-  }
-  // Track the published DID locally so the next key-generation can mark
-  // it rotated without an extra round-trip to look it up. Idempotent —
-  // republishing the same DID is a no-op on the local list.
-  const store = getStore();
-  const published = store.get("dediPublishedDIDs") ?? [];
-  if (!published.includes(request.did)) {
-    store.set("dediPublishedDIDs", [...published, request.did]);
-  }
-  return { success: true, recordName: result.recordName };
-}
-
 /**
- * DEDI_MARK_DID_ROTATED — record a key rotation for a previously-
- * published DID in DeDi. Routes per DID method:
+ * DEDI_PUBLISH_KEY — publish an issuer's public key (and optionally its
+ * did:web document) to DeDi's key registry.
  *
- *   - `did:key` (and unknown methods): whole-record flip — the DID
- *     record's `keyStatus` goes `"current"` → `"rotated"`. A new
- *     did:key key produces a new DID, so retiring the old DID as a
- *     unit is the correct semantic.
+ * The IPC surface references the key by its local signer id only — the
+ * private key NEVER crosses the IPC boundary. The handler resolves the
+ * public JWK + algorithm from the in-memory signer registry.
  *
- *   - `did:web`: the DID itself is stable across rotations; only one
- *     of its keys changes. We route to `DeDiClient.rotateDIDWeb`,
- *     which appends a new `verificationMethod` entry to the cached
- *     DID Document, stamps prior un-superseded entries with
- *     `supersededAt`, and repoints `assertionMethod` at the new
- *     fragment. Requires `request.keyId` so the handler can look up
- *     the new key's public JWK from the in-memory signer registry;
- *     calling without `keyId` (or with a `keyId` whose signer doesn't
- *     expose `publicKeyJwk`) returns `success: false` rather than
- *     silently no-oping — that footgun (issue #629) is why this
- *     handler now exists.
- *
- * Used by the renderer-side key-rotation UX (and by the in-process
- * key-generation hook above for did:key DIDs). The DeDi publish manager
- * wraps both adapter calls in a try/catch so a DeDi outage doesn't
- * break the caller; the returned `success` flag tells the UI whether
- * to surface a "saved" toast.
+ * The published verification method:
+ *   - `did:web:domain` → `<did>#key-0` (stable id inside the document);
+ *   - any other method (e.g. `did:key:...`) → the signer id itself.
  *
  * Security invariant (CLAUDE.md #2): the `publicKeyJwk` looked up from
  * the signer registry is the **public** JWK — Node's
  * `KeyObject.export({ format: "jwk" })` on a public KeyObject returns
  * only `kty/crv/x/y` (EC) or `kty/n/e` (RSA), never `d/p/q`. We pass it
- * through to the DeDi client unmodified; no logging of the JWK
- * happens here.
+ * through to the DeDi client unmodified; no logging of the JWK happens
+ * here.
  */
-async function handleDeDiMarkDIDRotated(
+async function handleDeDiPublishKey(
   _event: IpcMainInvokeEvent,
-  request: import("../shared/ipc-types.js").DeDiMarkDIDRotatedRequest,
+  request: DeDiPublishKeyRequest,
 ): Promise<DeDiPublishResponse> {
   const mgr = getDeDiPublishManager();
   if (!mgr) return { success: false, error: "DeDi not configured" };
 
-  if (request.did.startsWith("did:web:")) {
-    // did:web: rotate the key inside the document. Caller must
-    // identify which active signer holds the new key; we never
-    // accept the JWK over the IPC wire (defense-in-depth — public
-    // JWKs are safe to log but private material is not, and the
-    // contract is cleaner if the IPC surface only references keys
-    // by ID).
-    if (!request.keyId) {
-      return {
-        success: false,
-        error:
-          "did:web rotation requires keyId so the handler can resolve the new key's public JWK " +
-          "from the local signer registry",
-      };
-    }
-    const signer = loadedSigners.get(request.keyId);
-    if (!signer) {
-      return {
-        success: false,
-        error: `did:web rotation: no signer loaded for keyId ${request.keyId}`,
-      };
-    }
-    // Software signers expose `metadata.publicKeyJwk` directly.
-    // For generated keys we also cache the JWK in `loadedPublicKeyJwks`
-    // (a hold-over from the Self-Published Keys export flow); prefer
-    // the signer's metadata so we share the same canonical source as
-    // the server-side `/v1/keys/rotate` flow.
-    const publicKeyJwk = signer.metadata.publicKeyJwk ?? loadedPublicKeyJwks.get(request.keyId);
-    if (!publicKeyJwk) {
-      // KMS/PKCS#11/OS-cert signers don't currently expose publicKeyJwk —
-      // graceful skip per scope note in issue #629 (KMS-backed signer
-      // rotation is out of scope today).
-      return {
-        success: false,
-        error: `did:web rotation not supported for signer type "${signer.type}" — publicKeyJwk is not exposed for this signer`,
-      };
-    }
-
-    const result = await mgr.rotateDIDWeb(request.did, publicKeyJwk);
-    if (!result) {
-      return { success: false, error: "Failed to rotate did:web key in DeDi" };
-    }
-    const response: DeDiPublishResponse = {
-      success: true,
-      rotation: result.rotated
-        ? {
-            rotated: true,
-            did: result.did,
-            currentKeyId: result.currentKeyId,
-            superseded: result.superseded,
-            namespace: result.namespace,
-          }
-        : {
-            rotated: false,
-            did: result.did,
-            currentKeyId: result.currentKeyId,
-            namespace: result.namespace,
-          },
+  const signer = loadedSigners.get(request.signerKeyId);
+  const jwk = signer?.metadata.publicKeyJwk ?? loadedPublicKeyJwks.get(request.signerKeyId);
+  if (!jwk) {
+    return {
+      success: false,
+      error: `No public key available for signer ${request.signerKeyId}`,
     };
-    return response;
   }
 
-  // did:key (and other methods): preserve historical whole-record flip
-  // behaviour. New did:key produces a new DID, so flipping the OLD
-  // record's keyStatus correctly retires the prior DID.
-  const ok = await mgr.markDIDRotated(request.did);
-  return ok
-    ? { success: true }
-    : { success: false, error: "Failed to mark DID as rotated in DeDi" };
+  const verificationMethod = request.did.startsWith("did:web:")
+    ? request.did + "#key-0"
+    : request.signerKeyId;
+
+  const keyRecord: KeyRecord = {
+    keyId: verificationMethod,
+    controllerDid: request.did,
+    algorithm: signer ? String(signer.algorithm) : "unknown",
+    publicKeyJwk: jwk,
+    purpose: ["assertionMethod"],
+    status: "active",
+  };
+
+  const result = await mgr.publishKey(keyRecord, request.namespace);
+  if (!result) {
+    return { success: false, error: "Failed to publish key to DeDi" };
+  }
+
+  let didDocumentStored: boolean | undefined;
+  if (request.hostDidDocument && request.document) {
+    const docResult = await mgr.publishDidDocument(
+      request.did,
+      request.document,
+      request.namespace,
+    );
+    didDocumentStored = docResult != null;
+  }
+
+  // Track the published verification method locally so the next
+  // key-generation can flag it rotated without an extra round-trip to
+  // look it up. Idempotent — republishing the same key is a no-op on
+  // the local list.
+  const store = getStore();
+  const published = store.get("dediPublishedKeys") ?? [];
+  if (!published.includes(verificationMethod)) {
+    store.set("dediPublishedKeys", [...published, verificationMethod]);
+  }
+
+  return {
+    success: true,
+    recordName: result.recordName,
+    keyId: verificationMethod,
+    didDocumentStored,
+  };
+}
+
+/**
+ * DEDI_SET_KEY_STATUS — change the status of a previously-published key
+ * in DeDi (e.g. `"rotated"` or `"revoked"`).
+ *
+ * DeDi enforces monotone status transitions; the returned
+ * `SetKeyStatusResult` tells the renderer whether the change actually
+ * took effect (`changed: true`) or was refused / already-applied
+ * (`changed: false`).
+ */
+async function handleDeDiSetKeyStatus(
+  _event: IpcMainInvokeEvent,
+  request: DeDiSetKeyStatusRequest,
+): Promise<DeDiPublishResponse> {
+  const mgr = getDeDiPublishManager();
+  if (!mgr) return { success: false, error: "DeDi not configured" };
+
+  const result = await mgr.setKeyStatus(
+    request.verificationMethod,
+    request.status,
+    request.namespace,
+  );
+  if (!result) {
+    return { success: false, error: "Failed to set key status in DeDi" };
+  }
+
+  return {
+    success: true,
+    statusChange: {
+      changed: result.changed,
+      keyId: result.keyId,
+      status: request.status,
+    },
+  };
 }
 
 async function handleDeDiPublishSchema(
@@ -3141,8 +3126,8 @@ export function registerIpcHandlers(): void {
   // DeDi integration
   ipcMain.handle(IPC_CHANNELS.DEDI_SET_CONFIG, handleDeDiSetConfig);
   ipcMain.handle(IPC_CHANNELS.DEDI_GET_STATUS, handleDeDiGetStatus);
-  ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_DID, handleDeDiPublishDID);
-  ipcMain.handle(IPC_CHANNELS.DEDI_MARK_DID_ROTATED, handleDeDiMarkDIDRotated);
+  ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_KEY, handleDeDiPublishKey);
+  ipcMain.handle(IPC_CHANNELS.DEDI_SET_KEY_STATUS, handleDeDiSetKeyStatus);
   ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_SCHEMA, handleDeDiPublishSchema);
   ipcMain.handle(IPC_CHANNELS.DEDI_ENSURE_REGISTRIES, handleDeDiEnsureRegistries);
   ipcMain.handle(IPC_CHANNELS.DEDI_DISCONNECT, handleDeDiDisconnect);

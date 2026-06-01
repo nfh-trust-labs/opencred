@@ -18,6 +18,7 @@ import { useState } from "react";
 import type { KeyMetadata } from "../../shared/ipc-types";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
+import { Badge } from "./ui/Badge";
 import { KeyImport } from "./KeyImport";
 import { HardwareToken } from "./HardwareToken";
 import { OsCertStore } from "./OsCertStore";
@@ -100,7 +101,7 @@ function StepIndicator({ step }: { step: Step }) {
           return (
             <div key={label} className="flex flex-col items-center relative z-10">
               <div
-                className={`w-6 h-6 rounded-full flex items-center justify-center text-[0.6rem] font-semibold transition-colors ${
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-body-2xs font-semibold transition-colors ${
                   isActive
                     ? "bg-brand-blue text-white"
                     : isCompleted
@@ -111,7 +112,7 @@ function StepIndicator({ step }: { step: Step }) {
                 {isCompleted ? "\u2713" : i + 1}
               </div>
               <span
-                className={`mt-1.5 text-[0.6rem] font-medium whitespace-nowrap ${
+                className={`mt-1.5 text-body-2xs font-medium whitespace-nowrap ${
                   isActive
                     ? "text-brand-blue"
                     : isCompleted
@@ -140,7 +141,7 @@ function PathGuidance() {
     <div className="pt-1">
       <button
         onClick={() => setOpen(!open)}
-        className="text-[0.78rem] text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
+        className="text-body-xs text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
       >
         <svg
           width="12"
@@ -156,7 +157,7 @@ function PathGuidance() {
         Which should I choose?
       </button>
       {open && (
-        <div className="mt-3 rounded-oc border border-border-light bg-surface-warm p-4 space-y-3 text-[0.78rem] text-txt-secondary">
+        <div className="mt-3 rounded-oc border border-border-light bg-surface-warm p-4 space-y-3 text-body-xs text-txt-secondary">
           <p>
             <span className="font-semibold text-txt-primary">
               I have a Digital Signature Certificate
@@ -281,7 +282,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               </p>
               <div className="pt-2 space-y-3">
                 <Button onClick={() => setStep("choose-path")}>Get Started</Button>
-                <p className="text-[0.72rem] text-txt-muted">Setup takes about 5 minutes</p>
+                <p className="text-body-2xs text-txt-muted">Setup takes about 5 minutes</p>
               </div>
             </Card>
           )}
@@ -309,7 +310,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   <span className="block text-body-sm font-semibold text-txt-primary">
                     I have a Digital Signature Certificate
                   </span>
-                  <span className="block text-[0.78rem] text-txt-muted mt-1">
+                  <span className="block text-body-xs text-txt-muted mt-1">
                     Sign credentials using your existing DSC from a certificate authority
                   </span>
                 </button>
@@ -324,13 +325,13 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                       <span className="block text-body-sm font-semibold text-txt-primary">
                         I want to get a DSC
                       </span>
-                      <span className="block text-[0.78rem] text-txt-muted mt-1">
+                      <span className="block text-body-xs text-txt-muted mt-1">
                         Connect to a Certificate Authority to obtain your DSC
                       </span>
                     </div>
-                    <span className="inline-flex items-center rounded-oc bg-amber-50 border border-amber-200/60 px-2 py-0.5 font-mono text-[0.6rem] uppercase tracking-wider text-amber-700 flex-shrink-0 ml-3 mt-0.5">
+                    <Badge variant="warning" className="flex-shrink-0 ml-3 mt-0.5">
                       Coming Soon
-                    </span>
+                    </Badge>
                   </div>
                 </button>
 
@@ -347,13 +348,13 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                       <span className="block text-body-sm font-semibold text-txt-primary">
                         Self-Published Keys
                       </span>
-                      <span className="block text-[0.78rem] text-txt-muted mt-1">
+                      <span className="block text-body-xs text-txt-muted mt-1">
                         Generate a key pair and publish your public key on your website
                       </span>
                     </div>
-                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium flex-shrink-0 ml-3 mt-0.5">
+                    <Badge variant="info" className="flex-shrink-0 ml-3 mt-0.5">
                       Recommended
-                    </span>
+                    </Badge>
                   </div>
                 </button>
               </div>
@@ -393,7 +394,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   <span className="block text-body-sm font-semibold text-txt-primary">
                     Certificate File
                   </span>
-                  <span className="block text-[0.78rem] text-txt-muted mt-1">
+                  <span className="block text-body-xs text-txt-muted mt-1">
                     Import a PFX (.pfx, .p12) or PEM (.pem, .crt) file from your computer
                   </span>
                 </button>
@@ -406,7 +407,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   <span className="block text-body-sm font-semibold text-txt-primary">
                     Hardware Token
                   </span>
-                  <span className="block text-[0.78rem] text-txt-muted mt-1">
+                  <span className="block text-body-xs text-txt-muted mt-1">
                     Connect a PKCS#11 device (YubiKey, smart card, HSM)
                   </span>
                 </button>
@@ -419,7 +420,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   <span className="block text-body-sm font-semibold text-txt-primary">
                     OS Certificate Store
                   </span>
-                  <span className="block text-[0.78rem] text-txt-muted mt-1">
+                  <span className="block text-body-xs text-txt-muted mt-1">
                     Use a certificate from macOS Keychain or Windows Certificate Store
                   </span>
                 </button>
@@ -540,14 +541,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 </p>
               </div>
 
-              <div className="rounded-oc border border-green-200 bg-green-50 p-4 space-y-2">
+              <div className="rounded-oc border border-state-success-border bg-state-success-bg p-4 space-y-2">
                 <h3 className="oc-card-label" style={{ color: "#2e7d32" }}>
                   Key Details
                 </h3>
-                <dl className="text-[0.78rem] text-green-700 space-y-1.5">
+                <dl className="text-body-xs text-state-success space-y-1.5">
                   <div className="flex gap-2">
                     <dt className="font-medium w-24 flex-shrink-0">DID:</dt>
-                    <dd className="font-mono text-[0.72rem] break-all">{importedKey.id}</dd>
+                    <dd className="font-mono text-body-2xs break-all">{importedKey.id}</dd>
                   </div>
                   <div className="flex gap-2">
                     <dt className="font-medium w-24 flex-shrink-0">Algorithm:</dt>
@@ -555,7 +556,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   </div>
                   <div className="flex gap-2">
                     <dt className="font-medium w-24 flex-shrink-0">Fingerprint:</dt>
-                    <dd className="font-mono text-[0.72rem]">{importedKey.fingerprint}</dd>
+                    <dd className="font-mono text-body-2xs">{importedKey.fingerprint}</dd>
                   </div>
                   {importedKey.source && (
                     <div className="flex gap-2">
@@ -590,9 +591,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 </p>
               </div>
 
-              <div className="rounded-oc border border-amber-200 bg-amber-50 p-4">
-                <p className="text-[0.82rem] text-amber-800 font-medium mb-1">Coming Soon</p>
-                <p className="text-[0.78rem] text-amber-700">
+              <div className="rounded-oc border border-state-warning-border bg-state-warning-bg p-4">
+                <p className="text-body-xs text-state-warning font-medium mb-1">Coming Soon</p>
+                <p className="text-body-xs text-state-warning">
                   CA integration is being built as part of Phase 3. In the meantime, if you already
                   have a DSC from a certificate authority, choose &ldquo;I have a DSC&rdquo; to
                   import it.
@@ -659,6 +660,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               // there is meaningful as a "this DSC is associated with our
               // namespace" attribution rather than a did-document mirror.
               did={selfPubDid ?? importedKey.id}
+              signerKeyId={importedKey.id}
               didDocument={selfPubDidDoc ?? undefined}
               domain={selfPubDomain ?? undefined}
               onBack={() =>

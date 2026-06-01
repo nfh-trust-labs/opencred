@@ -6,7 +6,7 @@
  * On "Yes, I have a DeDi account":
  *   1. User enters namespace + API key
  *   2. Calls dediSetConfig() → stores config + creates 3 registries
- *   3. If self-pub path, fire-and-forget dediPublishDID()
+ *   3. If self-pub path, fire-and-forget dediPublishKey()
  *   4. Shows success screen
  *
  * SECURITY NOTE: API key input uses type="password" and is never logged.
@@ -21,6 +21,12 @@ type DeDiSetupState = "choice" | "not-yet" | "configure" | "connecting" | "succe
 
 interface DeDiSetupProps {
   did: string;
+  /**
+   * The local in-memory signer id whose public key should be published to
+   * DeDi. Used to resolve the public JWK + algorithm in the main process —
+   * private key material never crosses the IPC boundary.
+   */
+  signerKeyId: string;
   didDocument?: string;
   domain?: string;
   onComplete: () => void;
@@ -35,7 +41,14 @@ interface DeDiSetupProps {
 
 const DEDI_BASE_URL = "https://api.dedi.global";
 
-export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDiSetupProps) {
+export function DeDiSetup({
+  did,
+  signerKeyId,
+  didDocument,
+  domain,
+  onComplete,
+  onBack,
+}: DeDiSetupProps) {
   const [state, setState] = useState<DeDiSetupState>("choice");
   const [namespace, setNamespace] = useState(domain ?? "");
   const [apiKey, setApiKey] = useState("");
@@ -85,12 +98,15 @@ export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDi
         setRegistriesFailed(true);
       }
 
-      // Fire-and-forget DID publish if we have a DID document (self-pub path)
+      // Fire-and-forget key publish if we have a DID document (self-pub path).
+      // Also stores the did:web document in DeDi via hostDidDocument.
       if (didDocument) {
         try {
-          const pubResult = await window.opencred.dediPublishDID({
+          const pubResult = await window.opencred.dediPublishKey({
+            signerKeyId,
             did,
             document: JSON.parse(didDocument),
+            hostDidDocument: true,
           });
           if (!pubResult.success) {
             setDidPublishFailed(true);
@@ -148,7 +164,7 @@ export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDi
               <span className="block text-body-sm font-semibold text-txt-primary">
                 Yes, I have a DeDi account
               </span>
-              <span className="block text-[0.78rem] text-txt-muted mt-1">
+              <span className="block text-body-xs text-txt-muted mt-1">
                 Connect your DeDi namespace to publish your DID and manage registries
               </span>
             </button>
@@ -159,7 +175,7 @@ export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDi
               className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-border-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
             >
               <span className="block text-body-sm font-semibold text-txt-primary">Not yet</span>
-              <span className="block text-[0.78rem] text-txt-muted mt-1">
+              <span className="block text-body-xs text-txt-muted mt-1">
                 Learn about DeDi and create an account
               </span>
             </button>
@@ -170,7 +186,7 @@ export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDi
               className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-border-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
             >
               <span className="block text-body-sm font-semibold text-txt-primary">Skip</span>
-              <span className="block text-[0.78rem] text-txt-muted mt-1">
+              <span className="block text-body-xs text-txt-muted mt-1">
                 You can configure DeDi later from Settings
               </span>
             </button>
@@ -201,9 +217,9 @@ export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDi
             </p>
           </div>
 
-          <div className="rounded-oc border border-blue-200 bg-blue-50 p-4 space-y-2">
-            <p className="text-[0.78rem] font-medium text-blue-800">Create an account at DeDi</p>
-            <p className="text-[0.72rem] text-blue-700">
+          <div className="rounded-oc border border-blue-200 bg-brand-light p-4 space-y-2">
+            <p className="text-body-xs font-medium text-brand">Create an account at DeDi</p>
+            <p className="text-body-2xs text-brand">
               Visit{" "}
               <a
                 href="https://publish.dedi.global"
@@ -278,9 +294,9 @@ export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDi
 
           {error && (
             <div className="space-y-1">
-              <p className="text-sm text-red-600">{error}</p>
+              <p className="text-sm text-state-danger">{error}</p>
               {isResubmitOfFailedAttempt && (
-                <p className="text-[0.72rem] text-txt-muted">
+                <p className="text-body-2xs text-txt-muted">
                   Edit the namespace or API key and try again. Re-submitting the same values could
                   create a duplicate namespace on DeDi.
                 </p>
@@ -323,11 +339,11 @@ export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDi
             </p>
           </div>
 
-          <div className="rounded-oc border border-green-200 bg-green-50 p-4 space-y-2">
+          <div className="rounded-oc border border-state-success-border bg-state-success-bg p-4 space-y-2">
             <h3 className="oc-card-label" style={{ color: "#2e7d32" }}>
               Configuration
             </h3>
-            <dl className="text-[0.78rem] text-green-700 space-y-1.5">
+            <dl className="text-body-xs text-state-success space-y-1.5">
               <div className="flex gap-2">
                 <dt className="font-medium w-28 flex-shrink-0">Namespace:</dt>
                 <dd>{namespace.trim()}</dd>
@@ -341,7 +357,7 @@ export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDi
               {didDocument && (
                 <div className="flex gap-2">
                   <dt className="font-medium w-28 flex-shrink-0">DID:</dt>
-                  <dd className="font-mono text-[0.72rem] break-all">
+                  <dd className="font-mono text-body-2xs break-all">
                     {didPublishFailed ? "Publish pending" : "Published"}
                   </dd>
                 </div>
@@ -350,18 +366,18 @@ export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDi
           </div>
 
           {registriesFailed && (
-            <div className="rounded-oc border border-amber-200 bg-amber-50 p-3 space-y-2">
-              <p className="text-[0.78rem] text-amber-800 font-medium">
+            <div className="rounded-oc border border-state-warning-border bg-state-warning-bg p-3 space-y-2">
+              <p className="text-body-xs text-state-warning font-medium">
                 Registries could not be created
               </p>
-              <p className="text-[0.72rem] text-amber-700">
+              <p className="text-body-2xs text-state-warning">
                 Config saved but registries could not be created. Check your API key and network
                 connection.
               </p>
               <button
                 onClick={() => void handleRetryRegistries()}
                 disabled={retryingRegistries}
-                className="text-[0.78rem] font-medium text-amber-800 underline hover:text-amber-900 disabled:opacity-50"
+                className="text-body-xs font-medium text-state-warning underline hover:text-amber-900 disabled:opacity-50"
               >
                 {retryingRegistries ? "Retrying..." : "Retry"}
               </button>
@@ -369,11 +385,11 @@ export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDi
           )}
 
           {didPublishFailed && (
-            <div className="rounded-oc border border-amber-200 bg-amber-50 p-3">
-              <p className="text-[0.78rem] text-amber-800 font-medium">
+            <div className="rounded-oc border border-state-warning-border bg-state-warning-bg p-3">
+              <p className="text-body-xs text-state-warning font-medium">
                 DID could not be published
               </p>
-              <p className="text-[0.72rem] text-amber-700">
+              <p className="text-body-2xs text-state-warning">
                 Your DeDi configuration was saved, but the DID document could not be published. You
                 can retry from Settings.
               </p>

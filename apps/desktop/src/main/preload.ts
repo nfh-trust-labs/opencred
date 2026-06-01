@@ -86,7 +86,7 @@ import type {
   DeDiConfigSetRequest,
   DeDiConfigSetResponse,
   DeDiStatusResponse,
-  DeDiPublishDIDRequest,
+  DeDiPublishKeyRequest,
   DeDiPublishResponse,
   DeDiEnsureRegistriesResponse,
   DeDiDisconnectResponse,
@@ -224,13 +224,13 @@ const api: OpenCredDesktopAPI = {
   dediGetStatus: (): Promise<DeDiStatusResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.DEDI_GET_STATUS),
 
-  dediPublishDID: (request: DeDiPublishDIDRequest): Promise<DeDiPublishResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.DEDI_PUBLISH_DID, request),
+  dediPublishKey: (request: DeDiPublishKeyRequest): Promise<DeDiPublishResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEDI_PUBLISH_KEY, request),
 
-  dediMarkDIDRotated: (
-    request: import("../shared/ipc-types.js").DeDiMarkDIDRotatedRequest,
+  dediSetKeyStatus: (
+    request: import("../shared/ipc-types.js").DeDiSetKeyStatusRequest,
   ): Promise<DeDiPublishResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.DEDI_MARK_DID_ROTATED, request),
+    ipcRenderer.invoke(IPC_CHANNELS.DEDI_SET_KEY_STATUS, request),
 
   dediPublishSchema: (
     request: import("../shared/ipc-types.js").DeDiPublishSchemaRequest,
