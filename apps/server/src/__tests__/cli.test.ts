@@ -130,7 +130,7 @@ describe("CLI verify logic", () => {
   });
 
   it("returns INVALID with cli-input check for an unrecognized text input", async () => {
-    // Anything that's not OPENCRED1: / JSON / JWT / PDF should fall into
+    // Anything that's not PixelPass / JSON / JWT / PDF should fall into
     // the explicit cli-input failure rather than crash or pass through.
     const { runVerify } = await import("../cli.js");
     const garbagePath = join(TEST_DIR, "garbage.txt");

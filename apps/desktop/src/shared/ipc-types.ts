@@ -184,7 +184,7 @@ export interface VerifyCredentialRequest {
    *   - JSON-serialised Verifiable Credential (object as JSON string)
    *   - vc-jwt compact serialization (`eyJ...`)
    *   - sd-jwt-vc compact serialization (with `~`-separated disclosures)
-   *   - PixelPass-compressed QR data (`OPENCRED1:...`)
+   *   - PixelPass-compressed QR data (bare Base45 payload, no prefix)
    */
   credential?: string;
   /**

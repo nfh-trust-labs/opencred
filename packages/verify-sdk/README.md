@@ -123,7 +123,7 @@ Verify a credential. Accepts:
 
 * A **vc-jwt** compact string (`"eyJ…"`).
 * An **sd-jwt-vc** compact string (`"eyJ…~…~…~"`).
-* An **OPENCRED1 PixelPass** string (`"OPENCRED1:zBase45…"`) — the decoded payload of an OpenCred-issued QR.
+* A **PixelPass QR data** string — the raw Base45 payload of an OpenCred-issued QR (no prefix; what `@mosip/pixelpass.decode()` consumes).
 * A **JSON-LD VC** object (with `proof.type === "DataIntegrityProof"`).
 
 ### `verifier.pdf(pdfBytes)` → `Promise<CredentialVerificationResult>`
@@ -136,7 +136,7 @@ One-shot helpers — equivalent to `createVerifier(options)(...)` but discard th
 
 ### `detectFormat(input)` → `CredentialFormat`
 
-Returns the detected wire format without verifying. Useful for routing. The `CredentialFormat` union is `"data-integrity" | "vc-jwt" | "sd-jwt-vc" | "jws"`. For PDF inputs and OPENCRED1 PixelPass strings, the SDK decodes them before reaching `detectFormat` — call `verifyPdf` directly for PDFs, and pass the OPENCRED1 string straight to `verify(input)` to let the SDK route internally.
+Returns the detected wire format without verifying. Useful for routing. The `CredentialFormat` union is `"data-integrity" | "vc-jwt" | "sd-jwt-vc" | "jws"`. For PDF inputs and PixelPass QR data strings, the SDK decodes them before reaching `detectFormat` — call `verifyPdf` directly for PDFs, and pass the QR string straight to `verify(input)` to let the SDK route internally.
 
 ## Result shape
 

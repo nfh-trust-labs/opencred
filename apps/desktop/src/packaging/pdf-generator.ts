@@ -23,8 +23,8 @@ import { compressCredentialForQr, generateQrBuffer } from "./qr-generator.js";
  * PDF info-dictionary key that holds the embedded credential.
  *
  * Read by `verifyPdf()` in `@opencred/verification`. The value is the same
- * PixelPass-compressed `OPENCRED1:...` string that's printed into the QR
- * on the certificate page.
+ * bare PixelPass-compressed payload that's printed into the QR on the
+ * certificate page.
  *
  * **What's load-bearing.** The PDF spec (ISO 32000-1) allows arbitrary
  * keys in the info dictionary, but the round-trip here actually relies on

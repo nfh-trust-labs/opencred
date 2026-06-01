@@ -124,7 +124,7 @@ The verifier auto-detects the credential format. Same set of formats across all 
 | **vc-jwt** | Compact JWT (`eyJ…`) | `application/json` with `{"credential":"<jwt>"}` |
 | **JSON-LD VC** (DataIntegrityProof) | Full credential object | `application/json` with `{"credential":"<stringified-json>"}` |
 | **sd-jwt-vc** | Compact SD-JWT with disclosure tildes | `application/json` with `{"credential":"<sd-jwt>"}` |
-| **OPENCRED1 PixelPass** | Text payload from an OpenCred-issued QR | `application/json` with `{"credential":"OPENCRED1:zBase45…"}` |
+| **PixelPass QR data** | Bare Base45 text payload from an OpenCred-issued QR | `application/json` with `{"credential":"<base45-payload>"}` |
 | **PDF with embedded VC** | Raw PDF bytes; credential read from the PDF info-dictionary `OpenCredCredential` key | `application/pdf` with the binary body |
 
 > If you have a JSON-LD VC whose `proof.type` is `JsonWebSignature2020` with a `jwt` field (what `/v1/credentials/issue` returns when `proofFormat: "vc-jwt"`), extract `proof.jwt` and send the bare compact JWT. The wrapper is not a recognized proof type — the verifier expects the compact form directly.
@@ -132,7 +132,7 @@ The verifier auto-detects the credential format. Same set of formats across all 
 ## HTTP API
 
 ```bash
-# vc-jwt / sd-jwt-vc / OPENCRED1 — pass the compact string in `credential`.
+# vc-jwt / sd-jwt-vc / PixelPass QR data — pass the compact string in `credential`.
 JWT="eyJhbGciOiJFUzI1Ni…"
 jq -n --arg jwt "$JWT" '{credential: $jwt}' | \
   curl -s http://localhost:3100/v1/credentials/verify \
@@ -170,6 +170,90 @@ Successful response:
 ```
 
 On failure, `valid: false`, a stable `code` enum, and a generic `message`. The `checks` array shows which check failed by name; the per-check `detail` strings are deliberately **stripped from HTTP responses** to avoid leaking operator config (CSCA subject DNs, parser errors, path-shaped state) to remote callers. To see them, switch the server to debug logging — see [Debugging failed verifications](#debugging-failed-verifications) below.
+
+## QR verification
+
+Holders, kiosks, and field verifiers most often interact with OpenCred credentials through a printed or on-screen **QR code** — the small square on every OpenCred PDF certificate, or the standalone QR a holder presents from their device. This section explains what's inside that QR, how to decode it, and how to verify the recovered credential through any of the surfaces above.
+
+### What's inside an OpenCred QR
+
+OpenCred's QR encoder picks one of two payloads based on how the credential was issued:
+
+| Issuance format | QR payload | Why |
+|---|---|---|
+| `data-integrity` (JSON-LD VC) | **Bare PixelPass** — `JSON → CBOR → zlib(level 9) → Base45`, no prefix | The compressed payload still fits a standard QR (~1KB from ~3KB). Bare = no `OPENCRED1:` or any other application header, matching `@mosip/pixelpass`'s own default (`generateQRData(data)`). |
+| `vc-jwt` / `sd-jwt-vc` | **Raw token verbatim** — `eyJ…` (or `eyJ…~disclosure~`) embedded as-is | JWTs are already small and base64url-encoded; further compression doesn't help and would force scanners to decompress before doing the real cryptographic check. |
+
+There is no version prefix, no application namespace, no QR wrapper. Whatever a QR scanner reads from the image is exactly what `POST /v1/credentials/verify` accepts as the `credential` string. This is deliberate — it keeps OpenCred QR data interoperable with the wider MOSIP / Inji verifier toolchain (which calls `@mosip/pixelpass.decode()` with no prefix-stripping step).
+
+### Decoding the QR payload
+
+Once a scanner returns the QR's text payload, three lines tell you which branch you're on:
+
+```
+starts with `{`           → JSON-LD VC, already verifiable
+starts with `eyJ…`        → vc-jwt or sd-jwt-vc, already verifiable
+otherwise                 → bare PixelPass — decode through `@mosip/pixelpass.decode()`
+                              to recover the JSON-LD VC, then verify
+```
+
+The Docker server and the desktop app perform this detection automatically — you don't need to classify it yourself before sending. The format-detection module (`@opencred/shared`'s `detectCredentialInputFormat`) tries the cheap pattern checks first (`{`, `~`, `header.payload.signature`) and falls back to a PixelPass try-decode if none match.
+
+### Verifying a scanned QR
+
+#### Option 1 — HTTP API
+
+Pass the raw QR text through verbatim:
+
+```bash
+# QR_TEXT is whatever your scanner returned — JWT, SD-JWT, or bare PixelPass.
+jq -n --arg cred "$QR_TEXT" '{credential: $cred}' | \
+  curl -s http://localhost:3100/v1/credentials/verify \
+    -H "Authorization: Bearer $OPENCRED_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d @-
+```
+
+#### Option 2 — CLI
+
+```bash
+echo "$QR_TEXT" | docker run --rm -i opencred:bootcamp verify --input -
+```
+
+#### Option 3 — Verify SDK (Node / browser)
+
+```js
+import { createVerifier } from "@opencred/verify";
+
+const verifier = createVerifier();
+const result = await verifier(qrText);   // accepts JWT, SD-JWT, or bare PixelPass
+console.log(result.verified, result.code, result.checks);
+```
+
+#### Option 4 — Any MOSIP / Inji-compatible verifier
+
+OpenCred QR data follows the MOSIP PixelPass convention with no extra wrapping. Any toolchain that already handles MOSIP-style QRs — including Inji Verify and direct callers of `@mosip/pixelpass.decode()` — accepts an OpenCred QR with no special handling. The bare-PixelPass interop note is intentional: see the rationale in `apps/server/src/packaging/qr-generator.ts`.
+
+### Manual decode (debugging / when you don't have OpenCred installed)
+
+For triage when you have a QR text and need to inspect the credential without running the verifier:
+
+```js
+import { decode } from "@mosip/pixelpass";
+
+// `qrText` is the bare Base45 payload your scanner returned.
+const credentialJson = decode(qrText);     // → JSON string
+const credential = JSON.parse(credentialJson);
+console.log(credential.issuer, credential.credentialSubject);
+```
+
+Or with `node-base45` + `pako` + a CBOR decoder if you prefer not to pull in the MOSIP library. The pipeline is exactly `Base45 → zlib inflate → CBOR decode → UTF-8 JSON`.
+
+> **What QR decode does *not* do.** Decoding only recovers the credential payload. The cryptographic signature check, issuer DID resolution, revocation lookup, and date checks all still need to run — use one of the four options above. A successfully-decoded QR is not, on its own, evidence the credential is valid.
+
+### QR verification on a printed PDF
+
+OpenCred PDFs carry the credential in two places: the visible QR and the PDF info-dictionary (`OpenCredCredential` key). Both contain the same bare PixelPass payload, so either path verifies. The PDF-as-upload route (`Content-Type: application/pdf`) is the cleanest end-to-end check — no QR scanner required. See [Branch 2 — PDF upload](../docker/api-reference.md#post-v1credentialsverify) in the API reference.
 
 ## CLI
 

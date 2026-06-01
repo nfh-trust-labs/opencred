@@ -841,8 +841,8 @@ credentials.post("/credentials/verify", async (c) => {
   // Two supported request shapes:
   //
   //   1. `Content-Type: application/json` with `{ "credential": "<string>" }`
-  //      — accepts JSON-LD VC, vc-jwt, sd-jwt-vc, or `OPENCRED1:` PixelPass
-  //      strings.
+  //      — accepts JSON-LD VC, vc-jwt, sd-jwt-vc, or bare PixelPass-compressed
+  //      QR data.
   //   2. `Content-Type: application/pdf` with a binary PDF body — the body
   //      is the raw PDF bytes of an OpenCred-issued PDF certificate. The
   //      embedded credential is read from the `OpenCredCredential` PDF info-

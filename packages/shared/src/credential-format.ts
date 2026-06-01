@@ -3,7 +3,19 @@
  *
  * Classifies a raw string into one of the supported credential input formats
  * so the server verify endpoint can dispatch to the correct parser/decoder.
+ *
+ * **PixelPass detection is content-based, not prefix-based.** OpenCred
+ * emits bare PixelPass payloads (no `OPENCRED1:` header) so that any
+ * downstream consumer using `@mosip/pixelpass.decode()` directly — most
+ * notably the MOSIP/Inji verifier toolchain — can accept OpenCred QR data
+ * unchanged. To detect a PixelPass payload here, we attempt a decode after
+ * the cheap pattern checks fail. A successful decode is treated as positive
+ * identification. The cost is one Base45 + zlib + CBOR attempt on the
+ * negative path (a few ms at most); the win is wire-format interop with
+ * the wider VC ecosystem.
  */
+
+import { tryDecodePixelPass } from "./pixelpass.js";
 
 /** Supported credential input formats. */
 export type CredentialInputFormat = "pixelpass" | "json" | "jwt-compact" | "unknown";
@@ -15,15 +27,25 @@ const BASE64URL_RE = /^[A-Za-z0-9_-]+$/;
  * Detect the format of a credential input string.
  *
  * Detection rules (evaluated in order):
- *   1. Starts with "OPENCRED1:" → pixelpass (PixelPass-compressed QR data)
- *   2. Trimmed input starts with "{" → json (JSON-stringified credential)
- *   3. Three dot-separated non-empty base64url segments → jwt-compact (VC-JWT)
- *      OR contains "~" (SD-JWT compact serialization) → jwt-compact
- *   4. Otherwise → unknown
+ *   1. Trimmed input starts with "{" → json (JSON-stringified credential)
+ *   2. Contains "~" → jwt-compact (SD-JWT compact serialization with
+ *      disclosures)
+ *   3. Three dot-separated non-empty base64url segments → jwt-compact
+ *      (VC-JWT compact serialization)
+ *   4. Successfully decodes as PixelPass → pixelpass (bare PixelPass QR
+ *      payload, no header)
+ *   5. Otherwise → unknown
+ *
+ * The PixelPass try-decode is intentionally the last check: pattern checks
+ * are O(string-length); decode is O(payload) plus an exception cost on the
+ * negative path. Putting it last keeps the common case (JSON / JWT) fast.
  */
 export function detectCredentialInputFormat(input: string): CredentialInputFormat {
-  if (input.startsWith("OPENCRED1:")) {
-    return "pixelpass";
+  // Empty input is `unknown`, not `pixelpass`. PixelPass's `decode("")`
+  // returns an empty string rather than throwing, so the try-decode
+  // fallback below would otherwise misclassify an empty payload.
+  if (input.length === 0) {
+    return "unknown";
   }
 
   const trimmed = input.trimStart();
@@ -48,6 +70,15 @@ export function detectCredentialInputFormat(input: string): CredentialInputForma
     BASE64URL_RE.test(parts[2])
   ) {
     return "jwt-compact";
+  }
+
+  // Bare PixelPass payload — discriminated by successful decode. Base45's
+  // alphabet (uppercase + digits + `$%*+-./:`) overlaps with neither JSON
+  // (curly-brace-led) nor base64url JWTs (lowercase letters, no
+  // `$%*+./:`), so the false-positive rate of this fallback in practice
+  // is negligible.
+  if (tryDecodePixelPass(input) !== null) {
+    return "pixelpass";
   }
 
   return "unknown";

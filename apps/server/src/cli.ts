@@ -242,9 +242,9 @@ async function signCredential(
 }
 
 // ---------------------------------------------------------------------------
-// Verify command — supports JSON-LD VC, vc-jwt, sd-jwt-vc, OPENCRED1: QR,
-// and PDF input. The implementation lives here (not inline in the action
-// handler) so tests can exercise it without going through commander.
+// Verify command — supports JSON-LD VC, vc-jwt, sd-jwt-vc, PixelPass QR
+// data, and PDF input. The implementation lives here (not inline in the
+// action handler) so tests can exercise it without going through commander.
 // ---------------------------------------------------------------------------
 
 export interface VerifyCliResult {
@@ -355,7 +355,8 @@ export async function runVerify(opts: {
         {
           name: "cli-input",
           passed: false,
-          detail: "Could not classify input as JSON-LD, vc-jwt, sd-jwt-vc, OPENCRED1:, or PDF.",
+          detail:
+            "Could not classify input as JSON-LD, vc-jwt, sd-jwt-vc, PixelPass QR data, or PDF.",
         },
       ],
       inputFormat: "unknown",
@@ -509,7 +510,7 @@ export function createProgram(): Command {
         "  Docker server's /v1/credentials/issue endpoint:\n" +
         "    - JSON-LD VC (.json / .jsonld)\n" +
         "    - vc-jwt or sd-jwt-vc compact token (text file)\n" +
-        "    - PixelPass-compressed QR data (`OPENCRED1:` text)\n" +
+        "    - PixelPass-compressed QR data (bare Base45 payload)\n" +
         "    - OpenCred-issued PDF certificate (.pdf)\n\n" +
         "  Reads from --input, or from stdin when --input is `-`.\n\n" +
         "  Examples:\n" +
