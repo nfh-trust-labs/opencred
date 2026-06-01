@@ -13,6 +13,7 @@
   "scripts": {
     "dev": "concurrently -n vite,electron \"vite\" \"wait-on http://localhost:5174 && electron .\"",
     "rebuild:native": "node scripts/rebuild-native.cjs",
+    "generate-icons": "node scripts/generate-icons.mjs",
     "build": "vite build && node scripts/bundle-main.mjs",
     "build:dist": "node scripts/build-dist.mjs",
     "build:renderer": "vite build",
@@ -98,6 +99,7 @@
       "node_modules/**/*.node"
     ],
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         "dmg",
         "zip"
@@ -108,8 +110,32 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist"
     },
+    "dmg": {
+      "title": "OpenCred ${version}",
+      "background": "build/dmg-background.png",
+      "window": {
+        "width": 660,
+        "height": 420
+      },
+      "iconSize": 100,
+      "iconTextSize": 12,
+      "contents": [
+        {
+          "x": 180,
+          "y": 218,
+          "type": "file"
+        },
+        {
+          "x": 480,
+          "y": 218,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
     "afterSign": "scripts/notarize.cjs",
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis"
       ],
@@ -123,6 +149,7 @@
       "repo": "opencred-releases"
     },
     "linux": {
+      "icon": "build/icon.png",
       "target": [
         "AppImage",
         "deb"
@@ -136,7 +163,10 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
     }
   }
 }
