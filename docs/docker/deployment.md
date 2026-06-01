@@ -192,8 +192,8 @@ The issuer's DID is derived at startup. `did:key` is the default and works fully
 |---|---|---|---|
 | `OPENCRED_ISSUER_DID_METHOD` | enum (`key` / `web`) | `key` | DID method the issuer signs under. `key` derives `did:key:z…` from the loaded public key (offline-verifiable). `web` uses `did:web:<OPENCRED_ISSUER_DOMAIN>`; the JWT `kid` header is forced to `did:web:<domain>#key-0` so verifiers can match it against the published DID Document (since [PR #634](https://github.com/nfh-trust-labs/opencred/pull/634), released in v1.6.1). |
 | `OPENCRED_ISSUER_DOMAIN` | string | — | Required when `OPENCRED_ISSUER_DID_METHOD=web`. The domain (and optional path) for the issuer's `did:web`. E.g. `issuer.example.com` → `did:web:issuer.example.com`. |
-| `OPENCRED_AUTO_PUBLISH_KEY` | boolean | `false` | When `true`, the server publishes its issuer DID Document to DeDi's `public_key_registry` at startup. Works for both `did:key` and `did:web`. Idempotent — restarts log "already published" and continue. Surfaced as `didAutoPublished: true` on `/v1/health`. Fails closed at startup if DeDi is not configured (no silent no-op). |
-| `OPENCRED_DEDI_HOST_DID_DOC` | boolean | `false` | did:web-only alias of `OPENCRED_AUTO_PUBLISH_KEY`. Triggers the same auto-publish path at startup. Ignored when `OPENCRED_ISSUER_DID_METHOD=key`. Compatible with `OPENCRED_AUTO_PUBLISH_KEY` (both can be set simultaneously). |
+| `OPENCRED_AUTO_PUBLISH_KEY` | boolean | `false` | When `true`, the server publishes its active signing key to the DeDi `opencred-key-registry` at startup (status `active`). Works for both `did:key` and `did:web`. Idempotent — restarts log "already published" and continue. Surfaced as `didAutoPublished: true` on `/v1/health`. Fails closed at startup if DeDi is not configured (no silent no-op). |
+| `OPENCRED_DEDI_HOST_DID_DOC` | boolean | `false` | did:web only. When `true`, also stores the assembled `did.json` in the DeDi `did-documents` registry at startup, so DeDi-aware verifiers can resolve the DID Document without hitting the issuer's domain. Combines with `OPENCRED_AUTO_PUBLISH_KEY` — both can be set simultaneously. Ignored when `OPENCRED_ISSUER_DID_METHOD=key`. Rejected at startup if DeDi is not configured. |
 
 **What each combination does**
 
@@ -206,6 +206,159 @@ The issuer's DID is derived at startup. `did:key` is the default and works fully
 | `web` | set | yes | `false` | did:web issuance. Host the DID Document at your domain (Path A) OR call `POST /v1/keys/publish` manually to put it on DeDi (Path B). |
 | `web` | set | yes | `true` | did:web issuance with **DeDi as the host** for the DID Document (Path B). Container publishes the document at startup; OpenCred-aware verifiers resolve via DeDi. Plain W3C did:web resolvers will NOT see it at the canonical `.well-known/did.json` URL unless you also host it on your domain (combine with Path A for maximum reach). |
 | `web` | unset | — | — | Startup fails: `OPENCRED_ISSUER_DOMAIN` is required when `OPENCRED_ISSUER_DID_METHOD=web`. |
+
+## Key lifecycle — publish, rotate, revoke
+
+OpenCred stores signing keys in DeDi's `opencred-key-registry` (one record per key, per-key `active`/`rotated`/`revoked` status). This section shows the operator-level curl workflows for the full lifecycle. See [API Reference → Per-key registry endpoints](api-reference.md#per-key-registry-opencred-key-registry-endpoints) for the full request/response shapes.
+
+### First boot: publish the active key
+
+Call `POST /v1/keys/publish` once after starting the container. The server derives the public JWK from its loaded signer and publishes the key record to DeDi with status `active`.
+
+```bash
+export OPENCRED_API_KEY="<your-api-key>"
+export DEDI_NAMESPACE="issuer.example.org"
+
+# Publish the key (no request body required)
+curl -s -X POST http://localhost:3100/v1/keys/publish \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+Response:
+
+```json
+{
+  "published": true,
+  "recordName": "did-web-issuer-example-org--key-0",
+  "namespace": "issuer.example.org",
+  "keyId": "did:web:issuer.example.org#key-0",
+  "didDocumentStored": false
+}
+```
+
+To also store the DID Document in DeDi (so verifiers don't need to hit your `.well-known/did.json`):
+
+```bash
+curl -s -X POST http://localhost:3100/v1/keys/publish \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "hostDidDocument": true }'
+# → didDocumentStored: true
+```
+
+Or set `OPENCRED_DEDI_HOST_DID_DOC=true` / `OPENCRED_AUTO_PUBLISH_KEY=true` to do this automatically at startup.
+
+### Rotate a key (clean retirement)
+
+Use rotation when you want to move to a new key for operational reasons (scheduled rotation, algorithm upgrade, etc.). The old key was never compromised — credentials it signed remain valid.
+
+Steps:
+
+1. **Load the new key** — update `OPENCRED_KEY_PATH` (or the Cloud HSM key reference) and restart the container.
+2. **Call `POST /v1/keys/rotate`** — the new key is published as `active`; the old key is flipped to `rotated`; the `did.json` is regenerated if DeDi-hosting is enabled.
+
+```bash
+# Rotate: retire key-0, promote the new key (key-1)
+curl -s -X POST http://localhost:3100/v1/keys/rotate \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "previousVerificationMethod": "did:web:issuer.example.org#key-0",
+    "hostDidDocument": true
+  }'
+```
+
+Response:
+
+```json
+{
+  "rotated": true,
+  "did": "did:web:issuer.example.org",
+  "currentKeyId": "did:web:issuer.example.org#key-1",
+  "retired": {
+    "keyId": "did:web:issuer.example.org#key-0",
+    "status": "rotated"
+  },
+  "didDocumentStored": true
+}
+```
+
+3. (Path A operators) Re-fetch the `did.json` and upload it to your domain:
+
+```bash
+curl -s http://localhost:3100/v1/keys/did-document \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  | jq .document > did.json
+# Upload did.json to https://issuer.example.org/.well-known/did.json
+```
+
+The regenerated `did.json` includes both `key-1` (active) and `key-0` (rotated), so credentials signed under `key-0` continue to verify.
+
+### Revoke a key (compromise response)
+
+Use revocation when a key is **compromised** — stolen, leaked, or otherwise no longer exclusively controlled by the issuer. After revocation, every credential the key ever signed is rejected by DeDi-aware verifiers.
+
+```bash
+# Revoke the compromised key
+curl -s -X POST http://localhost:3100/v1/keys/revoke \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "verificationMethod": "did:web:issuer.example.org#key-0",
+    "hostDidDocument": true
+  }'
+```
+
+Response:
+
+```json
+{
+  "revoked": true,
+  "keyId": "did:web:issuer.example.org#key-0",
+  "status": "revoked",
+  "didDocumentStored": true
+}
+```
+
+The regenerated `did.json` **excludes** the revoked key (unlike rotation, which keeps it). Any verifier that fetches the `did.json` will no longer find the key in `assertionMethod[]` and will reject the credential's signature. DeDi-aware verifiers additionally check the key record status and return `REVOKED` immediately.
+
+If you have not already rotated to a new key before revoking, publish a new key first:
+
+```bash
+# 1. Load the new key (update OPENCRED_KEY_PATH, restart)
+# 2. Publish it
+curl -s -X POST http://localhost:3100/v1/keys/publish \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "hostDidDocument": true }'
+# 3. Revoke the compromised key
+curl -s -X POST http://localhost:3100/v1/keys/revoke \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "verificationMethod": "did:web:issuer.example.org#key-0",
+    "hostDidDocument": true
+  }'
+```
+
+### Check a key's current status
+
+```bash
+curl -s -X POST http://localhost:3100/v1/keys/resolve \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "verificationMethod": "did:web:issuer.example.org#key-0" }'
+```
+
+The `status` field in the response tells you `active`, `rotated`, or `revoked`.
+
+For CDN-cached / read-tier use, the GET form works too:
+
+```bash
+curl -s "http://localhost:3100/v1/keys/resolve?verificationMethod=did%3Aweb%3Aissuer.example.org%23key-0"
+```
 
 ## Key sources
 

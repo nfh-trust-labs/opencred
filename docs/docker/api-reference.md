@@ -172,8 +172,8 @@ All configuration is loaded from environment variables at startup and parsed by 
 | `OPENCRED_OTEL_ENABLED` | No | `false` | Master switch for OpenTelemetry critical-path tracing (`http.server.duration`, `batch.row.process`, `signer.sign`, `verify.*`, `dedi.*`). When enabled, standard `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_TRACES_SAMPLER*` env vars apply. See [Observability → Tracing](observability.md#tracing). | `true` |
 | `OPENCRED_ISSUER_DID_METHOD` | No | `key` | Which DID method the issuer identity uses. `key` derives `did:key:z…` from the signer's public key (offline-verifiable). `web` uses `did:web:<OPENCRED_ISSUER_DOMAIN>` and requires the operator to serve the DID document. | `web` |
 | `OPENCRED_ISSUER_DOMAIN` | When `OPENCRED_ISSUER_DID_METHOD=web` | _(unset)_ | Domain for `did:web`. The server does NOT host the DID document — operator serves it at `https://<domain>/.well-known/did.json` or via DeDi bundled hosting. | `issuer.example.com` |
-| `OPENCRED_DEDI_HOST_DID_DOC` | No | `false` | When `true` and DeDi is configured, the server publishes its DID document to DeDi at startup as bundled hosting for did:web. Ignored when `OPENCRED_ISSUER_DID_METHOD=key`. Rejected at startup if DeDi is not configured. | `true` |
-| `OPENCRED_AUTO_PUBLISH_KEY` | No | `false` | When `true`, the server publishes its issuer DID to DeDi at startup. Works for both `did:key` and `did:web`. Idempotent: re-publishing an existing DID is treated as success (logged as already-published, no error). Requires DeDi to be configured — rejected at startup otherwise. Surfaced on `/v1/health` as `didAutoPublished: true` once the publish succeeds (also reported `true` for the idempotent skip path on a re-boot). | `true` |
+| `OPENCRED_DEDI_HOST_DID_DOC` | No | `false` | did:web only. When `true`, publishes the active signing key to `opencred-key-registry` AND stores the assembled `did.json` in `did-documents` at startup. Ignored when `OPENCRED_ISSUER_DID_METHOD=key`. Rejected at startup if DeDi is not configured. | `true` |
+| `OPENCRED_AUTO_PUBLISH_KEY` | No | `false` | When `true`, publishes the active signing key to the DeDi `opencred-key-registry` at startup (status `active`). Works for both `did:key` and `did:web`. Idempotent: re-publishing an existing key is treated as success (logged as already-published, no error). Requires DeDi to be configured — rejected at startup otherwise. Surfaced on `/v1/health` as `didAutoPublished: true` once the publish succeeds. | `true` |
 | `OPENCRED_READ_ONLY` | No | `false` | When `true`, write endpoints (issue, batch, revoke, publish, schemas/generate, dedi/*) return `405 READ_ONLY_MODE`. Read surface (verify, key resolve, schemas, health, metrics) stays enabled. See [Read-tier deployment](deployment.md#read-tier-deployment). | `true` |
 
 [^1]: A signing key is required for `POST /v1/credentials/issue` to succeed. If neither `OPENCRED_KEY_PATH` nor a Cloud HSM provider is configured, the server still starts and `/v1/health` reports `signingKeyLoaded: false`, but every issue request returns `500 INTERNAL_ERROR` (the sanitized fallback for the unhandled `requireSigner()` throw — see [Observability → Health Checks](observability.md#health-checks)).
@@ -319,7 +319,6 @@ Return the canonical DID Document JSON the operator should host at `https://<dom
     "capabilityInvocation": ["did:web:bootcamp.example.org#key-0"],
     "capabilityDelegation": ["did:web:bootcamp.example.org#key-0"]
   },
-  "keyStatus": "current",
   "source": "active-signer" // or "dedi"
 }
 ```
@@ -327,9 +326,8 @@ Return the canonical DID Document JSON the operator should host at `https://<dom
 | Field | Description |
 |---|---|
 | `did` | The configured issuer DID — `did:web:<OPENCRED_ISSUER_DOMAIN>` when `OPENCRED_ISSUER_DID_METHOD=web`. |
-| `document` | The W3C DID Document. Upload this verbatim to `https://<domain>/.well-known/did.json`. |
-| `keyStatus` | `"current" \| "rotated"`. For did:web this is always `"current"` by design — per-key rotation lives inside `document.verificationMethod[].supersededAt`, not the parent flag. Passed through from the DeDi record when `source: "dedi"`; hardcoded `"current"` when `source: "active-signer"`. Same shape and semantics as `POST /v1/keys/resolve`. |
-| `source` | `"dedi"` when read from the DeDi `public_key_registry` (rotation-aware), `"active-signer"` when derived from the loaded key. |
+| `document` | The W3C DID Document. Upload this verbatim to `https://<domain>/.well-known/did.json`. After rotation, re-fetch from this endpoint — the `source: "dedi"` path returns the multi-key document (rotated keys retained, revoked keys removed); the `source: "active-signer"` path returns a single-key document for the current signer. |
+| `source` | `"dedi"` when read from the DeDi `did-documents` registry (rotation-aware, multi-key). `"active-signer"` when derived from the loaded signer's public JWK (single-key, no rotation history). |
 
 **One-liner to publish the JSON to disk**
 
@@ -357,9 +355,27 @@ The endpoint always reflects the **current** state. After `POST /v1/keys/rotate`
 
 ---
 
+### Per-key registry (`opencred-key-registry`) endpoints
+
+These five endpoints implement the full lifecycle of signing keys in DeDi's `opencred-key-registry`: one record per key, one fixed registry per issuer namespace. See [Concepts → DIDs → Per-key registry](../concepts/dids.md#per-key-registry--the-opencred-key-registry-model) for the architecture and the Riverside University worked example.
+
+The model at a glance:
+
+```
+POST /v1/keys/publish   — add the active key (status: active)
+POST /v1/keys/rotate    — retire old key (rotated) + add new key (active)
+POST /v1/keys/revoke    — mark a compromised key (revoked)
+POST /v1/keys/resolve   — look up any key's record
+GET  /v1/keys/resolve   — same as POST, URL-param form (CDN-cacheable)
+```
+
+---
+
 ### `POST /v1/keys/publish`
 
-Publish a DID document to the DeDi `public_key_registry`. Lets verifiers resolve an issuer's public keys from DeDi instead of relying on `did:web` HTTPS lookups.
+Publish the active signer's public key to the DeDi `opencred-key-registry` with status `active`. This is the first step in the DeDi lifecycle — call it once after first boot (or use `OPENCRED_AUTO_PUBLISH_KEY=true` to automate it).
+
+The server publishes only its **own** active key derived from the configured signer. No key material is accepted from the request body — the public JWK is extracted from the loaded signer automatically.
 
 **Auth:** required.
 **Content-Type:** `application/json`.
@@ -368,47 +384,67 @@ Publish a DID document to the DeDi `public_key_registry`. Lets verifiers resolve
 
 ```ts
 {
-  did: string;
-  document: Record<string, unknown>;
-  namespace?: string;  // override OPENCRED_DEDI_NAMESPACE
+  namespace?: string;        // DeDi namespace override; defaults to OPENCRED_DEDI_NAMESPACE
+  hostDidDocument?: boolean; // also store the assembled did.json in `did-documents` (did:web only)
 }
 ```
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `did` | `string` | Yes | The DID this document belongs to (e.g. `did:web:bootcamp.example.org`). |
-| `document` | `object` | No (`did:key`) / Yes (`did:web`) | The full W3C DID Core document. `verificationMethod` entries hold public keys only. Optional for `did:key` — the adapter derives the document from the DID itself; pass `{ "did": "did:key:z..." }` and the server fills in the rest. Required for `did:web`. |
 | `namespace` | `string` | No | DeDi namespace override. When omitted, `OPENCRED_DEDI_NAMESPACE` is used. |
+| `hostDidDocument` | `boolean` | No | When `true` (and the issuer is `did:web`), also stores the assembled W3C DID Document in the `did-documents` registry so DeDi-aware verifiers can resolve the `did.json` without hitting the issuer's domain. Defaults to the value of `OPENCRED_DEDI_HOST_DID_DOC`. |
 
-**Security.** The same `rejectKeyMaterial()` guard that protects every other POST route runs over the body before anything reaches DeDi. A `privateKey` field anywhere in `document` (or any nested string starting with `-----BEGIN ... PRIVATE KEY-----`) returns `400 VALIDATION_ERROR`.
+**Security.** The `rejectKeyMaterial()` guard runs over the body before anything reaches DeDi. A `privateKey` field anywhere in the body returns `400 VALIDATION_ERROR`.
 
 **Response: `200 OK`**
 
 ```json
 {
   "published": true,
-  "recordName": "did-web-bootcamp-example-org",
-  "namespace": "opencred-bootcamp"
+  "recordName": "did-web-issuer-example-org--key-0",
+  "namespace": "issuer.example.org",
+  "keyId": "did:web:issuer.example.org#key-0",
+  "didDocumentStored": false
 }
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `published` | `boolean` | Always `true` on success. |
+| `recordName` | `string` | The slug DeDi assigned as the record name — `slug(verificationMethod)`. |
+| `namespace` | `string` | The DeDi namespace the record was published to. |
+| `keyId` | `string` | The verification method ID (the full `DID#fragment`). |
+| `didDocumentStored` | `boolean` | `true` if the assembled `did.json` was also stored in the `did-documents` registry. |
+
+**Example**
+
+```bash
+curl -s -X POST http://localhost:3100/v1/keys/publish \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
 
 **Error responses**
 
 | Status | Code | When |
 |---|---|---|
-| `400` | `VALIDATION_ERROR` | Body failed Zod parsing, contained a forbidden key, or contained a PEM string. |
-| `400` | `DEDI_CLIENT_ERROR` | did:web request without a `document` payload (the adapter rejects it). |
+| `400` | `VALIDATION_ERROR` | Body failed Zod parsing, contained a forbidden key, or the active signer does not expose `publicKeyJwk` (KMS-backed signers, tracked in #635). |
 | `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
-| `409` | `DEDI_RECORD_EXISTS` | This DID is already in the registry from a prior publish. Response carries a `hint` field pointing at `POST /v1/keys/resolve`. |
+| `409` | `DEDI_RECORD_EXISTS` | This key is already in the registry from a prior publish. Re-publishing is idempotent from the caller's perspective — the existing record is unchanged. Response carries a `hint` field pointing at `GET /v1/keys/resolve`. |
 | `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. Set `OPENCRED_DEDI_BASE_URL`, `OPENCRED_DEDI_AUTH_TYPE`, `OPENCRED_DEDI_NAMESPACE`, and the matching auth secret. |
 
 ---
 
 ### `POST /v1/keys/rotate`
 
-Rotate the active signer's `did:web` key inside its existing DID Document. The DID itself stays stable; the new key is appended to `verificationMethod[]` and the prior current key is marked `supersededAt`. See [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md) for the design.
+Clean key rotation for a `did:web` issuer. The operator first loads the new signing key (by updating `OPENCRED_KEY_PATH` and restarting, or equivalent), then calls this endpoint to:
 
-**Scope**: `did:web` only. `did:key` issuers should regenerate their key (which produces a new DID) instead of calling this endpoint.
+1. Publish the **new** key to `opencred-key-registry` (status `active`).
+2. Flip the **previous** key (`previousVerificationMethod`) to `rotated` — credentials it signed remain valid (a clean rotation is not a compromise).
+3. Regenerate and store the updated `did.json` in `did-documents` (active + rotated keys) when DeDi-hosting is enabled.
+
+`did:key` issuers should regenerate their key instead — each new did:key key produces a new DID, and the old DID record is marked `rotated` automatically.
 
 **Auth**: required.
 **Content-Type**: `application/json`.
@@ -417,59 +453,69 @@ Rotate the active signer's `did:web` key inside its existing DID Document. The D
 
 ```ts
 {
-  namespace?: string;  // DeDi namespace override; defaults to OPENCRED_DEDI_NAMESPACE
+  previousVerificationMethod?: string; // the key being retired, e.g. "did:web:issuer.example.org#key-0"
+  namespace?: string;                  // DeDi namespace override
+  hostDidDocument?: boolean;           // regenerate and store did.json (did:web only)
 }
 ```
 
-The target DID is **derived from the active signer** — there is no `did` field on the request. Rotating a DID that doesn't belong to this server's signing identity would be a misuse.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `previousVerificationMethod` | `string` | No | The verification method of the key being retired. When supplied, its `opencred-key-registry` status is flipped to `rotated` and it is kept in the regenerated `did.json`. Omit if no prior published key exists (first rotation after an unpublished start). |
+| `namespace` | `string` | No | DeDi namespace override; defaults to `OPENCRED_DEDI_NAMESPACE`. |
+| `hostDidDocument` | `boolean` | No | Regenerate and store the `did.json`. Defaults to `OPENCRED_DEDI_HOST_DID_DOC`. |
 
-**Response: `200 OK` — rotated**
+**Response: `200 OK`**
 
 ```json
 {
   "rotated": true,
   "did": "did:web:issuer.example.org",
-  "currentKeyId": "did:web:issuer.example.org#key-2",
-  "superseded": ["did:web:issuer.example.org#key-1"],
-  "namespace": "issuer.example.org"
+  "currentKeyId": "did:web:issuer.example.org#key-1",
+  "retired": { "keyId": "did:web:issuer.example.org#key-0", "status": "rotated" },
+  "didDocumentStored": true
 }
 ```
 
-**Response: `200 OK` — idempotent skip**
+| Field | Type | Description |
+|---|---|---|
+| `rotated` | `boolean` | `true` when the new key was published. |
+| `did` | `string` | The issuer's DID. |
+| `currentKeyId` | `string` | The verification method of the newly-active key. |
+| `retired` | `object` _(optional)_ | Present when `previousVerificationMethod` was supplied. Contains the retired key's `keyId` and updated `status` (`"rotated"`). |
+| `didDocumentStored` | `boolean` | `true` if the regenerated `did.json` was stored in DeDi. |
 
-When the active signer's `publicKeyJwk` already matches the most-recent un-superseded `verificationMethod` entry, the call is a no-op and returns:
+**Example**
 
-```json
-{
-  "rotated": false,
-  "did": "did:web:issuer.example.org",
-  "currentKeyId": "did:web:issuer.example.org#key-2",
-  "reason": "already-current",
-  "namespace": "issuer.example.org"
-}
+```bash
+# Step 1: load the new key (update OPENCRED_KEY_PATH, restart the container)
+# Step 2: rotate
+curl -s -X POST http://localhost:3100/v1/keys/rotate \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "previousVerificationMethod": "did:web:issuer.example.org#key-0",
+    "hostDidDocument": true
+  }'
 ```
-
-Re-running rotate after a transient network failure is therefore safe: no DeDi version bump, no warn-log noise.
 
 **Error responses**
 
 | Status | Code | When |
 |---|---|---|
-| `400` | `VALIDATION_ERROR` | No active signer, or active signer's metadata does not expose `publicKeyJwk` (KMS-backed signers not yet supported). |
-| `400` | `KEY_METHOD_MISMATCH` | Active signer's DID is `did:key:` (not `did:web:`). Regenerate the key instead of calling rotate. |
+| `400` | `VALIDATION_ERROR` | No active signer, or active signer does not expose `publicKeyJwk` (KMS-backed signers). |
+| `400` | `KEY_METHOD_MISMATCH` | Active signer DID is `did:key:` (not `did:web:`). Regenerate the key instead of calling rotate. |
 | `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
-| `403` | `READ_ONLY_MODE` | Replica configured with `OPENCRED_READ_ONLY=true`. Rotate from a primary replica only. |
-| `404` | `DEDI_CLIENT_ERROR` | The DID has no existing DeDi record. Call `POST /v1/keys/publish` first. |
-| `502` | `DEDI_CLIENT_ERROR` | The existing DeDi record has no `document` — re-publish via `POST /v1/keys/publish` first. |
+| `403` | `READ_ONLY_MODE` | Replica is `OPENCRED_READ_ONLY=true`. Call from a write replica. |
 | `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
-
-**Concurrency caveat**: today's implementation is **last-writer-wins**. The default single-issuer-node deployment never hits this; multi-replica deployments running simultaneous rotations against the same DID risk one rotation clobbering the other. DeDi-side optimistic concurrency is the right long-term fix — see [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md) §5.
 
 ---
 
-### `POST /v1/keys/resolve`
+### `POST /v1/keys/revoke`
 
-Resolve a DID document from the DeDi `public_key_registry`.
+Revoke a signing key — flips its `opencred-key-registry` status to `revoked`. **Use this only when a key is compromised.** Every credential the revoked key ever signed will be rejected by DeDi-aware verifiers with a top-level `REVOKED` outcome, regardless of when those credentials were issued. This is irreversible.
+
+Optionally regenerates the `did.json`, dropping the revoked key (did:web only, when DeDi-hosting is enabled).
 
 **Auth:** required.
 **Content-Type:** `application/json`.
@@ -478,30 +524,97 @@ Resolve a DID document from the DeDi `public_key_registry`.
 
 ```ts
 {
-  did: string;
-  namespace?: string;
+  verificationMethod: string;  // the key to revoke, e.g. "did:web:issuer.example.org#key-0"
+  namespace?: string;          // DeDi namespace override
+  hostDidDocument?: boolean;   // regenerate and store did.json without the revoked key (did:web only)
 }
 ```
 
-POST (not GET) so DIDs containing colons or path components don't have to be URL-encoded by callers. A `GET /v1/keys/resolve?did=...&namespace=...` form also exists for clients that prefer the GET-cacheable shape — see the [Read-tier deployment](deployment.md#read-tier-deployment) section. Both surfaces return the same response body and set the same cache headers.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `verificationMethod` | `string` | Yes | The full verification method ID of the key being revoked. |
+| `namespace` | `string` | No | DeDi namespace override; defaults to `OPENCRED_DEDI_NAMESPACE`. |
+| `hostDidDocument` | `boolean` | No | When `true` and the issuer is `did:web`, regenerates and stores a new `did.json` that excludes the revoked key. Defaults to `OPENCRED_DEDI_HOST_DID_DOC`. |
 
-**Cache headers (Tier 3 #9 of [#446](https://github.com/nfh-trust-labs/opencred/issues/446))**
+**Response: `200 OK`**
 
-Successful responses include:
+```json
+{
+  "revoked": true,
+  "keyId": "did:web:issuer.example.org#key-0",
+  "status": "revoked",
+  "didDocumentStored": true
+}
+```
 
-  - `Cache-Control: public, max-age=300, stale-while-revalidate=60`
-  - `ETag: W/"<sha256-hex>"` — deterministic, derived from the response body
+| Field | Type | Description |
+|---|---|---|
+| `revoked` | `boolean` | Always `true` on success. |
+| `keyId` | `string` | The verification method that was revoked. |
+| `status` | `string` | Always `"revoked"` on success. |
+| `didDocumentStored` | `boolean` | `true` if the `did.json` was regenerated and stored in DeDi (without the revoked key). |
 
-A conditional request with a matching `If-None-Match` returns `304 Not Modified` with an empty body.
+**Example**
+
+```bash
+# Revoke a compromised key and regenerate the did.json
+curl -s -X POST http://localhost:3100/v1/keys/revoke \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "verificationMethod": "did:web:issuer.example.org#key-0",
+    "hostDidDocument": true
+  }'
+```
+
+**Verifier impact.** After a successful revoke, any credential whose `proof.verificationMethod` matches the revoked key will resolve to `REVOKED` when a DeDi-aware verifier looks it up. Standard W3C verifiers (those not querying DeDi) will also reject the credential because the key is no longer listed in the `did.json` assertionMethod. See [Concepts → Revocation → Key revocation vs per-credential revocation](../concepts/revocation.md#key-revocation-vs-per-credential-revocation).
+
+**Error responses**
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Body failed Zod parsing or `verificationMethod` is empty. |
+| `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
+| `403` | `READ_ONLY_MODE` | Replica is `OPENCRED_READ_ONLY=true`. Call from a write replica. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
+
+---
+
+### `POST /v1/keys/resolve` (per-key registry)
+
+Resolve a signing key's record from the DeDi `opencred-key-registry`. Returns the full `KeyRecord` for any key the issuer has ever published, including its current `status` (`active`, `rotated`, or `revoked`).
+
+> **Breaking change from prior releases.** The endpoint previously accepted `{ did }` and returned a DID-document record. It now accepts `{ verificationMethod }` and returns the per-key `KeyRecord`. `did.json` resolution is served separately via `GET /v1/keys/did-document`.
+
+**Auth:** required.
+**Content-Type:** `application/json`.
+
+**Request body**
+
+```ts
+{
+  verificationMethod: string;  // the key id, e.g. "did:web:issuer.example.org#key-0"
+  namespace?: string;          // DeDi namespace override
+}
+```
+
+POST (not GET) so verification methods containing colons (`did:web:host:path#key-0`) don't need URL-encoding. A `GET /v1/keys/resolve?verificationMethod=...&namespace=...` form also exists for CDN-cacheable read-tier scenarios.
+
+**Cache headers**
+
+Successful responses set `Cache-Control: private, max-age=60` and a weak `ETag`. A conditional request with a matching `If-None-Match` returns `304 Not Modified`. The GET surface sets `Cache-Control: public, max-age=300, stale-while-revalidate=60` (more aggressively cacheable because it carries no `Authorization` in the body).
 
 **Response: `200 OK`**
 
 ```ts
 {
-  did: string;                            // the DID that was resolved
-  document?: Record<string, unknown>;     // W3C DID document — omitted for did:key
-  keyStatus: "current" | "rotated";       // rotation flag (advisory)
-  proof?: {                               // CORD anchor metadata, present if DeDi anchored the record
+  keyId: string;                      // the verification method ID (DID#fragment)
+  controllerDid: string;              // the DID this key belongs to
+  algorithm: string;                  // signing algorithm: "P-256" | "P-384" | "Ed25519" | ...
+  publicKeyJwk: Record<string, unknown>;  // the public key in JWK format
+  purpose: string[];                  // typically ["assertionMethod"]
+  status: "active" | "rotated" | "revoked";
+  proof?: {                           // CORD blockchain anchor, present when DeDi anchored the record
     type: string;
     namespace_did: string;
     registry_identifier?: string;
@@ -515,60 +628,73 @@ A conditional request with a matching `If-None-Match` returns `304 Not Modified`
 
 | Field | Type | Description |
 |---|---|---|
-| `did` | `string` | The DID string this record represents. |
-| `document` | `object` _(optional)_ | The W3C DID document. **Omitted for `did:key` records** because the verifier derives the document from the DID itself via the canonical did:key resolution algorithm. Always present for `did:web` records (DeDi acts as a cache of the domain-hosted `.well-known/did.json`). |
-| `keyStatus` | `"current" \| "rotated"` | **did:key only.** `"current"` while the key is in active use; flipped to `"rotated"` by `markDIDRotated` when the issuer generates a new did:key key (each new did:key key is a new DID, so the OLD record is logically retired). For **did:web**, this flag stays `"current"` for the lifetime of the deployment — rotation lives inside `document.verificationMethod[]` (each VM entry carries its own `supersededAt` metadata) and is performed via `POST /v1/keys/rotate`. The flag is **advisory** either way — credentials signed under a rotated/superseded key remain cryptographically valid. See [Concepts → DIDs → did:web key rotation](../concepts/dids.md#didweb-key-rotation). |
-| `proof` | `object` _(optional)_ | CORD-blockchain anchor metadata. Set server-side by DeDi when the record was published to CORD; surfaced unchanged here so verifier callers can confirm the record was anchored on-chain by the claimed creator DID. Absence simply means DeDi did not include a proof for this response. See [Concepts → DIDs → CORD anchoring](../concepts/dids.md#cord-anchoring-as-supplementary-provenance). |
+| `keyId` | `string` | The full verification method (`did:web:issuer.example.org#key-0`). |
+| `controllerDid` | `string` | The DID this key belongs to — useful when the issuer has multiple DIDs under the same namespace. |
+| `algorithm` | `string` | The key's signing algorithm. |
+| `publicKeyJwk` | `object` | The public key in JWK format. |
+| `purpose` | `string[]` | The key's declared purposes, e.g. `["assertionMethod"]`. |
+| `status` | `string` | `"active"` — key is current; `"rotated"` — cleanly retired, credentials it signed are still valid; `"revoked"` — compromised, all credentials it signed are rejected. |
+| `proof` | `object` _(optional)_ | CORD-blockchain anchor metadata attached by DeDi when the record was published on-chain. Absence is benign on DeDi instances that don't anchor. See [Concepts → DIDs → CORD anchoring](../concepts/dids.md#cord-anchoring-as-supplementary-provenance). |
 
-**Example — `did:web` record (with `document` and a CORD `proof`)**
+**Example — active key**
+
+```bash
+curl -s -X POST http://localhost:3100/v1/keys/resolve \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "verificationMethod": "did:web:issuer.example.org#key-0" }'
+```
 
 ```json
 {
-  "did": "did:web:bootcamp.example.org",
-  "document": {
-    "@context": "https://www.w3.org/ns/did/v1",
-    "id": "did:web:bootcamp.example.org",
-    "verificationMethod": [ ... ]
-  },
-  "keyStatus": "current",
-  "proof": {
-    "type": "DediRecordProof2026",
-    "namespace_did": "did:web:did.cord.network:bootcamp",
-    "registry_identifier": "registry_xxx",
-    "record_identifier": "record_xxx",
-    "creator_did": "did:web:bootcamp.example.org",
-    "digest": "0xabcd…",
-    "network_genesis": "0x1234…"
-  }
+  "keyId": "did:web:issuer.example.org#key-0",
+  "controllerDid": "did:web:issuer.example.org",
+  "algorithm": "P-256",
+  "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." },
+  "purpose": ["assertionMethod"],
+  "status": "active"
 }
 ```
 
-**Example — `did:key` record (no `document`, key has been rotated)**
+**Example — rotated key (credentials it signed are still VALID)**
 
 ```json
 {
-  "did": "did:key:zDnaerDaTF5BXEavCrfRZEk316dpbLsfPDZ3WJ5hRTPFU2169",
-  "keyStatus": "rotated"
+  "keyId": "did:web:issuer.example.org#key-0",
+  "controllerDid": "did:web:issuer.example.org",
+  "algorithm": "P-256",
+  "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." },
+  "purpose": ["assertionMethod"],
+  "status": "rotated"
 }
 ```
 
-**Breaking change.** Prior releases returned `resolvedAt: string` and could include `metadata` / `supersededBy`. Downstream consumers must migrate to `keyStatus`. If a precise on-server timestamp is needed in a future iteration, the DeDi envelope's `updated_at` is canonical — open an issue.
+**Example — revoked key (all credentials it signed are REVOKED)**
+
+```json
+{
+  "keyId": "did:web:issuer.example.org#key-0",
+  "controllerDid": "did:web:issuer.example.org",
+  "algorithm": "P-256",
+  "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." },
+  "purpose": ["assertionMethod"],
+  "status": "revoked"
+}
+```
 
 **Error responses**
 
 | Status | Code | When |
 |---|---|---|
-| `400` | `VALIDATION_ERROR` | Body failed Zod parsing or contained a forbidden key. |
+| `400` | `VALIDATION_ERROR` | Body failed Zod parsing, `verificationMethod` is missing/empty, or body contained a forbidden key. |
 | `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
 | `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
-
-The underlying DeDi adapter (`packages/dedi-client/src/adapter/client.ts`) returns `502` if the DeDi response is malformed (missing required fields, or `keyStatus` is anything other than `"current"` / `"rotated"`).
 
 ---
 
 ### `POST /v1/dedi/namespace/ensure`
 
-Idempotently bootstrap a DeDi namespace and the four registries OpenCred reads and writes (`vc-revocation-registry`, `public_key_registry`, `schema_registry`, `context_registry`). Wraps the same `dediClient.ensureRegistries(...)` helper that runs once at server startup, so operators can spin up additional namespaces at runtime without restarting the container.
+Idempotently bootstrap a DeDi namespace and the registries OpenCred reads and writes (`vc-revocation-registry`, `opencred-key-registry`, `did-documents`, `schema_registry`, `context_registry`). Wraps the same `dediClient.ensureRegistries(...)` helper that runs once at server startup, so operators can spin up additional namespaces at runtime without restarting the container.
 
 **Auth:** required.
 **Content-Type:** `application/json`.
@@ -594,7 +720,8 @@ Idempotently bootstrap a DeDi namespace and the four registries OpenCred reads a
   "namespace": "bootcamp-2026-04-29",
   "registries": [
     "vc-revocation-registry",
-    "public_key_registry",
+    "opencred-key-registry",
+    "did-documents",
     "schema_registry",
     "context_registry"
   ]
