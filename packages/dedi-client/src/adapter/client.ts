@@ -437,6 +437,16 @@ export class DeDiClient {
     status: KeyStatus,
     namespace?: string,
   ): Promise<SetKeyStatusResult> {
+    // Guard against an out-of-enum status reaching the monotone comparison —
+    // `KEY_STATUS_RANK[<garbage>]` is `undefined`, which fails both the
+    // equality and `<` checks and would otherwise fall through and write the
+    // bogus status to DeDi. Fail fast (400) instead.
+    if (!KEY_STATUSES.includes(status)) {
+      throw new DeDiClientError(
+        `setKeyStatus: invalid status '${String(status)}' (expected ${KEY_STATUSES.join(" | ")})`,
+        400,
+      );
+    }
     const ns = this.resolveNamespace(namespace);
     const recordName = verificationMethodToRecordName(verificationMethod);
     const existing = await this.resolveKey(verificationMethod, ns);

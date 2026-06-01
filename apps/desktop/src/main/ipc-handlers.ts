@@ -2614,7 +2614,12 @@ async function handleLogTail(
 
 import { exportDidDocument } from "./did-web-export.js";
 import { exportDidKeyDocument } from "./did-key-export.js";
-import { DIDWebResolver, encodeDidWeb, generateDidWebDocumentMultiKey } from "@opencred/did";
+import {
+  DIDWebResolver,
+  encodeDidWeb,
+  generateDidWebDocumentMultiKey,
+  didWebVerificationMethodId,
+} from "@opencred/did";
 import type { JWK, DidWebKeyInput } from "@opencred/did";
 import type {
   DidWebExportRequest,
@@ -2860,7 +2865,7 @@ async function handleDeDiPublishKey(
   }
 
   const verificationMethod = request.did.startsWith("did:web:")
-    ? request.did + "#key-0"
+    ? didWebVerificationMethodId(request.did)
     : request.signerKeyId;
 
   const keyRecord: KeyRecord = {

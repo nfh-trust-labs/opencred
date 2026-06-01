@@ -228,7 +228,7 @@ export async function verifyCredential(
     }
   }
 
-  // Registry-anchor check (did:key only, advisory).
+  // Registry-anchor check (all DID methods, advisory).
   //
   // Surfaces the CORD-blockchain proof block DeDi attaches to record
   // lookup responses so verifier UIs can show "anchored on CORD by X"

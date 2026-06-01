@@ -257,6 +257,32 @@ export function migrateCredentialHistory(s: ElectronStore<StoreSchema>): void {
 }
 
 /**
+ * Migrate the legacy `dediPublishedDIDs` list to `dediPublishedKeys`.
+ *
+ * The per-key registry change renamed the on-disk list of
+ * previously-published DeDi entries (it now holds verification methods, not
+ * DIDs). Without this migration an upgrading user's prior entries would be
+ * orphaned and `dediPublishedKeys` would default to `[]`, so the
+ * key-generation hook would never flip their previously-published keys to
+ * `rotated`. Copy the legacy values across (when the new list is still empty)
+ * and drop the old key. Idempotent: a no-op once migrated.
+ */
+export function migrateDediPublishedKeys(s: ElectronStore<StoreSchema>): void {
+  const legacy = s.get("dediPublishedDIDs" as keyof StoreSchema) as unknown as
+    | string[]
+    | undefined;
+  if (!Array.isArray(legacy) || legacy.length === 0) {
+    return;
+  }
+  const current = (s.get("dediPublishedKeys") as unknown as string[] | undefined) ?? [];
+  if (current.length === 0) {
+    s.set("dediPublishedKeys", legacy);
+  }
+  s.delete("dediPublishedDIDs" as keyof StoreSchema);
+  logger.info("Migrated dediPublishedDIDs → dediPublishedKeys", { migrated: legacy.length });
+}
+
+/**
  * Initialise the store. Call once during app startup.
  */
 export function initStore(): ElectronStore<StoreSchema> {
@@ -266,6 +292,7 @@ export function initStore(): ElectronStore<StoreSchema> {
       defaults: DEFAULTS,
     });
     migrateCredentialHistory(store);
+    migrateDediPublishedKeys(store);
   }
   return store;
 }
