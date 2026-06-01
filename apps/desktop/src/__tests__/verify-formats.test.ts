@@ -27,8 +27,7 @@ function detectFormat(credential: string): FormatResult {
     case "unknown":
       return {
         format,
-        error:
-          "Unrecognized credential format. Expected JSON, PixelPass QR data, JWT, or SD-JWT.",
+        error: "Unrecognized credential format. Expected JSON, PixelPass QR data, JWT, or SD-JWT.",
       };
   }
 }
