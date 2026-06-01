@@ -229,7 +229,14 @@ export async function generatePdf(
       // -- shared drawing helpers (closures over doc) --------------------
 
       const hairline = (y: number) => {
-        doc.save().moveTo(LEFT, y).lineTo(RIGHT, y).lineWidth(0.75).strokeColor(HAIRLINE).stroke().restore();
+        doc
+          .save()
+          .moveTo(LEFT, y)
+          .lineTo(RIGHT, y)
+          .lineWidth(0.75)
+          .strokeColor(HAIRLINE)
+          .stroke()
+          .restore();
       };
 
       /** Section heading: accent mono eyebrow with a trailing hairline. */
@@ -258,7 +265,12 @@ export async function generatePdf(
       const field = (
         label: string,
         value: string,
-        opts: { labelWidth?: number; valueFont?: string; valueColor?: string; indent?: number } = {},
+        opts: {
+          labelWidth?: number;
+          valueFont?: string;
+          valueColor?: string;
+          indent?: number;
+        } = {},
       ) => {
         const indent = opts.indent ?? 0;
         const labelWidth = opts.labelWidth ?? 150;
@@ -332,14 +344,10 @@ export async function generatePdf(
         }
       }
 
-      doc
-        .font(FONT.mono)
-        .fontSize(8)
-        .fillColor(accent)
-        .text("VERIFIABLE CREDENTIAL", LEFT, doc.y, {
-          width: headerW,
-          characterSpacing: 1.8,
-        });
+      doc.font(FONT.mono).fontSize(8).fillColor(accent).text("VERIFIABLE CREDENTIAL", LEFT, doc.y, {
+        width: headerW,
+        characterSpacing: 1.8,
+      });
       doc.moveDown(0.4);
       doc
         .font(FONT.display)
@@ -372,9 +380,13 @@ export async function generatePdf(
           .fillColor(labelColor)
           .text(t.toUpperCase(), x, metaY, { width: colW, characterSpacing: 0.8 });
       const validFromStr =
-        typeof credential.validFrom === "string" ? formatDate(credential.validFrom) : "(not specified)";
+        typeof credential.validFrom === "string"
+          ? formatDate(credential.validFrom)
+          : "(not specified)";
       const validUntilStr =
-        typeof credential.validUntil === "string" ? formatDate(credential.validUntil) : "No expiration";
+        typeof credential.validUntil === "string"
+          ? formatDate(credential.validUntil)
+          : "No expiration";
 
       if (subject.id) {
         metaLabel("Issued to", LEFT);
@@ -428,7 +440,8 @@ export async function generatePdf(
       sectionHeading("Digital Signature");
       const isSyntheticProof = options?.qrPayloadOverride !== undefined;
       const proof =
-        (credential.proof as Record<string, unknown> | undefined) ?? ({} as Record<string, unknown>);
+        (credential.proof as Record<string, unknown> | undefined) ??
+        ({} as Record<string, unknown>);
       const asString = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
       const credentialId = typeof credential.id === "string" ? credential.id : undefined;
       const warnIfReal = (f: string) => {
@@ -467,7 +480,10 @@ export async function generatePdf(
         sigField("Verification Method", "(unknown)");
       }
       if (Array.isArray(proof["x5c"]) && (proof["x5c"] as unknown[]).length > 0) {
-        sigField("Certificate Chain", `${(proof["x5c"] as unknown[]).length} certificate(s) embedded`);
+        sigField(
+          "Certificate Chain",
+          `${(proof["x5c"] as unknown[]).length} certificate(s) embedded`,
+        );
       }
 
       // -- seal (optional, bottom-right) ---------------------------------
