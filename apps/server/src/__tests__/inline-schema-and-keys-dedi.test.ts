@@ -780,10 +780,7 @@ describe("POST /v1/keys/rotate", () => {
 describe("GET /v1/keys/did-document", () => {
   const HOST = "issuer.test.local";
   const DID = `did:web:${HOST}`;
-  const JWK = { kty: "EC", crv: "P-256", x: "x-bytes", y: "y-bytes" } as Record<
-    string,
-    unknown
-  >;
+  const JWK = { kty: "EC", crv: "P-256", x: "x-bytes", y: "y-bytes" } as Record<string, unknown>;
 
   it("returns 503 when no signer is loaded", async () => {
     setActiveSigner(null);
@@ -812,7 +809,9 @@ describe("GET /v1/keys/did-document", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       did: string;
-      document: { verificationMethod: Array<{ id: string; publicKeyJwk: Record<string, unknown> }> };
+      document: {
+        verificationMethod: Array<{ id: string; publicKeyJwk: Record<string, unknown> }>;
+      };
       keyStatus: "current" | "rotated";
       source: string;
     };
