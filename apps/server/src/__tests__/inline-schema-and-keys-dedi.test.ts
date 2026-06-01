@@ -267,49 +267,57 @@ describe("POST /v1/credentials/issue with inlineSchema", () => {
 // ---------------------------------------------------------------------------
 // POST /v1/keys/publish
 // ---------------------------------------------------------------------------
+//
+// The server now publishes its OWN active signer's key — no `did`/`document`
+// in the request body. The route calls `dediClient.publishKey(keyRecord)`.
+//
+// The active signer must have `publicKeyJwk` on its metadata (software signers
+// do; PKCS#11 / KMS signers do not). The publish tests install a signer with
+// `publicKeyJwk` explicitly since `generateTestKey()` does not set it.
 
-const SAMPLE_DID_DOCUMENT = {
-  "@context": "https://www.w3.org/ns/did/v1",
-  id: "did:web:bootcamp.example.org",
-  verificationMethod: [
-    {
-      id: "did:web:bootcamp.example.org#key-1",
-      type: "JsonWebKey2020",
-      controller: "did:web:bootcamp.example.org",
-      publicKeyJwk: {
-        kty: "EC",
-        crv: "P-256",
-        x: "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
-        y: "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
-      },
+/** Build a minimal did:key signer that has publicKeyJwk on its metadata. */
+function makeSignerWithJwk(
+  jwk: Record<string, unknown> = { kty: "EC", crv: "P-256", x: "x-val", y: "y-val" },
+): Parameters<typeof setActiveSigner>[0] {
+  return {
+    id: "did:key:z6MkPublishTestKey#z6MkPublishTestKey",
+    algorithm: "P-256",
+    type: "software",
+    metadata: {
+      id: "did:key:z6MkPublishTestKey#z6MkPublishTestKey",
+      algorithm: "P-256",
+      type: "software",
+      fingerprint: "abcd1234".repeat(8),
+      publicKeyJwk: jwk,
     },
-  ],
-  assertionMethod: ["did:web:bootcamp.example.org#key-1"],
-};
+    async sign() {
+      throw new Error("not needed by publish tests");
+    },
+  };
+}
 
 describe("POST /v1/keys/publish", () => {
   it("returns 503 when DeDi is not configured", async () => {
+    setActiveSigner(makeSignerWithJwk());
     const res = await app.request("/v1/keys/publish", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        did: "did:web:bootcamp.example.org",
-        document: SAMPLE_DID_DOCUMENT,
-      }),
+      body: JSON.stringify({}),
     });
     expect(res.status).toBe(503);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("DEDI_NOT_CONFIGURED");
   });
 
-  it("publishes a DID document to DeDi when configured", async () => {
-    const calls: Array<{ did: string; document: unknown; namespace?: string }> = [];
+  it("publishes the active signer's key to DeDi when configured", async () => {
+    setActiveSigner(makeSignerWithJwk());
+    const publishKeyCalls: Array<{ key: Record<string, unknown>; namespace?: string }> = [];
     const mockClient = {
-      publishDID: async (did: string, document: unknown, namespace?: string) => {
-        calls.push({ did, document, namespace });
+      publishKey: async (key: Record<string, unknown>, namespace?: string) => {
+        publishKeyCalls.push({ key, namespace });
         return {
           published: true,
-          recordName: "did-web-bootcamp-example-org",
+          recordName: "did-key-test-key-record",
           namespace: namespace ?? "default-ns",
         };
       },
@@ -319,31 +327,36 @@ describe("POST /v1/keys/publish", () => {
     const res = await app.request("/v1/keys/publish", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        did: "did:web:bootcamp.example.org",
-        document: SAMPLE_DID_DOCUMENT,
-      }),
+      body: JSON.stringify({}),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       published: boolean;
       recordName: string;
-      namespace: string;
+      keyId: string;
+      didDocumentStored: boolean;
     };
     expect(body.published).toBe(true);
-    expect(body.recordName).toBe("did-web-bootcamp-example-org");
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.did).toBe("did:web:bootcamp.example.org");
+    expect(body.recordName).toBe("did-key-test-key-record");
+    expect(body.didDocumentStored).toBe(false);
+    expect(typeof body.keyId).toBe("string");
+    // publishKey must have been called with a KeyRecord for the active signer
+    expect(publishKeyCalls).toHaveLength(1);
+    expect(publishKeyCalls[0]!.key).toMatchObject({
+      status: "active",
+      purpose: ["assertionMethod"],
+    });
   });
 
   it("forwards the namespace override to the DeDi client", async () => {
-    const calls: Array<{ namespace?: string }> = [];
+    setActiveSigner(makeSignerWithJwk());
+    const publishKeyCalls: Array<{ namespace?: string }> = [];
     const mockClient = {
-      publishDID: async (_did: string, _doc: unknown, namespace?: string) => {
-        calls.push({ namespace });
+      publishKey: async (_key: unknown, namespace?: string) => {
+        publishKeyCalls.push({ namespace });
         return {
           published: true,
-          recordName: "did-web-bootcamp-example-org",
+          recordName: "did-key-test",
           namespace: namespace ?? "default-ns",
         };
       },
@@ -353,93 +366,65 @@ describe("POST /v1/keys/publish", () => {
     const res = await app.request("/v1/keys/publish", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        did: "did:web:bootcamp.example.org",
-        document: SAMPLE_DID_DOCUMENT,
-        namespace: "bootcamp-2026-04-27",
-      }),
+      body: JSON.stringify({ namespace: "bootcamp-2026-04-27" }),
     });
     expect(res.status).toBe(200);
-    expect(calls[0]!.namespace).toBe("bootcamp-2026-04-27");
+    expect(publishKeyCalls[0]!.namespace).toBe("bootcamp-2026-04-27");
   });
 
-  it("returns 400 when did is missing", async () => {
-    const mockClient = { publishDID: async () => ({}) } as never;
+  it("returns 400 when no signer is loaded", async () => {
+    setActiveSigner(null);
+    const mockClient = { publishKey: async () => ({}) } as never;
     setDeDiClient(mockClient);
     const res = await app.request("/v1/keys/publish", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ document: SAMPLE_DID_DOCUMENT }),
+      body: JSON.stringify({}),
     });
     expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
-  it("accepts a did:key publish without a document (200 — schema document is optional)", async () => {
-    // For did:key the adapter drops `document` anyway (did:key documents
-    // are derivable from the DID itself), so requiring it at the route
-    // schema layer was an unnecessary friction point for the bootcamp's
-    // Postman publish demo. The route schema now allows omitting it; the
-    // adapter still requires it for did:web (covered by the test below).
-    const calls: Array<{ did: string; document: unknown }> = [];
-    const mockClient = {
-      publishDID: async (did: string, document: unknown) => {
-        calls.push({ did, document });
-        return { published: true, recordName: did, namespace: "default-ns" };
+  it("returns 400 VALIDATION_ERROR when the active signer has no publicKeyJwk (KMS case)", async () => {
+    // KMS-backed signers don't surface publicKeyJwk — route must reject gracefully.
+    const noJwkSigner: Parameters<typeof setActiveSigner>[0] = {
+      id: "did:key:z6MkNoJwk#z6MkNoJwk",
+      algorithm: "P-256",
+      type: "pkcs11",
+      metadata: {
+        id: "did:key:z6MkNoJwk#z6MkNoJwk",
+        algorithm: "P-256",
+        type: "pkcs11",
+        fingerprint: "deadbeef".repeat(8),
       },
-    } as never;
+      async sign() {
+        throw new Error("unused");
+      },
+    };
+    setActiveSigner(noJwkSigner);
+    const mockClient = { publishKey: async () => ({}) } as never;
     setDeDiClient(mockClient);
-
     const res = await app.request("/v1/keys/publish", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ did: "did:key:z6MkfooBar" }),
-    });
-    expect(res.status).toBe(200);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.did).toBe("did:key:z6MkfooBar");
-    expect(calls[0]!.document).toBeUndefined();
-  });
-
-  it("still rejects a did:web publish without a document (adapter raises 400)", async () => {
-    // The route schema is permissive; the adapter (publishDID in
-    // packages/dedi-client) is the authoritative check for "did:web
-    // requires a document." This test asserts the rejection still
-    // happens via the adapter throwing DeDiClientError(400, …).
-    const { DeDiClientError } = await import("@opencred/shared");
-    const mockClient = {
-      publishDID: async (did: string, document: unknown) => {
-        // Mirror the real adapter check so we exercise the end-to-end
-        // 400 path through the error middleware, not just the mock.
-        if (did.startsWith("did:web:") && (document == null || typeof document !== "object")) {
-          throw new DeDiClientError("publishDID: did:web records require a DID Document", 400);
-        }
-        return { published: true, recordName: did, namespace: "default-ns" };
-      },
-    } as never;
-    setDeDiClient(mockClient);
-
-    const res = await app.request("/v1/keys/publish", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ did: "did:web:bootcamp.example.org" }),
+      body: JSON.stringify({}),
     });
     expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
-  it("rejects a payload that smuggles a private key in the document", async () => {
-    const mockClient = { publishDID: async () => ({}) } as never;
+  it("rejects a payload that smuggles a private key field", async () => {
+    const mockClient = { publishKey: async () => ({}) } as never;
     setDeDiClient(mockClient);
 
     const res = await app.request("/v1/keys/publish", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        did: "did:web:bootcamp.example.org",
-        document: {
-          ...SAMPLE_DID_DOCUMENT,
-          // The forbidden field name is rejected at any depth.
-          privateKey: "should be rejected",
-        },
+        // The forbidden field name is rejected at any depth.
+        privateKey: "should be rejected",
       }),
     });
     expect(res.status).toBe(400);
@@ -452,25 +437,41 @@ describe("POST /v1/keys/publish", () => {
 // ---------------------------------------------------------------------------
 // POST /v1/keys/resolve
 // ---------------------------------------------------------------------------
+//
+// Now keyed by `verificationMethod` (not `did`). Returns a KeyRecord:
+//   { keyId, controllerDid, algorithm, publicKeyJwk, purpose, status, proof? }
+
+const SAMPLE_KEY_RECORD = {
+  keyId: "did:web:bootcamp.example.org#key-0",
+  controllerDid: "did:web:bootcamp.example.org",
+  algorithm: "P-256",
+  publicKeyJwk: {
+    kty: "EC",
+    crv: "P-256",
+    x: "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+    y: "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+  },
+  purpose: ["assertionMethod"],
+  status: "active" as const,
+};
 
 describe("POST /v1/keys/resolve", () => {
   it("returns 503 when DeDi is not configured", async () => {
     const res = await app.request("/v1/keys/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ did: "did:web:bootcamp.example.org" }),
+      body: JSON.stringify({ verificationMethod: "did:web:bootcamp.example.org#key-0" }),
     });
     expect(res.status).toBe(503);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("DEDI_NOT_CONFIGURED");
   });
 
-  it("returns the resolved DID record when DeDi is configured", async () => {
+  it("returns the resolved KeyRecord when DeDi is configured", async () => {
     const mockClient = {
-      resolveDID: async (did: string) => ({
-        did,
-        document: SAMPLE_DID_DOCUMENT,
-        keyStatus: "current" as const,
+      resolveKey: async (verificationMethod: string) => ({
+        ...SAMPLE_KEY_RECORD,
+        keyId: verificationMethod,
       }),
     } as never;
     setDeDiClient(mockClient);
@@ -478,26 +479,29 @@ describe("POST /v1/keys/resolve", () => {
     const res = await app.request("/v1/keys/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ did: "did:web:bootcamp.example.org" }),
+      body: JSON.stringify({ verificationMethod: "did:web:bootcamp.example.org#key-0" }),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      did: string;
-      document: unknown;
-      keyStatus: "current" | "rotated";
+      keyId: string;
+      controllerDid: string;
+      algorithm: string;
+      publicKeyJwk: Record<string, unknown>;
+      purpose: string[];
+      status: string;
     };
-    expect(body.did).toBe("did:web:bootcamp.example.org");
-    expect(body.keyStatus).toBe("current");
-    expect(body.document).toEqual(SAMPLE_DID_DOCUMENT);
+    expect(body.keyId).toBe("did:web:bootcamp.example.org#key-0");
+    expect(body.controllerDid).toBe("did:web:bootcamp.example.org");
+    expect(body.status).toBe("active");
+    expect(body.publicKeyJwk).toMatchObject({ kty: "EC", crv: "P-256" });
   });
 
-  it("returns a rotated DID record with keyStatus: 'rotated'", async () => {
-    // Verifier consumers branch on this to surface a "rotated" badge.
+  it("returns a rotated KeyRecord with status: 'rotated'", async () => {
     const mockClient = {
-      resolveDID: async (did: string) => ({
-        did,
-        document: SAMPLE_DID_DOCUMENT,
-        keyStatus: "rotated" as const,
+      resolveKey: async (verificationMethod: string) => ({
+        ...SAMPLE_KEY_RECORD,
+        keyId: verificationMethod,
+        status: "rotated" as const,
       }),
     } as never;
     setDeDiClient(mockClient);
@@ -505,15 +509,15 @@ describe("POST /v1/keys/resolve", () => {
     const res = await app.request("/v1/keys/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ did: "did:web:bootcamp.example.org" }),
+      body: JSON.stringify({ verificationMethod: "did:web:bootcamp.example.org#key-0" }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { keyStatus: "current" | "rotated" };
-    expect(body.keyStatus).toBe("rotated");
+    const body = (await res.json()) as { status: string };
+    expect(body.status).toBe("rotated");
   });
 
-  it("returns 400 when did is missing", async () => {
-    const mockClient = { resolveDID: async () => ({}) } as never;
+  it("returns 400 when verificationMethod is missing", async () => {
+    const mockClient = { resolveKey: async () => ({}) } as never;
     setDeDiClient(mockClient);
     const res = await app.request("/v1/keys/resolve", {
       method: "POST",
@@ -535,7 +539,7 @@ describe("auth on the new endpoints", () => {
     const res = await authedApp.request("/v1/keys/publish", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ did: "did:web:foo", document: {} }),
+      body: JSON.stringify({}),
     });
     expect(res.status).toBe(401);
   });
@@ -546,7 +550,7 @@ describe("auth on the new endpoints", () => {
     const res = await authedApp.request("/v1/keys/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ did: "did:web:foo" }),
+      body: JSON.stringify({ verificationMethod: "did:web:foo#key-0" }),
     });
     expect(res.status).toBe(401);
   });
@@ -600,6 +604,65 @@ describe("POST /v1/keys/rotate", () => {
   const DID = `did:web:${HOST}`;
   const NEW_JWK = { kty: "EC", crv: "P-256", x: "x-new", y: "y-new" };
 
+  /**
+   * Build a minimal DeDiClient stub for rotation tests.
+   * The rotate route calls: publishKey (new key), setKeyStatus (retire old key),
+   * resolveKey (look up old key for did.json rebuild), publishDidDocument (optional).
+   */
+  function makeRotateMockClient(opts: {
+    publishKeyResult?: Record<string, unknown>;
+    setKeyStatusResult?: Record<string, unknown>;
+    resolveKeyResult?: Record<string, unknown> | null;
+    publishDidDocumentResult?: Record<string, unknown>;
+    namespace?: string;
+  } = {}) {
+    const publishKeyCalls: Array<{ key: Record<string, unknown>; namespace?: string }> = [];
+    const setKeyStatusCalls: Array<{ vm: string; status: string; namespace?: string }> = [];
+    const publishDidDocumentCalls: Array<{ did: string; namespace?: string }> = [];
+
+    const client = {
+      publishKey: async (key: Record<string, unknown>, namespace?: string) => {
+        publishKeyCalls.push({ key, namespace });
+        return opts.publishKeyResult ?? {
+          published: true,
+          recordName: `${DID}#key-0`,
+          namespace: namespace ?? "default-ns",
+        };
+      },
+      setKeyStatus: async (vm: string, status: string, namespace?: string) => {
+        setKeyStatusCalls.push({ vm, status, namespace });
+        return opts.setKeyStatusResult ?? {
+          changed: true,
+          keyId: vm,
+          from: "active",
+          to: status,
+          namespace: namespace ?? "default-ns",
+        };
+      },
+      resolveKey: async (_vm: string, _namespace?: string) => {
+        if (opts.resolveKeyResult === null) throw new Error("not found");
+        return opts.resolveKeyResult ?? {
+          keyId: _vm,
+          controllerDid: DID,
+          algorithm: "P-256",
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "x-old", y: "y-old" },
+          purpose: ["assertionMethod"],
+          status: "rotated",
+        };
+      },
+      publishDidDocument: async (did: string, _doc: unknown, namespace?: string) => {
+        publishDidDocumentCalls.push({ did, namespace });
+        return opts.publishDidDocumentResult ?? {
+          published: true,
+          recordName: did,
+          namespace: namespace ?? "default-ns",
+        };
+      },
+    } as never;
+
+    return { client, publishKeyCalls, setKeyStatusCalls, publishDidDocumentCalls };
+  }
+
   it("returns 503 when DeDi is not configured", async () => {
     setActiveSigner(buildDidWebSigner(HOST, NEW_JWK));
     const res = await app.request("/v1/keys/rotate", {
@@ -616,7 +679,8 @@ describe("POST /v1/keys/rotate", () => {
     // testKey is a did:key signer (built by generateTestKey).
     setActiveSigner(testKey.signer);
     // Even with DeDi configured, the route rejects did:key before reaching DeDi.
-    setDeDiClient({ rotateDIDWeb: async () => ({ rotated: true }) } as never);
+    const { client } = makeRotateMockClient();
+    setDeDiClient(client);
     const res = await app.request("/v1/keys/rotate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -646,7 +710,8 @@ describe("POST /v1/keys/rotate", () => {
       },
     };
     setActiveSigner(noJwkSigner);
-    setDeDiClient({ rotateDIDWeb: async () => ({ rotated: true }) } as never);
+    const { client } = makeRotateMockClient();
+    setDeDiClient(client);
     const res = await app.request("/v1/keys/rotate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -658,25 +723,10 @@ describe("POST /v1/keys/rotate", () => {
     expect(body.error.signerType).toBe("pkcs11");
   });
 
-  it("calls rotateDIDWeb with the derived DID + signer JWK and forwards the response", async () => {
+  it("publishes the new key and returns rotated:true with currentKeyId", async () => {
     setActiveSigner(buildDidWebSigner(HOST, NEW_JWK));
-    const calls: Array<{
-      did: string;
-      jwk: Record<string, unknown>;
-      namespace?: string;
-    }> = [];
-    setDeDiClient({
-      rotateDIDWeb: async (did: string, jwk: Record<string, unknown>, namespace?: string) => {
-        calls.push({ did, jwk, namespace });
-        return {
-          rotated: true,
-          did,
-          currentKeyId: `${did}#key-2`,
-          superseded: [`${did}#key-1`],
-          namespace: namespace ?? "default-ns",
-        };
-      },
-    } as never);
+    const { client, publishKeyCalls } = makeRotateMockClient();
+    setDeDiClient(client);
 
     const res = await app.request("/v1/keys/rotate", {
       method: "POST",
@@ -688,61 +738,72 @@ describe("POST /v1/keys/rotate", () => {
       rotated: boolean;
       did: string;
       currentKeyId: string;
-      superseded: string[];
+      retired: null | Record<string, unknown>;
+      didDocumentStored: boolean;
     };
     expect(body.rotated).toBe(true);
     expect(body.did).toBe(DID);
-    expect(body.currentKeyId).toBe(`${DID}#key-2`);
-    expect(body.superseded).toEqual([`${DID}#key-1`]);
+    // The new key's keyId is `<did>#key-0` (did:web pattern)
+    expect(body.currentKeyId).toBe(`${DID}#key-0`);
+    expect(body.retired).toBeNull();
+    expect(body.didDocumentStored).toBe(false);
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.did).toBe(DID);
-    expect(calls[0]!.jwk).toEqual(NEW_JWK);
+    // publishKey must have been called for the new key
+    expect(publishKeyCalls).toHaveLength(1);
+    expect(publishKeyCalls[0]!.key).toMatchObject({
+      controllerDid: DID,
+      status: "active",
+      publicKeyJwk: NEW_JWK,
+    });
   });
 
-  it("surfaces the idempotent {rotated:false} short-circuit response shape", async () => {
+  it("retires the previous VM when previousVerificationMethod is provided", async () => {
     setActiveSigner(buildDidWebSigner(HOST, NEW_JWK));
-    setDeDiClient({
-      rotateDIDWeb: async (did: string) => ({
-        rotated: false as const,
-        did,
-        currentKeyId: `${did}#key-1`,
-        reason: "already-current" as const,
-        namespace: "default-ns",
-      }),
-    } as never);
+    const PREV_VM = `${DID}#key-1`;
+    const { client, setKeyStatusCalls } = makeRotateMockClient();
+    setDeDiClient(client);
 
     const res = await app.request("/v1/keys/rotate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ previousVerificationMethod: PREV_VM }),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       rotated: boolean;
-      reason?: string;
-      currentKeyId: string;
+      retired: Record<string, unknown> | null;
     };
-    expect(body.rotated).toBe(false);
-    expect(body.reason).toBe("already-current");
-    expect(body.currentKeyId).toBe(`${DID}#key-1`);
+    expect(body.rotated).toBe(true);
+    // setKeyStatus called for the previous key
+    expect(setKeyStatusCalls).toHaveLength(1);
+    expect(setKeyStatusCalls[0]!.vm).toBe(PREV_VM);
+    expect(setKeyStatusCalls[0]!.status).toBe("rotated");
+    // The SetKeyStatusResult is forwarded as `retired`
+    expect(body.retired).not.toBeNull();
+    expect(body.retired!.changed).toBe(true);
+  });
+
+  it("stores the did.json when hostDidDocument=true", async () => {
+    setActiveSigner(buildDidWebSigner(HOST, NEW_JWK));
+    const { client, publishDidDocumentCalls } = makeRotateMockClient();
+    setDeDiClient(client);
+
+    const res = await app.request("/v1/keys/rotate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hostDidDocument: true }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { didDocumentStored: boolean };
+    expect(body.didDocumentStored).toBe(true);
+    expect(publishDidDocumentCalls).toHaveLength(1);
+    expect(publishDidDocumentCalls[0]!.did).toBe(DID);
   });
 
   it("forwards the namespace override to the adapter", async () => {
     setActiveSigner(buildDidWebSigner(HOST, NEW_JWK));
-    const calls: Array<{ namespace?: string }> = [];
-    setDeDiClient({
-      rotateDIDWeb: async (did: string, _jwk: Record<string, unknown>, namespace?: string) => {
-        calls.push({ namespace });
-        return {
-          rotated: true,
-          did,
-          currentKeyId: `${did}#key-2`,
-          superseded: [`${did}#key-1`],
-          namespace: namespace ?? "default-ns",
-        };
-      },
-    } as never);
+    const { client, publishKeyCalls } = makeRotateMockClient();
+    setDeDiClient(client);
 
     const res = await app.request("/v1/keys/rotate", {
       method: "POST",
@@ -750,12 +811,13 @@ describe("POST /v1/keys/rotate", () => {
       body: JSON.stringify({ namespace: "explicit-ns" }),
     });
     expect(res.status).toBe(200);
-    expect(calls[0]!.namespace).toBe("explicit-ns");
+    expect(publishKeyCalls[0]!.namespace).toBe("explicit-ns");
   });
 
   it("returns 400 when no signer is loaded", async () => {
     setActiveSigner(null);
-    setDeDiClient({ rotateDIDWeb: async () => ({}) } as never);
+    const { client } = makeRotateMockClient();
+    setDeDiClient(client);
     const res = await app.request("/v1/keys/rotate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -812,11 +874,9 @@ describe("GET /v1/keys/did-document", () => {
       document: {
         verificationMethod: Array<{ id: string; publicKeyJwk: Record<string, unknown> }>;
       };
-      keyStatus: "current" | "rotated";
       source: string;
     };
     expect(body.source).toBe("active-signer");
-    expect(body.keyStatus).toBe("current");
     expect(body.did).toBe(DID);
     expect(body.document.verificationMethod[0]!.id).toBe(`${DID}#key-0`);
     expect(body.document.verificationMethod[0]!.publicKeyJwk).toEqual(JWK);
@@ -847,11 +907,11 @@ describe("GET /v1/keys/did-document", () => {
       assertionMethod: [`${DID}#key-1`],
     };
     setActiveSigner(buildDidWebSigner(HOST, JWK));
+    // Source now calls resolveDidDocument (not resolveDID)
     setDeDiClient({
-      resolveDID: async (did: string) => ({
+      resolveDidDocument: async (did: string) => ({
         did,
         document: rotatedDocument,
-        keyStatus: "current" as const,
       }),
     } as never);
 
@@ -860,14 +920,11 @@ describe("GET /v1/keys/did-document", () => {
     const body = (await res.json()) as {
       did: string;
       document: { verificationMethod: Array<{ id: string; supersededAt?: string }> };
-      keyStatus: "current" | "rotated";
       source: string;
     };
     expect(body.source).toBe("dedi");
-    // For did:web, keyStatus on the record is always "current"; rotation
-    // history lives inside verificationMethod[]. Passing the field through
-    // verbatim keeps the response shape consistent with /v1/keys/resolve.
-    expect(body.keyStatus).toBe("current");
+    // The `keyStatus` field was removed from this endpoint's response.
+    // Rotation history lives inside verificationMethod[].
     expect(body.document.verificationMethod).toHaveLength(2);
     expect(body.document.verificationMethod[0]!.supersededAt).toBe("2026-05-01T00:00:00Z");
     expect(body.document.verificationMethod[1]!.id).toBe(`${DID}#key-1`);
@@ -879,7 +936,7 @@ describe("GET /v1/keys/did-document", () => {
     // operator deliberately uses Path A only).
     setActiveSigner(buildDidWebSigner(HOST, JWK));
     setDeDiClient({
-      resolveDID: async () => {
+      resolveDidDocument: async () => {
         const { DeDiClientError } = await import("@opencred/shared");
         throw new DeDiClientError("Not found", 404);
       },
@@ -900,7 +957,7 @@ describe("GET /v1/keys/did-document", () => {
     // getting *some* document back — fallback is the active signer's key.
     setActiveSigner(buildDidWebSigner(HOST, JWK));
     setDeDiClient({
-      resolveDID: async () => {
+      resolveDidDocument: async () => {
         const { DeDiClientError } = await import("@opencred/shared");
         throw new DeDiClientError("DeDi API error: 503", 502);
       },

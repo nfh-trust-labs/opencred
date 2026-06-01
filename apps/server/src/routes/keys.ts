@@ -19,9 +19,19 @@
  */
 
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { z } from "zod";
-import { encodeDidWeb, generateDidWebDocument, type JWK } from "@opencred/did";
-import { DeDiClientError } from "@opencred/shared";
+import {
+  encodeDidWeb,
+  generateDidWebDocument,
+  generateDidWebDocumentMultiKey,
+  didWebVerificationMethodId,
+  type JWK,
+  type DidWebKeyInput,
+} from "@opencred/did";
+import { DeDiClientError, DeDiRecordExistsError } from "@opencred/shared";
+import type { DeDiClient, KeyRecord } from "@opencred/dedi-client";
+import type { Signer } from "@opencred/signing";
 import { getActiveSigner } from "../signing/key-manager.js";
 import { getConfig } from "../config.js";
 import { getDeDiClient } from "../dedi-singleton.js";
@@ -31,6 +41,87 @@ import { parseJsonBody } from "../middleware/parse-json.js";
 import { applyCacheHeaders, CACHE_PRESETS } from "../middleware/cache-control.js";
 
 const keys = new Hono();
+
+/** Standard 503 body when DeDi is not configured. */
+function dediNotConfigured(c: Context) {
+  return c.json(
+    {
+      error: {
+        code: "DEDI_NOT_CONFIGURED",
+        message:
+          "DeDi is not configured. Set OPENCRED_DEDI_BASE_URL, OPENCRED_DEDI_AUTH_TYPE, " +
+          "OPENCRED_DEDI_NAMESPACE, and the matching auth secret to enable this endpoint.",
+      },
+    },
+    503,
+  );
+}
+
+/**
+ * Build the active signer's verification method id (the key id used as the
+ * `opencred-key-registry` record key). For did:web it's `<did>#key-0`; for
+ * did:key the signer's own id already carries the method-specific fragment.
+ */
+function activeSignerKeyId(signer: Signer, issuerDid: string, isDidWeb: boolean): string {
+  return isDidWeb ? didWebVerificationMethodId(issuerDid) : signer.id;
+}
+
+/** Build a `KeyRecord` (status `active`) from the active signer's public JWK. */
+function buildActiveKeyRecord(
+  signer: Signer,
+  issuerDid: string,
+  isDidWeb: boolean,
+  publicKeyJwk: Record<string, unknown>,
+): KeyRecord {
+  return {
+    keyId: activeSignerKeyId(signer, issuerDid, isDidWeb),
+    controllerDid: issuerDid,
+    algorithm: String(signer.algorithm),
+    publicKeyJwk,
+    purpose: ["assertionMethod"],
+    status: "active",
+  };
+}
+
+/**
+ * Assemble the current did.json for a did:web issuer from its non-revoked
+ * key set, de-duplicated by verification method id. The active key is always
+ * first; `retainedKeys` carries cleanly-rotated (non-revoked) keys that must
+ * stay published so credentials signed by them still resolve.
+ */
+function assembleDidDocument(
+  issuerDid: string,
+  activeKey: DidWebKeyInput,
+  retainedKeys: DidWebKeyInput[],
+) {
+  const seen = new Set<string>();
+  const ordered: DidWebKeyInput[] = [];
+  for (const key of [activeKey, ...retainedKeys]) {
+    if (seen.has(key.id)) continue;
+    seen.add(key.id);
+    ordered.push(key);
+  }
+  return generateDidWebDocumentMultiKey(issuerDid, ordered);
+}
+
+/**
+ * Best-effort lookup of a previously-published key's public JWK from DeDi, so
+ * a rotated-but-not-revoked key can be re-listed in the regenerated did.json.
+ * Returns `null` when the key isn't resolvable (404 / outage / revoked).
+ */
+async function resolveRetainedKey(
+  dediClient: DeDiClient,
+  verificationMethod: string,
+  namespace: string | undefined,
+): Promise<DidWebKeyInput | null> {
+  try {
+    const record = await dediClient.resolveKey(verificationMethod, namespace);
+    if (record.status === "revoked") return null;
+    return { id: record.keyId, publicKeyJwk: record.publicKeyJwk as JWK };
+  } catch {
+    return null;
+  }
+}
 
 interface KeyDescriptor {
   /** The verification method DID identifier (did:key or did:jwk). */
@@ -171,30 +262,22 @@ keys.get("/keys/did-document", async (c) => {
     );
   }
 
-  // Path 1: prefer DeDi's record (carries rotation history). Falls through
-  // on 404 (DID not yet published there); any other DeDi error is logged
-  // at warn level so the operator can debug but doesn't block the response.
-  //
-  // `keyStatus` is passed through from the DeDi record. For did:web it's
-  // always "current" by design (per-key rotation lives inside
-  // `document.verificationMethod[]` via `supersededAt`, not the parent
-  // record-level flag) — but emitting it keeps the response shape
-  // grep-able alongside `POST /v1/keys/resolve`.
+  // Path 1: prefer DeDi's stored did.json (the `did-documents` registry).
+  // It is the authoritative current document — it carries every non-revoked
+  // key (multi-key `verificationMethod[]`) after rotation/revocation. Falls
+  // through on 404 (DID not yet stored there); any other DeDi error is
+  // logged at warn level so the operator can debug but doesn't block the
+  // response.
   const dediClient = getDeDiClient();
   if (dediClient) {
     try {
-      const record = await dediClient.resolveDID(issuerDid);
+      const record = await dediClient.resolveDidDocument(issuerDid);
       if (record.document) {
-        return c.json({
-          did: issuerDid,
-          document: record.document,
-          keyStatus: record.keyStatus,
-          source: "dedi",
-        });
+        return c.json({ did: issuerDid, document: record.document, source: "dedi" });
       }
     } catch (err) {
       if (err instanceof DeDiClientError && err.statusCode === 404) {
-        // Expected: DID not yet on DeDi. Fall through to local derivation.
+        // Expected: DID not yet stored in DeDi. Fall through to derivation.
       } else {
         // statusCode is broken out from the message so operators can
         // distinguish auth (401/403) from server errors (5xx) from network
@@ -211,11 +294,10 @@ keys.get("/keys/did-document", async (c) => {
     }
   }
 
-  // Path 2: derive from the active signer's public JWK. Mirrors what
-  // generateDidWebDocument emits for the auto-publish path so the
+  // Path 2: derive a single-key document from the active signer's public JWK.
+  // Mirrors what generateDidWebDocument emits for the auto-publish path so the
   // self-hosted document matches what verifiers see via DeDi after first
-  // publish. `keyStatus` is hardcoded to "current" — there is no DeDi
-  // record yet so rotation history is by definition empty.
+  // publish.
   const publicKeyJwk = signer.metadata.publicKeyJwk;
   if (!publicKeyJwk) {
     return c.json(
@@ -234,110 +316,148 @@ keys.get("/keys/did-document", async (c) => {
   }
 
   const document = generateDidWebDocument(issuerDid, publicKeyJwk as JWK);
-  return c.json({
-    did: issuerDid,
-    document,
-    keyStatus: "current" as const,
-    source: "active-signer",
-  });
+  return c.json({ did: issuerDid, document, source: "active-signer" });
 });
 
-// --- DeDi public-key registry ---
+// --- DeDi per-key registry + DID documents ---
 //
-// DID documents (public keys + verification methods) are pushed into and
-// pulled from the DeDi `public_key_registry`. Lets verifiers resolve an
-// issuer's keys without a separate DID registrar.
+// Signing keys are pushed into and pulled from the DeDi
+// `opencred-key-registry` (one record per key, status active/rotated/revoked).
+// For did:web issuers who opt into DeDi-hosting, the assembled did.json is
+// also stored in the `did-documents` registry. Lets verifiers resolve an
+// issuer's key status — and, when the domain is unreachable, the did.json —
+// without a separate DID registrar.
 
 const publishKeySchema = z.object({
-  /** The DID this document belongs to (e.g. `did:web:example.org`). */
-  did: z.string().min(1),
-  /**
-   * The full DID document. By the W3C DID Core spec this is a JSON object
-   * carrying `verificationMethod`, `assertionMethod`, etc. — all of which
-   * describe public keys. Private keys must NEVER appear here; the
-   * recursive `rejectKeyMaterial()` walk over the request body enforces
-   * that as a defense-in-depth check.
-   *
-   * **Optional at this layer.** The schema accepts publish requests
-   * without a `document` for did:key issuers — the adapter
-   * (`packages/dedi-client/src/adapter/client.ts:publishDID`) drops the
-   * document for did:key anyway, since did:key documents are derivable
-   * from the DID itself. For did:web, the adapter still enforces that
-   * `document` is required (otherwise there's nothing to cache). Making
-   * the route schema optional lets the bootcamp Postman collection ship
-   * a minimal `{"did": "{{issuerDid}}"}` body for did:key publish demos
-   * without contorting around a 400 from Zod.
-   */
-  document: z.record(z.unknown()).optional(),
   /**
    * Optional namespace override. When omitted, DeDi's `defaultNamespace`
    * (configured via `OPENCRED_DEDI_NAMESPACE`) is used.
    */
   namespace: z.string().optional(),
+  /**
+   * Whether to also store the assembled did.json in the `did-documents`
+   * registry (did:web only). Defaults to `OPENCRED_DEDI_HOST_DID_DOC`.
+   */
+  hostDidDocument: z.boolean().optional(),
+});
+
+const rotateKeySchema = z.object({
+  /**
+   * The verification method of the key being retired, e.g.
+   * `did:web:issuer.example.org#key-0`. Flipped to `rotated` in the key
+   * registry and kept in the regenerated did.json so credentials it signed
+   * still resolve. Omit on a first publish (nothing to retire yet).
+   */
+  previousVerificationMethod: z.string().optional(),
+  namespace: z.string().optional(),
+  hostDidDocument: z.boolean().optional(),
+});
+
+const revokeKeySchema = z.object({
+  /** The verification method of the key to revoke. */
+  verificationMethod: z.string().min(1),
+  namespace: z.string().optional(),
+  hostDidDocument: z.boolean().optional(),
 });
 
 const resolveKeySchema = z.object({
-  /** The DID to look up in the public-key registry. */
-  did: z.string().min(1),
+  /** The verification method (key id) to look up in the key registry. */
+  verificationMethod: z.string().min(1),
   namespace: z.string().optional(),
 });
 
 /**
  * POST /keys/publish
  *
- * Publish a DID document to the DeDi public-key registry.
+ * Publish the active signer's signing key to the DeDi `opencred-key-registry`
+ * (status `active`). For did:web issuers, optionally also store the assembled
+ * did.json in the `did-documents` registry.
+ *
+ * The server only ever publishes its OWN public key — no key material is
+ * accepted from the request body (CLAUDE.md rule 1).
  *
  * Request body:
- *   { did: string, document: object, namespace?: string }
+ *   { namespace?: string, hostDidDocument?: boolean }
  *
  * Response (200):
- *   { published: true, recordName: string, namespace: string }
- *
- * Response (503): DeDi not configured.
+ *   { published: true, recordName: string, namespace: string,
+ *     keyId: string, didDocumentStored: boolean }
  */
 keys.post("/keys/publish", async (c) => {
   const body = await parseJsonBody(c);
   // SECURITY: defense-in-depth — recursively reject any nested PEM block or
-  // forbidden key field before the document leaves the server. See
-  // CLAUDE.md rule 1.
+  // forbidden key field before anything leaves the server. See CLAUDE.md rule 1.
   rejectKeyMaterial(body);
   const parsed = publishKeySchema.parse(body);
 
   const dediClient = getDeDiClient();
-  if (!dediClient) {
+  if (!dediClient) return dediNotConfigured(c);
+
+  const signer = getActiveSigner();
+  if (!signer) {
     return c.json(
       {
         error: {
-          code: "DEDI_NOT_CONFIGURED",
+          code: "VALIDATION_ERROR",
           message:
-            "DeDi is not configured. Set OPENCRED_DEDI_BASE_URL, OPENCRED_DEDI_AUTH_TYPE, " +
-            "OPENCRED_DEDI_NAMESPACE, and the matching auth secret to enable this endpoint.",
+            "No signing key configured. Set OPENCRED_KEY_PATH or a Cloud HSM provider before calling /v1/keys/publish.",
         },
       },
-      503,
+      400,
     );
   }
 
-  const result = await dediClient.publishDID(parsed.did, parsed.document, parsed.namespace);
-  return c.json(result);
-});
+  const config = getConfig();
+  const isDidWeb =
+    config.OPENCRED_ISSUER_DID_METHOD === "web" && !!config.OPENCRED_ISSUER_DOMAIN;
+  const issuerDid = isDidWeb
+    ? encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!)
+    : signer.id.split("#")[0]!;
 
-const rotateKeySchema = z.object({
-  namespace: z.string().optional(),
+  const publicKeyJwk = signer.metadata.publicKeyJwk;
+  if (!publicKeyJwk) {
+    return c.json(
+      {
+        error: {
+          code: "VALIDATION_ERROR",
+          message:
+            "Active signer does not expose publicKeyJwk on its metadata. Publishing requires a " +
+            "software-backed signer; KMS-backed signers do not currently surface the JWK (#635).",
+          signerType: signer.type,
+        },
+      },
+      400,
+    );
+  }
+
+  const keyRecord = buildActiveKeyRecord(signer, issuerDid, isDidWeb, publicKeyJwk);
+  const result = await dediClient.publishKey(keyRecord, parsed.namespace);
+
+  const hostDidDoc = isDidWeb && (parsed.hostDidDocument ?? config.OPENCRED_DEDI_HOST_DID_DOC);
+  let didDocumentStored = false;
+  if (hostDidDoc) {
+    const document = generateDidWebDocument(issuerDid, publicKeyJwk as JWK);
+    await dediClient.publishDidDocument(issuerDid, document, parsed.namespace);
+    didDocumentStored = true;
+  }
+  return c.json({ ...result, keyId: keyRecord.keyId, didDocumentStored });
 });
 
 /**
  * POST /keys/rotate
  *
- * Rotate the active signer's did:web key inside its DID Document.
- * The DID stays stable; the new key is appended to verificationMethod[]
- * and the prior current key is marked supersededAt. See
- * docs/spikes/spike-619-did-web-rotation.md for the design.
+ * Clean key rotation for a did:web issuer. The operator deploys a NEW signing
+ * key (the active signer), then calls this endpoint:
  *
- * Scope: did:web only. did:key rotation produces a new DID — issuers
- * should regenerate their key instead. The endpoint sits under
- * /v1/keys/ which is in WRITE_PREFIXES, so OPENCRED_READ_ONLY=true
- * gates it to 403 READ_ONLY_MODE automatically.
+ *   1. Publishes the new key to `opencred-key-registry` (status `active`).
+ *   2. Flips the previous key (`previousVerificationMethod`) to `rotated`.
+ *      Credentials signed by it stay valid — a clean rotation is not a
+ *      compromise — and the key is kept in the regenerated did.json.
+ *   3. Regenerates and re-stores the did.json (active + rotated keys).
+ *
+ * Scope: did:web only. did:key rotation produces a new DID — issuers should
+ * regenerate their key instead. Sits under /v1/keys/ (WRITE_PREFIXES), so
+ * OPENCRED_READ_ONLY=true gates it to 403 automatically.
  */
 keys.post("/keys/rotate", async (c) => {
   const body = await parseJsonBody(c);
@@ -358,9 +478,11 @@ keys.post("/keys/rotate", async (c) => {
     );
   }
 
-  // Derive the issuer DID from the signer (signer.id is the verification
-  // method ID, e.g. did:web:issuer.example.org#key-1). Strip the fragment.
-  const issuerDid = signer.id.split("#")[0]!;
+  const config = getConfig();
+  const issuerDid =
+    config.OPENCRED_ISSUER_DID_METHOD === "web" && config.OPENCRED_ISSUER_DOMAIN
+      ? encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN)
+      : signer.id.split("#")[0]!;
   if (!issuerDid.startsWith("did:web:")) {
     return c.json(
       {
@@ -393,52 +515,122 @@ keys.post("/keys/rotate", async (c) => {
   }
 
   const dediClient = getDeDiClient();
-  if (!dediClient) {
-    return c.json(
-      {
-        error: {
-          code: "DEDI_NOT_CONFIGURED",
-          message:
-            "DeDi is not configured. Set OPENCRED_DEDI_BASE_URL, OPENCRED_DEDI_AUTH_TYPE, " +
-            "OPENCRED_DEDI_NAMESPACE, and the matching auth secret to enable this endpoint.",
-        },
-      },
-      503,
-    );
+  if (!dediClient) return dediNotConfigured(c);
+
+  const newKeyRecord = buildActiveKeyRecord(signer, issuerDid, true, publicKeyJwk);
+
+  // Publish the new key (idempotent: a re-run after a transient failure sees
+  // the record already there, which is fine).
+  try {
+    await dediClient.publishKey(newKeyRecord, parsed.namespace);
+  } catch (err) {
+    if (!(err instanceof DeDiRecordExistsError)) throw err;
   }
 
-  const result = await dediClient.rotateDIDWeb(issuerDid, publicKeyJwk, parsed.namespace);
-  return c.json(result);
+  // Retire the previous key and keep it (non-revoked) in the regenerated
+  // did.json so older credentials still resolve.
+  let retired: Awaited<ReturnType<DeDiClient["setKeyStatus"]>> | null = null;
+  let retainedKeys: DidWebKeyInput[] = [];
+  if (parsed.previousVerificationMethod) {
+    retired = await dediClient.setKeyStatus(
+      parsed.previousVerificationMethod,
+      "rotated",
+      parsed.namespace,
+    );
+    const retained = await resolveRetainedKey(
+      dediClient,
+      parsed.previousVerificationMethod,
+      parsed.namespace,
+    );
+    if (retained) retainedKeys = [retained];
+  }
+
+  const hostDidDoc = parsed.hostDidDocument ?? config.OPENCRED_DEDI_HOST_DID_DOC;
+  let didDocumentStored = false;
+  if (hostDidDoc) {
+    const document = assembleDidDocument(
+      issuerDid,
+      { id: newKeyRecord.keyId, publicKeyJwk: publicKeyJwk as JWK },
+      retainedKeys,
+    );
+    await dediClient.publishDidDocument(issuerDid, document, parsed.namespace);
+    didDocumentStored = true;
+  }
+
+  return c.json({
+    rotated: true,
+    did: issuerDid,
+    currentKeyId: newKeyRecord.keyId,
+    retired,
+    didDocumentStored,
+  });
+});
+
+/**
+ * POST /keys/revoke
+ *
+ * Revoke a signing key — flips its `opencred-key-registry` status to
+ * `revoked`. A revoked key may be compromised, so verifiers reject EVERY
+ * credential it signed (top-level `REVOKED`), regardless of when they were
+ * issued. This is the per-key counterpart to per-credential revocation.
+ *
+ * When DeDi-hosting is enabled and the revoked key is not the active signer's
+ * own key, the did.json is regenerated from the active signer's current key
+ * (dropping the revoked key) and re-stored. (A headless server doesn't track
+ * the full historical key set; the authoritative reject is the `revoked`
+ * status flip, not the did.json contents.)
+ */
+keys.post("/keys/revoke", async (c) => {
+  const body = await parseJsonBody(c);
+  rejectKeyMaterial(body);
+  const parsed = revokeKeySchema.parse(body);
+
+  const dediClient = getDeDiClient();
+  if (!dediClient) return dediNotConfigured(c);
+
+  const result = await dediClient.setKeyStatus(parsed.verificationMethod, "revoked", parsed.namespace);
+
+  // Best-effort did.json refresh (did:web only). Only when the active signer
+  // is still a valid, non-revoked key — never republish a document built
+  // around the key we just revoked.
+  const config = getConfig();
+  const signer = getActiveSigner();
+  const hostDidDoc = parsed.hostDidDocument ?? config.OPENCRED_DEDI_HOST_DID_DOC;
+  let didDocumentStored = false;
+  if (hostDidDoc && signer) {
+    const isDidWeb =
+      config.OPENCRED_ISSUER_DID_METHOD === "web" && !!config.OPENCRED_ISSUER_DOMAIN;
+    const issuerDid = isDidWeb ? encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!) : "";
+    const publicKeyJwk = signer.metadata.publicKeyJwk;
+    const activeKeyId = isDidWeb ? didWebVerificationMethodId(issuerDid) : signer.id;
+    if (isDidWeb && publicKeyJwk && activeKeyId !== parsed.verificationMethod) {
+      const document = generateDidWebDocument(issuerDid, publicKeyJwk as JWK);
+      await dediClient.publishDidDocument(issuerDid, document, parsed.namespace);
+      didDocumentStored = true;
+    }
+  }
+
+  return c.json({ revoked: true, ...result, didDocumentStored });
 });
 
 /**
  * POST /keys/resolve
  *
- * Resolve a DID document from the DeDi public-key registry.
+ * Resolve a signing key's record from the DeDi `opencred-key-registry`.
  *
  * Request body:
- *   { did: string, namespace?: string }
+ *   { verificationMethod: string, namespace?: string }
  *
- * Response (200):
- *   { did: string, document?: object, keyStatus: "current" | "rotated" }
+ * Response (200): the {@link KeyRecord} —
+ *   { keyId, controllerDid, algorithm, publicKeyJwk, purpose, status, proof? }
  *
- * `document` is omitted from the response when the DID is `did:key:` —
- * the verifier derives the document from the DID itself via the
- * canonical did:key resolution algorithm. For `did:web` records the
- * cached domain-hosted document is returned. `keyStatus` is `"current"`
- * by default and flipped to `"rotated"` after the issuer rotates keys.
+ * **Breaking change.** Prior releases keyed this endpoint by `did` and
+ * returned a DID-document record (`{ did, document?, keyStatus }`). It now
+ * keys by `verificationMethod` and returns the per-key record. did.json is
+ * served separately via `GET /v1/keys/did-document`.
  *
- * **Breaking change** (PR-3 of the DeDi client refactor): prior to this
- * release the response carried `resolvedAt: string` and optionally
- * `metadata` / `supersededBy`. Downstream consumers must update to read
- * the new shape; `resolvedAt` is no longer surfaced (the DeDi envelope's
- * `updated_at` is canonical if a precise on-server timestamp is needed
- * in a future iteration).
- *
- * POST (not GET) is used so that DIDs containing colons (e.g.
- * `did:web:example.org:users:alice`) and other path-unfriendly characters
- * don't have to be URL-encoded by callers. Mirrors the existing
- * `POST /credentials/revocation-status` shape.
+ * POST (not GET) is used so verification methods containing colons (the
+ * canonical `did:web:host:path#key-0` form) don't have to be URL-encoded.
  */
 keys.post("/keys/resolve", async (c) => {
   const body = await parseJsonBody(c);
@@ -446,71 +638,42 @@ keys.post("/keys/resolve", async (c) => {
   const parsed = resolveKeySchema.parse(body);
 
   const dediClient = getDeDiClient();
-  if (!dediClient) {
-    return c.json(
-      {
-        error: {
-          code: "DEDI_NOT_CONFIGURED",
-          message:
-            "DeDi is not configured. Set OPENCRED_DEDI_BASE_URL, OPENCRED_DEDI_AUTH_TYPE, " +
-            "OPENCRED_DEDI_NAMESPACE, and the matching auth secret to enable this endpoint.",
-        },
-      },
-      503,
-    );
-  }
+  if (!dediClient) return dediNotConfigured(c);
 
-  const record = await dediClient.resolveDID(parsed.did, parsed.namespace);
-  // Cache headers + ETag (issue #446 Tier 3 #9, follow-up #586).
-  // DID-document resolution is idempotent and the record is identified by
-  // its content, so a downstream service-worker / in-process LRU can dedupe
-  // rapid re-reads. We use the `didDocumentPrivate` preset (private,
-  // max-age=60) here — mirroring `POST /credentials/verify` — so a shared
-  // CDN cannot accidentally cache one tenant's resolution and serve it to
-  // another. Callers that want a publicly-cacheable response should use
-  // `GET /keys/resolve?did=...` instead, which emits the public preset.
-  // The 304 path still short-circuits on a matching `If-None-Match`.
+  const record = await dediClient.resolveKey(parsed.verificationMethod, parsed.namespace);
+  // Cache headers + ETag. Key resolution is idempotent and content-identified.
+  // `didDocumentPrivate` (private, max-age=60) mirrors POST /credentials/verify
+  // so a shared CDN can't serve one tenant's record to another. The 304 path
+  // short-circuits on a matching `If-None-Match`.
   const notModified = applyCacheHeaders(c, record, CACHE_PRESETS.didDocumentPrivate);
   if (notModified) return notModified;
   return c.json(record);
 });
 
 /**
- * GET /keys/resolve?did=...&namespace=...
+ * GET /keys/resolve?verificationMethod=...&namespace=...
  *
- * Read-only, idempotent surface of {@link `POST /keys/resolve`} suitable for
- * caching at the CDN tier. DIDs whose serialization contains characters that
- * an L7 proxy might choke on (the canonical `did:web:host:path` form has
- * colons that some intermediates reject) are still resolvable via the POST
- * surface — this GET handler is the cacheable companion, not a replacement.
- *
+ * Read-only, idempotent, CDN-cacheable surface of {@link `POST /keys/resolve`}.
  * The query string is URL-decoded by Hono before reaching `c.req.query`.
- * Cache headers + ETag are applied the same way as the POST variant.
  */
 keys.get("/keys/resolve", async (c) => {
-  const did = c.req.query("did");
-  if (!did) {
+  const verificationMethod = c.req.query("verificationMethod");
+  if (!verificationMethod) {
     return c.json(
-      { error: { code: "VALIDATION_ERROR", message: "`did` query parameter is required" } },
+      {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "`verificationMethod` query parameter is required",
+        },
+      },
       400,
     );
   }
   const namespace = c.req.query("namespace");
   const dediClient = getDeDiClient();
-  if (!dediClient) {
-    return c.json(
-      {
-        error: {
-          code: "DEDI_NOT_CONFIGURED",
-          message:
-            "DeDi is not configured. Set OPENCRED_DEDI_BASE_URL, OPENCRED_DEDI_AUTH_TYPE, " +
-            "OPENCRED_DEDI_NAMESPACE, and the matching auth secret to enable this endpoint.",
-        },
-      },
-      503,
-    );
-  }
-  const record = await dediClient.resolveDID(did, namespace);
+  if (!dediClient) return dediNotConfigured(c);
+
+  const record = await dediClient.resolveKey(verificationMethod, namespace);
   const notModified = applyCacheHeaders(c, record, CACHE_PRESETS.didDocument);
   if (notModified) return notModified;
   return c.json(record);

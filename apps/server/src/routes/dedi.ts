@@ -25,7 +25,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import {
   REVOCATION_REGISTRY,
-  PUBLIC_KEY_REGISTRY,
+  OPENCRED_KEY_REGISTRY,
+  DID_DOCUMENTS_REGISTRY,
   SCHEMA_REGISTRY,
   CONTEXT_REGISTRY,
 } from "@opencred/dedi-client";
@@ -36,7 +37,7 @@ const dedi = new Hono();
 
 const ensureNamespaceSchema = z.object({
   /**
-   * The DeDi namespace to ensure. Created if missing; the four registries
+   * The DeDi namespace to ensure. Created if missing; the five registries
    * OpenCred reads/writes are then created (or left alone if they already
    * exist — `ensureRegistries` ignores 409 conflicts).
    */
@@ -53,7 +54,8 @@ const ensureNamespaceSchema = z.object({
  */
 const ENSURED_REGISTRIES: readonly string[] = [
   REVOCATION_REGISTRY,
-  PUBLIC_KEY_REGISTRY,
+  OPENCRED_KEY_REGISTRY,
+  DID_DOCUMENTS_REGISTRY,
   SCHEMA_REGISTRY,
   CONTEXT_REGISTRY,
 ];
@@ -61,7 +63,7 @@ const ENSURED_REGISTRIES: readonly string[] = [
 /**
  * POST /dedi/namespace/ensure
  *
- * Idempotently create a DeDi namespace and the four registries OpenCred uses.
+ * Idempotently create a DeDi namespace and the five registries OpenCred uses.
  *
  * Request body:
  *   { namespace: string }

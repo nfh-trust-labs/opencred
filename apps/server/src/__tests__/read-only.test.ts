@@ -139,13 +139,15 @@ describe("read endpoints under OPENCRED_READ_ONLY=true", () => {
     const res = await app.request("/v1/keys/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ did: "did:web:example.org" }),
+      body: JSON.stringify({ verificationMethod: "did:web:example.org#key-0" }),
     });
     expect(res.status).toBe(503);
   });
 
   it("GET /v1/keys/resolve is allowed", async () => {
-    const res = await app.request("/v1/keys/resolve?did=did:web:example.org");
+    const res = await app.request(
+      "/v1/keys/resolve?verificationMethod=did:web:example.org%23key-0",
+    );
     // 503 because DeDi isn't configured, NOT 405. The point is that the
     // request reached the handler under read-only mode.
     expect(res.status).toBe(503);

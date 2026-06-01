@@ -451,7 +451,7 @@ describe("POST /v1/credentials/verify", () => {
       { verificationMethod: vmId, proofPurpose: "assertionMethod" },
     );
 
-    // Stub DeDi client: `resolveDID` powers the fallback we're testing.
+    // Stub DeDi client: `resolveDidDocument` powers the fallback we're testing.
     // `queryRevocationHash` is also stubbed because the verifier runs a
     // revocation check whenever DeDi is configured — without it the
     // overall result code becomes UNRESOLVABLE even though the signature
@@ -459,15 +459,15 @@ describe("POST /v1/credentials/verify", () => {
     // (record absent → credential not in the revocation registry).
     let resolveDidCalls = 0;
     const stubDeDiClient = {
-      resolveDID: async (inputDid: string) => {
+      resolveDidDocument: async (inputDid: string) => {
         resolveDidCalls += 1;
         if (inputDid !== did) {
-          throw new Error("record not found");
+          const { DeDiClientError } = await import("@opencred/shared");
+          throw new DeDiClientError("record not found", 404);
         }
         return {
           did: inputDid,
           document: didDocument,
-          keyStatus: "current" as const,
         };
       },
       queryRevocationHash: async () => ({ revoked: false as const }),
