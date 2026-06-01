@@ -109,7 +109,7 @@ After key rotation, re-export and re-upload so the document includes both the ne
 
 ## Rotating a Key
 
-Key rotation generates a new key and marks the old one as `rotated` (cleanly retired). Credentials signed by the old key **remain valid** — a rotated key was never compromised.
+Key rotation generates a new key and marks the old one as `rotated` (cleanly retired). A rotated key was never compromised. **For did:key** issuers, credentials signed by the old key remain valid because the old DID is self-describing and fully independent of the new key. **For did:web** issuers, see the limitation note below — clean rotation that retains verifiability of old credentials is a known limitation tracked in [#653](https://github.com/nfh-trust-labs/opencred/issues/653).
 
 ### What happens during rotation (did:web)
 
@@ -117,14 +117,17 @@ Key rotation generates a new key and marks the old one as `rotated` (cleanly ret
 2. The Desktop Client calls `POST /v1/keys/rotate`:
    - Publishes the new key to `opencred-key-registry` (status `active`).
    - Flips the old key's status to `rotated`.
-   - If DeDi is hosting your `did.json`, regenerates it: the active key comes first; the rotated key is retained (so old credentials still resolve).
+   - If DeDi is hosting your `did.json`, regenerates it: the active key comes first; the rotated key's record is retained in DeDi. Note the did:web limitation below (#653) — old credentials do not automatically re-verify after did:web rotation today.
 3. If you self-host your `did.json` (Path A), you must re-export and re-upload it after rotation.
 
 ### What verifiers see after rotation
 
-- Credentials signed by the **old** (rotated) key: still accepted as valid. The key record is retained in DeDi; the key remains in `did.json`.
 - Credentials signed by the **new** (active) key: accepted as valid.
-- Verifier UIs may show a "key rotated" badge for credentials under the old key — this is advisory only and does not invalidate the credential.
+- Credentials signed by the **old** (rotated) did:key: still accepted as valid. The old did:key DID is self-describing, so old credentials resolve and verify without any `did.json` dependency.
+- Credentials signed by the **old** (rotated) did:web key: **not verifiable today** — see the limitation note below ([#653](https://github.com/nfh-trust-labs/opencred/issues/653)). The DeDi key-registry record is retained with `status: "rotated"`, but because the new key reuses the same `#key-0` fragment, standard resolvers see the new key's material at that ID and the old signature fails.
+- Verifier UIs may show a "key rotated" badge for credentials under a rotated did:key — this is advisory only and does not invalidate the credential.
+
+> **Known limitation — did:web clean rotation ([#653](https://github.com/nfh-trust-labs/opencred/issues/653)):** The Desktop Client's Self-Published (did:web) flow pins every key to the `#key-0` verification-method fragment. A rotated did:web key and its successor share that fragment, so they collide in the `did.json`. After a did:web rotation, credentials signed under the previous key will **not** verify via standard DID resolution. Until #653 introduces per-rotation key fragments, did:web operators who need old credentials to remain verifiable should use **key revocation** only when a key is compromised, and plan credential reissuance when rotating for operational reasons. did:key issuers are unaffected — each new key is a new DID.
 
 ### Step-by-step: rotate a did:web key
 
@@ -163,7 +166,7 @@ The Desktop Client shows a status badge next to each DeDi-published key:
 | Badge | Meaning |
 |---|---|
 | **Active** | The key is in active use. New credentials should be signed with this key. |
-| **Rotated** | The key was cleanly retired. Credentials it signed remain valid. No action needed. |
+| **Rotated** | The key was cleanly retired. For did:key: credentials it signed remain valid. For did:web: credentials it signed are not verifiable after rotation today ([#653](https://github.com/nfh-trust-labs/opencred/issues/653)). |
 | **Revoked** | The key was compromised. All credentials it signed are rejected by verifiers. |
 
 ## Auto-rotation on Key Generation
@@ -174,7 +177,7 @@ Behavior:
 
 - The rotation hook fires immediately after the new key is in memory, before the IPC handler returns success to the renderer.
 - The hook is **best-effort**. A DeDi outage, a transient network error, or a misconfigured DeDi token does **not** block key generation — the new key always succeeds. The rotation hook logs the failure and moves on.
-- Credentials signed under a rotated key remain cryptographically valid. The rotation marker is advisory: it lets verifier UIs surface a "key rotated" badge, but it does not invalidate existing credentials.
+- For **did:key**: credentials signed under a rotated key remain cryptographically valid. The rotation marker is advisory — it lets verifier UIs surface a "key rotated" badge but does not invalidate existing credentials. For **did:web**: due to the `#key-0` fragment collision ([#653](https://github.com/nfh-trust-labs/opencred/issues/653)), the auto-rotation hook marks the DeDi record as `rotated` but old did:web credentials will not verify after the key is replaced.
 - The flag transitions monotonically (`current → rotated`, never back), so re-rotating to a DID that was previously marked `rotated` is a safe no-op.
 
 Implementation: `apps/desktop/src/main/ipc-handlers.ts` (the `KEY_GENERATE` handler) calls `DeDiPublishManager.markDIDRotated()` for each previously-published DID. The desktop tracks the list locally in `dediPublishedDIDs`; see `apps/desktop/src/main/store.ts`.

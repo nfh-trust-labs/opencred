@@ -343,7 +343,7 @@ curl -s http://localhost:3100/v1/keys/did-document \
 The endpoint always reflects the **current** state. After `POST /v1/keys/rotate`:
 
 - If DeDi is configured: re-fetch this endpoint; `source: "dedi"` returns the rotated multi-key document. Re-upload to your `.well-known/did.json`.
-- If DeDi is **not** configured: this endpoint returns a fresh single-key doc with only your new key. **Old credentials signed under the previous key will no longer verify via Path A** unless you maintain a hand-edited multi-key `did.json` on your domain. For multi-key rotation support, configure DeDi alongside Path A (publish to both, fetch from DeDi for the canonical multi-key document).
+- If DeDi is **not** configured: this endpoint returns a fresh single-key doc with only your new key. **Old credentials signed under the previous key will no longer verify via Path A** unless you maintain a hand-edited multi-key `did.json` on your domain. Configuring DeDi alongside Path A preserves the per-key registry records, but does **not** make old did:web credentials verifiable — did:web clean rotation (multi-key `did.json` with distinct per-rotation fragments) is a known limitation tracked in [#653](https://github.com/nfh-trust-labs/opencred/issues/653).
 
 **Response: error codes**
 
@@ -441,7 +441,7 @@ curl -s -X POST http://localhost:3100/v1/keys/publish \
 Clean key rotation for a `did:web` issuer. The operator first loads the new signing key (by updating `OPENCRED_KEY_PATH` and restarting, or equivalent), then calls this endpoint to:
 
 1. Publish the **new** key to `opencred-key-registry` (status `active`).
-2. Flip the **previous** key (`previousVerificationMethod`) to `rotated` — credentials it signed remain valid (a clean rotation is not a compromise).
+2. Flip the **previous** key (`previousVerificationMethod`) to `rotated` — a clean rotation is not a compromise. **Note:** for did:web, credentials signed under the previous key will **not** verify after rotation today due to the `#key-0` fragment collision ([#653](https://github.com/nfh-trust-labs/opencred/issues/653)). For did:key, old credentials are unaffected because each key is its own DID.
 3. Regenerate and store the updated `did.json` in `did-documents` (active + rotated keys) when DeDi-hosting is enabled.
 
 `did:key` issuers should regenerate their key instead — each new did:key key produces a new DID, and the old DID record is marked `rotated` automatically.
@@ -633,7 +633,7 @@ Successful responses set `Cache-Control: private, max-age=60` and a weak `ETag`.
 | `algorithm` | `string` | The key's signing algorithm. |
 | `publicKeyJwk` | `object` | The public key in JWK format. |
 | `purpose` | `string[]` | The key's declared purposes, e.g. `["assertionMethod"]`. |
-| `status` | `string` | `"active"` — key is current; `"rotated"` — cleanly retired, credentials it signed are still valid; `"revoked"` — compromised, all credentials it signed are rejected. |
+| `status` | `string` | `"active"` — key is current; `"rotated"` — cleanly retired (for did:key: credentials it signed are still valid; for did:web: not verifiable after rotation today — see [#653](https://github.com/nfh-trust-labs/opencred/issues/653)); `"revoked"` — compromised, all credentials it signed are rejected. |
 | `proof` | `object` _(optional)_ | CORD-blockchain anchor metadata attached by DeDi when the record was published on-chain. Absence is benign on DeDi instances that don't anchor. See [Concepts → DIDs → CORD anchoring](../concepts/dids.md#cord-anchoring-as-supplementary-provenance). |
 
 **Example — active key**
@@ -656,7 +656,7 @@ curl -s -X POST http://localhost:3100/v1/keys/resolve \
 }
 ```
 
-**Example — rotated key (credentials it signed are still VALID)**
+**Example — rotated key (did:key: credentials it signed are still VALID; did:web: see [#653](https://github.com/nfh-trust-labs/opencred/issues/653))**
 
 ```json
 {
@@ -974,7 +974,7 @@ A revocation check entry (`{ "name": "revocation", "passed": true }`) is appende
 
 **Advisory DeDi checks.** When a `DeDiClient` is configured and the credential is issued under a `did:key` DID, the verifier appends two additional **advisory** entries to `checks`:
 
-- `keyRotation` — fails (`passed: false`) when DeDi reports `keyStatus: "rotated"` on the issuer's DID record. The server collapses the detail to the literal `"Issuer key rotated"` so callers can render a "key rotated" badge. The headline `valid` boolean is **unchanged** by this check — credentials signed under a rotated key remain cryptographically valid. Verifier policy can choose to reject anyway.
+- `keyRotation` — implemented as `checkKeyStatus` in `packages/verification/src/checks.ts`. Calls `POST /v1/keys/resolve` and reads the `status` field on the per-key `opencred-key-registry` record for the credential's signing key. Fails (`passed: false`) when the per-key record reports `status: "rotated"`; a `status: "revoked"` record yields a top-level `REVOKED` outcome (not just an advisory). The server collapses the advisory detail to the literal `"Issuer key rotated"` so callers can render a "key rotated" badge. The headline `valid` boolean is **unchanged** by the `rotated` advisory — verifier policy can choose to reject anyway. Note: for did:web credentials, the signature itself may not verify after key rotation due to the `#key-0` fragment collision ([#653](https://github.com/nfh-trust-labs/opencred/issues/653)), in which case the headline `valid` will be `false` on the `signature` check before `keyRotation` is reached.
 - `registryAnchor` — surfaces the CORD-blockchain proof block DeDi attaches to record lookup responses. Passes silently when no proof is present (benign on DeDi instances that don't anchor). Fails advisorily when the proof's `creator_did` does not match the credential's issuer DID — DeDi is reporting the record was anchored by someone other than the issuer the credential is signed by, which is suspicious enough to surface but not fatal on its own. Like `keyRotation`, it does not flip the headline `valid` boolean. See [Concepts → DIDs → CORD anchoring](../concepts/dids.md#cord-anchoring-as-supplementary-provenance) for the trust-model rationale.
 
 Both advisory checks **degrade open** on DeDi outages — a DeDi outage must never block verification of a cryptographically valid credential. See `checkKeyRotation` and `checkRegistryAnchor` in `packages/verification/src/checks.ts`.

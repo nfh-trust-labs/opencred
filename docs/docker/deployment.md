@@ -252,7 +252,7 @@ Or set `OPENCRED_DEDI_HOST_DID_DOC=true` / `OPENCRED_AUTO_PUBLISH_KEY=true` to d
 
 ### Rotate a key (clean retirement)
 
-Use rotation when you want to move to a new key for operational reasons (scheduled rotation, algorithm upgrade, etc.). The old key was never compromised — credentials it signed remain valid.
+Use rotation when you want to move to a new key for operational reasons (scheduled rotation, algorithm upgrade, etc.). The old key was never compromised. **For did:key** issuers, credentials signed under the old key remain valid — the old DID is self-describing and independent of the new key. **For did:web** issuers: credentials signed under the previous key will **not** verify after rotation today due to the `#key-0` verification-method fragment collision ([#653](https://github.com/nfh-trust-labs/opencred/issues/653)); plan to reissue credentials when rotating a did:web key.
 
 Steps:
 
@@ -294,7 +294,7 @@ curl -s http://localhost:3100/v1/keys/did-document \
 # Upload did.json to https://issuer.example.org/.well-known/did.json
 ```
 
-The regenerated `did.json` includes both `key-1` (active) and `key-0` (rotated), so credentials signed under `key-0` continue to verify.
+The DeDi `opencred-key-registry` record for `key-0` is retained with `status: "rotated"`. Note: the regenerated `did.json` cannot include both `key-1` and `key-0` as distinct verification methods today because both share the `#key-0` fragment — did:web clean rotation that allows old credentials to continue verifying is a known limitation tracked in [#653](https://github.com/nfh-trust-labs/opencred/issues/653).
 
 ### Revoke a key (compromise response)
 
