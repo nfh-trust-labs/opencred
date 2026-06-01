@@ -287,7 +287,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
             </p>
           </div>
 
-          {genError && <p className="text-sm text-red-600">{genError}</p>}
+          {genError && <p className="text-sm text-state-danger">{genError}</p>}
 
           <div className="pt-2 flex gap-3">
             <Button onClick={() => void handleGenerate()} disabled={generating}>
@@ -337,12 +337,12 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
                 className="mt-0.5"
               />
               <div className="space-y-1">
-                <p className="text-[0.85rem] font-medium text-txt-primary">
+                <p className="text-body-sm font-medium text-txt-primary">
                   I have a domain (did:web) — recommended
                 </p>
-                <p className="text-[0.72rem] text-txt-secondary">
+                <p className="text-body-2xs text-txt-secondary">
                   Publish a DID document on your website at{" "}
-                  <code className="text-[0.68rem] bg-surface-warm px-1 rounded">
+                  <code className="text-body-2xs bg-surface-warm px-1 rounded">
                     /.well-known/did.json
                   </code>
                   . Best for institutional issuers; supports key rotation.
@@ -364,8 +364,8 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
                 className="mt-0.5"
               />
               <div className="space-y-1">
-                <p className="text-[0.85rem] font-medium text-txt-primary">No domain (did:key)</p>
-                <p className="text-[0.72rem] text-txt-secondary">
+                <p className="text-body-sm font-medium text-txt-primary">No domain (did:key)</p>
+                <p className="text-body-2xs text-txt-secondary">
                   Your DID is derived directly from the public key — no hosting needed. Credentials
                   verify fully offline. Trade-off: this key cannot be rotated; losing it means
                   re-issuing every credential under a new DID.
@@ -396,7 +396,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
             </h2>
             <p className="text-body-sm text-txt-secondary">
               Enter the domain where you will host your DID document. The document will be served at{" "}
-              <code className="text-[0.72rem] bg-surface-warm px-1 py-0.5 rounded">
+              <code className="text-body-2xs bg-surface-warm px-1 py-0.5 rounded">
                 https://your-domain/.well-known/did.json
               </code>
             </p>
@@ -415,20 +415,20 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
                 placeholder="university.example"
                 className="w-full rounded-oc border border-border px-3 py-2 text-body-sm text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue"
               />
-              {domainError && <p className="text-[0.72rem] text-red-600 mt-1">{domainError}</p>}
+              {domainError && <p className="text-body-2xs text-state-danger mt-1">{domainError}</p>}
             </div>
 
             {didPreview && (
               <div className="rounded-oc border border-border-light bg-surface-warm p-3">
                 <p className="oc-label mb-1">DID Preview</p>
-                <p className="font-mono text-[0.72rem] text-txt-primary break-all">{didPreview}</p>
+                <p className="font-mono text-body-2xs text-txt-primary break-all">{didPreview}</p>
               </div>
             )}
 
-            <div className="rounded-oc border border-green-200 bg-green-50 p-3 space-y-1">
-              <p className="text-[0.72rem] font-medium text-green-800">Key Generated</p>
-              <p className="text-[0.68rem] text-green-700">Algorithm: {generatedKey.algorithm}</p>
-              <p className="text-[0.68rem] text-green-700">
+            <div className="rounded-oc border border-state-success-border bg-state-success-bg p-3 space-y-1">
+              <p className="text-body-2xs font-medium text-state-success">Key Generated</p>
+              <p className="text-body-2xs text-state-success">Algorithm: {generatedKey.algorithm}</p>
+              <p className="text-body-2xs text-state-success">
                 Fingerprint: {generatedKey.fingerprint.slice(0, 32)}...
               </p>
             </div>
@@ -461,10 +461,10 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
             <div className="space-y-3">
               <div className="rounded-oc border border-border-light bg-surface-warm p-3">
                 <p className="oc-label mb-1">Your DID</p>
-                <p className="font-mono text-[0.72rem] text-txt-primary break-all">{didPreview}</p>
+                <p className="font-mono text-body-2xs text-txt-primary break-all">{didPreview}</p>
               </div>
 
-              {exportError && <p className="text-sm text-red-600">{exportError}</p>}
+              {exportError && <p className="text-sm text-state-danger">{exportError}</p>}
 
               <Button onClick={() => void handleExport()} disabled={exporting}>
                 {exporting ? "Generating..." : "Generate DID Document"}
@@ -475,11 +475,11 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
           {exportedDoc && (
             <div className="space-y-4">
               {/* Simplified summary */}
-              <div className="rounded-oc border border-green-200 bg-green-50 p-4 space-y-2">
-                <p className="text-[0.82rem] font-medium text-green-800">
+              <div className="rounded-oc border border-state-success-border bg-state-success-bg p-4 space-y-2">
+                <p className="text-body-xs font-medium text-state-success">
                   Your verification file is ready to publish
                 </p>
-                <p className="text-[0.72rem] text-green-700">
+                <p className="text-body-2xs text-state-success">
                   Domain: <span className="font-mono">{domain.trim()}</span>
                 </p>
               </div>
@@ -487,14 +487,14 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
               {/* Save button */}
               <div className="flex gap-3 items-center">
                 <Button onClick={() => void handleSaveToFile()}>Save to File</Button>
-                {saved && <span className="text-[0.78rem] text-green-700">Saved</span>}
+                {saved && <span className="text-body-xs text-state-success">Saved</span>}
               </div>
 
               {/* Collapsible: View DID Document (Advanced) */}
               <div>
                 <button
                   onClick={() => setShowDidDoc(!showDidDoc)}
-                  className="text-[0.78rem] text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
+                  className="text-body-xs text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
                 >
                   <svg
                     width="12"
@@ -511,7 +511,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
                 </button>
                 {showDidDoc && (
                   <div className="mt-2 rounded-oc border border-border bg-surface-warm p-3">
-                    <pre className="text-[0.68rem] text-txt-secondary overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap">
+                    <pre className="text-body-2xs text-txt-secondary overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap">
                       {exportedDoc}
                     </pre>
                   </div>
@@ -522,7 +522,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
               <div>
                 <button
                   onClick={() => setShowInstructions(!showInstructions)}
-                  className="text-[0.78rem] text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
+                  className="text-body-xs text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
                 >
                   <svg
                     width="12"
@@ -538,25 +538,25 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
                   Publishing Instructions
                 </button>
                 {showInstructions && (
-                  <div className="mt-2 rounded-oc border border-blue-200 bg-blue-50 p-3 space-y-2">
-                    <p className="text-[0.72rem] text-blue-600 italic">
+                  <div className="mt-2 rounded-oc border border-blue-200 bg-brand-light p-3 space-y-2">
+                    <p className="text-body-2xs text-brand italic">
                       You will need access to your organization&apos;s website hosting. Your IT
                       administrator or web developer can help with this step.
                     </p>
-                    <ol className="text-[0.72rem] text-blue-700 list-decimal list-inside space-y-0.5">
+                    <ol className="text-body-2xs text-brand list-decimal list-inside space-y-0.5">
                       <li>
                         Save the DID document as{" "}
-                        <code className="bg-blue-100 px-1 rounded">did.json</code>
+                        <code className="bg-brand-light px-1 rounded">did.json</code>
                       </li>
                       <li>
                         Upload it to{" "}
-                        <code className="bg-blue-100 px-1 rounded">
+                        <code className="bg-brand-light px-1 rounded">
                           https://{domain.trim()}/.well-known/did.json
                         </code>
                       </li>
                       <li>
                         Ensure the file is served with{" "}
-                        <code className="bg-blue-100 px-1 rounded">
+                        <code className="bg-brand-light px-1 rounded">
                           Content-Type: application/json
                         </code>
                       </li>
@@ -569,13 +569,13 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
               <div>
                 <button
                   onClick={() => setShowNoWebsite(!showNoWebsite)}
-                  className="text-[0.72rem] text-txt-muted hover:text-txt-secondary hover:underline focus:outline-none"
+                  className="text-body-2xs text-txt-muted hover:text-txt-secondary hover:underline focus:outline-none"
                 >
                   I don&apos;t have a website
                 </button>
                 {showNoWebsite && (
                   <div className="mt-2 rounded-oc border border-border-light bg-surface-warm p-3">
-                    <p className="text-[0.72rem] text-txt-secondary">
+                    <p className="text-body-2xs text-txt-secondary">
                       You can still issue credentials. Verifiers will need your public key shared
                       directly. You can also set up DeDi later from Settings to publish your key to
                       a public directory.
@@ -612,7 +612,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
 
           <div className="rounded-oc border border-border-light bg-surface-warm p-3">
             <p className="oc-label mb-1">Expected URL</p>
-            <p className="font-mono text-[0.72rem] text-txt-primary break-all">
+            <p className="font-mono text-body-2xs text-txt-primary break-all">
               https://{domain.trim()}/.well-known/did.json
             </p>
           </div>
@@ -630,23 +630,23 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
             <div
               className={`rounded-oc border p-3 ${
                 verifyResult.accessible
-                  ? "border-green-200 bg-green-50"
-                  : "border-amber-200 bg-amber-50"
+                  ? "border-state-success-border bg-state-success-bg"
+                  : "border-state-warning-border bg-state-warning-bg"
               }`}
             >
               {verifyResult.accessible ? (
-                <p className="text-[0.78rem] text-green-800 font-medium">
+                <p className="text-body-xs text-state-success font-medium">
                   DID document is accessible and valid.
                 </p>
               ) : (
                 <div className="space-y-1">
-                  <p className="text-[0.78rem] text-amber-800 font-medium">
+                  <p className="text-body-xs text-state-warning font-medium">
                     DID document not accessible yet.
                   </p>
                   {verifyResult.error && (
-                    <p className="text-[0.72rem] text-amber-700">{verifyResult.error}</p>
+                    <p className="text-body-2xs text-state-warning">{verifyResult.error}</p>
                   )}
-                  <p className="text-[0.72rem] text-amber-700">
+                  <p className="text-body-2xs text-state-warning">
                     Make sure you have published the file and that your web server is running.
                   </p>
                 </div>
@@ -696,13 +696,13 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
 
           <div className="rounded-oc border border-border-light bg-surface-warm p-3">
             <p className="oc-label mb-1">Your DID</p>
-            <p className="font-mono text-[0.72rem] text-txt-primary break-all">{didKeyDid}</p>
+            <p className="font-mono text-body-2xs text-txt-primary break-all">{didKeyDid}</p>
           </div>
 
-          <div className="rounded-oc border border-green-200 bg-green-50 p-3 space-y-1">
-            <p className="text-[0.72rem] font-medium text-green-800">Key Generated</p>
-            <p className="text-[0.68rem] text-green-700">Algorithm: {generatedKey.algorithm}</p>
-            <p className="text-[0.68rem] text-green-700">
+          <div className="rounded-oc border border-state-success-border bg-state-success-bg p-3 space-y-1">
+            <p className="text-body-2xs font-medium text-state-success">Key Generated</p>
+            <p className="text-body-2xs text-state-success">Algorithm: {generatedKey.algorithm}</p>
+            <p className="text-body-2xs text-state-success">
               Fingerprint: {generatedKey.fingerprint.slice(0, 32)}...
             </p>
           </div>
@@ -743,9 +743,9 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
             </p>
           </div>
 
-          <div className="rounded-oc border border-amber-300 bg-amber-50 p-4 space-y-2">
-            <p className="text-[0.82rem] font-medium text-amber-900">What you should do now</p>
-            <ul className="text-[0.78rem] text-amber-800 list-disc list-inside space-y-1">
+          <div className="rounded-oc border border-amber-300 bg-state-warning-bg p-4 space-y-2">
+            <p className="text-body-xs font-medium text-amber-900">What you should do now</p>
+            <ul className="text-body-xs text-state-warning list-disc list-inside space-y-1">
               <li>
                 Record the key fingerprint and your DID in a password manager or secure document
                 store.
@@ -759,7 +759,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
                 your DID — and so you have a published successor record if you ever rotate.
               </li>
             </ul>
-            <p className="text-[0.72rem] text-amber-800 italic pt-1">
+            <p className="text-body-2xs text-state-warning italic pt-1">
               A dedicated "export encrypted backup" command is on the roadmap. For now, the key
               persists with this installation only; reformatting or reinstalling without a system
               backup will lose it.
@@ -773,7 +773,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
               onChange={(e) => setBackupAcknowledged(e.target.checked)}
               className="mt-0.5"
             />
-            <span className="text-[0.78rem] text-txt-primary">
+            <span className="text-body-xs text-txt-primary">
               I understand that this key cannot be rotated and I have noted my DID and fingerprint
               somewhere I will not lose.
             </span>
@@ -804,14 +804,14 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
             </p>
           </div>
 
-          <div className="rounded-oc border border-green-200 bg-green-50 p-4 space-y-2">
+          <div className="rounded-oc border border-state-success-border bg-state-success-bg p-4 space-y-2">
             <h3 className="oc-card-label" style={{ color: "#2e7d32" }}>
               Profile Summary
             </h3>
-            <dl className="text-[0.78rem] text-green-700 space-y-1.5">
+            <dl className="text-body-xs text-state-success space-y-1.5">
               <div className="flex gap-2">
                 <dt className="font-medium w-24 flex-shrink-0">DID:</dt>
-                <dd className="font-mono text-[0.72rem] break-all">
+                <dd className="font-mono text-body-2xs break-all">
                   {method === "web" ? (exportedDid ?? didPreview) : didKeyDid}
                 </dd>
               </div>
@@ -827,7 +827,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
               </div>
               <div className="flex gap-2">
                 <dt className="font-medium w-24 flex-shrink-0">Fingerprint:</dt>
-                <dd className="font-mono text-[0.72rem]">{generatedKey.fingerprint}</dd>
+                <dd className="font-mono text-body-2xs">{generatedKey.fingerprint}</dd>
               </div>
               <div className="flex gap-2">
                 <dt className="font-medium w-24 flex-shrink-0">Source:</dt>

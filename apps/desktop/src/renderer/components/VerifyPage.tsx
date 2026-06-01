@@ -675,7 +675,7 @@ export function VerifyPage() {
           {credential && (
             <button
               onClick={handleClear}
-              className="rounded-md bg-gray-100 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-200"
+              className="rounded-md bg-surface-warm px-3 py-1.5 text-xs text-txt-muted hover:bg-gray-200"
             >
               Clear
             </button>
@@ -683,7 +683,7 @@ export function VerifyPage() {
         </div>
 
         {/* Mode selector tabs */}
-        <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
+        <div className="flex gap-1 rounded-lg bg-surface-warm p-1">
           {(
             [
               { key: "paste-json", label: "Paste JSON" },
@@ -697,8 +697,8 @@ export function VerifyPage() {
               onClick={() => setInputMode(key)}
               className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                 inputMode === key
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "bg-white text-txt-primary shadow-sm"
+                  : "text-txt-muted hover:text-txt-secondary"
               }`}
             >
               {label}
@@ -707,7 +707,7 @@ export function VerifyPage() {
         </div>
 
         {!credential && inputMode !== "scan-qr" && (
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-txt-muted">
             You can get this from the person or organization that issued the credential.
           </p>
         )}
@@ -730,13 +730,13 @@ export function VerifyPage() {
                 setChecks([]);
               }}
               placeholder="Paste credential JSON here, or drag a .json file onto this area"
-              className={`block w-full rounded-md border px-3 py-2 font-mono text-xs shadow-sm transition-colors duration-150 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
-                isDragOver ? "border-2 border-dashed border-blue-400 bg-blue-50" : "border-gray-300"
+              className={`block w-full rounded-md border px-3 py-2 font-mono text-xs shadow-sm transition-colors duration-150 focus:border-brand focus:ring-1 focus:ring-blue-500 ${
+                isDragOver ? "border-2 border-dashed border-blue-400 bg-brand-light" : "border-border"
               }`}
             />
             {isDragOver && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-blue-50/80">
-                <p className="text-sm font-medium text-blue-600">Drop credential file here</p>
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-brand-light/80">
+                <p className="text-sm font-medium text-brand">Drop credential file here</p>
               </div>
             )}
           </div>
@@ -746,14 +746,14 @@ export function VerifyPage() {
           <div className="space-y-3">
             <button
               onClick={() => void handleLoadFile()}
-              className="w-full rounded-md border-2 border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-500 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+              className="w-full rounded-md border-2 border-dashed border-border px-4 py-8 text-center text-sm text-txt-muted hover:border-blue-400 hover:bg-brand-light hover:text-brand transition-colors"
             >
               Click to select a credential file (.json) or QR code image (.png, .jpg)
             </button>
             {credential && (
-              <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
-                <p className="text-xs text-gray-500 mb-1">Loaded content:</p>
-                <pre className="max-h-32 overflow-auto text-xs font-mono text-gray-700">
+              <div className="rounded-md border border-border-light bg-surface-warm p-3">
+                <p className="text-xs text-txt-muted mb-1">Loaded content:</p>
+                <pre className="max-h-32 overflow-auto text-xs font-mono text-txt-secondary">
                   {credential.slice(0, 500)}
                   {credential.length > 500 ? "..." : ""}
                 </pre>
@@ -771,8 +771,8 @@ export function VerifyPage() {
               style={{ minHeight: scannerActive ? 300 : 0 }}
             />
             {cameraError && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2">
-                <p className="text-xs text-red-700">{cameraError}</p>
+              <div className="rounded-md border border-state-danger-border bg-state-danger-bg px-3 py-2">
+                <p className="text-xs text-state-danger">{cameraError}</p>
               </div>
             )}
             <div className="flex gap-2">
@@ -783,9 +783,9 @@ export function VerifyPage() {
               )}
             </div>
             {credential && (
-              <div className="rounded-md border border-green-200 bg-green-50 p-3">
-                <p className="text-xs text-green-700 mb-1">QR code decoded:</p>
-                <pre className="max-h-32 overflow-auto text-xs font-mono text-green-800">
+              <div className="rounded-md border border-state-success-border bg-state-success-bg p-3">
+                <p className="text-xs text-state-success mb-1">QR code decoded:</p>
+                <pre className="max-h-32 overflow-auto text-xs font-mono text-state-success">
                   {credential.slice(0, 500)}
                   {credential.length > 500 ? "..." : ""}
                 </pre>
@@ -805,7 +805,7 @@ export function VerifyPage() {
               setChecks([]);
             }}
             placeholder="Paste PixelPass QR data, a JWT (eyJ...), or an SD-JWT here"
-            className="block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            className="block w-full rounded-md border border-border px-3 py-2 font-mono text-xs shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
           />
         )}
 
@@ -818,10 +818,10 @@ export function VerifyPage() {
         <Card
           className={`space-y-3 ${
             status === "VALID"
-              ? "border-green-200 bg-green-50"
+              ? "border-state-success-border bg-state-success-bg"
               : status === "EXPIRED"
-                ? "border-amber-200 bg-amber-50"
-                : "border-red-200 bg-red-50"
+                ? "border-state-warning-border bg-state-warning-bg"
+                : "border-state-danger-border bg-state-danger-bg"
           }`}
         >
           <div className="flex items-center justify-between">
@@ -830,9 +830,9 @@ export function VerifyPage() {
               <p
                 className={`text-sm font-medium ${
                   status === "VALID"
-                    ? "text-green-800"
+                    ? "text-state-success"
                     : status === "EXPIRED"
-                      ? "text-amber-800"
+                      ? "text-state-warning"
                       : "text-red-800"
                 }`}
               >
@@ -845,7 +845,7 @@ export function VerifyPage() {
             </div>
             <button
               onClick={() => void handleDownloadReport()}
-              className="rounded-md bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-white hover:ring-gray-300 transition-colors"
+              className="rounded-md bg-white/80 px-3 py-1.5 text-xs font-medium text-txt-secondary shadow-sm ring-1 ring-gray-200 hover:bg-white hover:ring-gray-300 transition-colors"
             >
               Download Report
             </button>
@@ -853,16 +853,16 @@ export function VerifyPage() {
           <p
             className={`text-sm ${
               status === "VALID"
-                ? "text-green-700"
+                ? "text-state-success"
                 : status === "EXPIRED"
-                  ? "text-amber-700"
-                  : "text-red-700"
+                  ? "text-state-warning"
+                  : "text-state-danger"
             }`}
           >
             {message}
           </p>
           {status !== "VALID" && message && getErrorHint(message) && (
-            <p className="mt-1 text-xs text-gray-500">{getErrorHint(message)}</p>
+            <p className="mt-1 text-xs text-txt-muted">{getErrorHint(message)}</p>
           )}
         </Card>
       )}
@@ -878,9 +878,9 @@ export function VerifyPage() {
           const attribution = deriveAttributionBadge(checks);
           if (attribution.state === "unknown") return null;
           const palette = {
-            current: { border: "border-green-200", bg: "bg-green-50", text: "text-green-800" },
-            rotated: { border: "border-red-200", bg: "bg-red-50", text: "text-red-800" },
-            unknown: { border: "border-gray-200", bg: "bg-gray-50", text: "text-gray-700" },
+            current: { border: "border-state-success-border", bg: "bg-state-success-bg", text: "text-state-success" },
+            rotated: { border: "border-state-danger-border", bg: "bg-state-danger-bg", text: "text-red-800" },
+            unknown: { border: "border-border-light", bg: "bg-surface-warm", text: "text-txt-secondary" },
           }[attribution.state];
           const heading = {
             current: "Issuer key current",
@@ -909,28 +909,28 @@ export function VerifyPage() {
               // Advisory check failures render amber, not red — they
               // surface information but don't reject the credential.
               const failedPalette = isAdvisory
-                ? "border-amber-200 bg-amber-50"
-                : "border-red-200 bg-red-50";
-              const failedLabel = isAdvisory ? "text-amber-700" : "text-red-600";
+                ? "border-state-warning-border bg-state-warning-bg"
+                : "border-state-danger-border bg-state-danger-bg";
+              const failedLabel = isAdvisory ? "text-state-warning" : "text-state-danger";
               const failedText = isAdvisory ? "INFO" : "FAIL";
               return (
                 <div
                   key={i}
                   className={`flex items-start gap-3 rounded-md border px-3 py-2.5 ${
-                    check.passed ? "border-green-200 bg-green-50" : failedPalette
+                    check.passed ? "border-state-success-border bg-state-success-bg" : failedPalette
                   }`}
                 >
                   <span
                     className={`flex-shrink-0 mt-0.5 text-xs font-semibold ${
-                      check.passed ? "text-green-600" : failedLabel
+                      check.passed ? "text-state-success" : failedLabel
                     }`}
                   >
                     {check.passed ? "PASS" : failedText}
                   </span>
                   <div className="min-w-0">
-                    <span className="text-xs font-medium text-gray-700">{check.name}</span>
-                    {hint && <p className="mt-0.5 text-xs text-gray-400">{hint}</p>}
-                    {check.detail && <p className="mt-0.5 text-xs text-gray-500">{check.detail}</p>}
+                    <span className="text-xs font-medium text-txt-secondary">{check.name}</span>
+                    {hint && <p className="mt-0.5 text-xs text-txt-muted">{hint}</p>}
+                    {check.detail && <p className="mt-0.5 text-xs text-txt-muted">{check.detail}</p>}
                   </div>
                 </div>
               );
@@ -940,8 +940,8 @@ export function VerifyPage() {
       )}
 
       {isOffline && valid !== null && (
-        <Card className="border-amber-200 bg-amber-50">
-          <p className="text-xs text-amber-700">
+        <Card className="border-state-warning-border bg-state-warning-bg">
+          <p className="text-xs text-state-warning">
             You are offline. Only signature and date checks were performed. Revocation status could
             not be verified.
           </p>
@@ -956,15 +956,15 @@ export function VerifyPage() {
               <button
                 key={entry.id}
                 onClick={() => handleLoadFromHistory(entry)}
-                className="flex w-full items-center gap-3 rounded-md border border-gray-100 px-3 py-2 text-left transition-colors hover:bg-gray-50"
+                className="flex w-full items-center gap-3 rounded-md border border-border-light px-3 py-2 text-left transition-colors hover:bg-surface-warm"
               >
                 <span
-                  className={`flex-shrink-0 text-[0.6rem] font-mono font-semibold uppercase ${
+                  className={`flex-shrink-0 text-body-2xs font-mono font-semibold uppercase ${
                     entry.status === "VALID"
-                      ? "text-green-600"
+                      ? "text-state-success"
                       : entry.status === "EXPIRED"
                         ? "text-amber-600"
-                        : "text-red-600"
+                        : "text-state-danger"
                   }`}
                 >
                   {entry.status === "VALID"
@@ -973,10 +973,10 @@ export function VerifyPage() {
                       ? "EXPD"
                       : "INVLD"}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-xs text-gray-700">
+                <span className="min-w-0 flex-1 truncate text-xs text-txt-secondary">
                   {entry.issuer}
                 </span>
-                <span className="flex-shrink-0 text-[0.6rem] text-gray-400">
+                <span className="flex-shrink-0 text-body-2xs text-txt-muted">
                   {new Date(entry.timestamp).toLocaleTimeString(undefined, {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -985,7 +985,7 @@ export function VerifyPage() {
               </button>
             ))}
           </div>
-          <p className="text-[0.6rem] text-gray-400">
+          <p className="text-body-2xs text-txt-muted">
             Click to reload a credential. History is session-only and not persisted.
           </p>
         </Card>

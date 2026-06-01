@@ -237,9 +237,9 @@ export function RevocationPage() {
       </h3>
 
       {loading ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <p className="text-sm text-txt-muted">Loading…</p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-gray-400 italic">No revocations queued yet.</p>
+        <p className="text-sm text-txt-muted italic">No revocations queued yet.</p>
       ) : (
         <div
           style={{

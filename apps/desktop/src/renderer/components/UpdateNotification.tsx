@@ -60,27 +60,27 @@ export function UpdateNotification(): React.ReactElement | null {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-96 rounded-lg bg-white shadow-lg border border-gray-200 p-4">
+    <div className="fixed bottom-4 right-4 z-50 w-96 rounded-lg bg-white shadow-lg border border-border-light p-4">
       {/* Error state */}
       {status.error && (
         <div className="space-y-2">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2">
               <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
-              <span className="font-medium text-sm text-red-700">Update Error</span>
+              <span className="font-medium text-sm text-state-danger">Update Error</span>
             </div>
             <button
               onClick={handleDismiss}
-              className="text-gray-400 hover:text-gray-600 text-sm"
+              className="text-txt-muted hover:text-txt-secondary text-sm"
               aria-label="Dismiss"
             >
               X
             </button>
           </div>
-          <p className="text-sm text-red-600">{status.error}</p>
+          <p className="text-sm text-state-danger">{status.error}</p>
           <button
             onClick={handleCheckNow}
-            className="text-sm text-blue-600 hover:text-blue-800 underline"
+            className="text-sm text-brand hover:text-brand underline"
           >
             Retry
           </button>
@@ -93,29 +93,29 @@ export function UpdateNotification(): React.ReactElement | null {
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2">
               <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
-              <span className="font-medium text-sm text-gray-900">Update Ready</span>
+              <span className="font-medium text-sm text-txt-primary">Update Ready</span>
             </div>
             <button
               onClick={handleDismiss}
-              className="text-gray-400 hover:text-gray-600 text-sm"
+              className="text-txt-muted hover:text-txt-secondary text-sm"
               aria-label="Dismiss"
             >
               X
             </button>
           </div>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-txt-secondary">
             Version {status.version} has been downloaded and is ready to install.
           </p>
           <div className="flex gap-2">
             <button
               onClick={handleInstall}
-              className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+              className="rounded bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand"
             >
               Install & Restart
             </button>
             <button
               onClick={handleDismiss}
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded border border-border px-3 py-1.5 text-sm font-medium text-txt-secondary hover:bg-surface-warm"
             >
               Remind Me Later
             </button>
@@ -128,17 +128,17 @@ export function UpdateNotification(): React.ReactElement | null {
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <span className="inline-block h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-            <span className="font-medium text-sm text-gray-900">Downloading Update...</span>
+            <span className="font-medium text-sm text-txt-primary">Downloading Update...</span>
           </div>
           {status.progress && (
             <div className="space-y-1">
               <div className="h-2 w-full rounded-full bg-gray-200">
                 <div
-                  className="h-2 rounded-full bg-blue-600 transition-all duration-300"
+                  className="h-2 rounded-full bg-brand transition-all duration-300"
                   style={{ width: `${Math.min(status.progress.percent, 100)}%` }}
                 />
               </div>
-              <div className="flex justify-between text-xs text-gray-500">
+              <div className="flex justify-between text-xs text-txt-muted">
                 <span>{Math.round(status.progress.percent)}%</span>
                 <span>
                   {formatBytes(status.progress.transferred)} / {formatBytes(status.progress.total)}
@@ -155,32 +155,32 @@ export function UpdateNotification(): React.ReactElement | null {
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2">
               <span className="inline-block h-2 w-2 rounded-full bg-yellow-500" />
-              <span className="font-medium text-sm text-gray-900">Update Available</span>
+              <span className="font-medium text-sm text-txt-primary">Update Available</span>
             </div>
             <button
               onClick={handleDismiss}
-              className="text-gray-400 hover:text-gray-600 text-sm"
+              className="text-txt-muted hover:text-txt-secondary text-sm"
               aria-label="Dismiss"
             >
               X
             </button>
           </div>
-          <p className="text-sm text-gray-600">A new version ({status.version}) is available.</p>
+          <p className="text-sm text-txt-secondary">A new version ({status.version}) is available.</p>
           {status.releaseNotes && (
-            <p className="text-xs text-gray-500 max-h-20 overflow-y-auto whitespace-pre-wrap">
+            <p className="text-xs text-txt-muted max-h-20 overflow-y-auto whitespace-pre-wrap">
               {status.releaseNotes}
             </p>
           )}
           <div className="flex gap-2">
             <button
               onClick={handleDownload}
-              className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+              className="rounded bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand"
             >
               Download
             </button>
             <button
               onClick={handleDismiss}
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded border border-border px-3 py-1.5 text-sm font-medium text-txt-secondary hover:bg-surface-warm"
             >
               Remind Me Later
             </button>

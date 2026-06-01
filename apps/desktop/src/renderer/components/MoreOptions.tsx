@@ -121,12 +121,12 @@ export function MoreOptions({
         >
           {/* Proof Format */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Proof Format</label>
+            <label className="block text-xs font-medium text-txt-secondary mb-1">Proof Format</label>
             <select
               value={proofFormat}
               onChange={(e) => handleProofFormatChange(e.target.value as UiProofFormat)}
               disabled={disabled}
-              className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+              className="block w-full rounded-md border border-border bg-white px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
             >
               {(Object.keys(PROOF_FORMAT_LABELS) as UiProofFormat[]).map((fmt) => (
                 <option
@@ -141,27 +141,27 @@ export function MoreOptions({
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-gray-500">{PROOF_FORMAT_HINTS[proofFormat]}</p>
+            <p className="mt-1 text-xs text-txt-muted">{PROOF_FORMAT_HINTS[proofFormat]}</p>
           </div>
 
           {/* SD-JWT-VC selective disclosure toggles */}
           {proofFormat === "sd-jwt-vc" && subjectFieldNames.length > 0 && (
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
+              <label className="block text-xs font-medium text-txt-secondary mb-1">
                 Select fields the holder can selectively disclose
               </label>
               <div className="space-y-1">
                 {subjectFieldNames.map((fieldName) => (
                   <label
                     key={fieldName}
-                    className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer"
+                    className="flex items-center gap-2 text-xs text-txt-secondary cursor-pointer"
                   >
                     <input
                       type="checkbox"
                       checked={selectiveDisclosureClaims.includes(fieldName)}
                       onChange={() => toggleSdClaim(fieldName)}
                       disabled={disabled}
-                      className="rounded border-gray-300"
+                      className="rounded border-border"
                     />
                     {fieldName}
                   </label>
@@ -172,7 +172,7 @@ export function MoreOptions({
 
           {/* Revocation Registry URL */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">
+            <label className="block text-xs font-medium text-txt-secondary mb-1">
               Revocation Registry URL
             </label>
             <input
@@ -181,14 +181,14 @@ export function MoreOptions({
               onChange={(e) => onRevocationRegistryUrlChange(e.target.value)}
               placeholder="https://dedi.example/revocations/..."
               disabled={disabled}
-              className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+              className="block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
             />
-            {revocationError && <p className="mt-1 text-xs text-red-500">{revocationError}</p>}
+            {revocationError && <p className="mt-1 text-xs text-state-danger">{revocationError}</p>}
           </div>
 
           {/* Credential Schema URL */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">
+            <label className="block text-xs font-medium text-txt-secondary mb-1">
               Credential Schema URL
             </label>
             <input
@@ -197,9 +197,9 @@ export function MoreOptions({
               onChange={(e) => onCredentialSchemaUrlChange(e.target.value)}
               placeholder="https://example.com/schemas/education.json"
               disabled={disabled}
-              className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+              className="block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
             />
-            {schemaError && <p className="mt-1 text-xs text-red-500">{schemaError}</p>}
+            {schemaError && <p className="mt-1 text-xs text-state-danger">{schemaError}</p>}
           </div>
         </div>
       )}

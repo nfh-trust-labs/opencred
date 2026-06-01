@@ -10,12 +10,11 @@ import logoSrc from "../assets/logo.svg";
 
 interface Props {
   activeView: View;
-  isOffline: boolean;
   rotationOverdue?: boolean;
   onNavigate: (view: View) => void;
 }
 
-export function TopBar({ activeView, isOffline, rotationOverdue, onNavigate }: Props) {
+export function TopBar({ activeView, rotationOverdue, onNavigate }: Props) {
   const showBack = activeView !== "home";
 
   return (
@@ -182,15 +181,6 @@ export function TopBar({ activeView, isOffline, rotationOverdue, onNavigate }: P
             />
           )}
         </button>
-
-        {/* Status dot */}
-        <span
-          className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ml-1 ${
-            isOffline ? "bg-amber-500" : "bg-green-500"
-          }`}
-          title={isOffline ? "Offline" : "Connected"}
-          aria-hidden="true"
-        />
       </div>
     </div>
   );

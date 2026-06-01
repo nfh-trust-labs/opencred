@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { TemplateCard } from "./ui/TemplateCard";
+import { Spinner } from "./ui/Spinner";
 import { formatSchemaLabel } from "../utils/schema-label.js";
 
 // ---------------------------------------------------------------------------
@@ -86,7 +87,7 @@ export function HomeScreen({ onSelectTemplate }: Props) {
   }
 
   if (loading) {
-    return <p className="text-sm text-gray-400">Loading...</p>;
+    return <Spinner />;
   }
 
   return (
@@ -122,18 +123,18 @@ export function HomeScreen({ onSelectTemplate }: Props) {
                       if (e.key === "Escape") setRenamingSchemaId(null);
                     }}
                     autoFocus
-                    className="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    className="w-full rounded border border-border px-2 py-1 text-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
                   />
                   <div className="flex gap-2">
                     <button
                       onClick={() => void handleRenameSchema(cs.id, renameValue)}
-                      className="text-xs text-blue-600 hover:text-blue-800"
+                      className="text-xs text-brand hover:text-brand"
                     >
                       Save
                     </button>
                     <button
                       onClick={() => setRenamingSchemaId(null)}
-                      className="text-xs text-gray-400 hover:text-gray-600"
+                      className="text-xs text-txt-muted hover:text-txt-secondary"
                     >
                       Cancel
                     </button>
@@ -155,7 +156,7 @@ export function HomeScreen({ onSelectTemplate }: Props) {
                         setRenameValue(cs.name);
                       }}
                       title="Rename"
-                      className="p-1 rounded bg-white/80 text-gray-400 hover:text-blue-600 transition-colors"
+                      className="p-1 rounded bg-white/80 text-txt-muted hover:text-brand transition-colors"
                     >
                       <svg
                         width="12"
@@ -178,7 +179,7 @@ export function HomeScreen({ onSelectTemplate }: Props) {
                         void handleDeleteSchema(cs.id);
                       }}
                       title="Delete"
-                      className="p-1 rounded bg-white/80 text-gray-400 hover:text-red-500 transition-colors"
+                      className="p-1 rounded bg-white/80 text-txt-muted hover:text-state-danger transition-colors"
                     >
                       <svg
                         width="12"
@@ -207,10 +208,10 @@ export function HomeScreen({ onSelectTemplate }: Props) {
             onClick={() => onSelectTemplate("blank", true)}
           />
         </div>
-        <p className="mt-3 text-xs text-gray-500">
+        <p className="mt-3 text-xs text-txt-muted">
           Don't see what you need? Use the{" "}
           <button
-            className="text-blue-600 hover:text-blue-800 underline bg-transparent border-none cursor-pointer text-xs p-0"
+            className="text-brand hover:text-brand underline bg-transparent border-none cursor-pointer text-xs p-0"
             onClick={() => onSelectTemplate("blank", true)}
           >
             Blank Credential

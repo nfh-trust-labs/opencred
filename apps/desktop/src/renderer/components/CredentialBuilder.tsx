@@ -127,12 +127,12 @@ export function CredentialBuilder() {
       />
 
       {/* Issuer and subject configuration */}
-      <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-        <h2 className="text-sm font-medium text-gray-700">Issuance Settings</h2>
+      <div className="rounded-lg border border-border-light bg-white p-4 space-y-3">
+        <h2 className="text-sm font-medium text-txt-secondary">Issuance Settings</h2>
 
         <div>
-          <label htmlFor="issuer-did" className="block text-xs font-medium text-gray-600">
-            Issuer DID <span className="text-red-500">*</span>
+          <label htmlFor="issuer-did" className="block text-xs font-medium text-txt-secondary">
+            Issuer DID <span className="text-state-danger">*</span>
           </label>
           <input
             id="issuer-did"
@@ -141,12 +141,12 @@ export function CredentialBuilder() {
             onChange={(e) => setIssuerDid(e.target.value)}
             placeholder="did:web:example.com"
             disabled={signing}
-            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+            className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
           />
         </div>
 
         <div>
-          <label htmlFor="subject-did" className="block text-xs font-medium text-gray-600">
+          <label htmlFor="subject-did" className="block text-xs font-medium text-txt-secondary">
             Subject DID (optional)
           </label>
           <input
@@ -156,14 +156,14 @@ export function CredentialBuilder() {
             onChange={(e) => setSubjectDid(e.target.value)}
             placeholder="did:example:holder123"
             disabled={signing}
-            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+            className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
           />
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label htmlFor="valid-from" className="block text-xs font-medium text-gray-600">
-              Valid From <span className="text-red-500">*</span>
+            <label htmlFor="valid-from" className="block text-xs font-medium text-txt-secondary">
+              Valid From <span className="text-state-danger">*</span>
             </label>
             <input
               id="valid-from"
@@ -171,11 +171,11 @@ export function CredentialBuilder() {
               value={validFrom}
               onChange={(e) => setValidFrom(e.target.value)}
               disabled={signing}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+              className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
             />
           </div>
           <div>
-            <label htmlFor="valid-until" className="block text-xs font-medium text-gray-600">
+            <label htmlFor="valid-until" className="block text-xs font-medium text-txt-secondary">
               Valid Until (optional)
             </label>
             <input
@@ -184,13 +184,13 @@ export function CredentialBuilder() {
               value={validUntil}
               onChange={(e) => setValidUntil(e.target.value)}
               disabled={signing}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+              className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
             />
           </div>
         </div>
 
         <div>
-          <label htmlFor="revocation-url" className="block text-xs font-medium text-gray-600">
+          <label htmlFor="revocation-url" className="block text-xs font-medium text-txt-secondary">
             Revocation Registry URL (optional)
           </label>
           <input
@@ -200,17 +200,17 @@ export function CredentialBuilder() {
             onChange={(e) => setRevocationUrl(e.target.value)}
             placeholder="https://dedi.example/revocations/..."
             disabled={signing}
-            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+            className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
           />
         </div>
 
         {/* Signing key selection */}
         <div>
-          <label htmlFor="signing-key" className="block text-xs font-medium text-gray-600">
-            Signing Key <span className="text-red-500">*</span>
+          <label htmlFor="signing-key" className="block text-xs font-medium text-txt-secondary">
+            Signing Key <span className="text-state-danger">*</span>
           </label>
           {keys.length === 0 ? (
-            <p className="mt-1 text-xs text-gray-400 italic">
+            <p className="mt-1 text-xs text-txt-muted italic">
               No keys imported. Go to Key Management to import a key.
             </p>
           ) : (
@@ -219,7 +219,7 @@ export function CredentialBuilder() {
               value={selectedKeyId}
               onChange={(e) => setSelectedKeyId(e.target.value)}
               disabled={signing}
-              className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+              className="mt-1 block w-full rounded-md border border-border bg-white px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
             >
               {keys.map((key) => (
                 <option key={key.id} value={key.id} title={key.fingerprint}>
@@ -232,38 +232,38 @@ export function CredentialBuilder() {
       </div>
 
       {/* Build & Sign button */}
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <div className="rounded-lg border border-border-light bg-white p-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-medium text-gray-700">Build & Sign</h2>
-            <p className="text-xs text-gray-500">
+            <h2 className="text-sm font-medium text-txt-secondary">Build & Sign</h2>
+            <p className="text-xs text-txt-muted">
               Keys never leave this machine. Signing works offline.
             </p>
           </div>
           <button
             onClick={() => void handleBuildAndSign()}
             disabled={signing || !schemaId || !issuerDid || !selectedKeyId}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="rounded-md bg-brand px-4 py-2 text-sm text-white hover:bg-brand disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {signing ? "Signing..." : "Build & Sign Credential"}
           </button>
         </div>
 
-        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-        {result && <p className="mt-3 text-sm text-green-700">{result}</p>}
+        {error && <p className="mt-3 text-sm text-state-danger">{error}</p>}
+        {result && <p className="mt-3 text-sm text-state-success">{result}</p>}
 
         {signedCredential && (
           <div className="mt-4 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-600">Signed Credential</span>
+              <span className="text-xs font-medium text-txt-secondary">Signed Credential</span>
               <button
                 onClick={() => void handleExportJson()}
-                className="rounded-md bg-gray-100 px-3 py-1 text-xs text-gray-700 hover:bg-gray-200"
+                className="rounded-md bg-surface-warm px-3 py-1 text-xs text-txt-secondary hover:bg-gray-200"
               >
                 Export JSON-LD
               </button>
             </div>
-            <pre className="max-h-60 overflow-auto rounded-md bg-gray-50 border border-gray-200 p-3 font-mono text-xs text-gray-700">
+            <pre className="max-h-60 overflow-auto rounded-md bg-surface-warm border border-border-light p-3 font-mono text-xs text-txt-secondary">
               {JSON.stringify(JSON.parse(signedCredential), null, 2)}
             </pre>
           </div>

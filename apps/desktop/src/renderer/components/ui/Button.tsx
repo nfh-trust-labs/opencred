@@ -24,12 +24,12 @@ const VARIANT_CLASSES: Record<Variant, string> = {
   secondary:
     "bg-transparent text-txt-primary border border-border hover:bg-surface-warm focus:ring-brand-blue disabled:opacity-40 disabled:text-txt-muted",
   danger:
-    "bg-transparent text-red-700 border border-red-300 hover:bg-red-50 focus:ring-red-500 disabled:opacity-40",
+    "bg-transparent text-state-danger border border-red-300 hover:bg-state-danger-bg focus:ring-red-500 disabled:opacity-40",
 };
 
 const SIZE_CLASSES: Record<Size, string> = {
-  default: "px-6 py-2.5 text-[0.82rem]",
-  sm: "px-3.5 py-1.5 text-[0.72rem]",
+  default: "px-6 py-2.5 text-body-xs",
+  sm: "px-3.5 py-1.5 text-body-2xs",
 };
 
 export function Button({

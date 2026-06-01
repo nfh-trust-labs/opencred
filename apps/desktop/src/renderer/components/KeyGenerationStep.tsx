@@ -59,8 +59,8 @@ export function KeyGenerationStep({ onKeyGenerated, onBack }: KeyGenerationStepP
   return (
     <Card className="space-y-6">
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-gray-900">Generate Signing Key</h2>
-        <p className="text-sm text-gray-600">
+        <h2 className="text-lg font-semibold text-txt-primary">Generate Signing Key</h2>
+        <p className="text-sm text-txt-secondary">
           Generate an ECDSA P-256 keypair for signing credentials. The private key stays on this
           machine and is never transmitted.
         </p>
@@ -68,7 +68,7 @@ export function KeyGenerationStep({ onKeyGenerated, onBack }: KeyGenerationStepP
 
       {/* Label input */}
       <div>
-        <label htmlFor="key-label" className="block text-xs font-medium text-gray-600">
+        <label htmlFor="key-label" className="block text-xs font-medium text-txt-secondary">
           Key Label (optional)
         </label>
         <input
@@ -78,7 +78,7 @@ export function KeyGenerationStep({ onKeyGenerated, onBack }: KeyGenerationStepP
           onChange={(e) => setLabel(e.target.value)}
           placeholder="e.g. My Organization Signing Key"
           disabled={generating || generatedKey !== null}
-          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+          className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm disabled:text-txt-muted"
         />
       </div>
 
@@ -93,19 +93,19 @@ export function KeyGenerationStep({ onKeyGenerated, onBack }: KeyGenerationStepP
 
       {/* Error display */}
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3">
-          <p className="text-sm text-red-700">{error}</p>
+        <div className="rounded-md border border-state-danger-border bg-state-danger-bg p-3">
+          <p className="text-sm text-state-danger">{error}</p>
         </div>
       )}
 
       {/* Key info display (shown after generation) */}
       {generatedKey && (
-        <div className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-3">
+        <div className="rounded-lg border border-state-success-border bg-state-success-bg p-4 space-y-3">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-medium text-green-800">Key Generated</h3>
+            <h3 className="text-sm font-medium text-state-success">Key Generated</h3>
             <Badge variant="success">Ready</Badge>
           </div>
-          <dl className="text-xs text-green-700 space-y-2">
+          <dl className="text-xs text-state-success space-y-2">
             <div className="flex gap-2">
               <dt className="font-medium w-24 flex-shrink-0">DID:</dt>
               <dd className="font-mono break-all">{generatedKey.id}</dd>
