@@ -123,7 +123,9 @@ export function CredentialVerifier() {
             <div
               key={i}
               className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
-                check.passed ? "border-state-success-border bg-state-success-bg" : "border-state-danger-border bg-state-danger-bg"
+                check.passed
+                  ? "border-state-success-border bg-state-success-bg"
+                  : "border-state-danger-border bg-state-danger-bg"
               }`}
             >
               <span className={check.passed ? "text-state-success" : "text-state-danger"}>

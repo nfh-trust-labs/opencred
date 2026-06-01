@@ -450,7 +450,9 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
             <p>Algorithm: {connectedKey.algorithm}</p>
             {connectedKey.label && <p>Label: {connectedKey.label}</p>}
             <p>Fingerprint: {connectedKey.fingerprint.slice(0, 32)}...</p>
-            <p className="font-mono text-[10px] text-state-success break-all">ID: {connectedKey.id}</p>
+            <p className="font-mono text-[10px] text-state-success break-all">
+              ID: {connectedKey.id}
+            </p>
           </div>
           <p className="mt-2 text-state-success">
             This key is now available for credential signing. Select it from the key list when

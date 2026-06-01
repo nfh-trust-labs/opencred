@@ -427,7 +427,9 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
 
             <div className="rounded-oc border border-state-success-border bg-state-success-bg p-3 space-y-1">
               <p className="text-body-2xs font-medium text-state-success">Key Generated</p>
-              <p className="text-body-2xs text-state-success">Algorithm: {generatedKey.algorithm}</p>
+              <p className="text-body-2xs text-state-success">
+                Algorithm: {generatedKey.algorithm}
+              </p>
               <p className="text-body-2xs text-state-success">
                 Fingerprint: {generatedKey.fingerprint.slice(0, 32)}...
               </p>

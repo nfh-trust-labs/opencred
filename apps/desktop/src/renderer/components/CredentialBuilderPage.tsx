@@ -1552,7 +1552,9 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
                   </h3>
                   <p className="text-sm text-txt-secondary mb-5">
                     You are about to issue a{" "}
-                    <span className="font-medium text-txt-primary">{schemaName || "Credential"}</span>
+                    <span className="font-medium text-txt-primary">
+                      {schemaName || "Credential"}
+                    </span>
                     {(() => {
                       const firstValue = Object.values(subjectValues).find((v) => v.trim());
                       return firstValue ? (
