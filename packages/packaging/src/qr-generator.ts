@@ -54,17 +54,6 @@ export function decodeQrData(qrData: string): string {
  * Resolve the QR payload for either a JSON-LD credential (PixelPass
  * compress) or a compact JWT/SD-JWT token (embed verbatim — already
  * compact, and verifiers expect the raw token).
- *
- * Embedding a compact token verbatim is intentional:
- *
- *   1. JWTs are already base64url-encoded and small (a few hundred bytes
- *      for typical bootcamp credentials), so PixelPass compression
- *      doesn't help and would force scanners to decompress before
- *      verifying.
- *   2. The QR scanner side calls into the verification engine, which
- *      auto-detects compact-JWT input via `detectCredentialInputFormat`
- *      and runs a real cryptographic check. Wrapping the JWT in another
- *      envelope would break that path.
  */
 function resolveQrPayload(input: CredentialInput): string {
   switch (input.kind) {
@@ -93,11 +82,6 @@ function qrCapacityError(input: CredentialInput, err: unknown): string {
 /**
  * Generate a QR code from a credential as a PNG data URL.
  *
- * Accepts a discriminated `CredentialInput` — `{ kind: "vc", credential }`
- * for a JSON-LD VerifiableCredential (compressed via PixelPass) or
- * `{ kind: "compact-token", token }` for a compact JWT/SD-JWT token
- * (embedded verbatim).
- *
  * @returns A PNG data URL (base64-encoded).
  * @throws {ValidationError} if the data still exceeds QR capacity.
  */
@@ -119,11 +103,6 @@ export async function generateQrPng(input: CredentialInput): Promise<string> {
 /**
  * Generate a QR code from a credential as an SVG string.
  *
- * Accepts a discriminated `CredentialInput` — `{ kind: "vc", credential }`
- * for a JSON-LD VerifiableCredential (compressed via PixelPass) or
- * `{ kind: "compact-token", token }` for a compact JWT/SD-JWT token
- * (embedded verbatim).
- *
  * @returns An SVG string.
  * @throws {ValidationError} if the data still exceeds QR capacity.
  */
@@ -144,11 +123,6 @@ export async function generateQrSvg(input: CredentialInput): Promise<string> {
 
 /**
  * Generate a QR code from a credential as a PNG Buffer.
- *
- * Accepts a discriminated `CredentialInput` — `{ kind: "vc", credential }`
- * for a JSON-LD VerifiableCredential (compressed via PixelPass) or
- * `{ kind: "compact-token", token }` for a compact JWT/SD-JWT token
- * (embedded verbatim).
  *
  * @returns A PNG Buffer.
  * @throws {ValidationError} if the data still exceeds QR capacity.

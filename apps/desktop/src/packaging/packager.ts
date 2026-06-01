@@ -7,12 +7,11 @@
  */
 
 import type { VerifiableCredential } from "@opencred/vc-core";
-import { generateQrPng, generateQrSvg } from "./qr-generator.js";
+import { generateQrPng, generateQrSvg, generatePdf } from "@opencred/packaging";
+import type { PdfOptions } from "@opencred/packaging";
 
 // Re-export for use by verification and other consumers
-export { decodeQrData } from "./qr-generator.js";
-import { generatePdf } from "./pdf-generator.js";
-import type { PdfOptions } from "./pdf-generator.js";
+export { decodeQrData } from "@opencred/packaging";
 import { exportAsJson, exportAsCompactJson } from "./json-export.js";
 
 /**
@@ -78,7 +77,7 @@ export async function packageCredential(
     try {
       switch (format) {
         case "qr-png": {
-          const dataUrl = await generateQrPng(credential);
+          const dataUrl = await generateQrPng({ kind: "vc", credential });
           outputs.push({
             format: "qr-png",
             data: dataUrl,
@@ -88,7 +87,7 @@ export async function packageCredential(
           break;
         }
         case "qr-svg": {
-          const svg = await generateQrSvg(credential);
+          const svg = await generateQrSvg({ kind: "vc", credential });
           outputs.push({
             format: "qr-svg",
             data: svg,

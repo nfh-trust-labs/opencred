@@ -341,7 +341,7 @@ describe("POST /credentials/verify", () => {
     expect(issueRes.status).toBe(200);
     const issued = (await issueRes.json()) as { credential: Record<string, unknown> };
 
-    const { compressCredentialForQr } = await import("../packaging/qr-generator.js");
+    const { compressCredentialForQr } = await import("@opencred/packaging");
     const compressed = compressCredentialForQr(
       issued.credential as unknown as Parameters<typeof compressCredentialForQr>[0],
     );

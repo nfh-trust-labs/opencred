@@ -18,14 +18,14 @@
  */
 
 import type { TemplateCustomization } from "@opencred/templates";
-import { generateQrPng, generateQrSvg } from "./qr-generator.js";
+import { generateQrPng, generateQrSvg, generatePdf } from "@opencred/packaging";
 
 // Re-export for use by verification and other consumers
-export { decodeQrData } from "./qr-generator.js";
-import { generatePdf } from "./pdf-generator.js";
+export { decodeQrData } from "@opencred/packaging";
 import { exportAsJson, exportAsCompactJson } from "./json-export.js";
 import { decodeCompactCredentialForDisplay } from "./decode-for-display.js";
 import type { CredentialInput, PartialVerifiableCredential } from "./types.js";
+import { getLogger } from "../logger.js";
 
 // Re-export so downstream consumers (routes, tests) don't have to import
 // from two different paths.
@@ -197,6 +197,7 @@ export async function packageCredential(
           const pdfBuffer = await generatePdf(displayCredential, {
             customization: options?.customization,
             qrPayloadOverride: compactToken,
+            logger: getLogger(),
           });
           outputs.push({
             format: "pdf",

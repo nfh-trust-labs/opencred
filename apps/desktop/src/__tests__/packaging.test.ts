@@ -18,8 +18,8 @@ import {
   generateQrBuffer,
   compressCredentialForQr,
   decodeQrData,
-} from "../packaging/qr-generator";
-import { generatePdf } from "../packaging/pdf-generator";
+  generatePdf,
+} from "@opencred/packaging";
 import { exportAsJson, exportAsCompactJson, parseCredentialJson } from "../packaging/json-export";
 import { packageCredential } from "../packaging/packager";
 import type { VerifiableCredential } from "@opencred/vc-core";
@@ -64,7 +64,7 @@ afterAll(() => {
 
 describe("QR Generator", () => {
   it("should generate a PNG data URL from a credential", async () => {
-    const dataUrl = await generateQrPng(testCredential);
+    const dataUrl = await generateQrPng({ kind: "vc", credential: testCredential });
 
     expect(dataUrl).toMatch(/^data:image\/png;base64,/);
     // Should be a non-trivial length (actual QR code data)
@@ -72,14 +72,14 @@ describe("QR Generator", () => {
   });
 
   it("should generate an SVG string from a credential", async () => {
-    const svg = await generateQrSvg(testCredential);
+    const svg = await generateQrSvg({ kind: "vc", credential: testCredential });
 
     expect(svg).toContain("<svg");
     expect(svg).toContain("</svg>");
   });
 
   it("should generate a PNG buffer from a credential", async () => {
-    const buffer = await generateQrBuffer(testCredential);
+    const buffer = await generateQrBuffer({ kind: "vc", credential: testCredential });
 
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.length).toBeGreaterThan(0);
@@ -102,7 +102,7 @@ describe("QR Generator", () => {
       },
     };
 
-    const dataUrl = await generateQrPng(largeCredential);
+    const dataUrl = await generateQrPng({ kind: "vc", credential: largeCredential });
     expect(dataUrl).toMatch(/^data:image\/png;base64,/);
   });
 

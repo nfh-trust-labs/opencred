@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { detectCredentialInputFormat, decodePixelPass } from "@opencred/shared";
-import { compressCredentialForQr, decodeQrData } from "../packaging/qr-generator";
+import { compressCredentialForQr, decodeQrData } from "@opencred/packaging";
 import type { VerifiableCredential } from "@opencred/vc-core";
 
 /**

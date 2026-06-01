@@ -13,3 +13,6 @@ packages/vc-core/src/contexts/external/
 # Auto-generated SVG and JSON-LD context bundles
 packages/templates/src/svg-data.ts
 packages/vc-core/src/context-data.ts
+
+# Auto-generated embedded fonts
+packages/packaging/src/font-data.ts
