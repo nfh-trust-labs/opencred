@@ -238,7 +238,7 @@ describe("runAutoPublishIfEnabled — did:key success path", () => {
 describe("runAutoPublishIfEnabled — did:web success path", () => {
   it("publishes did:web as a KeyRecord (no publishDidDocument when HOST_DID_DOC=false)", async () => {
     const { client, publishKeyCalls, publishDidDocumentCalls } = makeDeDiClient({
-      publishKey: async (key) => ({
+      publishKey: async (_key) => ({
         published: true,
         recordName: "did-web-bootcamp-example-org",
         namespace: "test-ns",
@@ -276,7 +276,7 @@ describe("runAutoPublishIfEnabled — did:web success path", () => {
     // Regression guard: HOST_DID_DOC=true + method=web must both call
     // publishKey AND publishDidDocument with a generated did.json.
     const { client, publishKeyCalls, publishDidDocumentCalls } = makeDeDiClient({
-      publishKey: async (key) => ({
+      publishKey: async (_key) => ({
         published: true,
         recordName: "did-web-issuer-example-org",
         namespace: "test-ns",
