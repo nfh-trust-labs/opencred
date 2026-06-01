@@ -74,3 +74,9 @@ CVE-2025-61723
 CVE-2025-61724
 CVE-2025-61725
 CVE-2025-61727
+
+# 2026-06-01 Go stdlib disclosure (esbuild prebuilt Go binary, same
+# justification — not reachable from Node app code).
+CVE-2026-39823
+CVE-2026-39825
+CVE-2026-39826
