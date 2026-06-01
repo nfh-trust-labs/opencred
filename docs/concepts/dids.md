@@ -146,7 +146,9 @@ The `rotated` status is **advisory**:
 
 ### did:web key rotation
 
-`did:web` issuers rotate keys via **`POST /v1/keys/rotate`** without changing the DID. The new key is published to the `opencred-key-registry` as `active`; the prior key is flipped to `rotated` and kept in the regenerated `did.json` so already-issued credentials continue to verify. The DID itself stays stable across rotations — that stability is the whole point of paying for did:web hosting.
+`did:web` issuers rotate keys via **`POST /v1/keys/rotate`** without changing the DID. The new key is published to the `opencred-key-registry` as `active`; the prior key is flipped to `rotated` and kept in the regenerated `did.json`. The DID itself stays stable across rotations — that stability is the whole point of paying for did:web hosting.
+
+> **Known limitation ([#653](https://github.com/nfh-trust-labs/opencred/issues/653)):** Because all did:web keys currently share the `#key-0` verification-method fragment, the rotated key and the new key collide on that identifier. Credentials signed under the previous did:web key will **not** verify after rotation. The multi-key `did.json` and `rotated` status are correctly implemented in DeDi; the missing piece is per-rotation key fragments. This limitation does not affect did:key issuers.
 
 ```
 Operator: swap OPENCRED_KEY_PATH, restart container, then:
@@ -166,7 +168,7 @@ Operator: swap OPENCRED_KEY_PATH, restart container, then:
       didDocumentStored: true }
 ```
 
-**Verifier impact**: none. Credentials signed under any prior (now-rotated) key still verify — the key record is retained in DeDi with `status: "rotated"`, and the rotated key stays in `verificationMethod[]` in the `did.json`. DeDi-aware verifiers surface a `keyRotation` advisory check (headline `valid` is unchanged).
+**Verifier impact (did:key)**: none. Credentials signed under any prior (now-rotated) did:key still verify — the old DID is self-describing and the key record is retained in DeDi with `status: "rotated"`. DeDi-aware verifiers surface a `keyRotation` advisory check (headline `valid` is unchanged). **For did:web**: see the limitation note above (#653) — credentials signed under a rotated did:web key do **not** verify today due to the `#key-0` fragment collision.
 
 **`markDIDRotated` semantic split (since #627)**: the desktop-side `markDIDRotated` hook (used by the desktop's key-generate path) is now did:key-only. For did:web, it logs a warn and no-ops at the record level; rotation is the `/v1/keys/rotate` endpoint's job.
 
@@ -201,22 +203,24 @@ A per-credential revocation registry (`vc-revocation-registry`) also lives in th
 generate
    │
    ▼
-[active] ──── rotate (clean) ──────► [rotated]   ← kept in did.json; credentials remain VALID
+[active] ──── rotate (clean) ──────► [rotated]   ← kept in did.json; credentials remain VALID (did:key / did:web: see limitation note below)
    │
    └──── revoke (compromised) ──────► [revoked]   ← removed from did.json; ALL credentials REJECTED
 ```
 
 - **`active`** — the key is currently in use for signing. Any signature it produces is valid.
-- **`rotated`** — the key was cleanly retired. The issuer generated a new key; no compromise occurred. Credentials signed by a rotated key remain **cryptographically valid and are accepted** by verifiers. The rotated key stays in the `did.json` (`verificationMethod[]`) so standard verifiers can still verify those credentials. The key record is kept in DeDi forever.
+- **`rotated`** — the key was cleanly retired. The issuer generated a new key; no compromise occurred. For **`did:key`**: credentials signed by a rotated key remain **cryptographically valid and are accepted** by verifiers, because each new did:key produces an entirely new DID — the old self-describing DID still resolves the old key. For **`did:web`**: see the known-limitation note below (#653) — clean rotation that retains verifiability of old credentials is not yet delivered. The key record is kept in DeDi forever.
 - **`revoked`** — the key was compromised. Every signature it ever produced is now untrustworthy (an attacker could back-date forgeries). Verifiers reject **all** credentials signed by a revoked key with a top-level `REVOKED` outcome. The key is removed from the `did.json`.
 
 **Why no timestamps or validity windows?** The two statuses make them unnecessary. For a `rotated` key, every signature is legitimate (there is no forgery to time-bound). For a `revoked` key, no signature can be trusted regardless of date (an attacker can back-date). A validity window would add nothing in either case — and DeDi's native model makes the right call: revocation is the strictly better tool for key compromise.
 
+> **Known limitation — did:web clean rotation ([#653](https://github.com/nfh-trust-labs/opencred/issues/653)):** Today, every did:web credential pins the signing key to the verification method `${did}#key-0` (via `deriveVerificationMethod` on the desktop and `didWebVerificationMethodId` on the server). When a did:web key is rotated, the new key takes the same `#key-0` fragment — the old and new key collide on that identifier. As a result, credentials signed under the previous did:web key will **not** verify after rotation; standard resolvers can no longer distinguish the two keys. The `rotated` status and multi-key `did.json` assembly described above are fully implemented and correct for **did:key** (where each new key is a new DID). For did:web, the clean-rotation guarantee is deferred to issue #653, which will introduce per-key fragment IDs (`#key-1`, `#key-2`, …) so old and new keys can coexist in the `did.json`. Until then, did:web operators should use **key revocation** (not rotation) when replacing a key, and accept that verifiers will reject credentials signed under the old key.
+
 ### did.json and the two-path model
 
-The `did-documents` registry holds the assembled DID document. Its purpose is to let standard W3C `did:web` resolvers (those without DeDi awareness) still verify credentials after key rotation. The rules:
+The `did-documents` registry holds the assembled DID document. Its purpose is to let standard W3C `did:web` resolvers (those without DeDi awareness) verify credentials after key rotation — once #653 resolves the `#key-0` fragment collision so that rotated and active keys can coexist in the document. The rules (as designed; see limitation note above):
 
-- **Rotated keys** stay in `verificationMethod[]`. Credentials they signed still need to resolve.
+- **Rotated keys** stay in `verificationMethod[]` (intended so credentials they signed can still resolve — blocked by #653 today).
 - **Revoked keys** are dropped. Nothing they signed should be accepted.
 - **Active key** is always listed first.
 
@@ -252,7 +256,7 @@ Verification outcomes at T5:
 
 | Credential | Key looked up | Status | Outcome |
 |---|---|---|---|
-| **D1** (signed by `#registrar-2024`, issued T1) | `registrar-2024` | `rotated` | **VALID** — clean rotation, no forgery possible |
+| **D1** (signed by `#registrar-2024`, issued T1) | `registrar-2024` | `rotated` | **VALID** (DeDi record confirms clean rotation) — but note: standard verifiers resolving the did:web `did.json` will **not** find `#registrar-2024` after rotation today due to the `#key-0` fragment collision ([#653](https://github.com/nfh-trust-labs/opencred/issues/653)) |
 | **I1** (signed by `#campus-2024`, issued T1) | `campus-2024` | `revoked` | **REVOKED** — compromised key; nothing it signed can be trusted |
 | **D2** (signed by `#registrar-2025`, issued T2) | `registrar-2025` | `active` | **VALID** |
 | **C1** (signed by DID-B `#key-1`, issued T3) | `did-web-riverside-edu-conted--key-1` | `active` | **VALID** |
