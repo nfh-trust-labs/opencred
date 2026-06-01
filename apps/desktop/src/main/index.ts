@@ -74,6 +74,13 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     title: "OpenCred",
+    // On macOS, hide the native title bar and let the renderer's `.oc-topbar`
+    // act as the draggable title bar, with the traffic lights overlaid
+    // top-left. This removes the double-chrome of a native bar stacked over
+    // the custom one. Windows/Linux keep their standard frame.
+    ...(process.platform === "darwin"
+      ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 14, y: 15 } }
+      : {}),
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,

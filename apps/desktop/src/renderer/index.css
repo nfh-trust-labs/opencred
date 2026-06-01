@@ -3,6 +3,58 @@
 @tailwind utilities;
 
 /* ---------------------------------------------------------------------------
+ * Bundled brand fonts (vendored woff2, OFL — see assets/fonts/*-OFL.txt).
+ *
+ * These MUST be bundled: the production CSP is `font-src 'self'`, so remote
+ * font fetches are blocked. Vite fingerprints these relative URLs at build,
+ * which keeps them same-origin. Without this block the type system falls
+ * back to Georgia / system-sans and the editorial design does not render.
+ * --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/geist-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/geist-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./assets/fonts/geist-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/instrument-serif-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/ibm-plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/ibm-plex-mono-500.woff2") format("woff2");
+}
+
+/* ---------------------------------------------------------------------------
  * OpenCred Design Tokens — Editorial Refined
  *
  * Adapted from opencred.global for desktop: 4px radius, blue card accents,
@@ -405,30 +457,6 @@
   }
 }
 
-  /* More Options — collapsible section trigger (Google-style) */
-  .oc-more-options-trigger {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-family: var(--oc-font-body);
-    font-size: 0.76rem;
-    font-weight: 500;
-    color: var(--oc-text-secondary);
-    padding: 8px 0;
-  }
-  .oc-more-options-trigger:hover {
-    color: var(--oc-blue);
-  }
-  .oc-more-options-chevron {
-    transition: transform 0.2s ease;
-  }
-  .oc-more-options-chevron.open {
-    transform: rotate(180deg);
-  }
-
 /* ---------------------------------------------------------------------------
  * More Options — collapsible section trigger (Google-style)
  * --------------------------------------------------------------------------- */
@@ -457,30 +485,19 @@
 }
 
 /* ---------------------------------------------------------------------------
- * More Options — collapsible section trigger (Google-style)
+ * macOS — hiddenInset title bar
+ *
+ * The native title bar is hidden in the main process; the top bar IS the
+ * title bar. Reserve room on the left for the overlaid traffic lights so the
+ * logo / nav don't sit underneath them. `.platform-darwin` is set on <html>
+ * in main.tsx. Other platforms keep the native frame and need no offset.
  * --------------------------------------------------------------------------- */
 
-.oc-more-options-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-family: var(--oc-font-body);
-  font-size: 0.76rem;
-  font-weight: 500;
-  color: var(--oc-text-secondary);
-  padding: 8px 0;
+.platform-darwin .oc-topbar {
+  padding-left: 82px;
 }
-.oc-more-options-trigger:hover {
-  color: var(--oc-blue);
-}
-.oc-more-options-chevron {
-  transition: transform 0.2s ease;
-}
-.oc-more-options-chevron.open {
-  transform: rotate(180deg);
+.platform-darwin .oc-titlebar {
+  padding-left: 82px;
 }
 
 /* ---------------------------------------------------------------------------
