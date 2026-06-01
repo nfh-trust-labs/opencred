@@ -9,16 +9,22 @@ export { DeDiClientError } from "@opencred/shared";
 export type {
   DeDiClientConfig,
   RevocationHashRecord,
-  DIDRecord,
+  KeyRecord,
+  KeyStatus,
+  DidDocumentRecord,
+  SetKeyStatusResult,
   SchemaRecord,
   ContextRecord,
   PublishResult,
 } from "./adapter/types.js";
 export {
   REVOCATION_REGISTRY,
-  PUBLIC_KEY_REGISTRY,
+  OPENCRED_KEY_REGISTRY,
+  DID_DOCUMENTS_REGISTRY,
   SCHEMA_REGISTRY,
   CONTEXT_REGISTRY,
+  didToRecordName,
+  verificationMethodToRecordName,
 } from "./adapter/registry-names.js";
 
 // Publishing orchestrator

@@ -387,16 +387,20 @@ export async function checkBitstringStatusList(
 export { validateStatusListUrl as _validateStatusListUrl, MAX_COMPRESSED_SIZE };
 
 // ---------------------------------------------------------------------------
-// Key rotation check (did:key adoption)
+// Key-status check (per-key registry: active / rotated / revoked)
 // ---------------------------------------------------------------------------
 //
-// This check is advisory — it appears in `checks[]` so verifier UIs can
-// distinguish "cryptographically valid" from "still in active use", but it
-// does NOT flip the headline `verified` boolean. The signature on a
-// credential signed under a now-rotated key is still mathematically valid;
-// the flag just lets verifier policy decide whether to require a current
-// key. There is no separate issuer-attribution check: the bare DID is the
-// attribution, and the verifier UI surfaces it directly to the user.
+// This check CAN flip the headline result. A signing key whose
+// `opencred-key-registry` status is `revoked` means every credential it
+// signed is rejected (top-level `REVOKED`) — a compromised key's signatures
+// can't be trusted regardless of when they were produced. `active` and
+// `rotated` both pass: a clean rotation leaves old credentials valid (there
+// is nothing to invalidate). When the key's namespace can't be determined
+// (a did:key credential with no `credentialStatus`), or DeDi has no record /
+// is unreachable, the check degrades to a non-failing "not checked" — the
+// credential stays VALID on the strength of its signature. There is no
+// separate issuer-attribution check: the bare DID is the attribution, and
+// the verifier UI surfaces it directly to the user.
 
 /** Extract a string issuer DID from a credential's `issuer` field. */
 function extractIssuerDid(credential: unknown): string | undefined {
@@ -411,64 +415,147 @@ function extractIssuerDid(credential: unknown): string | undefined {
 }
 
 /**
- * Check whether the credential's issuer key has been rotated.
+ * Extract the signing key's verification method (the precise key id) from a
+ * credential.
  *
- * Only meaningful for did:key issuers with DeDi configured — did:web
- * handles rotation natively (the domain serves a new document), and
- * non-DID issuers have no rotation concept. For those cases this check
- * is a no-op pass so it never blocks a credential the concept doesn't
- * apply to.
- *
- * When DeDi reports `keyStatus: "rotated"`, this check fails so the
- * verifier UI can surface a "key rotated" badge. The headline `verified`
- * boolean stays driven by the signature check — the credential is still
- * cryptographically valid against the rotated key — but verifier policy
- * can treat rotation as a reason to reject.
- *
- * Degrades to pass on DeDi unreachability so a DeDi outage doesn't block
- * verification.
+ * Prefers the embedded proof's `verificationMethod` — present on
+ * Data-Integrity and JWS-proof credentials, and the most reliable answer
+ * because it names the exact key that signed *this* credential. Falls back
+ * to deriving the conventional did:key verification method from the issuer
+ * DID (the fragment equals the method-specific id) for credentials whose
+ * proof we don't have in object form.
  */
-export async function checkKeyRotation(
+function extractVerificationMethod(credential: unknown, issuerDid?: string): string | undefined {
+  if (typeof credential === "object" && credential !== null) {
+    const proof = (credential as Record<string, unknown>)["proof"];
+    const proofObj = Array.isArray(proof) ? proof[0] : proof;
+    if (proofObj != null && typeof proofObj === "object") {
+      const vm = (proofObj as Record<string, unknown>)["verificationMethod"];
+      if (typeof vm === "string" && vm.length > 0) return vm;
+    }
+  }
+  if (issuerDid && issuerDid.startsWith("did:key:")) {
+    const methodSpecificId = issuerDid.slice("did:key:".length);
+    return `${issuerDid}#${methodSpecificId}`;
+  }
+  return undefined;
+}
+
+/**
+ * Derive the DeDi namespace (the issuer's verified domain) for a key lookup,
+ * so a verifier never needs to be pre-wired with the issuer's namespace.
+ *
+ * - **did:web** — the verified domain is the DID itself: `did:web:acme.com`
+ *   → `acme.com`, `did:web:acme.com:eu:issuers` → `acme.com`.
+ * - **otherwise** (did:key etc.) — the namespace travels in
+ *   `credentialStatus.id`, whose path is
+ *   `…/dedi/lookup/{namespace}/vc-revocation-registry/{hash}`.
+ *
+ * Returns `undefined` when no namespace can be determined — the caller then
+ * degrades the key-status check to "not checked" rather than failing.
+ */
+function deriveKeyNamespace(credential: unknown, issuerDid?: string): string | undefined {
+  if (issuerDid && issuerDid.startsWith("did:web:")) {
+    const rest = issuerDid.slice("did:web:".length);
+    const host = rest.split(":")[0]?.replace(/%3A/gi, ":");
+    if (host) return host;
+  }
+  return extractNamespaceFromStatusId(credential);
+}
+
+/** Pull the `{namespace}` segment out of a `credentialStatus.id` lookup URL. */
+function extractNamespaceFromStatusId(credential: unknown): string | undefined {
+  if (typeof credential !== "object" || credential === null) return undefined;
+  const status = (credential as Record<string, unknown>)["credentialStatus"];
+  if (typeof status !== "object" || status === null) return undefined;
+  const rawId = (status as Record<string, unknown>)["id"];
+  if (typeof rawId !== "string" || rawId.length === 0) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(rawId);
+  } catch {
+    return undefined;
+  }
+  const segments = parsed.pathname.split("/").filter((s) => s.length > 0);
+  const lookupIdx = segments.indexOf("lookup");
+  if (lookupIdx >= 0 && lookupIdx + 1 < segments.length) {
+    return segments[lookupIdx + 1];
+  }
+  return undefined;
+}
+
+/**
+ * Check the signing key's lifecycle status in the `opencred-key-registry`.
+ *
+ * - `revoked` → **fail** (`passed: false`); the verifier maps this to a
+ *   top-level `REVOKED`. The credential is rejected because a revoked key
+ *   may be compromised.
+ * - `rotated` / `active` → pass. A rotated key is a *clean* retirement, so
+ *   credentials signed by it remain valid.
+ * - no namespace / no record (404) / DeDi outage → pass with a "not checked"
+ *   detail. The credential stays VALID; key status is simply not consulted.
+ *
+ * Applies to all DID methods. Requires a configured `dediClient`; with no
+ * client the check is a silent pass (status can't be consulted).
+ */
+export async function checkKeyStatus(
   credential: unknown,
   dediClient?: DeDiClient,
 ): Promise<VerificationCheck> {
-  const did = extractIssuerDid(credential);
-  if (!did || !did.startsWith("did:key:") || !dediClient) {
-    return { name: "keyRotation", passed: true };
+  if (!dediClient) {
+    return { name: "keyStatus", passed: true };
   }
+  const issuerDid = extractIssuerDid(credential);
+  const verificationMethod = extractVerificationMethod(credential, issuerDid);
+  if (!verificationMethod) {
+    return {
+      name: "keyStatus",
+      passed: true,
+      detail: "Key status not checked: no verification method on the credential",
+    };
+  }
+  const namespace = deriveKeyNamespace(credential, issuerDid);
   try {
-    const record = await dediClient.resolveDID(did);
-    if (record.keyStatus === "rotated") {
+    const record = await dediClient.resolveKey(verificationMethod, namespace);
+    if (record.status === "revoked") {
       return {
-        name: "keyRotation",
+        name: "keyStatus",
         passed: false,
         detail:
-          "Issuer key has been rotated. Credential is still cryptographically valid but the issuer is now using a new key.",
+          "Signing key has been revoked. The credential is rejected because a revoked key may be compromised.",
       };
     }
-    return { name: "keyRotation", passed: true };
+    if (record.status === "rotated") {
+      return {
+        name: "keyStatus",
+        passed: true,
+        detail: "Signing key was cleanly rotated; the credential remains valid.",
+      };
+    }
+    return { name: "keyStatus", passed: true };
   } catch (err) {
-    // Same defensive degrade as revocation: don't fail verification just
-    // because DeDi is down. The verifier UI can surface "unknown rotation
-    // status" if it cares.
-    //
-    // Branch on DeDiClientError.statusCode (404 = no record published for
-    // this DID) rather than substring-matching the message. The real client
-    // throws messages like "DeDi API error: 404" with no "not found"
-    // substring, so the old toLowerCase().includes check was silently
-    // mis-routing 404s into the "outage" branch.
-    const is404 = err instanceof DeDiClientError && err.statusCode === 404;
-    if (is404) {
-      // No record means no rotation info; treat as "no rotation".
-      return { name: "keyRotation", passed: true };
+    // Defensive degrade — never fail verification because DeDi couldn't
+    // answer. 404 = no record for this key; 400 = no namespace determinable
+    // (resolveNamespace threw); anything else = transient outage. All stay
+    // VALID with a "not checked / unknown" note.
+    const code = err instanceof DeDiClientError ? err.statusCode : 0;
+    if (code === 404) {
+      return {
+        name: "keyStatus",
+        passed: true,
+        detail: "Key status not checked: no registry record for this key",
+      };
+    }
+    if (code === 400) {
+      return {
+        name: "keyStatus",
+        passed: true,
+        detail: "Key status not checked: issuer namespace could not be determined",
+      };
     }
     const message =
-      err instanceof Error && err.message ? err.message : "DeDi rotation lookup failed";
-    return {
-      name: "keyRotation",
-      passed: true,
-      detail: `Rotation status unknown: ${message}`,
-    };
+      err instanceof Error && err.message ? err.message : "DeDi key-status lookup failed";
+    return { name: "keyStatus", passed: true, detail: `Key status unknown: ${message}` };
   }
 }
 
@@ -476,23 +563,22 @@ export async function checkKeyRotation(
 // Registry anchor check (CORD-via-DeDi advisory)
 // ---------------------------------------------------------------------------
 //
-// Advisory: surfaces the DeDi `proof` block returned alongside the DID record
+// Advisory: surfaces the DeDi `proof` block returned alongside the key record
 // so verifier UIs can show "anchored on CORD by ..." provenance. Does NOT
 // flip the headline `verified` boolean — the underlying VC signature is the
-// authority on cryptographic validity. The check exists to communicate two
-// things to a verifier UI:
+// authority on cryptographic validity. The check communicates two things:
 //
-//   1. Whether DeDi attached an on-chain anchor proof to the record (presence
-//      is informative; absence is benign on networks that don't anchor).
+//   1. Whether DeDi attached an on-chain anchor proof to the key record
+//      (presence is informative; absence is benign on networks that don't
+//      anchor).
 //   2. Whether the proof's `creator_did` matches the credential's issuer DID
 //      (a mismatch is suspicious — DeDi is reporting the record was anchored
 //      by someone other than the issuer the credential is signed by).
 //
 // On-chain CORD verification (looking up the digest in a CORD block) is out
-// of scope for this first cut — see follow-up. We only surface the proof
-// metadata the DeDi instance hands us. Notably this means a compromised
-// DeDi could fabricate a proof block; that's exactly what the follow-up
-// on-chain check will harden against.
+// of scope for this first cut. We only surface the proof metadata the DeDi
+// instance hands us. A compromised DeDi could fabricate a proof block; that's
+// what a follow-up on-chain check would harden against.
 
 /** Truncate a long hex/string value for display in check details. */
 function abbrev(value: string, head = 12, tail = 6): string {
@@ -501,50 +587,52 @@ function abbrev(value: string, head = 12, tail = 6): string {
 }
 
 /**
- * Check the DeDi-surfaced CORD anchor proof on the issuer's DID record.
+ * Check the DeDi-surfaced CORD anchor proof on the signing key's record.
  *
- * Scope:
- * - Only meaningful for did:key issuers with a DeDi client configured (same
- *   scope as the key-rotation check — DeDi is the canonical key store for
- *   did:key, and did:web has its own anchor in the domain document).
- * - Pass silently when the concept doesn't apply (no DID, no client, or a
- *   non-did:key issuer) so unrelated credentials don't carry a noisy check.
+ * Scope: meaningful whenever a key record can be resolved (any DID method)
+ * and a `dediClient` is configured. Passes silently when the concept doesn't
+ * apply (no client, no verification method, no record) so unrelated
+ * credentials don't carry a noisy check.
  *
  * Outcomes:
- * - Record returned with a well-formed proof whose `creator_did` matches the
- *   issuer DID → pass; detail surfaces "Anchored by {did} ({network})".
- * - Record returned with no proof block → pass: false (advisory) so the UI
- *   can surface "no anchor info" without rejecting the credential.
+ * - Record with a well-formed proof whose `creator_did` matches the issuer
+ *   DID → pass; detail surfaces "Anchored on CORD by {did}".
+ * - Record with no proof block → pass: false (advisory) so the UI can
+ *   surface "no anchor info" without rejecting the credential.
  * - Proof present but `creator_did` mismatch → pass: false with a suspicion
  *   note; verifier policy can treat that as a reason to reject.
- * - DeDi 404 / outage → pass with a "anchor status unknown" detail (same
- *   defensive degrade as keyRotation; a DeDi outage should never block
- *   verification of a cryptographically valid credential).
+ * - 404 / no namespace / outage → pass with an "anchor status unknown"
+ *   detail (a DeDi hiccup must never block a cryptographically valid VC).
  */
 export async function checkRegistryAnchor(
   credential: unknown,
   dediClient?: DeDiClient,
 ): Promise<VerificationCheck> {
-  const did = extractIssuerDid(credential);
-  if (!did || !did.startsWith("did:key:") || !dediClient) {
+  if (!dediClient) {
     return { name: "registryAnchor", passed: true };
   }
+  const issuerDid = extractIssuerDid(credential);
+  const verificationMethod = extractVerificationMethod(credential, issuerDid);
+  if (!verificationMethod) {
+    return { name: "registryAnchor", passed: true };
+  }
+  const namespace = deriveKeyNamespace(credential, issuerDid);
   try {
-    const record = await dediClient.resolveDID(did);
+    const record = await dediClient.resolveKey(verificationMethod, namespace);
     const proof = record.proof;
     if (!proof) {
       return {
         name: "registryAnchor",
         passed: false,
         detail:
-          "Issuer DID record was found in DeDi but has no CORD anchor proof. Cannot confirm on-chain publication.",
+          "Signing key record was found in DeDi but has no CORD anchor proof. Cannot confirm on-chain publication.",
       };
     }
-    if (proof.creator_did !== did) {
+    if (issuerDid && proof.creator_did !== issuerDid) {
       return {
         name: "registryAnchor",
         passed: false,
-        detail: `CORD anchor creator (${proof.creator_did}) does not match issuer DID (${did}). The registry record was published by a different party than the credential's issuer.`,
+        detail: `CORD anchor creator (${proof.creator_did}) does not match issuer DID (${issuerDid}). The registry record was published by a different party than the credential's issuer.`,
       };
     }
     const networkSuffix = proof.network_genesis
@@ -553,11 +641,11 @@ export async function checkRegistryAnchor(
     return {
       name: "registryAnchor",
       passed: true,
-      detail: `Anchored on CORD${networkSuffix} by ${did} (digest ${abbrev(proof.digest)}).`,
+      detail: `Anchored on CORD${networkSuffix} by ${proof.creator_did} (digest ${abbrev(proof.digest)}).`,
     };
   } catch (err) {
-    const is404 = err instanceof DeDiClientError && err.statusCode === 404;
-    if (is404) {
+    const code = err instanceof DeDiClientError ? err.statusCode : 0;
+    if (code === 404 || code === 400) {
       return { name: "registryAnchor", passed: true };
     }
     const message = err instanceof Error && err.message ? err.message : "DeDi anchor lookup failed";

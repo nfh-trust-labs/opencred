@@ -34,7 +34,7 @@ export {
   checkDates,
   checkRevocation,
   checkBitstringStatusList,
-  checkKeyRotation,
+  checkKeyStatus,
   checkRegistryAnchor,
 } from "./checks.js";
 export type { BitstringStatusListOptions } from "./checks.js";

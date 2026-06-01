@@ -50,31 +50,71 @@ export function didWebVerificationMethodId(did: string): string {
 }
 
 /**
- * Build a DID document suitable for publishing at `.well-known/did.json`.
+ * A single signing key to publish in a did:web document.
+ *
+ * `id` is the full verification-method id (`did:web:acme.com#key-0`, or a
+ * `did:key:...#z...` fragment for cross-method cases). `publicKeyJwk` is the
+ * public key material — never a private `d` member.
+ */
+export interface DidWebKeyInput {
+  id: string;
+  publicKeyJwk: JWK;
+}
+
+/**
+ * Build a multi-key DID document suitable for publishing at
+ * `.well-known/did.json` (or in DeDi's `did-documents` registry).
+ *
+ * Every key in `keys` becomes one `verificationMethod` entry and is
+ * referenced from all verification relationships (`assertionMethod`,
+ * `authentication`, `capabilityInvocation`, `capabilityDelegation`).
+ * Callers pass their **current non-revoked** key set: an active key alone,
+ * or an active key plus cleanly-rotated keys (so credentials signed by a
+ * rotated-but-not-revoked key still resolve). A revoked key is simply left
+ * out of the set — dropping it from the document is what makes a
+ * compromised key's credentials fail to resolve.
+ *
+ * @param did - The did:web DID (e.g., "did:web:example.com").
+ * @param keys - The non-revoked keys to publish. Must be non-empty.
+ * @returns A W3C DID document listing every key.
+ * @throws {DIDResolutionError} If `keys` is empty.
+ */
+export function generateDidWebDocumentMultiKey(did: string, keys: DidWebKeyInput[]): DIDDocument {
+  if (!keys || keys.length === 0) {
+    throw new DIDResolutionError("generateDidWebDocumentMultiKey requires at least one key");
+  }
+
+  const verificationMethod: VerificationMethod[] = keys.map((key) => ({
+    id: key.id,
+    type: "JsonWebKey",
+    controller: did,
+    publicKeyJwk: key.publicKeyJwk,
+  }));
+  const ids = keys.map((key) => key.id);
+
+  return {
+    "@context": ["https://www.w3.org/ns/did/v1", "https://w3id.org/security/suites/jws-2020/v1"],
+    id: did,
+    verificationMethod,
+    authentication: ids,
+    assertionMethod: ids,
+    capabilityInvocation: ids,
+    capabilityDelegation: ids,
+  };
+}
+
+/**
+ * Build a single-key DID document suitable for publishing at
+ * `.well-known/did.json`. Thin wrapper over
+ * {@link generateDidWebDocumentMultiKey} using the conventional `#key-0`
+ * fragment — preserved for callers that issue under one key.
  *
  * @param did - The did:web DID (e.g., "did:web:example.com").
  * @param publicKeyJwk - The public key JWK to include in the document.
  * @returns A W3C DID document with the key as a JsonWebKey verification method.
  */
 export function generateDidWebDocument(did: string, publicKeyJwk: JWK): DIDDocument {
-  const verificationMethodId = `${did}#key-0`;
-
-  const verificationMethod: VerificationMethod = {
-    id: verificationMethodId,
-    type: "JsonWebKey",
-    controller: did,
-    publicKeyJwk,
-  };
-
-  return {
-    "@context": ["https://www.w3.org/ns/did/v1", "https://w3id.org/security/suites/jws-2020/v1"],
-    id: did,
-    verificationMethod: [verificationMethod],
-    authentication: [verificationMethodId],
-    assertionMethod: [verificationMethodId],
-    capabilityInvocation: [verificationMethodId],
-    capabilityDelegation: [verificationMethodId],
-  };
+  return generateDidWebDocumentMultiKey(did, [{ id: `${did}#key-0`, publicKeyJwk }]);
 }
 
 /**

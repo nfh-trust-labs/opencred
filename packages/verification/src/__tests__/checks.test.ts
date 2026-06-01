@@ -3,7 +3,7 @@ import {
   checkDates,
   checkRevocation,
   checkBitstringStatusList,
-  checkKeyRotation,
+  checkKeyStatus,
   checkRegistryAnchor,
   resolveAndValidateIp,
   _validateStatusListUrl,
@@ -810,111 +810,206 @@ describe("checkBitstringStatusList", () => {
   });
 });
 
-describe("checkKeyRotation", () => {
-  function makeCredential(issuer: string): Record<string, unknown> {
-    return { issuer };
+describe("checkKeyStatus", () => {
+  // A did:key issuer with no proof: `extractVerificationMethod` derives the
+  // conventional `${did}#${methodSpecificId}` verification method, and the
+  // namespace travels in `credentialStatus.id` (a DeDi lookup URL). Both are
+  // needed for the resolveKey path to fire.
+  const didKeyVm = "did:key:z6Mkfoo#z6Mkfoo";
+  function makeDidKeyCredential(issuer = "did:key:z6Mkfoo"): Record<string, unknown> {
+    return {
+      issuer,
+      credentialStatus: {
+        id: "https://dedi.example.com/dedi/lookup/example.com/vc-revocation-registry/abc123",
+        type: "RevocationList2020Status",
+      },
+    };
   }
 
-  it("passes silently for did:web credentials (concept doesn't apply)", async () => {
-    // did:web handles rotation via the domain-hosted document itself; the
-    // DeDi `keyStatus` flag is a did:key concept.
-    const result = await checkKeyRotation(makeCredential("did:web:example.com"));
-    expect(result.passed).toBe(true);
-    expect(result.name).toBe("keyRotation");
-  });
+  // A did:web issuer carrying an embedded proof: the verification method comes
+  // straight off the proof, and the namespace is the DID's host portion.
+  function makeDidWebCredential(
+    did = "did:web:acme.com",
+    vm = `${did}#key-0`,
+  ): Record<string, unknown> {
+    return {
+      issuer: did,
+      proof: { type: "DataIntegrityProof", verificationMethod: vm },
+    };
+  }
 
   it("passes silently when no DeDi client is configured", async () => {
-    const result = await checkKeyRotation(makeCredential("did:key:z6Mkfoo"));
+    const result = await checkKeyStatus(makeDidKeyCredential());
     expect(result.passed).toBe(true);
+    expect(result.name).toBe("keyStatus");
   });
 
-  it("did:key with keyStatus 'current' → pass", async () => {
+  it("passes 'not checked' when no verification method can be determined", async () => {
+    // A did:web issuer with no embedded proof: there's no proof VM and the
+    // did:key fallback doesn't apply, so the VM is undefined.
+    const mockClient = { resolveKey: vi.fn() } as unknown as DeDiClient;
+    const result = await checkKeyStatus({ issuer: "did:web:acme.com" }, mockClient);
+    expect(result.passed).toBe(true);
+    expect(result.detail).toMatch(/no verification method/i);
+    expect(mockClient.resolveKey).not.toHaveBeenCalled();
+  });
+
+  it("did:key with status 'active' → pass (no detail)", async () => {
     const mockClient = {
-      resolveDID: vi.fn().mockResolvedValue({
-        did: "did:key:z6Mkfoo",
-        keyStatus: "current",
+      resolveKey: vi.fn().mockResolvedValue({
+        keyId: didKeyVm,
+        controllerDid: "did:key:z6Mkfoo",
+        algorithm: "Ed25519",
+        publicKeyJwk: { kty: "OKP", crv: "Ed25519", x: "abc" },
+        purpose: ["assertionMethod"],
+        status: "active",
       }),
     } as unknown as DeDiClient;
-    const result = await checkKeyRotation(makeCredential("did:key:z6Mkfoo"), mockClient);
-    expect(result.passed).toBe(true);
-  });
-
-  it("did:key with keyStatus 'rotated' → fails with descriptive detail", async () => {
-    const mockClient = {
-      resolveDID: vi.fn().mockResolvedValue({
-        did: "did:key:z6Mkold",
-        keyStatus: "rotated",
-      }),
-    } as unknown as DeDiClient;
-    const result = await checkKeyRotation(makeCredential("did:key:z6Mkold"), mockClient);
-    expect(result.passed).toBe(false);
-    expect(result.detail).toMatch(/rotated/i);
-    expect(result.detail).toMatch(/cryptographically valid/i);
-  });
-
-  it("DeDi outage → passes (don't block on rotation check)", async () => {
-    // Non-404 failure: pass, but surface a descriptive detail so the UI can
-    // render "rotation status unknown". A 502/5xx-shaped DeDiClientError
-    // exercises the same path as a generic timeout Error.
-    const mockClient = {
-      resolveDID: vi.fn().mockRejectedValue(new DeDiClientError("network timeout", 502)),
-    } as unknown as DeDiClient;
-    const result = await checkKeyRotation(makeCredential("did:key:z6Mkfoo"), mockClient);
-    expect(result.passed).toBe(true);
-    expect(result.detail).toMatch(/rotation status unknown/i);
-  });
-
-  it("DeDi record-not-found → passes (no rotation info)", async () => {
-    // 404 means no DeDi record was ever published for this DID, so there's
-    // no rotation info — pass with undefined detail (documented contract).
-    const mockClient = {
-      resolveDID: vi.fn().mockRejectedValue(new DeDiClientError("DeDi API error: 404", 404)),
-    } as unknown as DeDiClient;
-    const result = await checkKeyRotation(makeCredential("did:key:z6Mkfoo"), mockClient);
+    const result = await checkKeyStatus(makeDidKeyCredential(), mockClient);
     expect(result.passed).toBe(true);
     expect(result.detail).toBeUndefined();
+    // VM derived from did:key issuer, namespace from credentialStatus.id.
+    expect(mockClient.resolveKey).toHaveBeenCalledWith(didKeyVm, "example.com");
   });
 
-  it("passes silently for non-did:key issuers (concept doesn't apply)", async () => {
-    // Other DID methods (ion, sov, etc.) and bare-string issuers fall
-    // through to the early-pass branch.
-    const mockClient = { resolveDID: vi.fn() } as unknown as DeDiClient;
-    const result = await checkKeyRotation(makeCredential("did:ion:abc"), mockClient);
+  it("did:key with status 'rotated' → passes with a 'cleanly rotated' detail", async () => {
+    // A clean rotation leaves credentials signed by the old key valid — so
+    // the check still PASSES, it just annotates that the key was rotated.
+    const mockClient = {
+      resolveKey: vi.fn().mockResolvedValue({
+        keyId: didKeyVm,
+        controllerDid: "did:key:z6Mkfoo",
+        algorithm: "Ed25519",
+        publicKeyJwk: { kty: "OKP", crv: "Ed25519", x: "abc" },
+        purpose: ["assertionMethod"],
+        status: "rotated",
+      }),
+    } as unknown as DeDiClient;
+    const result = await checkKeyStatus(makeDidKeyCredential(), mockClient);
     expect(result.passed).toBe(true);
-    expect(mockClient.resolveDID).not.toHaveBeenCalled();
+    expect(result.detail).toMatch(/rotated/i);
+    expect(result.detail).toMatch(/remains valid/i);
+  });
+
+  it("status 'revoked' → fails (maps to top-level REVOKED in the verifier)", async () => {
+    const mockClient = {
+      resolveKey: vi.fn().mockResolvedValue({
+        keyId: `${"did:web:acme.com"}#key-0`,
+        controllerDid: "did:web:acme.com",
+        algorithm: "ES256",
+        publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+        purpose: ["assertionMethod"],
+        status: "revoked",
+      }),
+    } as unknown as DeDiClient;
+    const result = await checkKeyStatus(makeDidWebCredential(), mockClient);
+    expect(result.passed).toBe(false);
+    expect(result.detail).toMatch(/revoked/i);
+    expect(result.detail).toMatch(/compromised/i);
+  });
+
+  it("derives the namespace from a did:web issuer host and the VM from the proof", async () => {
+    // `did:web:acme.com:eu:issuers` → namespace `acme.com`; the proof's
+    // verificationMethod names the exact signing key.
+    const did = "did:web:acme.com:eu:issuers";
+    const vm = `${did}#key-3`;
+    const mockClient = {
+      resolveKey: vi.fn().mockResolvedValue({
+        keyId: vm,
+        controllerDid: did,
+        algorithm: "ES256",
+        publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+        purpose: ["assertionMethod"],
+        status: "active",
+      }),
+    } as unknown as DeDiClient;
+    const result = await checkKeyStatus(makeDidWebCredential(did, vm), mockClient);
+    expect(result.passed).toBe(true);
+    expect(mockClient.resolveKey).toHaveBeenCalledWith(vm, "acme.com");
+  });
+
+  it("DeDi 404 (no record for this key) → passes with 'no registry record' detail", async () => {
+    const mockClient = {
+      resolveKey: vi.fn().mockRejectedValue(new DeDiClientError("DeDi API error: 404", 404)),
+    } as unknown as DeDiClient;
+    const result = await checkKeyStatus(makeDidKeyCredential(), mockClient);
+    expect(result.passed).toBe(true);
+    expect(result.detail).toMatch(/no registry record/i);
+  });
+
+  it("DeDi 400 (namespace undeterminable) → passes with 'namespace could not be determined'", async () => {
+    const mockClient = {
+      resolveKey: vi.fn().mockRejectedValue(
+        new DeDiClientError("No namespace provided and no defaultNamespace configured", 400),
+      ),
+    } as unknown as DeDiClient;
+    const result = await checkKeyStatus(makeDidKeyCredential(), mockClient);
+    expect(result.passed).toBe(true);
+    expect(result.detail).toMatch(/namespace could not be determined/i);
+  });
+
+  it("DeDi outage (non-404/400) → passes with 'Key status unknown' detail", async () => {
+    const mockClient = {
+      resolveKey: vi.fn().mockRejectedValue(new DeDiClientError("network timeout", 502)),
+    } as unknown as DeDiClient;
+    const result = await checkKeyStatus(makeDidKeyCredential(), mockClient);
+    expect(result.passed).toBe(true);
+    expect(result.detail).toMatch(/key status unknown/i);
+  });
+
+  it("passes 'not checked' for non-did:key/web issuers with no proof VM", async () => {
+    // Other DID methods (ion, sov, etc.) with no embedded proof produce no
+    // verification method, so the check short-circuits to a non-failing pass
+    // and never calls resolveKey.
+    const mockClient = { resolveKey: vi.fn() } as unknown as DeDiClient;
+    const result = await checkKeyStatus({ issuer: "did:ion:abc" }, mockClient);
+    expect(result.passed).toBe(true);
+    expect(mockClient.resolveKey).not.toHaveBeenCalled();
   });
 });
 
 describe("checkRegistryAnchor", () => {
+  // A did:key issuer with no proof: `extractVerificationMethod` derives the
+  // conventional `${did}#${methodSpecificId}` verification method that the
+  // anchor check resolves against the key registry.
+  const didKeyVm = "did:key:z6Mkfoo#z6Mkfoo";
   function makeCredential(issuer: string): Record<string, unknown> {
     return { issuer };
   }
 
-  it("passes silently for did:web credentials (concept doesn't apply)", async () => {
-    const result = await checkRegistryAnchor(makeCredential("did:web:example.com"));
+  it("passes silently when no DeDi client is configured", async () => {
+    const result = await checkRegistryAnchor(makeCredential("did:key:z6Mkfoo"));
     expect(result.passed).toBe(true);
     expect(result.name).toBe("registryAnchor");
     expect(result.detail).toBeUndefined();
   });
 
-  it("passes silently when no DeDi client is configured", async () => {
-    const result = await checkRegistryAnchor(makeCredential("did:key:z6Mkfoo"));
+  it("passes silently when no verification method can be determined", async () => {
+    // A did:web issuer with no embedded proof yields no VM, so the advisory
+    // check short-circuits to a silent pass and never calls resolveKey.
+    const mockClient = { resolveKey: vi.fn() } as unknown as DeDiClient;
+    const result = await checkRegistryAnchor({ issuer: "did:web:acme.com" }, mockClient);
     expect(result.passed).toBe(true);
     expect(result.detail).toBeUndefined();
+    expect(mockClient.resolveKey).not.toHaveBeenCalled();
   });
 
-  it("passes silently for non-did:key issuers", async () => {
-    const mockClient = { resolveDID: vi.fn() } as unknown as DeDiClient;
+  it("passes silently for non-did:key issuers with no proof VM", async () => {
+    const mockClient = { resolveKey: vi.fn() } as unknown as DeDiClient;
     const result = await checkRegistryAnchor(makeCredential("did:ion:abc"), mockClient);
     expect(result.passed).toBe(true);
-    expect(mockClient.resolveDID).not.toHaveBeenCalled();
+    expect(mockClient.resolveKey).not.toHaveBeenCalled();
   });
 
   it("passes with anchor metadata when proof is present and creator matches", async () => {
     const mockClient = {
-      resolveDID: vi.fn().mockResolvedValue({
-        did: "did:key:z6Mkfoo",
-        keyStatus: "current",
+      resolveKey: vi.fn().mockResolvedValue({
+        keyId: didKeyVm,
+        controllerDid: "did:key:z6Mkfoo",
+        algorithm: "Ed25519",
+        publicKeyJwk: { kty: "OKP", crv: "Ed25519", x: "abc" },
+        purpose: ["assertionMethod"],
+        status: "active",
         proof: {
           type: "DediRecordProof2026",
           namespace_did: "did:cord:ns:example",
@@ -938,9 +1033,13 @@ describe("checkRegistryAnchor", () => {
     // yet (`network_genesis: null`). Render the rest of the proof without
     // a network suffix in that case.
     const mockClient = {
-      resolveDID: vi.fn().mockResolvedValue({
-        did: "did:key:z6Mkfoo",
-        keyStatus: "current",
+      resolveKey: vi.fn().mockResolvedValue({
+        keyId: didKeyVm,
+        controllerDid: "did:key:z6Mkfoo",
+        algorithm: "Ed25519",
+        publicKeyJwk: { kty: "OKP", crv: "Ed25519", x: "abc" },
+        purpose: ["assertionMethod"],
+        status: "active",
         proof: {
           type: "DediRecordProof2026",
           namespace_did: "did:cord:ns:example",
@@ -961,9 +1060,13 @@ describe("checkRegistryAnchor", () => {
     // failed-advisory so the UI can show "no anchor info" without
     // rejecting the credential (the headline VALID/INVALID is unaffected).
     const mockClient = {
-      resolveDID: vi.fn().mockResolvedValue({
-        did: "did:key:z6Mkfoo",
-        keyStatus: "current",
+      resolveKey: vi.fn().mockResolvedValue({
+        keyId: didKeyVm,
+        controllerDid: "did:key:z6Mkfoo",
+        algorithm: "Ed25519",
+        publicKeyJwk: { kty: "OKP", crv: "Ed25519", x: "abc" },
+        purpose: ["assertionMethod"],
+        status: "active",
       }),
     } as unknown as DeDiClient;
     const result = await checkRegistryAnchor(makeCredential("did:key:z6Mkfoo"), mockClient);
@@ -976,9 +1079,13 @@ describe("checkRegistryAnchor", () => {
     // anchored by someone other than the issuer the credential is signed
     // by. Surface clearly so verifier policy can reject if desired.
     const mockClient = {
-      resolveDID: vi.fn().mockResolvedValue({
-        did: "did:key:z6Mkfoo",
-        keyStatus: "current",
+      resolveKey: vi.fn().mockResolvedValue({
+        keyId: didKeyVm,
+        controllerDid: "did:key:z6Mkfoo",
+        algorithm: "Ed25519",
+        publicKeyJwk: { kty: "OKP", crv: "Ed25519", x: "abc" },
+        purpose: ["assertionMethod"],
+        status: "active",
         proof: {
           type: "DediRecordProof2026",
           namespace_did: "did:cord:ns:example",
@@ -997,7 +1104,7 @@ describe("checkRegistryAnchor", () => {
 
   it("passes (silently) on DeDi 404 — no record published yet", async () => {
     const mockClient = {
-      resolveDID: vi.fn().mockRejectedValue(new DeDiClientError("DeDi API error: 404", 404)),
+      resolveKey: vi.fn().mockRejectedValue(new DeDiClientError("DeDi API error: 404", 404)),
     } as unknown as DeDiClient;
     const result = await checkRegistryAnchor(makeCredential("did:key:z6Mkfoo"), mockClient);
     expect(result.passed).toBe(true);
@@ -1009,7 +1116,7 @@ describe("checkRegistryAnchor", () => {
     // UI can render rotation/anchor status as unknown without blocking
     // verification of a cryptographically valid credential.
     const mockClient = {
-      resolveDID: vi.fn().mockRejectedValue(new DeDiClientError("network timeout", 502)),
+      resolveKey: vi.fn().mockRejectedValue(new DeDiClientError("network timeout", 502)),
     } as unknown as DeDiClient;
     const result = await checkRegistryAnchor(makeCredential("did:key:z6Mkfoo"), mockClient);
     expect(result.passed).toBe(true);

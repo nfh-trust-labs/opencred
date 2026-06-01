@@ -4,7 +4,7 @@
  * Plugs into `DIDWebResolver`'s optional `fallback` constructor argument
  * (see `@opencred/did`). When canonical HTTPS resolution of a
  * `did:web:...` document fails — network error, 404, DNS hiccup — the
- * resolver consults DeDi's `public_key_registry` for a record matching
+ * resolver consults DeDi's `did-documents` registry for a record matching
  * the input DID. If found, the record's stored DID document is returned
  * in the standard `DIDResolutionResult` shape; if not, the fallback
  * returns `null` and the resolver throws the original HTTP error.
@@ -16,13 +16,13 @@
  * errors, so a DeDi-anchored response can't be used to bypass private-IP
  * checks on the caller's behalf.
  *
- * **What this enables.** An issuer who has published their DID document
- * to DeDi via `POST /v1/keys/publish` can stop serving the canonical
- * `.well-known/did.json` from a webserver entirely, and DeDi acts as
- * the discovery layer. Verifiers wired with this fallback will resolve
- * the DID through DeDi whenever the HTTPS endpoint is unreachable —
- * the same `assertionMethod` keys, the same signatures, just a
- * different host serving the document.
+ * **What this enables.** An issuer who has stored their DID document in
+ * DeDi's `did-documents` registry (via `publishDidDocument`) can stop
+ * serving the canonical `.well-known/did.json` from a webserver entirely,
+ * and DeDi acts as the discovery layer. Verifiers wired with this fallback
+ * will resolve the DID through DeDi whenever the HTTPS endpoint is
+ * unreachable — the same `assertionMethod` keys, the same signatures, just
+ * a different host serving the document.
  *
  * @example
  * ```ts
@@ -44,15 +44,15 @@ import type { DeDiClient } from "./client.js";
  * `DIDWebResolver`.
  *
  * The returned function:
- * - Calls `client.resolveDID(did)` to look up the record in
- *   `public_key_registry` under the client's configured namespace.
- * - Maps the resulting `{did, document?, keyStatus}` record into a
- *   standard `DIDResolutionResult`, populating
- *   `didDocumentMetadata.resolvedAt` with the current wall-clock time
- *   so the fallback consumer can still see "when did we resolve this".
- *   The DeDi record itself no longer carries a per-record `resolvedAt`
- *   (the envelope's `updated_at` is canonical if a precise on-server
- *   timestamp is needed in a future iteration).
+ * - Calls `client.resolveDidDocument(did)` to look up the record in the
+ *   `did-documents` registry under the client's configured namespace.
+ * - Maps the resulting `{did, document}` record into a standard
+ *   `DIDResolutionResult`, populating `didDocumentMetadata.resolvedAt`
+ *   with the current wall-clock time so the fallback consumer can still
+ *   see "when did we resolve this". The DeDi record itself no longer
+ *   carries a per-record `resolvedAt` (the envelope's `updated_at` is
+ *   canonical if a precise on-server timestamp is needed in a future
+ *   iteration).
  * - Returns `null` (not throws) for any DeDi-side failure — that lets
  *   the resolver re-raise the original HTTPS error, which is almost
  *   always more actionable for the user than a generic "DeDi didn't
@@ -66,10 +66,10 @@ import type { DeDiClient } from "./client.js";
 export function createDeDiDIDWebFallback(client: DeDiClient): DIDWebFallbackResolver {
   return async (did: string): Promise<DIDResolutionResult | null> => {
     try {
-      const record = await client.resolveDID(did);
-      // `record.document` is typed `unknown` in the DeDi adapter — it
-      // came over the wire from another service, so we treat it as
-      // opaque until we've sanity-checked the shape. The DID-document
+      const record = await client.resolveDidDocument(did);
+      // `record.document` is typed `Record<string, unknown>` in the DeDi
+      // adapter — it came over the wire from another service, so we treat
+      // it as opaque until we've sanity-checked the shape. The DID-document
       // contract is enforced by the downstream verifier; here we only
       // need to confirm we have an object before wrapping it.
       if (!record.document || typeof record.document !== "object") {

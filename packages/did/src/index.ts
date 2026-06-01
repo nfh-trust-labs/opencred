@@ -12,6 +12,7 @@ export type {
   DIDWebFallbackResolver,
   DidWebVerificationResult,
   VerifyDidWebOptions,
+  DidWebKeyInput,
 } from "./did-web.js";
 export {
   DIDWebResolver,
@@ -19,6 +20,7 @@ export {
   didWebVerificationMethodId,
   didWebToUrl,
   generateDidWebDocument,
+  generateDidWebDocumentMultiKey,
   verifyDidWeb,
 } from "./did-web.js";
 export { CompositeDIDResolver } from "./composite-resolver.js";

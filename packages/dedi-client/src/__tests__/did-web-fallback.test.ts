@@ -14,17 +14,19 @@
 import { describe, it, expect, vi } from "vitest";
 
 import type { DeDiClient } from "../adapter/client.js";
-import type { DIDRecord } from "../adapter/types.js";
+import type { DidDocumentRecord } from "../adapter/types.js";
 import { createDeDiDIDWebFallback } from "../adapter/did-web-fallback.js";
 
-function makeMockClient(impl: { resolveDID?: (did: string) => Promise<DIDRecord> }): DeDiClient {
+function makeMockClient(impl: {
+  resolveDidDocument?: (did: string) => Promise<DidDocumentRecord>;
+}): DeDiClient {
   // Cast to the minimal surface we need; the resolver only ever calls
-  // resolveDID. Building a real client would drag the api-client mock
-  // in for no incremental coverage.
+  // resolveDidDocument. Building a real client would drag the api-client
+  // mock in for no incremental coverage.
   return {
-    resolveDID:
-      impl.resolveDID ??
-      ((): Promise<DIDRecord> => {
+    resolveDidDocument:
+      impl.resolveDidDocument ??
+      ((): Promise<DidDocumentRecord> => {
         throw new Error("not implemented");
       }),
   } as unknown as DeDiClient;
@@ -47,10 +49,9 @@ describe("createDeDiDIDWebFallback", () => {
       assertionMethod: [`${did}#key-0`],
     };
     const client = makeMockClient({
-      resolveDID: vi.fn().mockResolvedValue({
+      resolveDidDocument: vi.fn().mockResolvedValue({
         did,
         document,
-        keyStatus: "current",
       }),
     });
 
@@ -60,15 +61,15 @@ describe("createDeDiDIDWebFallback", () => {
     expect(result).not.toBeNull();
     expect(result!.didDocument).toEqual(document);
     expect(result!.didResolutionMetadata).toEqual({ contentType: "application/did+json" });
-    // `resolvedAt` is wall-clock at resolve time (the DIDRecord no longer
-    // carries one); assert shape, not value.
+    // `resolvedAt` is wall-clock at resolve time (the DidDocumentRecord no
+    // longer carries one); assert shape, not value.
     expect(result!.didDocumentMetadata).toHaveProperty("resolvedAt");
     expect(typeof result!.didDocumentMetadata.resolvedAt).toBe("string");
   });
 
   it("returns null when DeDi has no record for the DID", async () => {
     const client = makeMockClient({
-      resolveDID: vi.fn().mockRejectedValue(new Error("Record not found")),
+      resolveDidDocument: vi.fn().mockRejectedValue(new Error("Record not found")),
     });
 
     const fallback = createDeDiDIDWebFallback(client);
@@ -89,7 +90,7 @@ describe("createDeDiDIDWebFallback", () => {
     ];
     for (const err of errors) {
       const client = makeMockClient({
-        resolveDID: vi.fn().mockRejectedValue(err),
+        resolveDidDocument: vi.fn().mockRejectedValue(err),
       });
       const fallback = createDeDiDIDWebFallback(client);
       const result = await fallback("did:web:example.com");
@@ -103,11 +104,10 @@ describe("createDeDiDIDWebFallback", () => {
     // field is opaque — guard against non-objects before claiming
     // we have a DIDDocument.
     const client = makeMockClient({
-      resolveDID: vi.fn().mockResolvedValue({
+      resolveDidDocument: vi.fn().mockResolvedValue({
         did: "did:web:malformed.example.com",
         document: "not an object",
-        keyStatus: "current",
-      } as unknown as DIDRecord),
+      } as unknown as DidDocumentRecord),
     });
 
     const fallback = createDeDiDIDWebFallback(client);
@@ -118,11 +118,10 @@ describe("createDeDiDIDWebFallback", () => {
 
   it("returns null when DeDi returns a record with a null document", async () => {
     const client = makeMockClient({
-      resolveDID: vi.fn().mockResolvedValue({
+      resolveDidDocument: vi.fn().mockResolvedValue({
         did: "did:web:malformed.example.com",
         document: undefined,
-        keyStatus: "current",
-      } as unknown as DIDRecord),
+      } as unknown as DidDocumentRecord),
     });
 
     const fallback = createDeDiDIDWebFallback(client);
@@ -131,14 +130,14 @@ describe("createDeDiDIDWebFallback", () => {
     expect(result).toBeNull();
   });
 
-  it("forwards the DID verbatim to resolveDID (no normalization)", async () => {
+  it("forwards the DID verbatim to resolveDidDocument (no normalization)", async () => {
     // The DeDi adapter handles record-name encoding internally; the
     // fallback just passes the input DID through. Pin that so a future
     // accidental DID normalization here doesn't desync from the
     // adapter's encoding.
     const seen: string[] = [];
     const client = makeMockClient({
-      resolveDID: vi.fn().mockImplementation(async (did: string) => {
+      resolveDidDocument: vi.fn().mockImplementation(async (did: string) => {
         seen.push(did);
         throw new Error("not found");
       }),
