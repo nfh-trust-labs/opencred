@@ -1,0 +1,4 @@
+dist/
+# Sample render output (regenerate with scripts/sample.mjs)
+sample.pdf
+sample.pdf.png

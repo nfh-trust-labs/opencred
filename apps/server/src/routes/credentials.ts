@@ -965,7 +965,7 @@ credentials.post("/credentials/verify", async (c) => {
   let credential: Record<string, unknown> | string;
   switch (format) {
     case "pixelpass": {
-      const { decodeQrData } = await import("../packaging/qr-generator.js");
+      const { decodeQrData } = await import("@opencred/packaging");
       const decodedJson = decodeQrData(parsed.credential);
       credential = JSON.parse(decodedJson);
       break;

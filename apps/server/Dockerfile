@@ -102,6 +102,7 @@ COPY packages/ca-adapter/package.json packages/ca-adapter/package.json
 COPY packages/crypto/package.json packages/crypto/package.json
 COPY packages/dedi-client/package.json packages/dedi-client/package.json
 COPY packages/did/package.json packages/did/package.json
+COPY packages/packaging/package.json packages/packaging/package.json
 COPY packages/schema-engine/package.json packages/schema-engine/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/signing/package.json packages/signing/package.json
