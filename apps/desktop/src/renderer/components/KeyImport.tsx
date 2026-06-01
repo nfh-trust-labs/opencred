@@ -115,9 +115,7 @@ export function KeyImport({ onKeyImported }: KeyImportProps) {
           onSubmit={handlePfxSubmit}
           className="rounded-md border border-blue-200 bg-brand-light p-3 space-y-2"
         >
-          <p className="text-xs font-medium text-brand">
-            PFX/P12 file selected — enter password:
-          </p>
+          <p className="text-xs font-medium text-brand">PFX/P12 file selected — enter password:</p>
           <div className="flex items-center gap-2">
             <input
               type="password"
@@ -160,7 +158,9 @@ export function KeyImport({ onKeyImported }: KeyImportProps) {
               <p>Format: {FORMAT_LABELS[lastImported.format] ?? lastImported.format}</p>
             )}
             <p>Fingerprint: {lastImported.fingerprint.slice(0, 32)}...</p>
-            <p className="font-mono text-[10px] text-state-success break-all">ID: {lastImported.id}</p>
+            <p className="font-mono text-[10px] text-state-success break-all">
+              ID: {lastImported.id}
+            </p>
           </div>
         </div>
       )}

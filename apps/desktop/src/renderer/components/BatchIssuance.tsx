@@ -602,7 +602,10 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
           <div className="rounded-lg border border-border-light bg-white p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-medium text-txt-secondary">CSV Preview: {csvFileName}</h2>
-              <button onClick={handleReset} className="text-xs text-txt-muted hover:text-txt-secondary">
+              <button
+                onClick={handleReset}
+                className="text-xs text-txt-muted hover:text-txt-secondary"
+              >
                 Change File
               </button>
             </div>
@@ -661,7 +664,10 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
               <div className="space-y-2">
                 {csvHeaders.map((header) => (
                   <div key={header} className="flex items-center gap-3">
-                    <span className="w-1/3 text-xs font-mono text-txt-secondary truncate" title={header}>
+                    <span
+                      className="w-1/3 text-xs font-mono text-txt-secondary truncate"
+                      title={header}
+                    >
                       {header}
                     </span>
                     <span className="text-txt-muted text-xs">-&gt;</span>
@@ -768,7 +774,9 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
 
             {/* Output format selection */}
             <div>
-              <span className="block text-xs font-medium text-txt-secondary mb-1">Output Formats</span>
+              <span className="block text-xs font-medium text-txt-secondary mb-1">
+                Output Formats
+              </span>
               <div className="flex flex-wrap gap-2">
                 {["json-ld", "qr-png", "pdf"].map((fmt) => (
                   <label key={fmt} className="flex items-center gap-1 text-xs text-txt-secondary">

@@ -245,7 +245,9 @@ function CredentialResult({
                 <dt className="font-mono text-body-2xs uppercase tracking-wider text-txt-muted">
                   Expires
                 </dt>
-                <dd className="mt-0.5 text-sm text-txt-secondary">{formatDate(vc.expirationDate)}</dd>
+                <dd className="mt-0.5 text-sm text-txt-secondary">
+                  {formatDate(vc.expirationDate)}
+                </dd>
               </div>
             )}
           </div>
@@ -541,7 +543,10 @@ export function IssuePage() {
 
         {/* Key selector */}
         <div>
-          <label htmlFor="issue-signing-key" className="block text-xs font-medium text-txt-secondary">
+          <label
+            htmlFor="issue-signing-key"
+            className="block text-xs font-medium text-txt-secondary"
+          >
             Signing Key <span className="text-state-danger">*</span>
           </label>
           {keys.length === 0 ? (
@@ -568,7 +573,10 @@ export function IssuePage() {
         {/* Validity dates */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label htmlFor="issue-valid-from" className="block text-xs font-medium text-txt-secondary">
+            <label
+              htmlFor="issue-valid-from"
+              className="block text-xs font-medium text-txt-secondary"
+            >
               Valid From
             </label>
             <input
@@ -581,7 +589,10 @@ export function IssuePage() {
             />
           </div>
           <div>
-            <label htmlFor="issue-valid-until" className="block text-xs font-medium text-txt-secondary">
+            <label
+              htmlFor="issue-valid-until"
+              className="block text-xs font-medium text-txt-secondary"
+            >
               Valid Until
             </label>
             <input

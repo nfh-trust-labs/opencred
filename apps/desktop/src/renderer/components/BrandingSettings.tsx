@@ -493,7 +493,9 @@ export function BrandingSettings() {
         <h3 className="text-xs font-semibold text-txt-muted uppercase tracking-wide">Identity</h3>
 
         <div className="space-y-1.5">
-          <label className="block text-xs font-medium text-txt-secondary">Issuer Display Name</label>
+          <label className="block text-xs font-medium text-txt-secondary">
+            Issuer Display Name
+          </label>
           <input
             type="text"
             value={branding.issuerDisplayName ?? ""}

@@ -165,7 +165,9 @@ export function UpdateNotification(): React.ReactElement | null {
               X
             </button>
           </div>
-          <p className="text-sm text-txt-secondary">A new version ({status.version}) is available.</p>
+          <p className="text-sm text-txt-secondary">
+            A new version ({status.version}) is available.
+          </p>
           {status.releaseNotes && (
             <p className="text-xs text-txt-muted max-h-20 overflow-y-auto whitespace-pre-wrap">
               {status.releaseNotes}

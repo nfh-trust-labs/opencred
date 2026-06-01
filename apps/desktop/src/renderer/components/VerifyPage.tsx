@@ -731,7 +731,9 @@ export function VerifyPage() {
               }}
               placeholder="Paste credential JSON here, or drag a .json file onto this area"
               className={`block w-full rounded-md border px-3 py-2 font-mono text-xs shadow-sm transition-colors duration-150 focus:border-brand focus:ring-1 focus:ring-blue-500 ${
-                isDragOver ? "border-2 border-dashed border-blue-400 bg-brand-light" : "border-border"
+                isDragOver
+                  ? "border-2 border-dashed border-blue-400 bg-brand-light"
+                  : "border-border"
               }`}
             />
             {isDragOver && (
@@ -878,9 +880,21 @@ export function VerifyPage() {
           const attribution = deriveAttributionBadge(checks);
           if (attribution.state === "unknown") return null;
           const palette = {
-            current: { border: "border-state-success-border", bg: "bg-state-success-bg", text: "text-state-success" },
-            rotated: { border: "border-state-danger-border", bg: "bg-state-danger-bg", text: "text-red-800" },
-            unknown: { border: "border-border-light", bg: "bg-surface-warm", text: "text-txt-secondary" },
+            current: {
+              border: "border-state-success-border",
+              bg: "bg-state-success-bg",
+              text: "text-state-success",
+            },
+            rotated: {
+              border: "border-state-danger-border",
+              bg: "bg-state-danger-bg",
+              text: "text-red-800",
+            },
+            unknown: {
+              border: "border-border-light",
+              bg: "bg-surface-warm",
+              text: "text-txt-secondary",
+            },
           }[attribution.state];
           const heading = {
             current: "Issuer key current",
@@ -930,7 +944,9 @@ export function VerifyPage() {
                   <div className="min-w-0">
                     <span className="text-xs font-medium text-txt-secondary">{check.name}</span>
                     {hint && <p className="mt-0.5 text-xs text-txt-muted">{hint}</p>}
-                    {check.detail && <p className="mt-0.5 text-xs text-txt-muted">{check.detail}</p>}
+                    {check.detail && (
+                      <p className="mt-0.5 text-xs text-txt-muted">{check.detail}</p>
+                    )}
                   </div>
                 </div>
               );

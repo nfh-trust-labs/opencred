@@ -96,20 +96,20 @@ export function KeyManagement() {
             <div className="min-h-0">
               <ul className="px-3 pb-3 space-y-1.5 text-xs text-txt-muted">
                 <li>
-                  <span className="font-medium text-txt-secondary">Import File</span> — You have a key
-                  file from your IT department
+                  <span className="font-medium text-txt-secondary">Import File</span> — You have a
+                  key file from your IT department
                 </li>
                 <li>
-                  <span className="font-medium text-txt-secondary">Hardware Token</span> — You use a USB
-                  security key (YubiKey, SafeNet) or smart card
+                  <span className="font-medium text-txt-secondary">Hardware Token</span> — You use a
+                  USB security key (YubiKey, SafeNet) or smart card
                 </li>
                 <li>
                   <span className="font-medium text-txt-secondary">OS Cert Store</span> — You have
                   signing certificates installed on this computer
                 </li>
                 <li>
-                  <span className="font-medium text-txt-secondary">Generate Key</span> — You are getting
-                  started and need a new key (recommended for testing)
+                  <span className="font-medium text-txt-secondary">Generate Key</span> — You are
+                  getting started and need a new key (recommended for testing)
                 </li>
               </ul>
             </div>

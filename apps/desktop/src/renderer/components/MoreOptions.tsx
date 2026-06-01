@@ -121,7 +121,9 @@ export function MoreOptions({
         >
           {/* Proof Format */}
           <div>
-            <label className="block text-xs font-medium text-txt-secondary mb-1">Proof Format</label>
+            <label className="block text-xs font-medium text-txt-secondary mb-1">
+              Proof Format
+            </label>
             <select
               value={proofFormat}
               onChange={(e) => handleProofFormatChange(e.target.value as UiProofFormat)}

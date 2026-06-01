@@ -69,7 +69,9 @@ export function KeyGenerate({ onKeyGenerated }: KeyGenerateProps) {
           {generating ? "Generating..." : "Generate Signing Key"}
         </button>
       </div>
-      <p className="text-xs text-txt-muted">Creates an ECDSA P-256 keypair for credential signing</p>
+      <p className="text-xs text-txt-muted">
+        Creates an ECDSA P-256 keypair for credential signing
+      </p>
 
       {error && <p className="text-sm text-state-danger">{error}</p>}
 
