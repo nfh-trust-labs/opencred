@@ -53,9 +53,9 @@ export function CredentialForm({ fields, values: externalValues, onChange, disab
 
   if (fields.length === 0) {
     return (
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
-        <h2 className="text-sm font-medium text-gray-700">Credential Details</h2>
-        <p className="mt-1 text-sm text-gray-500">
+      <div className="rounded-lg border border-border-light bg-white p-4">
+        <h2 className="text-sm font-medium text-txt-secondary">Credential Details</h2>
+        <p className="mt-1 text-sm text-txt-muted">
           Select a credential type above to see the form fields.
         </p>
       </div>
@@ -63,17 +63,17 @@ export function CredentialForm({ fields, values: externalValues, onChange, disab
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <h2 className="text-sm font-medium text-gray-700 mb-3">Credential Details</h2>
+    <div className="rounded-lg border border-border-light bg-white p-4">
+      <h2 className="text-sm font-medium text-txt-secondary mb-3">Credential Details</h2>
       <div className="space-y-3">
         {fields.map((field) => (
           <div key={field.name}>
             <label
               htmlFor={`field-${field.name}`}
-              className="block text-xs font-medium text-gray-600"
+              className="block text-xs font-medium text-txt-secondary"
             >
               {labelForField(field.name)}
-              {field.required && <span className="text-red-500 ml-0.5">*</span>}
+              {field.required && <span className="text-state-danger ml-0.5">*</span>}
             </label>
             <input
               id={`field-${field.name}`}
@@ -83,7 +83,7 @@ export function CredentialForm({ fields, values: externalValues, onChange, disab
               required={field.required}
               disabled={disabled}
               placeholder={`Enter ${labelForField(field.name).toLowerCase()}...`}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+              className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm disabled:text-txt-muted"
             />
           </div>
         ))}

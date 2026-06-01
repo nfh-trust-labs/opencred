@@ -230,34 +230,34 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
+    <div className="rounded-lg border border-border-light bg-white p-4 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-medium text-gray-700">Hardware Token</h2>
-          <p className="text-xs text-gray-400 mt-0.5">PKCS#11</p>
+          <h2 className="text-sm font-medium text-txt-secondary">Hardware Token</h2>
+          <p className="text-xs text-txt-muted mt-0.5">PKCS#11</p>
         </div>
         {step !== "library" && (
           <button
             onClick={handleReset}
-            className="text-xs text-gray-500 hover:text-gray-700 underline"
+            className="text-xs text-txt-muted hover:text-txt-secondary underline"
           >
             Reset
           </button>
         )}
       </div>
 
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-txt-muted">
         Connect a USB token (YubiKey, ePass, SafeNet) or smart card via PKCS#11. Your private key
         never leaves the hardware token.
       </p>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-state-danger">{error}</p>}
 
       {/* Step 1: Library path */}
       {step === "library" && (
         <div className="space-y-3">
-          <label className="block text-xs text-gray-600">PKCS#11 Library Path</label>
-          <p className="text-xs text-gray-400 mb-2">
+          <label className="block text-xs text-txt-secondary">PKCS#11 Library Path</label>
+          <p className="text-xs text-txt-muted mb-2">
             The path to your hardware token's PKCS#11 driver library. Common locations are
             auto-filled below.
           </p>
@@ -267,16 +267,16 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
               value={libraryPath}
               onChange={(e) => setLibraryPath(e.target.value)}
               placeholder="/usr/lib/opensc-pkcs11.so"
-              className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+              className="flex-1 rounded-md border border-border px-3 py-1.5 text-sm focus:border-brand focus:outline-none"
             />
             <button
               onClick={() => void handleBrowseLibrary()}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+              className="rounded-md border border-border px-3 py-1.5 text-sm text-txt-secondary hover:bg-surface-warm"
             >
               Browse
             </button>
           </div>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-txt-muted">
             Common paths: YubiKey (/usr/lib/libykcs11.so), OpenSC (/usr/lib/opensc-pkcs11.so),
             SafeNet (/usr/lib/libeTPkcs11.so)
           </p>
@@ -293,7 +293,7 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
       {/* Step 2: Slot selection (only if multiple slots) */}
       {step === "slots" && (
         <div className="space-y-3">
-          <label className="block text-xs text-gray-600">Select Token Slot</label>
+          <label className="block text-xs text-txt-secondary">Select Token Slot</label>
           <div className="space-y-2">
             {slots
               .filter((s) => s.tokenPresent)
@@ -302,8 +302,8 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
                   key={slot.index}
                   className={`flex items-center gap-2 rounded-md border p-3 cursor-pointer ${
                     selectedSlot === slot.index
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-200 hover:bg-gray-50"
+                      ? "border-brand bg-brand-light"
+                      : "border-border-light hover:bg-surface-warm"
                   }`}
                 >
                   <input
@@ -311,13 +311,13 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
                     name="slot"
                     checked={selectedSlot === slot.index}
                     onChange={() => setSelectedSlot(slot.index)}
-                    className="text-blue-600"
+                    className="text-brand"
                   />
                   <div>
-                    <p className="text-sm font-medium text-gray-700">
+                    <p className="text-sm font-medium text-txt-secondary">
                       {slot.tokenLabel ?? `Slot ${slot.index}`}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-txt-muted">
                       {slot.description}
                       {slot.tokenManufacturer ? ` | ${slot.tokenManufacturer}` : ""}
                     </p>
@@ -337,11 +337,11 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
       {/* Step 3: PIN entry */}
       {step === "pin" && (
         <div className="space-y-3">
-          <label className="block text-xs text-gray-600">
+          <label className="block text-xs text-txt-secondary">
             Enter PIN for{" "}
             {slots.find((s) => s.index === selectedSlot)?.tokenLabel ?? `Slot ${selectedSlot}`}
           </label>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-txt-muted">
             Your PIN is used only for this session and is never stored.
           </p>
           <input
@@ -349,7 +349,7 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
             value={pin}
             onChange={(e) => setPin(e.target.value)}
             placeholder="Token PIN"
-            className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+            className="w-full rounded-md border border-border px-3 py-1.5 text-sm focus:border-brand focus:outline-none"
             onKeyDown={(e) => {
               if (e.key === "Enter") void handleListKeys();
             }}
@@ -367,18 +367,18 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
       {/* Step 4: Key selection */}
       {step === "keys" && (
         <div className="space-y-3">
-          <label className="block text-xs text-gray-600">Select Signing Key</label>
+          <label className="block text-xs text-txt-secondary">Select Signing Key</label>
           <div className="space-y-2">
             {keys.map((key) => (
               <div
                 key={key.id}
-                className="flex items-center justify-between rounded-md border border-gray-200 p-3"
+                className="flex items-center justify-between rounded-md border border-border-light p-3"
               >
                 <div>
-                  <p className="text-sm font-medium text-gray-700">
+                  <p className="text-sm font-medium text-txt-secondary">
                     {key.label || `Key ${key.id.slice(0, 8)}...`}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-txt-muted">
                     Type: {key.keyType} | ID: {key.id.slice(0, 16)}...
                     {!key.hasPublicKey && " | No public key (limited)"}
                   </p>
@@ -386,7 +386,7 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
                 <button
                   onClick={() => handleRequestConnect(key.id)}
                   disabled={loading || !key.hasPublicKey}
-                  className="rounded-md bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-40"
+                  className="rounded-md bg-brand px-3 py-1 text-xs text-white hover:bg-brand disabled:opacity-40"
                   title={
                     !key.hasPublicKey
                       ? "No public key available for verification"
@@ -403,11 +403,11 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
 
       {/* Inline PIN dialog for connection */}
       {showConnectPin && (
-        <div className="rounded-md border border-blue-200 bg-blue-50 p-4 space-y-3">
-          <p className="text-xs font-medium text-blue-800">
+        <div className="rounded-md border border-blue-200 bg-brand-light p-4 space-y-3">
+          <p className="text-xs font-medium text-brand">
             Enter your token PIN to connect this key:
           </p>
-          <p className="text-xs text-blue-600">
+          <p className="text-xs text-brand">
             Your PIN is used only for this session and is never stored.
           </p>
           <div className="flex items-center gap-2">
@@ -424,7 +424,7 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
             />
             <button
               onClick={() => void handleConnectWithPin()}
-              className="rounded-md bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700"
+              className="rounded-md bg-brand px-4 py-1.5 text-sm text-white hover:bg-brand"
             >
               Submit
             </button>
@@ -434,7 +434,7 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
                 setConnectPin("");
                 setPendingConnectKeyId(undefined);
               }}
-              className="rounded-md bg-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-300"
+              className="rounded-md bg-gray-200 px-3 py-1.5 text-sm text-txt-secondary hover:bg-gray-300"
             >
               Cancel
             </button>
@@ -444,15 +444,15 @@ export function HardwareToken({ onKeyConnected }: HardwareTokenProps) {
 
       {/* Step 5: Connected */}
       {step === "connected" && connectedKey && (
-        <div className="rounded-md border border-green-200 bg-green-50 p-3 text-xs">
-          <p className="font-medium text-green-800">Hardware token connected</p>
-          <div className="mt-1 text-green-700 space-y-0.5">
+        <div className="rounded-md border border-state-success-border bg-state-success-bg p-3 text-xs">
+          <p className="font-medium text-state-success">Hardware token connected</p>
+          <div className="mt-1 text-state-success space-y-0.5">
             <p>Algorithm: {connectedKey.algorithm}</p>
             {connectedKey.label && <p>Label: {connectedKey.label}</p>}
             <p>Fingerprint: {connectedKey.fingerprint.slice(0, 32)}...</p>
-            <p className="font-mono text-[10px] text-green-600 break-all">ID: {connectedKey.id}</p>
+            <p className="font-mono text-[10px] text-state-success break-all">ID: {connectedKey.id}</p>
           </div>
-          <p className="mt-2 text-green-600">
+          <p className="mt-2 text-state-success">
             This key is now available for credential signing. Select it from the key list when
             issuing credentials.
           </p>

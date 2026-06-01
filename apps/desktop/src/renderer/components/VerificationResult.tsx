@@ -15,13 +15,13 @@ export function VerificationResult({ valid, message }: Props) {
   return (
     <div
       className={`rounded-lg border p-4 ${
-        valid ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
+        valid ? "border-state-success-border bg-state-success-bg" : "border-state-danger-border bg-state-danger-bg"
       }`}
     >
-      <h3 className={`text-sm font-medium ${valid ? "text-green-800" : "text-red-800"}`}>
+      <h3 className={`text-sm font-medium ${valid ? "text-state-success" : "text-red-800"}`}>
         {valid ? "Valid Credential" : "Invalid Credential"}
       </h3>
-      <p className={`mt-1 text-sm ${valid ? "text-green-700" : "text-red-700"}`}>{message}</p>
+      <p className={`mt-1 text-sm ${valid ? "text-state-success" : "text-state-danger"}`}>{message}</p>
     </div>
   );
 }

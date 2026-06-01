@@ -246,25 +246,25 @@ export function BrandingSettings() {
   const effectiveText = branding.textColor ?? DEFAULT_TEXT;
   const effectiveLabel = branding.labelColor ?? DEFAULT_LABEL;
 
-  const colorPickerClass = "h-9 w-9 cursor-pointer rounded border border-gray-300 p-0.5";
+  const colorPickerClass = "h-9 w-9 cursor-pointer rounded border border-border p-0.5";
   const hexInputClass =
-    "w-28 rounded border border-gray-300 px-3 py-2 text-sm font-mono text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue";
+    "w-28 rounded border border-border px-3 py-2 text-sm font-mono text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue";
   const textInputClass =
-    "w-full max-w-sm rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue";
+    "w-full max-w-sm rounded border border-border px-3 py-2 text-sm text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue";
   const numberInputClass =
-    "w-20 rounded border border-gray-300 px-3 py-2 text-sm font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue";
+    "w-20 rounded border border-border px-3 py-2 text-sm font-mono text-txt-primary focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue";
 
   return (
     <Card className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-medium text-gray-700">Credential Branding</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <h2 className="text-sm font-medium text-txt-secondary">Credential Branding</h2>
+          <p className="text-xs text-txt-muted mt-0.5">
             Customize how your credentials look when exported as SVG or PDF.
           </p>
         </div>
         {saved && (
-          <span className="flex items-center gap-1 text-xs text-green-600">
+          <span className="flex items-center gap-1 text-xs text-state-success">
             <svg
               width="14"
               height="14"
@@ -278,16 +278,16 @@ export function BrandingSettings() {
             Saved
           </span>
         )}
-        {saving && <span className="text-xs text-gray-400">Saving...</span>}
+        {saving && <span className="text-xs text-txt-muted">Saving...</span>}
       </div>
 
       {/* ---- Colors Section ---- */}
       <div className="space-y-3">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Colors</h3>
+        <h3 className="text-xs font-semibold text-txt-muted uppercase tracking-wide">Colors</h3>
 
         {/* Primary Color */}
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-600">Primary</label>
+          <label className="block text-xs font-medium text-txt-secondary">Primary</label>
           <div className="flex items-center gap-2">
             <input
               type="color"
@@ -307,13 +307,13 @@ export function BrandingSettings() {
               maxLength={9}
               className={hexInputClass}
             />
-            <span className="text-xs text-gray-400">Default: {DEFAULT_PRIMARY}</span>
+            <span className="text-xs text-txt-muted">Default: {DEFAULT_PRIMARY}</span>
           </div>
         </div>
 
         {/* Secondary Color */}
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-600">Secondary</label>
+          <label className="block text-xs font-medium text-txt-secondary">Secondary</label>
           <div className="flex items-center gap-2">
             <input
               type="color"
@@ -333,13 +333,13 @@ export function BrandingSettings() {
               maxLength={9}
               className={hexInputClass}
             />
-            <span className="text-xs text-gray-400">Subheadings</span>
+            <span className="text-xs text-txt-muted">Subheadings</span>
           </div>
         </div>
 
         {/* Background Color */}
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-600">Background</label>
+          <label className="block text-xs font-medium text-txt-secondary">Background</label>
           <div className="flex items-center gap-2">
             <input
               type="color"
@@ -359,13 +359,13 @@ export function BrandingSettings() {
               maxLength={9}
               className={hexInputClass}
             />
-            <span className="text-xs text-gray-400">Page background</span>
+            <span className="text-xs text-txt-muted">Page background</span>
           </div>
         </div>
 
         {/* Text Color */}
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-600">Text</label>
+          <label className="block text-xs font-medium text-txt-secondary">Text</label>
           <div className="flex items-center gap-2">
             <input
               type="color"
@@ -385,13 +385,13 @@ export function BrandingSettings() {
               maxLength={9}
               className={hexInputClass}
             />
-            <span className="text-xs text-gray-400">Main text</span>
+            <span className="text-xs text-txt-muted">Main text</span>
           </div>
         </div>
 
         {/* Label Color */}
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-600">Label</label>
+          <label className="block text-xs font-medium text-txt-secondary">Label</label>
           <div className="flex items-center gap-2">
             <input
               type="color"
@@ -411,21 +411,21 @@ export function BrandingSettings() {
               maxLength={9}
               className={hexInputClass}
             />
-            <span className="text-xs text-gray-400">Field labels</span>
+            <span className="text-xs text-txt-muted">Field labels</span>
           </div>
         </div>
 
-        {colorError && <p className="text-xs text-red-600">{colorError}</p>}
+        {colorError && <p className="text-xs text-state-danger">{colorError}</p>}
       </div>
 
       {/* ---- Logo Section ---- */}
       <div className="space-y-3">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Logo</h3>
+        <h3 className="text-xs font-semibold text-txt-muted uppercase tracking-wide">Logo</h3>
 
         <div className="space-y-1.5">
           {branding.logoDataUri ? (
             <div className="flex items-center gap-3">
-              <div className="h-12 w-12 rounded border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
+              <div className="h-12 w-12 rounded border border-border-light bg-surface-warm flex items-center justify-center overflow-hidden">
                 <img
                   src={branding.logoDataUri}
                   alt="Logo preview"
@@ -434,7 +434,7 @@ export function BrandingSettings() {
               </div>
               <button
                 onClick={() => handleRemoveImage("logoDataUri")}
-                className="text-xs font-medium text-red-600 hover:text-red-700 hover:underline"
+                className="text-xs font-medium text-state-danger hover:text-state-danger hover:underline"
               >
                 Remove
               </button>
@@ -443,11 +443,11 @@ export function BrandingSettings() {
             <div>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="px-3 py-1.5 text-xs font-medium text-txt-primary bg-surface-card border border-border-default rounded hover:bg-gray-100 transition-colors"
+                className="px-3 py-1.5 text-xs font-medium text-txt-primary bg-surface-card border border-border-default rounded hover:bg-surface-warm transition-colors"
               >
                 Upload Logo
               </button>
-              <span className="ml-2 text-xs text-gray-400">PNG, JPG, or SVG (max 512 KB)</span>
+              <span className="ml-2 text-xs text-txt-muted">PNG, JPG, or SVG (max 512 KB)</span>
             </div>
           )}
           <input
@@ -457,13 +457,13 @@ export function BrandingSettings() {
             onChange={(e) => handleImageSelect(e, "logoDataUri", setLogoError)}
             className="hidden"
           />
-          {logoError && <p className="text-xs text-red-600">{logoError}</p>}
+          {logoError && <p className="text-xs text-state-danger">{logoError}</p>}
         </div>
 
         {/* Logo dimensions */}
         <div className="flex items-center gap-4">
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-600">Width (px)</label>
+            <label className="block text-xs font-medium text-txt-secondary">Width (px)</label>
             <input
               type="number"
               min={10}
@@ -474,7 +474,7 @@ export function BrandingSettings() {
             />
           </div>
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-600">Height (px)</label>
+            <label className="block text-xs font-medium text-txt-secondary">Height (px)</label>
             <input
               type="number"
               min={10}
@@ -484,16 +484,16 @@ export function BrandingSettings() {
               className={numberInputClass}
             />
           </div>
-          <span className="text-xs text-gray-400 self-end pb-2">10 - 200 px</span>
+          <span className="text-xs text-txt-muted self-end pb-2">10 - 200 px</span>
         </div>
       </div>
 
       {/* ---- Identity Section ---- */}
       <div className="space-y-3">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Identity</h3>
+        <h3 className="text-xs font-semibold text-txt-muted uppercase tracking-wide">Identity</h3>
 
         <div className="space-y-1.5">
-          <label className="block text-xs font-medium text-gray-600">Issuer Display Name</label>
+          <label className="block text-xs font-medium text-txt-secondary">Issuer Display Name</label>
           <input
             type="text"
             value={branding.issuerDisplayName ?? ""}
@@ -501,7 +501,7 @@ export function BrandingSettings() {
             placeholder="e.g. Acme University"
             className={textInputClass}
           />
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-txt-muted">
             Shown on credential templates. Falls back to your organization name if empty.
           </p>
         </div>
@@ -509,11 +509,11 @@ export function BrandingSettings() {
 
       {/* ---- Extras Section ---- */}
       <div className="space-y-3">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Extras</h3>
+        <h3 className="text-xs font-semibold text-txt-muted uppercase tracking-wide">Extras</h3>
 
         {/* Footer Text */}
         <div className="space-y-1.5">
-          <label className="block text-xs font-medium text-gray-600">Footer Text</label>
+          <label className="block text-xs font-medium text-txt-secondary">Footer Text</label>
           <input
             type="text"
             value={branding.footerText ?? ""}
@@ -522,17 +522,17 @@ export function BrandingSettings() {
             maxLength={MAX_FOOTER_LENGTH}
             className={textInputClass}
           />
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-txt-muted">
             Appears at the bottom of PDF certificates. Max {MAX_FOOTER_LENGTH} characters.
           </p>
         </div>
 
         {/* Seal Upload */}
         <div className="space-y-1.5">
-          <label className="block text-xs font-medium text-gray-600">Seal / Badge</label>
+          <label className="block text-xs font-medium text-txt-secondary">Seal / Badge</label>
           {branding.sealDataUri ? (
             <div className="flex items-center gap-3">
-              <div className="h-12 w-12 rounded border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
+              <div className="h-12 w-12 rounded border border-border-light bg-surface-warm flex items-center justify-center overflow-hidden">
                 <img
                   src={branding.sealDataUri}
                   alt="Seal preview"
@@ -541,7 +541,7 @@ export function BrandingSettings() {
               </div>
               <button
                 onClick={() => handleRemoveImage("sealDataUri")}
-                className="text-xs font-medium text-red-600 hover:text-red-700 hover:underline"
+                className="text-xs font-medium text-state-danger hover:text-state-danger hover:underline"
               >
                 Remove
               </button>
@@ -550,11 +550,11 @@ export function BrandingSettings() {
             <div>
               <button
                 onClick={() => sealInputRef.current?.click()}
-                className="px-3 py-1.5 text-xs font-medium text-txt-primary bg-surface-card border border-border-default rounded hover:bg-gray-100 transition-colors"
+                className="px-3 py-1.5 text-xs font-medium text-txt-primary bg-surface-card border border-border-default rounded hover:bg-surface-warm transition-colors"
               >
                 Upload Seal
               </button>
-              <span className="ml-2 text-xs text-gray-400">PNG, JPG, or SVG (max 512 KB)</span>
+              <span className="ml-2 text-xs text-txt-muted">PNG, JPG, or SVG (max 512 KB)</span>
             </div>
           )}
           <input
@@ -564,22 +564,22 @@ export function BrandingSettings() {
             onChange={(e) => handleImageSelect(e, "sealDataUri", setSealError)}
             className="hidden"
           />
-          {sealError && <p className="text-xs text-red-600">{sealError}</p>}
+          {sealError && <p className="text-xs text-state-danger">{sealError}</p>}
         </div>
       </div>
 
       {/* ---- Live Preview ---- */}
       <div className="space-y-1.5">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Preview</h3>
+        <h3 className="text-xs font-semibold text-txt-muted uppercase tracking-wide">Preview</h3>
         <div
-          className="rounded border border-gray-200 p-4 max-w-sm"
+          className="rounded border border-border-light p-4 max-w-sm"
           style={{ backgroundColor: effectiveBg }}
         >
           {/* Color bar */}
           <div className="h-2 rounded-full mb-3" style={{ backgroundColor: effectiveColor }} />
           <div className="flex items-center gap-3">
             {branding.logoDataUri ? (
-              <div className="h-10 w-10 rounded border border-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+              <div className="h-10 w-10 rounded border border-border-light flex items-center justify-center overflow-hidden flex-shrink-0">
                 <img
                   src={branding.logoDataUri}
                   alt=""
@@ -587,8 +587,8 @@ export function BrandingSettings() {
                 />
               </div>
             ) : (
-              <div className="h-10 w-10 rounded border border-dashed border-gray-300 flex items-center justify-center flex-shrink-0">
-                <span className="text-[10px] text-gray-300">Logo</span>
+              <div className="h-10 w-10 rounded border border-dashed border-border flex items-center justify-center flex-shrink-0">
+                <span className="text-[10px] text-txt-muted">Logo</span>
               </div>
             )}
             <div>

@@ -8,9 +8,9 @@
  */
 export function DelegatedIssuance() {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-      <h2 className="text-sm font-medium text-gray-700">Delegated Issuance</h2>
-      <p className="mt-1 text-sm text-gray-500">
+    <div className="rounded-lg border border-border-light bg-white p-4 space-y-3">
+      <h2 className="text-sm font-medium text-txt-secondary">Delegated Issuance</h2>
+      <p className="mt-1 text-sm text-txt-muted">
         Delegated issuance allows OpenCred to sign credentials on behalf of the issuer using a
         delegation certificate. This feature requires a network connection to the OpenCred API and
         will be fully implemented in a follow-up issue.

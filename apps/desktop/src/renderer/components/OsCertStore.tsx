@@ -147,25 +147,25 @@ export function OsCertStore({ onKeyConnected }: OsCertStoreProps) {
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
+    <div className="rounded-lg border border-border-light bg-white p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-gray-700">OS Certificate Store</h2>
+        <h2 className="text-sm font-medium text-txt-secondary">OS Certificate Store</h2>
         {step !== "browse" && (
           <button
             onClick={handleReset}
-            className="text-xs text-gray-500 hover:text-gray-700 underline"
+            className="text-xs text-txt-muted hover:text-txt-secondary underline"
           >
             Reset
           </button>
         )}
       </div>
 
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-txt-muted">
         Sign with certificates from your operating system's certificate store. Your private key
         never leaves the OS — signing is performed by the platform's native cryptography subsystem.
       </p>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-state-danger">{error}</p>}
 
       {/* Step 1: Browse cert store */}
       {step === "browse" && (
@@ -177,7 +177,7 @@ export function OsCertStore({ onKeyConnected }: OsCertStoreProps) {
           >
             {loading ? "Scanning..." : "Browse Certificate Store"}
           </button>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-txt-muted">
             Scans for EC P-256 certificates suitable for credential signing.
           </p>
         </div>
@@ -186,7 +186,7 @@ export function OsCertStore({ onKeyConnected }: OsCertStoreProps) {
       {/* Step 2: Certificate selection */}
       {step === "certificates" && (
         <div className="space-y-3">
-          <label className="block text-xs text-gray-600">
+          <label className="block text-xs text-txt-secondary">
             {storeName} — {certificates.length} certificate
             {certificates.length !== 1 ? "s" : ""} found
           </label>
@@ -197,18 +197,18 @@ export function OsCertStore({ onKeyConnected }: OsCertStoreProps) {
                 <div
                   key={cert.id}
                   className={`rounded-md border p-3 ${
-                    valid ? "border-gray-200" : "border-amber-200 bg-amber-50"
+                    valid ? "border-border-light" : "border-state-warning-border bg-state-warning-bg"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-700 truncate">
+                      <p className="text-sm font-medium text-txt-secondary truncate">
                         {cert.subject || "Unknown Subject"}
                       </p>
-                      <p className="text-xs text-gray-500 truncate">
+                      <p className="text-xs text-txt-muted truncate">
                         Issuer: {cert.issuer || "Unknown"}
                       </p>
-                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400">
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-txt-muted">
                         <span>Algorithm: {cert.keyAlgorithm}</span>
                         <span>
                           Valid: {formatDate(cert.validFrom)} &ndash; {formatDate(cert.validUntil)}
@@ -218,16 +218,16 @@ export function OsCertStore({ onKeyConnected }: OsCertStoreProps) {
                             Expired / Not Yet Valid
                           </span>
                         )}
-                        {cert.isExportable && <span className="text-gray-400">Exportable</span>}
+                        {cert.isExportable && <span className="text-txt-muted">Exportable</span>}
                       </div>
-                      <p className="mt-0.5 text-[10px] text-gray-300 font-mono truncate">
+                      <p className="mt-0.5 text-[10px] text-txt-muted font-mono truncate">
                         Thumbprint: {cert.thumbprint}
                       </p>
                     </div>
                     <button
                       onClick={() => void handleConnect(cert)}
                       disabled={loading}
-                      className="flex-shrink-0 rounded-md bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-40"
+                      className="flex-shrink-0 rounded-md bg-brand px-3 py-1 text-xs text-white hover:bg-brand disabled:opacity-40"
                     >
                       {loading ? "..." : "Use"}
                     </button>
@@ -241,15 +241,15 @@ export function OsCertStore({ onKeyConnected }: OsCertStoreProps) {
 
       {/* Step 3: Connected */}
       {step === "connected" && connectedKey && (
-        <div className="rounded-md border border-green-200 bg-green-50 p-3 text-xs">
-          <p className="font-medium text-green-800">OS certificate connected</p>
-          <div className="mt-1 text-green-700 space-y-0.5">
+        <div className="rounded-md border border-state-success-border bg-state-success-bg p-3 text-xs">
+          <p className="font-medium text-state-success">OS certificate connected</p>
+          <div className="mt-1 text-state-success space-y-0.5">
             <p>Algorithm: {connectedKey.algorithm}</p>
             {connectedKey.label && <p>Label: {connectedKey.label}</p>}
             <p>Fingerprint: {connectedKey.fingerprint.slice(0, 32)}...</p>
-            <p className="font-mono text-[10px] text-green-600 break-all">ID: {connectedKey.id}</p>
+            <p className="font-mono text-[10px] text-state-success break-all">ID: {connectedKey.id}</p>
           </div>
-          <p className="mt-2 text-green-600">
+          <p className="mt-2 text-state-success">
             This certificate is now available for credential signing. Select it from the key list
             when issuing credentials.
           </p>

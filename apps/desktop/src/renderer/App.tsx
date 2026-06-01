@@ -22,6 +22,7 @@ import { HistoryPage } from "./components/HistoryPage";
 import { RevocationPage } from "./components/RevocationPage";
 import { UpdateNotification } from "./components/UpdateNotification";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { Spinner } from "./components/ui/Spinner";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,7 +130,7 @@ export default function App() {
     return (
       <ErrorBoundary>
         <div className="min-h-screen bg-surface-bg flex items-center justify-center">
-          <p className="text-body-sm text-txt-muted font-body">Loading...</p>
+          <Spinner />
         </div>
       </ErrorBoundary>
     );
@@ -157,7 +158,6 @@ export default function App() {
         {/* Top bar */}
         <TopBar
           activeView={activeView}
-          isOffline={isOffline}
           rotationOverdue={rotationOverdue}
           onNavigate={setActiveView}
         />

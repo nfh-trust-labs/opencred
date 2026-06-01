@@ -142,10 +142,10 @@ function CredentialResult({
   return (
     <div className="space-y-4">
       {/* Success banner */}
-      <div className="flex items-center gap-3 rounded-oc bg-green-50 border border-green-200/60 px-4 py-3">
+      <div className="flex items-center gap-3 rounded-oc bg-state-success-bg border border-state-success-border/60 px-4 py-3">
         <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100">
           <svg
-            className="h-3.5 w-3.5 text-green-600"
+            className="h-3.5 w-3.5 text-state-success"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -154,19 +154,19 @@ function CredentialResult({
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <span className="text-sm font-medium text-green-800">Credential issued and signed</span>
+        <span className="text-sm font-medium text-state-success">Credential issued and signed</span>
         <Badge variant="success" className="ml-auto">
           Signed
         </Badge>
       </div>
 
       {/* Credential card */}
-      <div className="relative overflow-hidden rounded-oc border border-gray-200 bg-white">
+      <div className="relative overflow-hidden rounded-oc border border-border-light bg-white">
         {/* Card header — blue gradient strip */}
         <div className="bg-gradient-to-r from-[var(--oc-blue)] to-[#3377FF] px-5 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-mono text-[0.6rem] uppercase tracking-wider text-blue-200">
+              <p className="font-mono text-body-2xs uppercase tracking-wider text-blue-200">
                 Verifiable Credential
               </p>
               <h3
@@ -203,10 +203,10 @@ function CredentialResult({
                 if (key === "id" || typeof value === "object") return null;
                 return (
                   <div key={key}>
-                    <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">
+                    <dt className="font-mono text-body-2xs uppercase tracking-wider text-txt-muted">
                       {labelForField(key)}
                     </dt>
-                    <dd className="mt-0.5 text-sm text-gray-800">{String(value)}</dd>
+                    <dd className="mt-0.5 text-sm text-txt-primary">{String(value)}</dd>
                   </div>
                 );
               })}
@@ -214,45 +214,45 @@ function CredentialResult({
           )}
 
           {/* Divider */}
-          <div className="border-t border-gray-100" />
+          <div className="border-t border-border-light" />
 
           {/* Metadata row */}
           <div className="grid grid-cols-2 gap-x-6 gap-y-3">
             <div>
-              <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">
+              <dt className="font-mono text-body-2xs uppercase tracking-wider text-txt-muted">
                 Issuer
               </dt>
-              <dd className="mt-0.5 text-xs text-gray-600 font-mono" title={vc.issuer}>
+              <dd className="mt-0.5 text-xs text-txt-secondary font-mono" title={vc.issuer}>
                 {truncateDid(vc.issuer)}
               </dd>
             </div>
             {vc.proofType && (
               <div>
-                <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">
+                <dt className="font-mono text-body-2xs uppercase tracking-wider text-txt-muted">
                   Proof
                 </dt>
-                <dd className="mt-0.5 text-xs text-gray-600 font-mono">{vc.proofType}</dd>
+                <dd className="mt-0.5 text-xs text-txt-secondary font-mono">{vc.proofType}</dd>
               </div>
             )}
             <div>
-              <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">
+              <dt className="font-mono text-body-2xs uppercase tracking-wider text-txt-muted">
                 Issued
               </dt>
-              <dd className="mt-0.5 text-sm text-gray-700">{formatDate(vc.issuanceDate)}</dd>
+              <dd className="mt-0.5 text-sm text-txt-secondary">{formatDate(vc.issuanceDate)}</dd>
             </div>
             {vc.expirationDate && (
               <div>
-                <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-gray-400">
+                <dt className="font-mono text-body-2xs uppercase tracking-wider text-txt-muted">
                   Expires
                 </dt>
-                <dd className="mt-0.5 text-sm text-gray-700">{formatDate(vc.expirationDate)}</dd>
+                <dd className="mt-0.5 text-sm text-txt-secondary">{formatDate(vc.expirationDate)}</dd>
               </div>
             )}
           </div>
         </div>
 
         {/* Card footer — export actions */}
-        <div className="flex items-center gap-2 border-t border-gray-100 bg-gray-50/50 px-5 py-3">
+        <div className="flex items-center gap-2 border-t border-border-light bg-surface-warm/50 px-5 py-3">
           <Button variant="secondary" size="sm" onClick={onExportJson}>
             Download JSON
           </Button>
@@ -264,7 +264,7 @@ function CredentialResult({
           </Button>
           <button
             onClick={() => setShowRaw((prev) => !prev)}
-            className="ml-auto flex items-center gap-1 rounded-oc px-2 py-1 text-[0.7rem] font-mono text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+            className="ml-auto flex items-center gap-1 rounded-oc px-2 py-1 text-body-2xs font-mono text-txt-muted hover:bg-surface-warm hover:text-txt-secondary transition-colors"
           >
             {showRaw ? "Hide" : "Show"} Raw
             <svg
@@ -281,8 +281,8 @@ function CredentialResult({
 
         {/* Collapsible raw JSON */}
         {showRaw && (
-          <div className="border-t border-gray-100">
-            <pre className="max-h-72 overflow-auto bg-gray-50 px-5 py-3 font-mono text-[0.7rem] leading-relaxed text-gray-600">
+          <div className="border-t border-border-light">
+            <pre className="max-h-72 overflow-auto bg-surface-warm px-5 py-3 font-mono text-body-2xs leading-relaxed text-txt-secondary">
               {JSON.stringify(JSON.parse(signedCredential), null, 2)}
             </pre>
           </div>
@@ -475,16 +475,16 @@ export function IssuePage() {
       {/* Schema selection */}
       <Card className="space-y-3">
         <h2 className="oc-card-label">Credential Type</h2>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-txt-muted">
           Select a credential schema to define the subject fields.
         </p>
         {schemasLoading ? (
-          <p className="text-sm text-gray-400">Loading schemas...</p>
+          <p className="text-sm text-txt-muted">Loading schemas...</p>
         ) : (
           <select
             value={schemaId}
             onChange={(e) => void handleSchemaSelect(e.target.value)}
-            className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            className="block w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-txt-secondary shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
           >
             <option value="">Select a credential type...</option>
             {schemas.map((s) => (
@@ -500,7 +500,7 @@ export function IssuePage() {
       <Card className="space-y-3">
         <h2 className="oc-card-label">Credential Details</h2>
         {schemaFields.length === 0 ? (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-txt-muted">
             Select a credential type above to see the form fields.
           </p>
         ) : (
@@ -509,10 +509,10 @@ export function IssuePage() {
               <div key={field.name}>
                 <label
                   htmlFor={`field-${field.name}`}
-                  className="block text-xs font-medium text-gray-600"
+                  className="block text-xs font-medium text-txt-secondary"
                 >
                   {labelForField(field.name)}
-                  {field.required && <span className="text-red-500 ml-0.5">*</span>}
+                  {field.required && <span className="text-state-danger ml-0.5">*</span>}
                 </label>
                 <input
                   id={`field-${field.name}`}
@@ -527,7 +527,7 @@ export function IssuePage() {
                   required={field.required}
                   disabled={signing}
                   placeholder={`Enter ${labelForField(field.name).toLowerCase()}...`}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+                  className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm disabled:text-txt-muted"
                 />
               </div>
             ))}
@@ -541,11 +541,11 @@ export function IssuePage() {
 
         {/* Key selector */}
         <div>
-          <label htmlFor="issue-signing-key" className="block text-xs font-medium text-gray-600">
-            Signing Key <span className="text-red-500">*</span>
+          <label htmlFor="issue-signing-key" className="block text-xs font-medium text-txt-secondary">
+            Signing Key <span className="text-state-danger">*</span>
           </label>
           {keys.length === 0 ? (
-            <p className="mt-1 text-xs text-gray-400 italic">
+            <p className="mt-1 text-xs text-txt-muted italic">
               No keys imported. Go to Settings to import or generate a key.
             </p>
           ) : (
@@ -554,7 +554,7 @@ export function IssuePage() {
               value={selectedKeyId}
               onChange={(e) => setSelectedKeyId(e.target.value)}
               disabled={signing}
-              className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+              className="mt-1 block w-full rounded-md border border-border bg-white px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
             >
               {keys.map((key) => (
                 <option key={key.id} value={key.id}>
@@ -568,7 +568,7 @@ export function IssuePage() {
         {/* Validity dates */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label htmlFor="issue-valid-from" className="block text-xs font-medium text-gray-600">
+            <label htmlFor="issue-valid-from" className="block text-xs font-medium text-txt-secondary">
               Valid From
             </label>
             <input
@@ -577,11 +577,11 @@ export function IssuePage() {
               value={validFrom}
               onChange={(e) => setValidFrom(e.target.value)}
               disabled={signing}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+              className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
             />
           </div>
           <div>
-            <label htmlFor="issue-valid-until" className="block text-xs font-medium text-gray-600">
+            <label htmlFor="issue-valid-until" className="block text-xs font-medium text-txt-secondary">
               Valid Until
             </label>
             <input
@@ -590,7 +590,7 @@ export function IssuePage() {
               value={validUntil}
               onChange={(e) => setValidUntil(e.target.value)}
               disabled={signing}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+              className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
             />
           </div>
         </div>
@@ -601,7 +601,7 @@ export function IssuePage() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="oc-card-label">Build & Sign</h2>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-txt-muted">
               Keys never leave this machine. Signing works offline.
             </p>
           </div>
@@ -613,7 +613,7 @@ export function IssuePage() {
           </Button>
         </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-state-danger">{error}</p>}
 
         {signedCredential && (
           <CredentialResult

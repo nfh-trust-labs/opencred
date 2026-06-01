@@ -5,7 +5,7 @@ interface Props {
 export function OfflineIndicator({ isOffline }: Props) {
   if (!isOffline) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-green-600">
+      <span className="inline-flex items-center gap-1.5 text-xs text-state-success">
         <span className="h-2 w-2 rounded-full bg-green-500" aria-hidden="true" />
         Online
       </span>

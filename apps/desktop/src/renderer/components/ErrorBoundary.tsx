@@ -65,7 +65,7 @@ export class ErrorBoundary extends Component<Props, State> {
             details for a bug report.
           </p>
           {error && (
-            <pre className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-3 overflow-auto max-h-40 whitespace-pre-wrap">
+            <pre className="text-xs text-state-danger bg-state-danger-bg border border-state-danger-border rounded p-3 overflow-auto max-h-40 whitespace-pre-wrap">
               {error.message}
             </pre>
           )}
@@ -78,7 +78,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </button>
             <button
               onClick={() => void this.handleCopy()}
-              className="px-4 py-2 text-sm font-medium text-txt-primary bg-surface-card border border-border-default rounded hover:bg-gray-100 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-txt-primary bg-surface-card border border-border-default rounded hover:bg-surface-warm transition-colors"
             >
               {copied ? "Copied!" : "Copy Error"}
             </button>

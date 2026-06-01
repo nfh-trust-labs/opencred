@@ -97,7 +97,7 @@ export function KeyImport({ onKeyImported }: KeyImportProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-txt-muted">
           Import a signing key from a file. Supports PEM, JWK, PKCS#8 DER, and PFX/P12 formats —
           we'll auto-detect the type. If your IT department gave you a key file, use this option.
         </p>
@@ -113,9 +113,9 @@ export function KeyImport({ onKeyImported }: KeyImportProps) {
       {showPfxPrompt && (
         <form
           onSubmit={handlePfxSubmit}
-          className="rounded-md border border-blue-200 bg-blue-50 p-3 space-y-2"
+          className="rounded-md border border-blue-200 bg-brand-light p-3 space-y-2"
         >
-          <p className="text-xs font-medium text-blue-800">
+          <p className="text-xs font-medium text-brand">
             PFX/P12 file selected — enter password:
           </p>
           <div className="flex items-center gap-2">
@@ -130,7 +130,7 @@ export function KeyImport({ onKeyImported }: KeyImportProps) {
             <button
               type="submit"
               disabled={importing}
-              className="rounded-md bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-40"
+              className="rounded-md bg-brand px-3 py-1 text-sm text-white hover:bg-brand disabled:opacity-40"
             >
               {importing ? "Importing..." : "Import"}
             </button>
@@ -141,7 +141,7 @@ export function KeyImport({ onKeyImported }: KeyImportProps) {
                 setPendingFilePath(null);
                 setPfxPassword("");
               }}
-              className="rounded-md bg-gray-200 px-3 py-1 text-sm text-gray-700 hover:bg-gray-300"
+              className="rounded-md bg-gray-200 px-3 py-1 text-sm text-txt-secondary hover:bg-gray-300"
             >
               Cancel
             </button>
@@ -149,18 +149,18 @@ export function KeyImport({ onKeyImported }: KeyImportProps) {
         </form>
       )}
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-state-danger">{error}</p>}
 
       {lastImported && (
-        <div className="rounded-md border border-green-200 bg-green-50 p-3 text-xs">
-          <p className="font-medium text-green-800">Key imported successfully</p>
-          <div className="mt-1 text-green-700 space-y-0.5">
+        <div className="rounded-md border border-state-success-border bg-state-success-bg p-3 text-xs">
+          <p className="font-medium text-state-success">Key imported successfully</p>
+          <div className="mt-1 text-state-success space-y-0.5">
             <p>Algorithm: {lastImported.algorithm}</p>
             {lastImported.format && (
               <p>Format: {FORMAT_LABELS[lastImported.format] ?? lastImported.format}</p>
             )}
             <p>Fingerprint: {lastImported.fingerprint.slice(0, 32)}...</p>
-            <p className="font-mono text-[10px] text-green-600 break-all">ID: {lastImported.id}</p>
+            <p className="font-mono text-[10px] text-state-success break-all">ID: {lastImported.id}</p>
           </div>
         </div>
       )}

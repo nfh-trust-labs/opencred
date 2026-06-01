@@ -61,17 +61,17 @@ export function KeyManagement() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
-        <h2 className="text-sm font-medium text-gray-700">Key Management</h2>
-        <p className="text-xs text-gray-500">
+      <div className="rounded-lg border border-border-light bg-white p-4 space-y-4">
+        <h2 className="text-sm font-medium text-txt-secondary">Key Management</h2>
+        <p className="text-xs text-txt-muted">
           Your signing key proves that credentials came from you. You set this up during onboarding.
         </p>
 
         {/* Collapsible tab guidance */}
-        <div className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
+        <div className="bg-surface-warm border border-border-light rounded-lg overflow-hidden">
           <button
             onClick={() => setGuidanceOpen((prev) => !prev)}
-            className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+            className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-txt-secondary hover:bg-surface-warm transition-colors"
           >
             <span>Which option should I choose?</span>
             <svg
@@ -94,21 +94,21 @@ export function KeyManagement() {
             }}
           >
             <div className="min-h-0">
-              <ul className="px-3 pb-3 space-y-1.5 text-xs text-gray-500">
+              <ul className="px-3 pb-3 space-y-1.5 text-xs text-txt-muted">
                 <li>
-                  <span className="font-medium text-gray-700">Import File</span> — You have a key
+                  <span className="font-medium text-txt-secondary">Import File</span> — You have a key
                   file from your IT department
                 </li>
                 <li>
-                  <span className="font-medium text-gray-700">Hardware Token</span> — You use a USB
+                  <span className="font-medium text-txt-secondary">Hardware Token</span> — You use a USB
                   security key (YubiKey, SafeNet) or smart card
                 </li>
                 <li>
-                  <span className="font-medium text-gray-700">OS Cert Store</span> — You have
+                  <span className="font-medium text-txt-secondary">OS Cert Store</span> — You have
                   signing certificates installed on this computer
                 </li>
                 <li>
-                  <span className="font-medium text-gray-700">Generate Key</span> — You are getting
+                  <span className="font-medium text-txt-secondary">Generate Key</span> — You are getting
                   started and need a new key (recommended for testing)
                 </li>
               </ul>
@@ -117,15 +117,15 @@ export function KeyManagement() {
         </div>
 
         {/* Sub-tab navigation */}
-        <div className="flex gap-1 border-b border-gray-200">
+        <div className="flex gap-1 border-b border-border-light">
           {SUB_TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveSubTab(tab.id)}
               className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
                 activeSubTab === tab.id
-                  ? "border-gray-700 text-gray-900"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  ? "border-gray-700 text-txt-primary"
+                  : "border-transparent text-txt-muted hover:text-txt-secondary hover:border-border"
               }`}
             >
               {tab.label}
@@ -146,24 +146,24 @@ export function KeyManagement() {
       </div>
 
       {/* Unified key table */}
-      <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+      <div className="rounded-lg border border-border-light bg-white p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium text-gray-700">Active Keys</h3>
-          <span className="text-xs text-gray-400">
+          <h3 className="text-sm font-medium text-txt-secondary">Active Keys</h3>
+          <span className="text-xs text-txt-muted">
             {keys.length} key{keys.length !== 1 ? "s" : ""} registered
           </span>
         </div>
 
-        {keysError && <p className="text-sm text-red-600">{keysError}</p>}
+        {keysError && <p className="text-sm text-state-danger">{keysError}</p>}
 
         {keys.length === 0 ? (
-          <p className="text-sm text-gray-400 italic">
+          <p className="text-sm text-txt-muted italic">
             No keys registered yet. Import a file, connect a hardware token, or generate a key.
           </p>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200 text-left text-xs text-gray-500">
+              <tr className="border-b border-border-light text-left text-xs text-txt-muted">
                 <th className="pb-2">Algorithm</th>
                 <th className="pb-2">Source</th>
                 <th className="pb-2">Label</th>
@@ -173,18 +173,18 @@ export function KeyManagement() {
             </thead>
             <tbody>
               {keys.map((key) => (
-                <tr key={key.id} className="border-b border-gray-100">
-                  <td className="py-2 text-gray-700">{key.algorithm}</td>
+                <tr key={key.id} className="border-b border-border-light">
+                  <td className="py-2 text-txt-secondary">{key.algorithm}</td>
                   <td className="py-2">
-                    <span className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                    <span className="inline-block rounded-full bg-surface-warm px-2 py-0.5 text-xs text-txt-secondary">
                       {getSourceLabel(key)}
                     </span>
                   </td>
-                  <td className="py-2 text-gray-500 text-xs">{key.label ?? "-"}</td>
-                  <td className="py-2 font-mono text-xs text-gray-500">
+                  <td className="py-2 text-txt-muted text-xs">{key.label ?? "-"}</td>
+                  <td className="py-2 font-mono text-xs text-txt-muted">
                     {key.fingerprint.slice(0, 16)}...
                   </td>
-                  <td className="py-2 text-xs text-gray-500">
+                  <td className="py-2 text-xs text-txt-muted">
                     {new Date(key.importedAt).toLocaleString()}
                   </td>
                 </tr>

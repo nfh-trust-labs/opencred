@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getVisual } from "./ui/TemplateCard";
 import { Button } from "./ui/Button";
+import { Spinner } from "./ui/Spinner";
 
 interface HistoryEntry {
   id: string;
@@ -490,7 +491,7 @@ export function HistoryPage({ onReissue }: Props) {
     onReissue(entry.schemaId, entry.schemaId === "blank");
   }
 
-  if (loading) return <p className="text-sm text-gray-400">Loading...</p>;
+  if (loading) return <Spinner />;
 
   return (
     <div>
@@ -499,7 +500,7 @@ export function HistoryPage({ onReissue }: Props) {
       </h2>
 
       {history.length === 0 ? (
-        <p className="text-sm text-gray-400 italic">No credentials issued yet.</p>
+        <p className="text-sm text-txt-muted italic">No credentials issued yet.</p>
       ) : (
         <div style={{ borderRadius: 10, border: "1px solid var(--oc-border)", overflow: "hidden" }}>
           <table
