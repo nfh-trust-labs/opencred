@@ -4,6 +4,7 @@ import {
   didWebVerificationMethodId,
   didWebToUrl,
   generateDidWebDocument,
+  generateDidWebDocumentMultiKey,
   DIDWebResolver,
   verifyDidWeb,
 } from "../did-web.js";
@@ -110,6 +111,102 @@ describe("generateDidWebDocument", () => {
     expect(doc.assertionMethod).toEqual([expectedId]);
     expect(doc.capabilityInvocation).toEqual([expectedId]);
     expect(doc.capabilityDelegation).toEqual([expectedId]);
+  });
+
+  it("delegates to the multi-key generator (single #key-0 entry)", () => {
+    // The single-key wrapper is now a thin shim over the multi-key
+    // generator with a conventional `${did}#key-0` fragment. Pin that the
+    // output is byte-for-byte the same as calling the multi-key generator
+    // directly with that one key.
+    const did = "did:web:example.com";
+    const single = generateDidWebDocument(did, sampleJwk);
+    const multi = generateDidWebDocumentMultiKey(did, [
+      { id: `${did}#key-0`, publicKeyJwk: sampleJwk },
+    ]);
+    expect(single).toEqual(multi);
+  });
+});
+
+describe("generateDidWebDocumentMultiKey", () => {
+  const did = "did:web:example.com";
+  const secondJwk: JWK = {
+    kty: "EC",
+    crv: "P-256",
+    x: "different-x-coordinate-value-for-second-key",
+    y: "different-y-coordinate-value-for-second-key",
+  };
+
+  it("emits a single verificationMethod for a one-key set", () => {
+    const doc = generateDidWebDocumentMultiKey(did, [{ id: `${did}#key-0`, publicKeyJwk: sampleJwk }]);
+
+    expect(doc["@context"]).toEqual([
+      "https://www.w3.org/ns/did/v1",
+      "https://w3id.org/security/suites/jws-2020/v1",
+    ]);
+    expect(doc.id).toBe(did);
+    expect(doc.verificationMethod).toHaveLength(1);
+
+    const vm = doc.verificationMethod![0];
+    expect(vm.id).toBe(`${did}#key-0`);
+    expect(vm.type).toBe("JsonWebKey");
+    expect(vm.controller).toBe(did);
+    expect(vm.publicKeyJwk).toEqual(sampleJwk);
+  });
+
+  it("emits one verificationMethod per key for an N-key set", () => {
+    const keys = [
+      { id: `${did}#key-0`, publicKeyJwk: sampleJwk },
+      { id: `${did}#key-1`, publicKeyJwk: secondJwk },
+    ];
+    const doc = generateDidWebDocumentMultiKey(did, keys);
+
+    expect(doc.verificationMethod).toHaveLength(2);
+    expect(doc.verificationMethod![0]).toEqual({
+      id: `${did}#key-0`,
+      type: "JsonWebKey",
+      controller: did,
+      publicKeyJwk: sampleJwk,
+    });
+    expect(doc.verificationMethod![1]).toEqual({
+      id: `${did}#key-1`,
+      type: "JsonWebKey",
+      controller: did,
+      publicKeyJwk: secondJwk,
+    });
+  });
+
+  it("lists every key id in all four verification relationships", () => {
+    const keys = [
+      { id: `${did}#key-0`, publicKeyJwk: sampleJwk },
+      { id: `${did}#key-1`, publicKeyJwk: secondJwk },
+    ];
+    const ids = keys.map((k) => k.id);
+    const doc = generateDidWebDocumentMultiKey(did, keys);
+
+    expect(doc.authentication).toEqual(ids);
+    expect(doc.assertionMethod).toEqual(ids);
+    expect(doc.capabilityInvocation).toEqual(ids);
+    expect(doc.capabilityDelegation).toEqual(ids);
+  });
+
+  it("accepts cross-method key ids (e.g. did:key fragments) verbatim", () => {
+    const keyId = "did:key:z6MkExample#z6MkExample";
+    const doc = generateDidWebDocumentMultiKey(did, [{ id: keyId, publicKeyJwk: sampleJwk }]);
+
+    expect(doc.verificationMethod![0].id).toBe(keyId);
+    // controller is always the document DID, even for a cross-method key id.
+    expect(doc.verificationMethod![0].controller).toBe(did);
+    expect(doc.assertionMethod).toEqual([keyId]);
+  });
+
+  it("throws DIDResolutionError when the key set is empty", () => {
+    expect(() => generateDidWebDocumentMultiKey(did, [])).toThrow(DIDResolutionError);
+  });
+
+  it("throws DIDResolutionError when keys is null/undefined", () => {
+    expect(() =>
+      generateDidWebDocumentMultiKey(did, undefined as unknown as never),
+    ).toThrow(DIDResolutionError);
   });
 });
 

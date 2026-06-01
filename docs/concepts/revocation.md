@@ -95,6 +95,60 @@ Bitstring status lists are efficient for very large credential populations (mill
 
 Hash lookup is the opposite tradeoff: every verification requires a network call to DeDi, but operationally the issuer just publishes hashes when they revoke. For OpenCred's primary user — small to mid-size institutional issuers — hash lookup is the simpler model. Bitstrings remain available as an opt-in for issuers who need them.
 
+## Key revocation vs. per-credential revocation
+
+OpenCred supports two distinct types of revocation that operate at different granularities:
+
+### Per-credential revocation (the `vc-revocation-registry`)
+
+Described in detail in the sections above. The issuer publishes a hash of a specific credential to DeDi. Only that credential is affected; other credentials from the same issuer and same key are unaffected.
+
+**Use this when:** a credential needs to be withdrawn for a reason specific to the holder or the credential's content — a degree was rescinded, an employment credential is no longer accurate, or the holder requests removal.
+
+### Key revocation (the `opencred-key-registry`)
+
+Key revocation operates at the level of a **signing key**, not an individual credential. When a key is compromised, the issuer flips its status to `revoked` in the `opencred-key-registry`. **Every credential that key ever signed is then rejected by DeDi-aware verifiers** with a top-level `REVOKED` outcome, regardless of when those credentials were issued.
+
+**Use this when:** a signing key is compromised. No individual per-credential entries are needed — the key status itself signals to verifiers that nothing the key signed can be trusted.
+
+**API:** `POST /v1/keys/revoke` — see [Docker API Reference → POST /v1/keys/revoke](../docker/api-reference.md#post-v1keysrevoke).
+
+**Important distinction — `rotated` is not `revoked`:**
+
+A key that was cleanly rotated (status `rotated`) is not compromised. Credentials it signed remain valid and verifiers accept them. Only `revoked` triggers the blanket rejection. See [Concepts → DIDs → Per-key registry](dids.md#per-key-registry--the-opencred-key-registry-model) for the full status model.
+
+### The "no DeDi status available" case — credential stays VALID
+
+This is important to understand correctly: **the absence of a key-status check is not a failure.**
+
+Consider a `did:key` credential that has no `credentialStatus` block:
+
+1. The verifier checks the cryptographic signature — passes or fails on its own merits.
+2. There is no `credentialStatus.id` URL, so no DeDi namespace can be derived.
+3. The key-status check is skipped. The verify response shows the check as "not checked" (or omits it entirely).
+4. **The credential is displayed as valid** if the signature check passed.
+
+The same applies when DeDi is temporarily unreachable (outage), or when a lookup returns 404 (no record exists yet for that key). In all these cases the credential's validity rests entirely on its cryptographic signature. DeDi key status is _additive_ — it can only further downgrade a credential that is already cryptographically valid (by finding an explicit `revoked` record), but it never blocks a credential when status is unavailable.
+
+This "degrade open" behavior is intentional. A DeDi outage must never prevent verification of a legitimately-issued credential.
+
+```
+Credential with no credentialStatus
+  → Signature check: PASS
+  → Key status check: SKIPPED (no namespace pointer)
+  → Result: VALID   ← correct; DeDi is not consulted
+
+Credential with credentialStatus, DeDi returns 404
+  → Signature check: PASS
+  → Key status check: NOT FOUND → degrade open
+  → Result: VALID   ← correct; absence of a revocation record means not revoked
+
+Credential with credentialStatus, DeDi returns revoked
+  → Signature check: PASS (the signature is still mathematically correct)
+  → Key status check: REVOKED
+  → Result: REVOKED ← correct; the key was compromised
+```
+
 ## Future Models
 
 The PRD mentions two future revocation models that are **not** currently implemented:

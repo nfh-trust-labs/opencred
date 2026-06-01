@@ -739,46 +739,30 @@ export interface DeDiStatusResponse {
   publishedSchemas: string[];
 }
 
-export interface DeDiPublishDIDRequest {
-  /** The DID to publish. */
+export interface DeDiPublishKeyRequest {
+  /**
+   * The local in-memory signer id used to resolve the public JWK +
+   * algorithm. Private key material is NEVER transmitted across IPC —
+   * the handler looks the signer up in the main-process registry by id.
+   */
+  signerKeyId: string;
+  /** The controller DID to publish the key under (did:web:domain or did:key:...). */
   did: string;
-  /** The DID document (JSON). */
-  document: unknown;
+  /** Optional assembled did.json for did:web hosting (only used when hostDidDocument is set). */
+  document?: unknown;
+  /** Optional DeDi namespace override. */
+  namespace?: string;
+  /** When true (and `document` is present), also store the did:web document in DeDi. */
+  hostDidDocument?: boolean;
 }
 
-export interface DeDiMarkDIDRotatedRequest {
-  /**
-   * The DID being rotated.
-   *
-   * - For `did:key` issuers (and any unknown method) the handler flips
-   *   the whole DeDi record's `keyStatus` from `"current"` to
-   *   `"rotated"` — the new key produces a new DID, so the old DID is
-   *   retired as a unit.
-   * - For `did:web` issuers the handler routes to
-   *   {@link DeDiClient.rotateDIDWeb}: the DID is stable, the new key is
-   *   appended to the document's `verificationMethod[]`, prior entries
-   *   are stamped `supersededAt`, and `assertionMethod` is repointed
-   *   at the new key. This requires the new key's public JWK (see
-   *   `keyId` below).
-   *
-   * Must already be published to DeDi — otherwise the underlying
-   * update-record call returns a 404 which the handler swallows (the
-   * response is `success: false` so callers can log).
-   */
-  did: string;
-  /**
-   * Optional key ID of the active signer whose public JWK should be
-   * written into the rotated `did:web` Document. Required for `did:web`
-   * rotation; ignored for `did:key`. The handler looks up the public
-   * JWK from the in-memory signer registry — private key material is
-   * never transmitted across the IPC boundary.
-   *
-   * For backwards compatibility this is optional. did:web rotations
-   * without a `keyId` fail with `success: false, error:
-   * "rotation requires keyId for did:web"` rather than silently
-   * no-oping.
-   */
-  keyId?: string;
+export interface DeDiSetKeyStatusRequest {
+  /** The verification method (key id) whose status should change. */
+  verificationMethod: string;
+  /** The new key status. */
+  status: "rotated" | "revoked";
+  /** Optional DeDi namespace override. */
+  namespace?: string;
 }
 
 export interface DeDiPublishSchemaRequest {
@@ -789,26 +773,17 @@ export interface DeDiPublishSchemaRequest {
 export interface DeDiPublishResponse {
   success: boolean;
   recordName?: string;
-  error?: string;
-  /**
-   * Set by `DEDI_MARK_DID_ROTATED` when the DID was a `did:web`. Carries
-   * the result of the underlying `rotateDIDWeb` call so the renderer can
-   * distinguish:
-   *   - a fresh rotation (`rotated: true`, includes `currentKeyId` and
-   *     the list of `superseded` verification method IDs);
-   *   - an idempotent no-op (`rotated: false`, `currentKeyId` is the
-   *     active key that already matched the document).
-   * Absent for non-did:web flows (e.g. did:key rotation, publish,
-   * schema publish).
-   */
-  rotation?: {
-    rotated: boolean;
-    did: string;
-    currentKeyId: string;
-    /** Set only when `rotated: true`. */
-    superseded?: string[];
-    namespace: string;
+  /** The verification method (key id) that was published. Set by DEDI_PUBLISH_KEY. */
+  keyId?: string;
+  /** Whether the did:web document was also stored in DeDi. Set by DEDI_PUBLISH_KEY. */
+  didDocumentStored?: boolean;
+  /** Result of a key status change. Set by DEDI_SET_KEY_STATUS. */
+  statusChange?: {
+    changed: boolean;
+    keyId: string;
+    status: string;
   };
+  error?: string;
 }
 
 export interface DeDiEnsureRegistriesResponse {
@@ -1079,8 +1054,8 @@ export interface OpenCredDesktopAPI {
   // DeDi integration
   dediSetConfig: (request: DeDiConfigSetRequest) => Promise<DeDiConfigSetResponse>;
   dediGetStatus: () => Promise<DeDiStatusResponse>;
-  dediPublishDID: (request: DeDiPublishDIDRequest) => Promise<DeDiPublishResponse>;
-  dediMarkDIDRotated: (request: DeDiMarkDIDRotatedRequest) => Promise<DeDiPublishResponse>;
+  dediPublishKey: (request: DeDiPublishKeyRequest) => Promise<DeDiPublishResponse>;
+  dediSetKeyStatus: (request: DeDiSetKeyStatusRequest) => Promise<DeDiPublishResponse>;
   dediPublishSchema: (request: DeDiPublishSchemaRequest) => Promise<DeDiPublishResponse>;
   dediEnsureRegistries: () => Promise<DeDiEnsureRegistriesResponse>;
   dediDisconnect: () => Promise<DeDiDisconnectResponse>;

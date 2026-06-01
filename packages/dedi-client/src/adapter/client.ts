@@ -6,54 +6,97 @@ import { noopLogger } from "../logger.js";
 import type {
   DeDiClientConfig,
   RevocationHashRecord,
-  DIDRecord,
+  KeyRecord,
+  KeyStatus,
+  DidDocumentRecord,
   SchemaRecord,
   ContextRecord,
   PublishResult,
-  RotateResult,
+  SetKeyStatusResult,
 } from "./types.js";
 import {
   REVOCATION_REGISTRY,
-  PUBLIC_KEY_REGISTRY,
+  OPENCRED_KEY_REGISTRY,
+  DID_DOCUMENTS_REGISTRY,
   SCHEMA_REGISTRY,
   CONTEXT_REGISTRY,
   schemaToRecordName,
   contextToRecordName,
+  didToRecordName,
+  verificationMethodToRecordName,
 } from "./registry-names.js";
 
 /**
- * Validate a DeDi DID record payload against the 3-field schema:
- * `{ did, document?, keyStatus }`.
- *
- * `document` is optional — did:key records omit it because the verifier
- * derives the document from the DID itself. did:web records carry it
- * (DeDi caches the domain-hosted doc). When present it must be an
- * object; presence-without-shape is the only structural check we do
- * here, the downstream verifier validates the DID-Document contract.
- *
- * `keyStatus` is a strict enum — anything other than `"current"` or
- * `"rotated"` is treated as a server-side bug (502) because the field
- * is what drives the verifier's rotation badge.
+ * Monotone rank for {@link KeyStatus} transitions: `active(0) → rotated(1)
+ * → revoked(2)`. `setKeyStatus` only ever advances rank — it never moves a
+ * key backward (you can't un-revoke or un-rotate a key), which is what
+ * makes concurrent transitions race-safe against DeDi's lock-free
+ * `update-record`.
  */
-function assertDIDRecordShape(detail: unknown): asserts detail is DIDRecord {
+const KEY_STATUS_RANK: Record<KeyStatus, number> = {
+  active: 0,
+  rotated: 1,
+  revoked: 2,
+};
+
+const KEY_STATUSES: readonly KeyStatus[] = ["active", "rotated", "revoked"];
+
+/**
+ * Validate an `opencred-key-registry` payload against the per-key schema:
+ * `{ keyId, controllerDid, algorithm, publicKeyJwk, purpose, status }`.
+ *
+ * `status` is a strict enum — anything outside {@link KEY_STATUSES} is a
+ * server-side bug (502) because the verifier's accept/reject decision keys
+ * off it. `publicKeyJwk` must be an object; `purpose` must be an array of
+ * strings.
+ */
+function assertKeyRecordShape(detail: unknown): asserts detail is KeyRecord {
   if (detail == null || typeof detail !== "object") {
-    throw new DeDiClientError("DID record detail is missing or not an object", 502);
+    throw new DeDiClientError("Key record detail is missing or not an object", 502);
+  }
+  const rec = detail as Record<string, unknown>;
+  if (typeof rec["keyId"] !== "string") {
+    throw new DeDiClientError("Key record detail missing required field: keyId", 502);
+  }
+  if (typeof rec["controllerDid"] !== "string") {
+    throw new DeDiClientError("Key record detail missing required field: controllerDid", 502);
+  }
+  if (typeof rec["algorithm"] !== "string") {
+    throw new DeDiClientError("Key record detail missing required field: algorithm", 502);
+  }
+  if (rec["publicKeyJwk"] == null || typeof rec["publicKeyJwk"] !== "object") {
+    throw new DeDiClientError("Key record detail field 'publicKeyJwk' must be an object", 502);
+  }
+  if (
+    !Array.isArray(rec["purpose"]) ||
+    !(rec["purpose"] as unknown[]).every((p) => typeof p === "string")
+  ) {
+    throw new DeDiClientError("Key record detail field 'purpose' must be an array of strings", 502);
+  }
+  if (!KEY_STATUSES.includes(rec["status"] as KeyStatus)) {
+    throw new DeDiClientError(
+      "Key record detail field 'status' must be 'active', 'rotated', or 'revoked'",
+      502,
+    );
+  }
+}
+
+/**
+ * Validate a `did-documents` payload against the 2-field schema:
+ * `{ did, document }`. Both are required — this registry exists solely to
+ * hold DID documents. The `document` is validated only as "an object";
+ * the downstream verifier enforces the W3C DID-Document contract.
+ */
+function assertDidDocumentRecordShape(detail: unknown): asserts detail is DidDocumentRecord {
+  if (detail == null || typeof detail !== "object") {
+    throw new DeDiClientError("DID document record detail is missing or not an object", 502);
   }
   const rec = detail as Record<string, unknown>;
   if (typeof rec["did"] !== "string") {
-    throw new DeDiClientError("DID record detail missing required field: did", 502);
+    throw new DeDiClientError("DID document record detail missing required field: did", 502);
   }
-  if (rec["keyStatus"] !== "current" && rec["keyStatus"] !== "rotated") {
-    throw new DeDiClientError(
-      "DID record detail field 'keyStatus' must be 'current' or 'rotated'",
-      502,
-    );
-  }
-  if ("document" in rec && (rec["document"] == null || typeof rec["document"] !== "object")) {
-    throw new DeDiClientError(
-      "DID record detail field 'document' must be an object when present",
-      502,
-    );
+  if (rec["document"] == null || typeof rec["document"] !== "object") {
+    throw new DeDiClientError("DID document record detail field 'document' must be an object", 502);
   }
 }
 
@@ -308,53 +351,44 @@ export class DeDiClient {
   }
 
   /**
-   * Publish a DID document to the DeDi public-key registry.
+   * Publish a signing key to the `opencred-key-registry`.
    *
-   * Payload shape: `{ did, document?, keyStatus: "current" }`.
+   * One record per key (DeDi's canonical "one record per key" model),
+   * keyed by `verificationMethodToRecordName(key.keyId)`. The published
+   * payload is the full {@link KeyRecord} minus the server-set `proof`.
+   * Records are immutable except for `status` — a new key is always a new
+   * record, never an overwrite — so a duplicate record name means "this
+   * exact key was already published", which we surface as a
+   * {@link DeDiRecordExistsError} (callers treat it as benign).
    *
-   * - For `did:key`, `document` is omitted regardless of whether the
-   *   caller passes one — the verifier derives the document from the DID
-   *   via the canonical did:key resolution algorithm, so caching the
-   *   document in DeDi adds bytes without information.
-   * - For `did:web`, `document` is REQUIRED — the whole point of putting
-   *   a did:web in DeDi is to act as a cache of the domain-hosted
-   *   `.well-known/did.json`. Calling `publishDID` for a did:web without
-   *   a document is a programming error; throws a 400.
-   * - For other DID methods, `document` is included if the caller
-   *   supplied an object; otherwise omitted.
+   * New keys should be published with `status: "active"`. The lifecycle
+   * (`active → rotated → revoked`) is advanced later via
+   * {@link setKeyStatus}.
    *
-   * Newly-published records always carry `keyStatus: "current"`. Flip to
-   * `"rotated"` later by calling `markDIDRotated`.
+   * The caller owns key material; this method only ever sees the public
+   * `publicKeyJwk`. It never accepts, transmits, or stores a private key.
    */
-  async publishDID(did: string, document: unknown, namespace?: string): Promise<PublishResult> {
+  async publishKey(key: KeyRecord, namespace?: string): Promise<PublishResult> {
     const ns = this.resolveNamespace(namespace);
-    const recordName = didToRecordName(did);
-    const isDidKey = did.startsWith("did:key:");
-    const isDidWeb = did.startsWith("did:web:");
+    const recordName = verificationMethodToRecordName(key.keyId);
 
-    if (isDidWeb && (document == null || typeof document !== "object")) {
-      throw new DeDiClientError("publishDID: did:web records require a DID Document", 400);
-    }
-
-    const detail: { did: string; document?: Record<string, unknown>; keyStatus: "current" } = {
-      did,
-      keyStatus: "current",
+    // Strip any server-set `proof` before publishing — `details` is the
+    // issuer-authored payload only.
+    const detail = {
+      keyId: key.keyId,
+      controllerDid: key.controllerDid,
+      algorithm: key.algorithm,
+      publicKeyJwk: key.publicKeyJwk,
+      purpose: key.purpose,
+      status: key.status,
     };
-    if (!isDidKey && document != null && typeof document === "object") {
-      detail.document = document as Record<string, unknown>;
-    }
 
     try {
-      await this.api.publishRecord(ns, PUBLIC_KEY_REGISTRY, recordName, detail);
+      await this.api.publishRecord(ns, OPENCRED_KEY_REGISTRY, recordName, detail);
     } catch (err) {
-      // DeDi returns 409 "duplicate record name" when the DID was already
-      // published — the public-key registry uses the DID as record_name,
-      // so the same DID can't be republished. Surface this distinctly so
-      // callers can fall through to `resolveDID` instead of treating it
-      // as a hard failure.
       if (isDuplicateRecordBody(err)) {
         throw new DeDiRecordExistsError(
-          "This DID is already in the public key registry",
+          "This key is already in the key registry",
           "Use POST /v1/keys/resolve to fetch the existing record",
           (err as DeDiClientError).responseBody,
         );
@@ -364,243 +398,174 @@ export class DeDiClient {
     return { published: true, recordName, namespace: ns };
   }
 
-  async resolveDID(did: string, namespace?: string): Promise<DIDRecord> {
+  /**
+   * Resolve a signing key's record from the `opencred-key-registry` by its
+   * verification method (the key's full `id`). This is the call a verifier
+   * makes to answer "is this key live?" — see {@link KeyStatus}.
+   */
+  async resolveKey(verificationMethod: string, namespace?: string): Promise<KeyRecord> {
     const ns = this.resolveNamespace(namespace);
-    const recordName = didToRecordName(did);
-    const response = await this.api.lookupRecord(ns, PUBLIC_KEY_REGISTRY, recordName);
+    const recordName = verificationMethodToRecordName(verificationMethod);
+    const response = await this.api.lookupRecord(ns, OPENCRED_KEY_REGISTRY, recordName);
     assertDeDiRecordShape(response, "lookupRecord");
     const details = response.data.details;
-    assertDIDRecordShape(details);
+    assertKeyRecordShape(details);
     const proof = extractProof(response.data);
     return proof ? { ...details, proof } : details;
   }
 
   /**
-   * Flip a published DID's `keyStatus` from `"current"` to `"rotated"`.
+   * Advance a key's lifecycle status in the `opencred-key-registry`.
    *
-   * **Per-method semantics** (see `docs/spikes/spike-619-did-web-rotation.md`):
+   * The transition is **monotone**: `active → rotated → revoked`, and only
+   * ever forward. This is what makes it race-safe against DeDi's lock-free
+   * `update-record` — concurrent writers converge because no caller ever
+   * moves a key backward, and the only mutable field is `status`. A request
+   * to move backward (e.g. `revoked → rotated`) or to set the status it's
+   * already at is a no-op (`changed: false`), not an error.
    *
-   * - `did:key`: keeps the original whole-record flip. A new did:key key
-   *   produces a new DID, so flipping the OLD did:key record's
-   *   `keyStatus` correctly marks the entire DID as retired.
+   * - `rotated`: clean retirement. Credentials signed by the key stay
+   *   valid (a clean rotation means the key was never compromised).
+   * - `revoked`: compromise / withdrawal. The verifier rejects every
+   *   credential signed by the key (top-level `REVOKED`).
    *
-   * - `did:web`: **no-op at the record level** plus a warn log. The DID
-   *   itself isn't rotated — only one of its keys changes — so flipping
-   *   the parent record's `keyStatus` would be the wrong semantic.
-   *   Rotation for did:web lives inside `document.verificationMethod[]`
-   *   and is performed by `rotateDIDWeb` below. Callers that hit this
-   *   path probably meant to call `rotateDIDWeb` instead; the warn log
-   *   surfaces the misuse without breaking fire-and-forget desktop
-   *   flows.
-   *
-   * - Unknown methods: conservative whole-record flip (matches the
-   *   historical behaviour for forwards-compat).
-   *
-   * Concurrency story (did:key only): DeDi's `update-record` has no
-   * `If-Match` / `expected_version` parameter, so the naïve
-   * read-merge-write would race if two desktops rotated the same DID
-   * simultaneously. This is safe for did:key because:
-   *   1. The flip is monotone — `current` → `rotated`, never reversed.
-   *   2. `did` is the record key (immutable) and `document` is written
-   *      only by `publishDID`, not mutated here — so concurrent calls
-   *      send identical payloads.
-   * Concurrent callers therefore converge to the same state, and the
-   * idempotent fast-path below short-circuits any caller whose read
-   * sees the record already rotated.
-   *
-   * Signature stays `Promise<void>` — no breaking change to existing
-   * callers (`apps/desktop/src/main/ipc-handlers.ts:416-432` etc.).
-   * Throws if the record isn't already published (did:key path); the
-   * did:web no-op path never throws on a missing record (since rotation
-   * for did:web is the rotateDIDWeb endpoint's job, not this one).
+   * Throws (via `resolveKey`) if the key has no record yet — you can't
+   * change the status of a key you never published.
    */
-  async markDIDRotated(did: string, namespace?: string): Promise<void> {
-    if (did.startsWith("did:web:")) {
-      this.logger.warn(
-        "markDIDRotated called for did:web — no-op at the record level; " +
-          "use rotateDIDWeb (or POST /v1/keys/rotate) for per-key rotation inside the DID Document",
-        { did },
-      );
-      return;
-    }
-
-    const ns = this.resolveNamespace(namespace);
-    const recordName = didToRecordName(did);
-    const existing = await this.resolveDID(did, ns);
-    if (existing.keyStatus === "rotated") {
-      this.logger.info("DID already marked as rotated; skipping update-record", {
-        did,
-        namespace: ns,
-      });
-      return;
-    }
-    const updatedDetails: DIDRecord = {
-      did: existing.did,
-      keyStatus: "rotated",
-      ...(existing.document !== undefined ? { document: existing.document } : {}),
-    };
-    await this.api.updateRecord(ns, PUBLIC_KEY_REGISTRY, recordName, updatedDetails);
-    this.logger.info("DID marked as rotated in DeDi", { did, namespace: ns });
-  }
-
-  /**
-   * Rotate a `did:web` issuer's signing key while keeping the DID itself
-   * stable.
-   *
-   * Read-merge-write against the existing DeDi `public_key_registry`
-   * record:
-   *
-   *   1. Resolve the existing DID Document.
-   *   2. If the most-recent (un-superseded) `verificationMethod` entry
-   *      already carries this key's `publicKeyJwk`, return
-   *      `{ rotated: false }` without writing. Idempotency: re-runs
-   *      after a transient network failure don't produce spurious DeDi
-   *      version bumps or warn-log noise.
-   *   3. Otherwise, mint the next fragment ID (`#key-N+1`), append the
-   *      new VM, mark every prior un-superseded VM with
-   *      `supersededAt: now`, and point `assertionMethod` at the new
-   *      VM only.
-   *   4. Write the merged document back via `updateRecord`.
-   *
-   * **Concurrency (see spike §5).** DeDi has no optimistic-locking
-   * primitive today, so two simultaneous rotations against the same DID
-   * are last-writer-wins. The default single-issuer-node deployment
-   * never hits this; multi-replica deployments running simultaneous
-   * rotations risk one rotation clobbering the other. Option (a) from
-   * the spike — DeDi-side optimistic concurrency — is the right
-   * long-term fix and is tracked separately.
-   *
-   * Throws `DeDiClientError(400)` if `did` is not a `did:web` DID;
-   * `DeDiClientError(404)` if the DID has no existing DeDi record
-   * (caller must `publishDID` first).
-   */
-  async rotateDIDWeb(
-    did: string,
-    newKeyJwk: Record<string, unknown>,
+  async setKeyStatus(
+    verificationMethod: string,
+    status: KeyStatus,
     namespace?: string,
-  ): Promise<RotateResult> {
-    if (!did.startsWith("did:web:")) {
+  ): Promise<SetKeyStatusResult> {
+    // Guard against an out-of-enum status reaching the monotone comparison —
+    // `KEY_STATUS_RANK[<garbage>]` is `undefined`, which fails both the
+    // equality and `<` checks and would otherwise fall through and write the
+    // bogus status to DeDi. Fail fast (400) instead.
+    if (!KEY_STATUSES.includes(status)) {
       throw new DeDiClientError(
-        "rotateDIDWeb: only did:web rotation is supported by this method; " +
-          "did:key issuers should regenerate (producing a new DID) instead",
+        `setKeyStatus: invalid status '${String(status)}' (expected ${KEY_STATUSES.join(" | ")})`,
         400,
       );
     }
-
     const ns = this.resolveNamespace(namespace);
-    const recordName = didToRecordName(did);
+    const recordName = verificationMethodToRecordName(verificationMethod);
+    const existing = await this.resolveKey(verificationMethod, ns);
 
-    // Read existing record. resolveDID throws on 404 — let it propagate so
-    // the caller surfaces a clear "publish first" error.
-    const existing = await this.resolveDID(did, ns);
-    if (!existing.document || typeof existing.document !== "object") {
-      throw new DeDiClientError(
-        "rotateDIDWeb: existing did:web record has no document — cannot rotate keys " +
-          "inside a missing DID Document. Re-publish via /v1/keys/publish first.",
-        502,
-      );
-    }
+    const currentRank = KEY_STATUS_RANK[existing.status];
+    const targetRank = KEY_STATUS_RANK[status];
 
-    const doc = existing.document as Record<string, unknown>;
-    const vms = Array.isArray(doc["verificationMethod"])
-      ? (doc["verificationMethod"] as Record<string, unknown>[])
-      : [];
-
-    // Idempotent short-circuit: if the most-recent un-superseded VM
-    // already carries this exact JWK, the rotation is a no-op. We
-    // canonicalise via JSON.stringify of a sorted-key copy — sufficient
-    // because the JWK fields we emit (kty/crv/x/y or kty/e/n) are flat
-    // strings, no nested objects.
-    const currentVms = vms.filter((vm) => vm["supersededAt"] === undefined);
-    const newKeyCanonical = canonicalJwk(newKeyJwk);
-    const latestCurrent = currentVms[currentVms.length - 1];
-    if (
-      latestCurrent &&
-      latestCurrent["publicKeyJwk"] &&
-      canonicalJwk(latestCurrent["publicKeyJwk"] as Record<string, unknown>) === newKeyCanonical
-    ) {
-      const currentKeyId = String(latestCurrent["id"] ?? "");
-      this.logger.info(
-        "rotateDIDWeb: active key already matches the latest verificationMethod; skipping update",
-        { did, currentKeyId, namespace: ns },
-      );
+    if (targetRank === currentRank) {
+      this.logger.info("Key already at requested status; skipping update-record", {
+        keyId: verificationMethod,
+        status,
+        namespace: ns,
+      });
       return {
-        rotated: false,
-        did,
-        currentKeyId,
-        reason: "already-current",
+        changed: false,
+        keyId: verificationMethod,
+        status: existing.status,
+        reason: "already-at-status",
+        namespace: ns,
+      };
+    }
+    if (targetRank < currentRank) {
+      this.logger.warn("Refusing to move key status backward (monotone invariant)", {
+        keyId: verificationMethod,
+        from: existing.status,
+        to: status,
+        namespace: ns,
+      });
+      return {
+        changed: false,
+        keyId: verificationMethod,
+        status: existing.status,
+        reason: "monotone-refused",
         namespace: ns,
       };
     }
 
-    // Compute the next fragment counter. Existing fragments use the
-    // pattern `<did>#key-N` (matching what `generateDidWebDocument`
-    // emits). For robustness we tolerate any `#key-N` regardless of the
-    // preceding DID prefix, picking the next integer above the max we
-    // see.
-    const fragmentRe = /#key-(\d+)$/;
-    let maxN = 0;
-    for (const vm of vms) {
-      const id = String(vm["id"] ?? "");
-      const match = id.match(fragmentRe);
-      if (match) {
-        const n = Number.parseInt(match[1]!, 10);
-        if (Number.isFinite(n) && n > maxN) maxN = n;
-      }
-    }
-    const nextFragmentId = `${did}#key-${maxN + 1}`;
-    const nowIso = new Date().toISOString();
-
-    // Build the merged VM list: prior un-superseded entries gain a
-    // `supersededAt` timestamp; previously-superseded entries are
-    // passed through unchanged; the new entry is appended.
-    const supersededIds: string[] = [];
-    const mergedVms: Record<string, unknown>[] = vms.map((vm) => {
-      if (vm["supersededAt"] === undefined) {
-        supersededIds.push(String(vm["id"] ?? ""));
-        return { ...vm, supersededAt: nowIso };
-      }
-      return vm;
-    });
-    mergedVms.push({
-      id: nextFragmentId,
-      type: "JsonWebKey2020",
-      controller: did,
-      publicKeyJwk: newKeyJwk,
-    });
-
-    const mergedDoc: Record<string, unknown> = {
-      ...doc,
-      verificationMethod: mergedVms,
-      // assertionMethod points at the new key only — verifiers that
-      // walk assertionMethod[] pick up the new key for fresh
-      // credentials. Verifiers that match by `kid` from a JWT header
-      // continue to find old credentials' keys in verificationMethod[]
-      // (now annotated with `supersededAt`).
-      assertionMethod: [nextFragmentId],
+    const updatedDetails: Omit<KeyRecord, "proof"> = {
+      keyId: existing.keyId,
+      controllerDid: existing.controllerDid,
+      algorithm: existing.algorithm,
+      publicKeyJwk: existing.publicKeyJwk,
+      purpose: existing.purpose,
+      status,
     };
-
-    const updatedDetails: DIDRecord = {
-      did: existing.did,
-      keyStatus: existing.keyStatus,
-      document: mergedDoc,
-    };
-
-    await this.api.updateRecord(ns, PUBLIC_KEY_REGISTRY, recordName, updatedDetails);
-    this.logger.info("did:web key rotated in DeDi", {
-      did,
-      currentKeyId: nextFragmentId,
-      superseded: supersededIds,
+    await this.api.updateRecord(ns, OPENCRED_KEY_REGISTRY, recordName, updatedDetails);
+    this.logger.info("Key status advanced in DeDi", {
+      keyId: verificationMethod,
+      from: existing.status,
+      to: status,
       namespace: ns,
     });
-
     return {
-      rotated: true,
-      did,
-      currentKeyId: nextFragmentId,
-      superseded: supersededIds,
+      changed: true,
+      keyId: verificationMethod,
+      from: existing.status,
+      to: status,
       namespace: ns,
     };
+  }
+
+  /**
+   * Publish (or re-publish) a DID document to the `did-documents`
+   * registry, keyed by `didToRecordName(did)`.
+   *
+   * **Upsert semantics.** Unlike key records, a DID document is mutable:
+   * every rotation/revocation regenerates `did.json` and republishes it
+   * here. So a collision on the record name is handled by updating the
+   * existing record rather than failing.
+   *
+   * This registry only exists to hold documents, so a `document` is
+   * required. did:key issuers never need this (their document is derived
+   * from the DID); the typical caller is a did:web issuer who has chosen
+   * to let DeDi host their `did.json` instead of (or in addition to)
+   * serving it from their own domain.
+   */
+  async publishDidDocument(
+    did: string,
+    document: unknown,
+    namespace?: string,
+  ): Promise<PublishResult> {
+    const ns = this.resolveNamespace(namespace);
+    const recordName = didToRecordName(did);
+
+    if (document == null || typeof document !== "object") {
+      throw new DeDiClientError("publishDidDocument: a DID Document object is required", 400);
+    }
+
+    const detail: DidDocumentRecord = { did, document: document as Record<string, unknown> };
+
+    try {
+      await this.api.publishRecord(ns, DID_DOCUMENTS_REGISTRY, recordName, detail);
+    } catch (err) {
+      // The document already exists — this is the rotation/revocation
+      // re-publish path. Upsert: overwrite the prior document wholesale.
+      if (isDuplicateRecordBody(err)) {
+        await this.api.updateRecord(ns, DID_DOCUMENTS_REGISTRY, recordName, detail);
+        this.logger.info("DID document updated in DeDi (upsert)", { did, namespace: ns });
+        return { published: true, recordName, namespace: ns };
+      }
+      throw err;
+    }
+    return { published: true, recordName, namespace: ns };
+  }
+
+  /**
+   * Resolve a DID document from the `did-documents` registry. Backs the
+   * did:web fallback resolver: when an issuer's domain is unreachable, the
+   * verifier reads the DeDi-hosted `did.json` from here.
+   */
+  async resolveDidDocument(did: string, namespace?: string): Promise<DidDocumentRecord> {
+    const ns = this.resolveNamespace(namespace);
+    const recordName = didToRecordName(did);
+    const response = await this.api.lookupRecord(ns, DID_DOCUMENTS_REGISTRY, recordName);
+    assertDeDiRecordShape(response, "lookupRecord");
+    const details = response.data.details;
+    assertDidDocumentRecordShape(details);
+    const proof = extractProof(response.data);
+    return proof ? { ...details, proof } : details;
   }
 
   async publishSchema(schema: SchemaRecord, namespace?: string): Promise<PublishResult> {
@@ -708,20 +673,37 @@ export class DeDiClient {
       // string is case-sensitive: dedi.global/schemas exposes "Revoke"
       // (capital R) — lowercase is rejected with 400 (see #609).
       ignoreConflict(() => this.api.createRegistry(namespace, REVOCATION_REGISTRY, {}, "Revoke")),
+      // Per-key registry — one record per signing key, the source of truth
+      // for "is this key live?". See docs/decisions/dedi-key-registry-redesign.md.
       ignoreConflict(() =>
-        this.api.createRegistry(namespace, PUBLIC_KEY_REGISTRY, {
+        this.api.createRegistry(namespace, OPENCRED_KEY_REGISTRY, {
           $schema: "http://json-schema.org/draft-07/schema#",
           type: "object",
-          description: "OpenCred DID Document registry",
+          description: "OpenCred per-key registry (status + public key material)",
+          properties: {
+            keyId: { type: "string", pattern: "^did:" },
+            controllerDid: { type: "string", pattern: "^did:" },
+            algorithm: { type: "string" },
+            publicKeyJwk: { type: "object", description: "Public key material as a JWK." },
+            purpose: { type: "array", items: { type: "string" } },
+            status: { type: "string", enum: ["active", "rotated", "revoked"] },
+          },
+          required: ["keyId", "controllerDid", "algorithm", "publicKeyJwk", "purpose", "status"],
+          additionalProperties: false,
+        }),
+      ),
+      // DeDi-hosted DID documents — optional per issuer; backs the did:web
+      // fallback resolver and lets a no-webserver issuer host did.json here.
+      ignoreConflict(() =>
+        this.api.createRegistry(namespace, DID_DOCUMENTS_REGISTRY, {
+          $schema: "http://json-schema.org/draft-07/schema#",
+          type: "object",
+          description: "OpenCred DeDi-hosted DID documents",
           properties: {
             did: { type: "string", pattern: "^did:" },
-            document: {
-              type: "object",
-              description: "W3C DID Document. Omit for did:key — verifier derives from DID.",
-            },
-            keyStatus: { type: "string", enum: ["current", "rotated"] },
+            document: { type: "object", description: "W3C DID Document (did.json)." },
           },
-          required: ["did", "keyStatus"],
+          required: ["did", "document"],
           additionalProperties: false,
         }),
       ),
@@ -766,31 +748,6 @@ export class DeDiClient {
     }
     return ns;
   }
-}
-
-function didToRecordName(did: string): string {
-  // Replace characters that aren't safe for DeDi record names
-  return did.replace(/:/g, "-");
-}
-
-/**
- * Canonicalise a JWK for equality comparison.
- *
- * Used by `rotateDIDWeb` to decide whether the active signer's key is
- * already the most-recent VM entry in the existing DID Document
- * (idempotent short-circuit). We don't need full JCS canonicalisation
- * here — JWK fields we emit (`kty`, `crv`, `x`, `y`, `kid`, `e`, `n`)
- * are flat strings, so a sorted-key `JSON.stringify` of the top level
- * is sufficient to detect "same key, byte-equal."
- *
- * Returns a stable string suitable for `===` comparison.
- */
-function canonicalJwk(jwk: Record<string, unknown>): string {
-  const sorted: Record<string, unknown> = {};
-  for (const key of Object.keys(jwk).sort()) {
-    sorted[key] = jwk[key];
-  }
-  return JSON.stringify(sorted);
 }
 
 async function ignoreConflict(fn: () => Promise<unknown>): Promise<void> {
@@ -848,7 +805,7 @@ function isAlreadyExistsBody(error: unknown): boolean {
  * fields used by namespace/registry creation). This helper inspects the
  * human-readable `message`/`data` text — robust against minor wording drift
  * by checking both fields and JSON-stringified fallback. Used by
- * `publishRevocationHash` and `publishDID` to translate the bare 409 from
+ * `publishRevocationHash`, `publishKey`, and `publishDidDocument` to translate the bare 409 from
  * `publishRecord` into a `DeDiRecordExistsError` with an actionable hint.
  */
 const DUPLICATE_RECORD_TEXT_PATTERNS: readonly RegExp[] = [

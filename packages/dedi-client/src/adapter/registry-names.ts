@@ -1,7 +1,63 @@
 export const REVOCATION_REGISTRY = "vc-revocation-registry";
-export const PUBLIC_KEY_REGISTRY = "public_key_registry";
+
+/**
+ * Per-key registry. One record per signing key, keyed by
+ * `verificationMethodToRecordName(verificationMethod)`. Holds the key's
+ * status (`active` / `rotated` / `revoked`) plus the public key material —
+ * the source of truth a verifier consults to answer "is this key live?".
+ *
+ * Replaces the old `public_key_registry` (one record per DID). See
+ * `docs/decisions/dedi-key-registry-redesign.md`.
+ */
+export const OPENCRED_KEY_REGISTRY = "opencred-key-registry";
+
+/**
+ * DeDi-hosted DID documents. One record per DID, keyed by
+ * `didToRecordName(did)`. Stores the assembled W3C `did.json` so an issuer
+ * with no webserver can let DeDi host their did:web document, and so the
+ * did:web fallback resolver has somewhere to read from when the issuer's
+ * domain is unreachable. Optional per issuer — a did:web issuer who hosts
+ * `.well-known/did.json` themselves never needs a record here.
+ */
+export const DID_DOCUMENTS_REGISTRY = "did-documents";
+
 export const SCHEMA_REGISTRY = "schema_registry";
 export const CONTEXT_REGISTRY = "context_registry";
+
+/**
+ * Slugify a DID or verification-method string into a DeDi record name.
+ *
+ * DeDi record names can't contain `:` or `#`, so both are replaced with
+ * `-`. A bare DID (`did:web:acme.com`) and a verification method
+ * (`did:web:acme.com#key-0`) slugify to distinct names
+ * (`did-web-acme.com` vs `did-web-acme.com-key-0`); they also live in
+ * different registries, so there is no cross-registry collision risk.
+ */
+function slugForDeDi(value: string): string {
+  return value.replace(/[:#]/g, "-");
+}
+
+/**
+ * Convert a DID into its `did-documents` record name.
+ *
+ * @example didToRecordName("did:web:acme.com") // "did-web-acme.com"
+ */
+export function didToRecordName(did: string): string {
+  return slugForDeDi(did);
+}
+
+/**
+ * Convert a verification method (the key's full `id`, e.g.
+ * `did:web:acme.com#key-0` or a long `did:key:...#z...` fragment) into its
+ * `opencred-key-registry` record name.
+ *
+ * @example
+ * verificationMethodToRecordName("did:web:acme.com#key-0")
+ * // "did-web-acme.com-key-0"
+ */
+export function verificationMethodToRecordName(verificationMethod: string): string {
+  return slugForDeDi(verificationMethod);
+}
 
 /**
  * Convert a schemaId + version into a DeDi record name.

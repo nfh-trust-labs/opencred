@@ -96,7 +96,10 @@ export interface VerifySdkOptions {
    *
    *  - The verifier checks revocation status for credentials with
    *    `credentialStatus` by querying the `vc-revocation-registry` registry.
-   *  - `did:web` resolution falls back to DeDi's `public_key_registry`
+   *  - The verifier checks each signing key's status (active / rotated /
+   *    revoked) in the `opencred-key-registry`; a revoked key rejects the
+   *    credential (`REVOKED`).
+   *  - `did:web` resolution falls back to DeDi's `did-documents` registry
    *    when canonical HTTPS resolution fails.
    *
    * Omit for a pure offline verifier. Note that without DeDi, the

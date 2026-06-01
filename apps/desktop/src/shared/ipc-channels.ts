@@ -138,18 +138,18 @@ export const IPC_CHANNELS = {
   DEDI_SET_CONFIG: "dedi:set-config",
   /** Get DeDi integration status. Response: DeDiStatusResponse. */
   DEDI_GET_STATUS: "dedi:get-status",
-  /** Publish a DID document to DeDi. Payload: DeDiPublishDIDRequest. Response: DeDiPublishResponse. */
-  DEDI_PUBLISH_DID: "dedi:publish-did",
+  /** Publish a key (and optionally its did:web document) to DeDi. Payload: DeDiPublishKeyRequest. Response: DeDiPublishResponse. */
+  DEDI_PUBLISH_KEY: "dedi:publish-key",
   /**
-   * Mark a previously-published DID as rotated in DeDi (sets
-   * `keyStatus: "rotated"`). Called when the issuer regenerates their
-   * signing key — the verifier UI shows a "rotated" badge for credentials
-   * still signed under the old DID, but their signatures remain
+   * Set the status of a previously-published key in DeDi (e.g.
+   * `"rotated"` or `"revoked"`). Called when the issuer regenerates or
+   * revokes their signing key — the verifier UI surfaces the status for
+   * credentials still signed under that key, but valid signatures remain
    * cryptographically valid.
    *
-   * Payload: DeDiMarkDIDRotatedRequest. Response: DeDiPublishResponse.
+   * Payload: DeDiSetKeyStatusRequest. Response: DeDiPublishResponse.
    */
-  DEDI_MARK_DID_ROTATED: "dedi:mark-did-rotated",
+  DEDI_SET_KEY_STATUS: "dedi:set-key-status",
   /** Publish a schema to DeDi. Payload: DeDiPublishSchemaRequest. Response: DeDiPublishResponse. */
   DEDI_PUBLISH_SCHEMA: "dedi:publish-schema",
   /** Ensure DeDi registries exist. Response: DeDiEnsureRegistriesResponse. */

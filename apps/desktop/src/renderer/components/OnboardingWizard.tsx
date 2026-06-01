@@ -660,6 +660,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               // there is meaningful as a "this DSC is associated with our
               // namespace" attribution rather than a did-document mirror.
               did={selfPubDid ?? importedKey.id}
+              signerKeyId={importedKey.id}
               didDocument={selfPubDidDoc ?? undefined}
               domain={selfPubDomain ?? undefined}
               onBack={() =>

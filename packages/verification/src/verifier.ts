@@ -8,7 +8,7 @@ import {
   checkDates,
   checkRevocation,
   checkBitstringStatusList,
-  checkKeyRotation,
+  checkKeyStatus,
   checkRegistryAnchor,
 } from "./checks.js";
 import { checkX509Chain } from "./x509-chain-check.js";
@@ -211,19 +211,24 @@ export async function verifyCredential(
     }
   }
 
-  // Key-rotation check (did:key only, advisory).
+  // Key-status check (per-key registry; all DID methods).
   //
-  // Reads `record.keyStatus === "rotated"` set via `markDIDRotated` when
-  // the issuer regenerates their key. Not propagated to a non-200 code
-  // because credentials issued under the old key are still
-  // cryptographically valid; verifier policy can read the result and
-  // reject if desired.
+  // Looks up the signing key's status (`active` / `rotated` / `revoked`) in
+  // the `opencred-key-registry`. A `revoked` key is fail-closed → top-level
+  // `REVOKED`: a revoked key may be compromised, so no signature it produced
+  // can be trusted. `active`/`rotated` pass (a clean rotation leaves old
+  // credentials valid). The check degrades to a non-failing "not checked"
+  // when the namespace can't be determined or DeDi is unreachable — see
+  // `checkKeyStatus`.
   if (credentialForRevocationHash && config.dediClient) {
-    const rotationCheck = await checkKeyRotation(credentialForRevocationHash, config.dediClient);
-    checks.push(rotationCheck);
+    const keyStatusCheck = await checkKeyStatus(credentialForRevocationHash, config.dediClient);
+    checks.push(keyStatusCheck);
+    if (!keyStatusCheck.passed) {
+      return { code: "REVOKED", verified: false, checks };
+    }
   }
 
-  // Registry-anchor check (did:key only, advisory).
+  // Registry-anchor check (all DID methods, advisory).
   //
   // Surfaces the CORD-blockchain proof block DeDi attaches to record
   // lookup responses so verifier UIs can show "anchored on CORD by X"

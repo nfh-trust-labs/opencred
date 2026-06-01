@@ -258,14 +258,27 @@ describe("DeDi adapter spans", () => {
       async queryRevocationHash() {
         return { revoked: false } as const;
       },
-      async publishDID() {
+      async publishKey() {
         return { published: true, recordName: "x", namespace: "ns" };
       },
-      async resolveDID() {
-        return { did: "did:web:x", keyStatus: "current" as const };
+      async resolveKey() {
+        return {
+          keyId: "did:web:x#key-0",
+          controllerDid: "did:web:x",
+          algorithm: "P-256",
+          publicKeyJwk: { kty: "EC" },
+          purpose: ["assertionMethod"],
+          status: "active" as const,
+        };
       },
-      async markDIDRotated() {
-        /* no-op */
+      async setKeyStatus() {
+        return { changed: true, keyId: "did:web:x#key-0", from: "active", to: "rotated", namespace: "ns" };
+      },
+      async publishDidDocument() {
+        return { published: true, recordName: "x", namespace: "ns" };
+      },
+      async resolveDidDocument() {
+        return { did: "did:web:x", document: { id: "did:web:x" } };
       },
       async publishSchema() {
         return { published: true, recordName: "x", namespace: "ns" };
@@ -300,8 +313,8 @@ describe("DeDi adapter spans", () => {
     );
 
     await wrapped.queryRevocationHash("abc", "ns");
-    await wrapped.publishDID("did:web:x", {}, "ns");
-    await wrapped.markDIDRotated("did:web:x", "ns");
+    await wrapped.publishKey({ keyId: "did:web:x#key-0", controllerDid: "did:web:x", algorithm: "P-256", publicKeyJwk: {}, purpose: ["assertionMethod"], status: "active" }, "ns");
+    await wrapped.setKeyStatus("did:web:x#key-0", "rotated", "ns");
 
     const spans = exporter.getFinishedSpans();
     const lookup = spans.find((s) => s.name === "dedi.lookup_record");

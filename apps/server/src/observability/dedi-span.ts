@@ -3,11 +3,11 @@
  * lookup / publish / update operation emits a span.
  *
  * Spans emitted:
- *   - `dedi.lookup_record` — resolveDID / resolveSchema / resolveContext /
- *     queryRevocationHash
- *   - `dedi.publish_record` — publishDID / publishSchema / publishContext /
- *     publishRevocationHash / ensureRegistries
- *   - `dedi.update_record` — markDIDRotated (DeDi `update-record`)
+ *   - `dedi.lookup_record` — resolveKey / resolveDidDocument / resolveSchema /
+ *     resolveContext / queryRevocationHash
+ *   - `dedi.publish_record` — publishKey / publishDidDocument / publishSchema /
+ *     publishContext / publishRevocationHash / ensureRegistries
+ *   - `dedi.update_record` — setKeyStatus (DeDi `update-record`)
  *
  * SECURITY (CLAUDE.md):
  *   - The DeDi base URL is decomposed: we record only the *host* in
@@ -16,7 +16,7 @@
  *   - Bearer tokens / API keys are owned by the underlying api-client
  *     and never reach this layer. No auth header is read here.
  *   - The `registry` attribute identifies which DeDi registry is being
- *     touched (public_key_registry, vc-revocation-registry, etc.) —
+ *     touched (opencred-key-registry, vc-revocation-registry, etc.) —
  *     useful for ops dashboards, no PII.
  */
 
@@ -84,27 +84,43 @@ export function wrapDeDiClientWithTracing(client: DeDiClient, baseUrl: string): 
       () => client.queryRevocationHash(hash, namespace),
     );
 
-  // ── DID / public-key registry ───────────────────────────────────
+  // ── Per-key registry ────────────────────────────────────────────
 
-  wrapped.publishDID = (did, document, namespace) =>
+  wrapped.publishKey = (key, namespace) =>
     runInSpan(
       "dedi.publish_record",
-      { "dedi.host": host, "dedi.registry": "public_key_registry" },
-      () => client.publishDID(did, document, namespace),
+      { "dedi.host": host, "dedi.registry": "opencred-key-registry" },
+      () => client.publishKey(key, namespace),
     );
 
-  wrapped.resolveDID = (did, namespace) =>
+  wrapped.resolveKey = (verificationMethod, namespace) =>
     runInSpan(
       "dedi.lookup_record",
-      { "dedi.host": host, "dedi.registry": "public_key_registry" },
-      () => client.resolveDID(did, namespace),
+      { "dedi.host": host, "dedi.registry": "opencred-key-registry" },
+      () => client.resolveKey(verificationMethod, namespace),
     );
 
-  wrapped.markDIDRotated = (did, namespace) =>
+  wrapped.setKeyStatus = (verificationMethod, status, namespace) =>
     runInSpan(
       "dedi.update_record",
-      { "dedi.host": host, "dedi.registry": "public_key_registry" },
-      () => client.markDIDRotated(did, namespace),
+      { "dedi.host": host, "dedi.registry": "opencred-key-registry" },
+      () => client.setKeyStatus(verificationMethod, status, namespace),
+    );
+
+  // ── DID documents registry ──────────────────────────────────────
+
+  wrapped.publishDidDocument = (did, document, namespace) =>
+    runInSpan(
+      "dedi.publish_record",
+      { "dedi.host": host, "dedi.registry": "did-documents" },
+      () => client.publishDidDocument(did, document, namespace),
+    );
+
+  wrapped.resolveDidDocument = (did, namespace) =>
+    runInSpan(
+      "dedi.lookup_record",
+      { "dedi.host": host, "dedi.registry": "did-documents" },
+      () => client.resolveDidDocument(did, namespace),
     );
 
   // ── Schema registry ─────────────────────────────────────────────

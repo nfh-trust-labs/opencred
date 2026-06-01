@@ -5,7 +5,9 @@ import type {
   SchemaRecord,
   ContextRecord,
   PublishResult,
-  RotateResult,
+  KeyRecord,
+  KeyStatus,
+  SetKeyStatusResult,
 } from "./adapter/types.js";
 import type { DeDiLogger } from "./logger.js";
 
@@ -25,7 +27,7 @@ export class DeDiPublishManager {
    *
    * Read-only access for consumers that need to perform DeDi operations
    * outside the publish-manager's lazy-publish workflow — primarily
-   * verification paths that need `resolveDID()` for did:web fallback
+   * verification paths that need `resolveDidDocument()` for did:web fallback
    * (see `createDeDiDIDWebFallback`). Reusing the manager's client
    * preserves the shared circuit breaker, retry state, and auth token
    * cache rather than spinning up a parallel client.
@@ -88,23 +90,48 @@ export class DeDiPublishManager {
   }
 
   /**
-   * Publish a DID document to DeDi.
+   * Publish a signing key to the `opencred-key-registry`.
+   * Fire-and-forget: errors are logged, never thrown.
+   *
+   * The manager only ever sees the public `publicKeyJwk` carried in the
+   * {@link KeyRecord}; private key material never reaches DeDi.
+   */
+  async publishKey(key: KeyRecord, namespace?: string): Promise<PublishResult | null> {
+    try {
+      const result = await this.client.publishKey(key, namespace);
+      this.logger.debug("Key published to DeDi", {
+        keyId: key.keyId,
+        recordName: result.recordName,
+      });
+      return result;
+    } catch (error) {
+      this.logger.error("Failed to publish key to DeDi (non-fatal)", {
+        keyId: key.keyId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Store (or update) a DID document in the `did-documents` registry —
+   * the DeDi-hosted did.json path and the did:web fallback source.
    * Fire-and-forget: errors are logged, never thrown.
    */
-  async publishDIDDocument(
+  async publishDidDocument(
     did: string,
     document: unknown,
     namespace?: string,
   ): Promise<PublishResult | null> {
     try {
-      const result = await this.client.publishDID(did, document, namespace);
-      this.logger.debug("DID document published to DeDi", {
+      const result = await this.client.publishDidDocument(did, document, namespace);
+      this.logger.debug("DID document stored in DeDi", {
         did,
         recordName: result.recordName,
       });
       return result;
     } catch (error) {
-      this.logger.error("Failed to publish DID document to DeDi (non-fatal)", {
+      this.logger.error("Failed to store DID document in DeDi (non-fatal)", {
         did,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -113,66 +140,34 @@ export class DeDiPublishManager {
   }
 
   /**
-   * Mark a previously-published DID as rotated in DeDi (sets
-   * `keyStatus: "rotated"` on the record).
+   * Advance a key's lifecycle status (`active → rotated → revoked`) in the
+   * `opencred-key-registry`. Delegates to {@link DeDiClient.setKeyStatus} —
+   * see that method for the monotone-transition semantics.
    *
-   * Fire-and-forget: errors are logged, never thrown — same rationale
-   * as `publishDIDDocument`. A 404 (record never existed) and a 502
-   * (DeDi outage) both surface as `false` so callers can decide whether
-   * to alert; key generation itself is never blocked by a DeDi failure.
+   * The publish-manager is the boundary where DeDi failures are downgraded
+   * from "throws" to "returns null / logged". A user-triggered
+   * rotate/revoke should be able to surface failure to the UI, so this
+   * returns the {@link SetKeyStatusResult} on success or `null` when DeDi
+   * was unreachable / the key was never published. Callers must treat
+   * `null` as "status not changed" — never as silent success.
    */
-  async markDIDRotated(did: string, namespace?: string): Promise<boolean> {
-    try {
-      await this.client.markDIDRotated(did, namespace);
-      this.logger.debug("DID marked as rotated in DeDi", { did });
-      return true;
-    } catch (error) {
-      this.logger.error("Failed to mark DID as rotated in DeDi (non-fatal)", {
-        did,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return false;
-    }
-  }
-
-  /**
-   * Rotate a `did:web` issuer's signing key inside its existing DID
-   * Document. Delegates to `DeDiClient.rotateDIDWeb` — see that method's
-   * docstring for the full semantics (read-merge-write,
-   * `supersededAt`-stamping the prior verificationMethod entries,
-   * appending the new VM, repointing `assertionMethod`, idempotent
-   * short-circuit when the active key already matches the latest VM).
-   *
-   * Why this lives here and not just as a `rawClient.rotateDIDWeb()`
-   * call: the publish-manager is the boundary where DeDi failures are
-   * downgraded from "throws" to "returns null / logged warn". User-
-   * triggered rotation should surface failure to the UI (so we don't
-   * blanket-swallow as `markDIDRotated` does), but the manager still
-   * owns the logging contract — a DeDi outage shouldn't crash the
-   * desktop, it should return `null` and let the IPC handler decide
-   * whether to show an error toast.
-   *
-   * Returns the {@link RotateResult} from the adapter on success, or
-   * `null` when DeDi was unreachable / the record was missing /
-   * `rotateDIDWeb` rejected. Callers should treat `null` as "rotation
-   * not applied" — never as silent success.
-   */
-  async rotateDIDWeb(
-    did: string,
-    newKeyJwk: Record<string, unknown>,
+  async setKeyStatus(
+    verificationMethod: string,
+    status: KeyStatus,
     namespace?: string,
-  ): Promise<RotateResult | null> {
+  ): Promise<SetKeyStatusResult | null> {
     try {
-      const result = await this.client.rotateDIDWeb(did, newKeyJwk, namespace);
-      this.logger.debug("did:web key rotated in DeDi", {
-        did,
-        rotated: result.rotated,
-        currentKeyId: result.currentKeyId,
+      const result = await this.client.setKeyStatus(verificationMethod, status, namespace);
+      this.logger.debug("Key status transition in DeDi", {
+        keyId: verificationMethod,
+        status,
+        changed: result.changed,
       });
       return result;
     } catch (error) {
-      this.logger.error("Failed to rotate did:web key in DeDi (non-fatal)", {
-        did,
+      this.logger.error("Failed to set key status in DeDi (non-fatal)", {
+        keyId: verificationMethod,
+        status,
         error: error instanceof Error ? error.message : String(error),
       });
       return null;

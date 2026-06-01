@@ -51,7 +51,8 @@ Where to read about each one:
 | Read-only verify tier | [docs/docker/deployment.md#read-tier-deployment](../../docs/docker/deployment.md#read-tier-deployment) |
 | OTel critical-path spans | [docs/docker/observability.md#tracing](../../docs/docker/observability.md#tracing) |
 | Rate limits | [docs/docker/api-reference.md#rate-limits](../../docs/docker/api-reference.md#rate-limits) |
-| DeDi integration (revocation, public-key registry, did:web fallback) | [docs/concepts/dids.md](../../docs/concepts/dids.md), [docs/concepts/revocation.md](../../docs/concepts/revocation.md) |
+| DeDi per-key registry (`opencred-key-registry`): publish / rotate / revoke / resolve | [docs/docker/api-reference.md — Per-key registry endpoints](../../docs/docker/api-reference.md#per-key-registry-opencred-key-registry-endpoints), [docs/docker/deployment.md — Key lifecycle](../../docs/docker/deployment.md#key-lifecycle--publish-rotate-revoke) |
+| DeDi integration (revocation, did:web fallback) | [docs/concepts/dids.md](../../docs/concepts/dids.md), [docs/concepts/revocation.md](../../docs/concepts/revocation.md) |
 
 ## Package layout
 
@@ -84,7 +85,7 @@ apps/server/
     │   └── span-helpers.ts
     ├── routes/
     │   ├── health.ts            # GET /health, GET /v1/health (public)
-    │   ├── keys.ts              # GET /v1/keys, POST /v1/keys/publish, POST /v1/keys/resolve
+    │   ├── keys.ts              # GET /v1/keys, GET /v1/keys/did-document, POST /v1/keys/publish, POST /v1/keys/rotate, POST /v1/keys/revoke, POST /v1/keys/resolve
     │   ├── credentials.ts       # POST /v1/credentials/issue, /verify (incl. PDF), /package, /revoke, /revocation-status
     │   ├── schemas.ts           # GET /v1/schemas, POST /v1/schemas/generate
     │   ├── batch.ts             # POST /v1/credentials/batch + GET /:jobId(/results) + cancel

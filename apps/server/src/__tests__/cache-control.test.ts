@@ -181,17 +181,13 @@ describe("GET /schemas/:id cache headers", () => {
 // /keys/resolve — cache headers (POST and GET)
 // ---------------------------------------------------------------------------
 
-const SAMPLE_DID_DOCUMENT = {
-  "@context": "https://www.w3.org/ns/did/v1",
-  id: "did:web:bootcamp.example.org",
-  verificationMethod: [
-    {
-      id: "did:web:bootcamp.example.org#k1",
-      type: "JsonWebKey2020",
-      controller: "did:web:bootcamp.example.org",
-      publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
-    },
-  ],
+const SAMPLE_KEY_RECORD = {
+  keyId: "did:web:bootcamp.example.org#key-0",
+  controllerDid: "did:web:bootcamp.example.org",
+  algorithm: "P-256",
+  publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+  purpose: ["assertionMethod"],
+  status: "active" as const,
 };
 
 describe("POST /keys/resolve cache headers", () => {
@@ -201,10 +197,9 @@ describe("POST /keys/resolve cache headers", () => {
     // one caller's DID resolution and serve it to another. The publicly
     // cacheable shape lives behind GET /keys/resolve.
     const mockClient = {
-      resolveDID: async (did: string) => ({
-        did,
-        document: SAMPLE_DID_DOCUMENT,
-        keyStatus: "current" as const,
+      resolveKey: async (verificationMethod: string) => ({
+        ...SAMPLE_KEY_RECORD,
+        keyId: verificationMethod,
       }),
     } as never;
     setDeDiClient(mockClient);
@@ -212,7 +207,7 @@ describe("POST /keys/resolve cache headers", () => {
     const res = await app.request("/v1/keys/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ did: "did:web:bootcamp.example.org" }),
+      body: JSON.stringify({ verificationMethod: "did:web:bootcamp.example.org#key-0" }),
     });
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe(CACHE_PRESETS.didDocumentPrivate);
@@ -222,10 +217,9 @@ describe("POST /keys/resolve cache headers", () => {
 
   it("returns 304 on conditional POST with matching If-None-Match", async () => {
     const mockClient = {
-      resolveDID: async (did: string) => ({
-        did,
-        document: SAMPLE_DID_DOCUMENT,
-        keyStatus: "current" as const,
+      resolveKey: async (verificationMethod: string) => ({
+        ...SAMPLE_KEY_RECORD,
+        keyId: verificationMethod,
       }),
     } as never;
     setDeDiClient(mockClient);
@@ -233,14 +227,14 @@ describe("POST /keys/resolve cache headers", () => {
     const r1 = await app.request("/v1/keys/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ did: "did:web:bootcamp.example.org" }),
+      body: JSON.stringify({ verificationMethod: "did:web:bootcamp.example.org#key-0" }),
     });
     const etag = r1.headers.get("ETag")!;
 
     const r2 = await app.request("/v1/keys/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json", "If-None-Match": etag },
-      body: JSON.stringify({ did: "did:web:bootcamp.example.org" }),
+      body: JSON.stringify({ verificationMethod: "did:web:bootcamp.example.org#key-0" }),
     });
     expect(r2.status).toBe(304);
     expect(await r2.text()).toBe("");
@@ -250,50 +244,57 @@ describe("POST /keys/resolve cache headers", () => {
 describe("GET /keys/resolve", () => {
   it("returns the resolved DID record with cache headers", async () => {
     const mockClient = {
-      resolveDID: async (did: string) => ({
-        did,
-        document: SAMPLE_DID_DOCUMENT,
-        keyStatus: "current" as const,
+      resolveKey: async (verificationMethod: string) => ({
+        ...SAMPLE_KEY_RECORD,
+        keyId: verificationMethod,
       }),
     } as never;
     setDeDiClient(mockClient);
 
-    const res = await app.request("/v1/keys/resolve?did=did:web:bootcamp.example.org");
+    const res = await app.request(
+      "/v1/keys/resolve?verificationMethod=did:web:bootcamp.example.org%23key-0",
+    );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { did: string };
-    expect(body.did).toBe("did:web:bootcamp.example.org");
+    const body = (await res.json()) as { keyId: string };
+    expect(body.keyId).toBe("did:web:bootcamp.example.org#key-0");
     expect(res.headers.get("Cache-Control")).toBe(CACHE_PRESETS.didDocument);
     expect(res.headers.get("ETag")).toMatch(/^W\/"[0-9a-f]{64}"$/);
   });
 
-  it("returns 400 when did query param is missing", async () => {
-    const mockClient = { resolveDID: async () => ({}) } as never;
+  it("returns 400 when verificationMethod query param is missing", async () => {
+    const mockClient = { resolveKey: async () => ({}) } as never;
     setDeDiClient(mockClient);
     const res = await app.request("/v1/keys/resolve");
     expect(res.status).toBe(400);
   });
 
   it("returns 503 when DeDi is not configured", async () => {
-    const res = await app.request("/v1/keys/resolve?did=did:web:bootcamp.example.org");
+    const res = await app.request(
+      "/v1/keys/resolve?verificationMethod=did:web:bootcamp.example.org%23key-0",
+    );
     expect(res.status).toBe(503);
   });
 
   it("returns 304 on conditional GET with matching If-None-Match", async () => {
     const mockClient = {
-      resolveDID: async (did: string) => ({
-        did,
-        document: SAMPLE_DID_DOCUMENT,
-        keyStatus: "current" as const,
+      resolveKey: async (verificationMethod: string) => ({
+        ...SAMPLE_KEY_RECORD,
+        keyId: verificationMethod,
       }),
     } as never;
     setDeDiClient(mockClient);
 
-    const r1 = await app.request("/v1/keys/resolve?did=did:web:bootcamp.example.org");
+    const r1 = await app.request(
+      "/v1/keys/resolve?verificationMethod=did:web:bootcamp.example.org%23key-0",
+    );
     const etag = r1.headers.get("ETag")!;
 
-    const r2 = await app.request("/v1/keys/resolve?did=did:web:bootcamp.example.org", {
-      headers: { "If-None-Match": etag },
-    });
+    const r2 = await app.request(
+      "/v1/keys/resolve?verificationMethod=did:web:bootcamp.example.org%23key-0",
+      {
+        headers: { "If-None-Match": etag },
+      },
+    );
     expect(r2.status).toBe(304);
   });
 
@@ -315,80 +316,82 @@ describe("GET /keys/resolve", () => {
   // stale-DID lookups in production.
   // -------------------------------------------------------------------------
 
-  it("decodes a multi-colon did:web DID passed with raw colons in the query", async () => {
+  it("decodes a multi-colon verification method passed with raw colons in the query", async () => {
     const seen: string[] = [];
+    const vm = "did:web:example.org:users:alice#key-0";
     const mockClient = {
-      resolveDID: async (did: string) => {
-        seen.push(did);
-        return { did, document: SAMPLE_DID_DOCUMENT, keyStatus: "current" as const };
+      resolveKey: async (verificationMethod: string) => {
+        seen.push(verificationMethod);
+        return { ...SAMPLE_KEY_RECORD, keyId: verificationMethod };
       },
     } as never;
     setDeDiClient(mockClient);
 
-    const res = await app.request("/v1/keys/resolve?did=did:web:example.org:users:alice");
+    const res = await app.request(`/v1/keys/resolve?verificationMethod=${encodeURIComponent(vm)}`);
     expect(res.status).toBe(200);
-    expect(seen).toEqual(["did:web:example.org:users:alice"]);
-    const body = (await res.json()) as { did: string };
-    expect(body.did).toBe("did:web:example.org:users:alice");
+    expect(seen).toEqual([vm]);
+    const body = (await res.json()) as { keyId: string };
+    expect(body.keyId).toBe(vm);
     expect(res.headers.get("Cache-Control")).toBe(CACHE_PRESETS.didDocument);
   });
 
-  it("decodes a multi-colon did:web DID passed with URL-encoded colons", async () => {
+  it("decodes a multi-colon verification method passed with URL-encoded colons", async () => {
     const seen: string[] = [];
+    const vm = "did:web:example.org:users:alice#key-0";
     const mockClient = {
-      resolveDID: async (did: string) => {
-        seen.push(did);
-        return { did, document: SAMPLE_DID_DOCUMENT, keyStatus: "current" as const };
+      resolveKey: async (verificationMethod: string) => {
+        seen.push(verificationMethod);
+        return { ...SAMPLE_KEY_RECORD, keyId: verificationMethod };
       },
     } as never;
     setDeDiClient(mockClient);
 
-    // `did:web:example.org:users:alice` → fully percent-encoded form.
-    const encoded = encodeURIComponent("did:web:example.org:users:alice");
-    const res = await app.request(`/v1/keys/resolve?did=${encoded}`);
+    // Fully percent-encoded form.
+    const encoded = encodeURIComponent(vm);
+    const res = await app.request(`/v1/keys/resolve?verificationMethod=${encoded}`);
     expect(res.status).toBe(200);
-    expect(seen).toEqual(["did:web:example.org:users:alice"]);
-    const body = (await res.json()) as { did: string };
-    expect(body.did).toBe("did:web:example.org:users:alice");
+    expect(seen).toEqual([vm]);
+    const body = (await res.json()) as { keyId: string };
+    expect(body.keyId).toBe(vm);
   });
 
-  it("decodes a single URL-encoded colon in the DID query value", async () => {
+  it("decodes a single URL-encoded colon in the verification method query value", async () => {
     const seen: string[] = [];
+    const vm = "did:web:example.org:user#key-0";
     const mockClient = {
-      resolveDID: async (did: string) => {
-        seen.push(did);
-        return { did, document: SAMPLE_DID_DOCUMENT, keyStatus: "current" as const };
+      resolveKey: async (verificationMethod: string) => {
+        seen.push(verificationMethod);
+        return { ...SAMPLE_KEY_RECORD, keyId: verificationMethod };
       },
     } as never;
     setDeDiClient(mockClient);
 
-    // Mixed encoding: only the last colon is `%3A`. The handler must still
+    // Mixed encoding: colon before "user" is `%3A`. The handler must still
     // see the canonical form.
-    const res = await app.request("/v1/keys/resolve?did=did:web:example.org%3Auser");
+    const mixed = "did:web:example.org%3Auser%23key-0";
+    const res = await app.request(`/v1/keys/resolve?verificationMethod=${mixed}`);
     expect(res.status).toBe(200);
-    expect(seen).toEqual(["did:web:example.org:user"]);
+    expect(seen).toEqual([vm]);
   });
 
-  it("produces matching ETags for raw vs URL-encoded forms of the same DID", async () => {
-    // Two requests carrying the same logical DID — one raw, one
-    // fully-encoded — must produce the same ETag, because the response
-    // body is keyed by the decoded DID string.
+  it("produces matching ETags for two successive GET requests with the same verification method", async () => {
+    // Two requests carrying the same logical VM must produce the same ETag,
+    // because the response body is deterministic for identical inputs.
+    const vm = "did:web:example.org:users:alice#key-0";
     const mockClient = {
-      resolveDID: async (did: string) => ({
-        did,
-        document: SAMPLE_DID_DOCUMENT,
-        keyStatus: "current" as const,
+      resolveKey: async (verificationMethod: string) => ({
+        ...SAMPLE_KEY_RECORD,
+        keyId: verificationMethod,
       }),
     } as never;
     setDeDiClient(mockClient);
 
-    const raw = await app.request("/v1/keys/resolve?did=did:web:example.org:users:alice");
-    const encoded = await app.request(
-      `/v1/keys/resolve?did=${encodeURIComponent("did:web:example.org:users:alice")}`,
-    );
-    expect(raw.status).toBe(200);
-    expect(encoded.status).toBe(200);
-    expect(raw.headers.get("ETag")).toBe(encoded.headers.get("ETag"));
+    const encoded = encodeURIComponent(vm);
+    const r1 = await app.request(`/v1/keys/resolve?verificationMethod=${encoded}`);
+    const r2 = await app.request(`/v1/keys/resolve?verificationMethod=${encoded}`);
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    expect(r1.headers.get("ETag")).toBe(r2.headers.get("ETag"));
   });
 });
 

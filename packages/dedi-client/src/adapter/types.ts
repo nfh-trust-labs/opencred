@@ -19,36 +19,59 @@ export type RevocationHashRecord =
   | { revoked: false };
 
 /**
- * DID registry record — the public-key registry payload stored in DeDi
- * under `public_key_registry`.
+ * Lifecycle status of a signing key in the `opencred-key-registry`.
  *
- * Schema (3 fields):
- * - `did`        — the DID string this record represents (required).
- * - `document`   — the W3C DID Document. Omitted for `did:key` because
- *                  the verifier derives it from the DID itself via the
- *                  did:key resolution algorithm. Required for `did:web`
- *                  records, where DeDi acts as a cache for the
- *                  domain-hosted `.well-known/did.json`.
- * - `keyStatus`  — `"current"` while the key is in active use, flipped to
- *                  `"rotated"` by `markDIDRotated` when the issuer
- *                  publishes a new key. The signature on credentials
- *                  signed under a rotated key remains cryptographically
- *                  valid; the flag is advisory to verifier UIs.
+ * - `active`  — the key is in current use; credentials signed by it verify.
+ * - `rotated` — the key was cleanly retired (the issuer moved to a new
+ *               key). Credentials signed by it *remain valid* — a clean
+ *               rotation implies the old key was never compromised, so
+ *               there are no forgeries to invalidate.
+ * - `revoked` — the key is compromised / withdrawn. The verifier rejects
+ *               every credential signed by it (top-level `REVOKED`),
+ *               because once a key is compromised no signature it produced
+ *               can be trusted, regardless of when it was made.
+ *
+ * The transition is monotone and terminal at `revoked`:
+ * `active → rotated → revoked`, never backward. No timestamps /
+ * validity windows are stored — revocation makes them unnecessary (see
+ * the F1 analysis in `docs/decisions/dedi-key-registry-redesign.md`).
+ */
+export type KeyStatus = "active" | "rotated" | "revoked";
+
+/**
+ * Per-key registry record — the `opencred-key-registry` payload, one
+ * record per signing key. This is DeDi's canonical "one record per key"
+ * model and the source of truth for "is this key live?".
+ *
+ * - `keyId`         — the verification method, i.e. the key's full `id`
+ *                     (`did:web:acme.com#key-0`, or a `did:key:...#z...`
+ *                     fragment). Also the basis for the record name.
+ * - `controllerDid` — the DID that controls the key (`keyId.split("#")[0]`).
+ *                     Baking the DID into each record means keys from
+ *                     different DIDs under one namespace never collide.
+ * - `algorithm`     — the key algorithm label (e.g. `Ed25519`, `ES256`).
+ * - `publicKeyJwk`  — the public key material as a JWK. Public only —
+ *                     never a private `d` member.
+ * - `purpose`       — the verification relationships the key serves
+ *                     (e.g. `["assertionMethod"]`).
+ * - `status`        — {@link KeyStatus}.
  *
  * Concurrency invariant — read before adding fields. DeDi's
- * `update-record` has no optimistic-lock parameter, so `markDIDRotated`
- * is safe under concurrent writes only because every mutable transition
- * on this record is monotone and convergent: `keyStatus` flips
- * `current` → `rotated` once and never back, `did` is the record key,
- * and `document` is written only by `publishDID`. Any new field that
- * can diverge between concurrent writers (e.g. `rotatedAt` timestamp,
- * `supersededBy` chain, multi-key state) would reintroduce the
- * lost-update race — close it at the DeDi side first.
+ * `update-record` has no optimistic-lock parameter, so `setKeyStatus`
+ * is safe under concurrent writes only because the only mutable field,
+ * `status`, transitions monotonically (`active → rotated → revoked`) and
+ * converges. Every other field is immutable for the life of the record
+ * (a new key is a new record). Any new field that can diverge between
+ * concurrent writers would reintroduce the lost-update race — close it
+ * at the DeDi side first.
  */
-export interface DIDRecord {
-  did: string;
-  document?: Record<string, unknown>;
-  keyStatus: "current" | "rotated";
+export interface KeyRecord {
+  keyId: string;
+  controllerDid: string;
+  algorithm: string;
+  publicKeyJwk: Record<string, unknown>;
+  purpose: string[];
+  status: KeyStatus;
   /**
    * CORD-blockchain anchor metadata copied off the DeDi envelope by the
    * adapter. Not part of the published `details` payload — DeDi sets this
@@ -60,6 +83,28 @@ export interface DIDRecord {
   proof?: DeDiProof;
 }
 
+/**
+ * DeDi-hosted DID document record — the `did-documents` registry payload,
+ * one record per DID. Stores the assembled W3C `did.json` so DeDi can host
+ * a no-webserver issuer's did:web document and back the did:web fallback
+ * resolver.
+ *
+ * - `did`      — the DID this document describes (required).
+ * - `document` — the full W3C DID Document (required; this registry only
+ *                exists to hold documents).
+ *
+ * Unlike {@link KeyRecord}, this record is *mutable*: every rotation /
+ * revocation regenerates the document (adding the new key, dropping a
+ * revoked key) and re-publishes it here. `publishDidDocument` is therefore
+ * upsert — it updates an existing record rather than failing on collision.
+ */
+export interface DidDocumentRecord {
+  did: string;
+  document: Record<string, unknown>;
+  /** See {@link KeyRecord.proof}. */
+  proof?: DeDiProof;
+}
+
 export interface SchemaRecord {
   schemaId: string;
   version: string;
@@ -67,7 +112,7 @@ export interface SchemaRecord {
   contextUrl?: string;
   checksum: string;
   publishedAt: string;
-  /** See {@link DIDRecord.proof}. */
+  /** See {@link KeyRecord.proof}. */
   proof?: DeDiProof;
 }
 
@@ -85,35 +130,20 @@ export interface PublishResult {
 }
 
 /**
- * Result of a `did:web` rotation via `DeDiClient.rotateDIDWeb`.
+ * Result of a `setKeyStatus` transition.
  *
- * Two outcomes are distinguished:
- *
- * - `rotated: true` — the rotation produced a new `verificationMethod`
- *   entry and the document was written back to DeDi. `currentKeyId` is
- *   the fragment ID (e.g. `did:web:acme.com#key-2`) of the new active
- *   key; `superseded` is the list of fragment IDs that were marked
- *   `supersededAt` as part of this call.
- *
- * - `rotated: false` — idempotent short-circuit. The active signer's
- *   `publicKeyJwk` already matched the most recent VM entry, so no
- *   write was issued. `currentKeyId` is the fragment ID that was
- *   already current; `reason` describes why the call was a no-op. This
- *   lets callers re-run rotate safely after a transient network
- *   failure without spurious DeDi version bumps or warn-log noise.
+ * - `changed: true`  — the record's `status` was advanced and written
+ *   back to DeDi. `from`/`to` describe the transition.
+ * - `changed: false` — idempotent short-circuit. The record was already
+ *   at (or past) the target status, so no write was issued. `reason`
+ *   distinguishes "already there" from "refused to move backward".
  */
-export type RotateResult =
+export type SetKeyStatusResult =
+  | { changed: true; keyId: string; from: KeyStatus; to: KeyStatus; namespace: string }
   | {
-      rotated: true;
-      did: string;
-      currentKeyId: string;
-      superseded: string[];
-      namespace: string;
-    }
-  | {
-      rotated: false;
-      did: string;
-      currentKeyId: string;
-      reason: "already-current";
+      changed: false;
+      keyId: string;
+      status: KeyStatus;
+      reason: "already-at-status" | "monotone-refused";
       namespace: string;
     };

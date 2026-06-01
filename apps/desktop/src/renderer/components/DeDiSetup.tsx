@@ -6,7 +6,7 @@
  * On "Yes, I have a DeDi account":
  *   1. User enters namespace + API key
  *   2. Calls dediSetConfig() → stores config + creates 3 registries
- *   3. If self-pub path, fire-and-forget dediPublishDID()
+ *   3. If self-pub path, fire-and-forget dediPublishKey()
  *   4. Shows success screen
  *
  * SECURITY NOTE: API key input uses type="password" and is never logged.
@@ -21,6 +21,12 @@ type DeDiSetupState = "choice" | "not-yet" | "configure" | "connecting" | "succe
 
 interface DeDiSetupProps {
   did: string;
+  /**
+   * The local in-memory signer id whose public key should be published to
+   * DeDi. Used to resolve the public JWK + algorithm in the main process —
+   * private key material never crosses the IPC boundary.
+   */
+  signerKeyId: string;
   didDocument?: string;
   domain?: string;
   onComplete: () => void;
@@ -35,7 +41,14 @@ interface DeDiSetupProps {
 
 const DEDI_BASE_URL = "https://api.dedi.global";
 
-export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDiSetupProps) {
+export function DeDiSetup({
+  did,
+  signerKeyId,
+  didDocument,
+  domain,
+  onComplete,
+  onBack,
+}: DeDiSetupProps) {
   const [state, setState] = useState<DeDiSetupState>("choice");
   const [namespace, setNamespace] = useState(domain ?? "");
   const [apiKey, setApiKey] = useState("");
@@ -85,12 +98,15 @@ export function DeDiSetup({ did, didDocument, domain, onComplete, onBack }: DeDi
         setRegistriesFailed(true);
       }
 
-      // Fire-and-forget DID publish if we have a DID document (self-pub path)
+      // Fire-and-forget key publish if we have a DID document (self-pub path).
+      // Also stores the did:web document in DeDi via hostDidDocument.
       if (didDocument) {
         try {
-          const pubResult = await window.opencred.dediPublishDID({
+          const pubResult = await window.opencred.dediPublishKey({
+            signerKeyId,
             did,
             document: JSON.parse(didDocument),
+            hostDidDocument: true,
           });
           if (!pubResult.success) {
             setDidPublishFailed(true);

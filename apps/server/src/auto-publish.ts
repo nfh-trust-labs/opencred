@@ -1,27 +1,41 @@
 /**
- * Startup-time auto-publish of the issuer DID to DeDi.
+ * Startup-time auto-publish of the issuer's signing key to DeDi.
+ *
+ * Publishes the active signer as a record in the `opencred-key-registry`
+ * (one record per key, status `active`). For did:web issuers who opt into
+ * `OPENCRED_DEDI_HOST_DID_DOC`, it ALSO stores the assembled `did.json` in
+ * the `did-documents` registry so DeDi can serve it (and back the did:web
+ * fallback resolver).
  *
  * Two flags trigger this:
  *
- *   1. `OPENCRED_AUTO_PUBLISH_KEY=true` — works for any DID method.
- *   2. `OPENCRED_DEDI_HOST_DID_DOC=true` AND `OPENCRED_ISSUER_DID_METHOD=web`.
- *      This fixes the latent no-op surfaced by the 2026-05-21 bootcamp
- *      dry-run — previously the env var was validated at boot but never
- *      triggered an actual publish call.
+ *   1. `OPENCRED_AUTO_PUBLISH_KEY=true` — publishes the key record for any
+ *      DID method.
+ *   2. `OPENCRED_DEDI_HOST_DID_DOC=true` AND `OPENCRED_ISSUER_DID_METHOD=web`
+ *      — publishes the key record AND stores `did.json` in DeDi.
  *
- * Idempotency: if the DID is already published, DeDi returns 409 → the
+ * Idempotency: if the key is already published, DeDi returns 409 → the
  * dedi-client adapter rewraps as `DeDiRecordExistsError` (#615). We log a
- * friendly "already published" message and treat it as success. Any other
- * DeDi failure is logged at warn level; the caller (server bootstrap) must
- * still start because auto-publish is a convenience, not a precondition.
+ * friendly "already published" message and treat it as success (still
+ * upserting the DID document when DeDi-hosting is enabled). Any other DeDi
+ * failure is logged at warn level; the caller (server bootstrap) must still
+ * start because auto-publish is a convenience, not a precondition.
+ *
+ * The issuer's private key never reaches this code — only the public
+ * `publicKeyJwk` exposed by the signer's metadata is published.
  *
  * Extracted from `index.ts` so the logic can be unit-tested in isolation
  * (the full server bootstrap is too side-effectful to drive from a test).
  */
 
-import { encodeDidWeb, generateDidWebDocument, type JWK } from "@opencred/did";
+import {
+  encodeDidWeb,
+  generateDidWebDocument,
+  didWebVerificationMethodId,
+  type JWK,
+} from "@opencred/did";
 import { DeDiRecordExistsError } from "@opencred/shared";
-import type { DeDiClient } from "@opencred/dedi-client";
+import type { DeDiClient, KeyRecord } from "@opencred/dedi-client";
 import type { Signer } from "@opencred/signing";
 import type { Logger } from "pino";
 
@@ -84,35 +98,50 @@ export async function runAutoPublishIfEnabled(
     ? encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!)
     : signer.id.split("#")[0]!;
 
-  // For did:web we need a DID document; the adapter rejects did:web publish
-  // without one. For did:key the adapter drops `document` anyway — pass
-  // undefined and let it decide.
-  let document: ReturnType<typeof generateDidWebDocument> | undefined;
-  if (isDidWeb) {
-    const jwk = signer.metadata.publicKeyJwk;
-    if (!jwk) {
-      logger.warn(
-        { signerType: signer.type },
-        "Cannot auto-publish did:web — signer does not expose publicKeyJwk. " +
-          "PKCS#11 and OS-cert signers don't currently surface the JWK; " +
-          "use OPENCRED_KEY_PATH (software signer) or publish manually via " +
-          "POST /v1/keys/publish.",
-      );
-      return {
-        didPublish: false,
-        outcome: "no-jwk",
-        issuerDid,
-        signerType: signer.type,
-      };
-    }
-    document = generateDidWebDocument(issuerDid, jwk as JWK);
+  // Every key record needs the public JWK — it's both the key material we
+  // publish and (for did:web) what goes into the did.json. PKCS#11 and
+  // OS-cert signers don't surface a JWK; those operators publish manually.
+  const jwk = signer.metadata.publicKeyJwk;
+  if (!jwk) {
+    logger.warn(
+      { signerType: signer.type },
+      "Cannot auto-publish — signer does not expose publicKeyJwk. " +
+        "PKCS#11 and OS-cert signers don't currently surface the JWK; " +
+        "use OPENCRED_KEY_PATH (software signer) or publish manually via " +
+        "POST /v1/keys/publish.",
+    );
+    return {
+      didPublish: false,
+      outcome: "no-jwk",
+      issuerDid,
+      signerType: signer.type,
+    };
   }
 
+  // keyId is the verification method. For did:web it's `<did>#key-0`; for
+  // did:key the signer's id already carries the method-specific fragment.
+  const keyId = isDidWeb ? didWebVerificationMethodId(issuerDid) : signer.id;
+  const keyRecord: KeyRecord = {
+    keyId,
+    controllerDid: issuerDid,
+    algorithm: String(signer.algorithm),
+    publicKeyJwk: jwk,
+    purpose: ["assertionMethod"],
+    status: "active",
+  };
+  const namespace = config.OPENCRED_DEDI_NAMESPACE;
+  const hostDidDoc = isDidWeb && config.OPENCRED_DEDI_HOST_DID_DOC;
+
   try {
-    const result = await dediClient.publishDID(issuerDid, document, config.OPENCRED_DEDI_NAMESPACE);
+    const result = await dediClient.publishKey(keyRecord, namespace);
+    if (hostDidDoc) {
+      const document = generateDidWebDocument(issuerDid, jwk as JWK);
+      await dediClient.publishDidDocument(issuerDid, document, namespace);
+      logger.info({ issuerDid }, "Issuer did.json stored in DeDi (did-documents registry)");
+    }
     logger.info(
-      { issuerDid, recordName: result.recordName },
-      "Issuer DID auto-published to DeDi at startup",
+      { issuerDid, keyId, recordName: result.recordName },
+      "Issuer signing key auto-published to DeDi at startup",
     );
     return {
       didPublish: true,
@@ -122,10 +151,22 @@ export async function runAutoPublishIfEnabled(
     };
   } catch (err) {
     if (err instanceof DeDiRecordExistsError) {
-      // The DID was published in a prior run; the public_key_registry
-      // already has the record. From the auto-publish flag's POV this is
-      // success — verifiers can already resolve via DeDi.
-      logger.info({ issuerDid }, "Issuer DID already published to DeDi (idempotent skip)");
+      // The key was published in a prior run; the key registry already has
+      // the record. Still upsert the DID document when DeDi-hosting is on,
+      // so a re-deploy refreshes did.json. From the flag's POV this is
+      // success — verifiers can already resolve the key's status via DeDi.
+      logger.info({ issuerDid, keyId }, "Issuer key already published to DeDi (idempotent skip)");
+      if (hostDidDoc) {
+        try {
+          const document = generateDidWebDocument(issuerDid, jwk as JWK);
+          await dediClient.publishDidDocument(issuerDid, document, namespace);
+        } catch (docErr) {
+          logger.warn(
+            { error: docErr instanceof Error ? docErr.message : String(docErr), issuerDid },
+            "Failed to refresh DeDi-hosted did.json (non-fatal)",
+          );
+        }
+      }
       return { didPublish: true, outcome: "already-published", issuerDid };
     }
     const errorMessage = err instanceof Error ? err.message : String(err);
