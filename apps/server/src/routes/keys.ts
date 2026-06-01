@@ -20,9 +20,12 @@
 
 import { Hono } from "hono";
 import { z } from "zod";
+import { encodeDidWeb, generateDidWebDocument, type JWK } from "@opencred/did";
+import { DeDiClientError } from "@opencred/shared";
 import { getActiveSigner } from "../signing/key-manager.js";
 import { getConfig } from "../config.js";
 import { getDeDiClient } from "../dedi-singleton.js";
+import { getLogger } from "../logger.js";
 import { rejectKeyMaterial } from "./credentials.js";
 import { parseJsonBody } from "../middleware/parse-json.js";
 import { applyCacheHeaders, CACHE_PRESETS } from "../middleware/cache-control.js";
@@ -87,6 +90,156 @@ keys.get("/keys", (c) => {
   }
 
   return c.json({ keys: [descriptor] });
+});
+
+/**
+ * GET /keys/did-document
+ *
+ * Returns the canonical DID Document the operator should self-host at
+ * `https://<domain>/.well-known/did.json` (Path A in docs/concepts/dids.md).
+ *
+ * **Source preference**:
+ *
+ *   1. If DeDi is configured AND the DID is already published there, return
+ *      the DeDi-persisted document verbatim. That document carries rotation
+ *      history (multi-key `verificationMethod[]` with `supersededAt`
+ *      timestamps) that the locally-derived document doesn't have.
+ *   2. Otherwise — no DeDi, DeDi misconfigured, or DID not yet published —
+ *      derive a fresh single-key document from the active signer's
+ *      `publicKeyJwk`. This is what `generateDidWebDocument` produces and
+ *      what gets auto-published at startup when
+ *      `OPENCRED_AUTO_PUBLISH_KEY=true`.
+ *
+ * `response.source` discriminates between the two — `"dedi"` when read from
+ * the registry, `"active-signer"` when derived locally. Operators following
+ * Path A only need the JSON body inside `response.document`; the `source`
+ * field is informational so they can confirm whether they're getting
+ * rotation-aware content.
+ *
+ * **Limitations**:
+ *
+ *   - Currently `did:web` only. did:key issuers don't need a self-hosted
+ *     `.well-known/did.json` — the DID is its own document by construction.
+ *   - Software signers only. KMS-backed signers do not currently expose
+ *     `publicKeyJwk` on their metadata (tracked in #635). Returns 400
+ *     with a clear hint if the active signer is KMS-backed.
+ *
+ * No auth required for the JSON content itself — DID Documents are public
+ * by construction — but the endpoint sits behind the same API-key
+ * middleware as the rest of `/v1/keys/*` so internal endpoints stay
+ * consistent. Operators wishing to expose the doc to verifiers should
+ * still serve it at `.well-known/did.json` on their domain.
+ */
+keys.get("/keys/did-document", async (c) => {
+  const signer = getActiveSigner();
+  const config = getConfig();
+
+  if (!signer) {
+    return c.json(
+      {
+        error: {
+          code: "NO_SIGNER",
+          message:
+            "No signing key loaded. Set OPENCRED_KEY_PATH or a Cloud HSM provider before calling /v1/keys/did-document.",
+        },
+      },
+      503,
+    );
+  }
+
+  // Derive the issuer DID using the same priority as the credentials route:
+  // configured did:web domain wins; otherwise fall back to the signer-derived
+  // DID (did:key / did:jwk).
+  const issuerDid =
+    config.OPENCRED_ISSUER_DID_METHOD === "web" && config.OPENCRED_ISSUER_DOMAIN
+      ? encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN)
+      : signer.id.split("#")[0]!;
+
+  if (!issuerDid.startsWith("did:web:")) {
+    return c.json(
+      {
+        error: {
+          code: "UNSUPPORTED_DID_METHOD",
+          message:
+            "GET /v1/keys/did-document supports did:web issuers only. did:key DIDs are self-resolving — " +
+            "verifiers derive the DID Document from the DID string directly, no .well-known/did.json " +
+            "is needed.",
+          activeDid: issuerDid,
+        },
+      },
+      400,
+    );
+  }
+
+  // Path 1: prefer DeDi's record (carries rotation history). Falls through
+  // on 404 (DID not yet published there); any other DeDi error is logged
+  // at warn level so the operator can debug but doesn't block the response.
+  //
+  // `keyStatus` is passed through from the DeDi record. For did:web it's
+  // always "current" by design (per-key rotation lives inside
+  // `document.verificationMethod[]` via `supersededAt`, not the parent
+  // record-level flag) — but emitting it keeps the response shape
+  // grep-able alongside `POST /v1/keys/resolve`.
+  const dediClient = getDeDiClient();
+  if (dediClient) {
+    try {
+      const record = await dediClient.resolveDID(issuerDid);
+      if (record.document) {
+        return c.json({
+          did: issuerDid,
+          document: record.document,
+          keyStatus: record.keyStatus,
+          source: "dedi",
+        });
+      }
+    } catch (err) {
+      if (err instanceof DeDiClientError && err.statusCode === 404) {
+        // Expected: DID not yet on DeDi. Fall through to local derivation.
+      } else {
+        // statusCode is broken out from the message so operators can
+        // distinguish auth (401/403) from server errors (5xx) from network
+        // failures (no statusCode) at a glance in structured logs.
+        getLogger().warn(
+          {
+            err: err instanceof Error ? err.message : String(err),
+            statusCode: err instanceof DeDiClientError ? err.statusCode : undefined,
+            issuerDid,
+          },
+          "GET /v1/keys/did-document: DeDi lookup failed; falling back to active-signer-derived document",
+        );
+      }
+    }
+  }
+
+  // Path 2: derive from the active signer's public JWK. Mirrors what
+  // generateDidWebDocument emits for the auto-publish path so the
+  // self-hosted document matches what verifiers see via DeDi after first
+  // publish. `keyStatus` is hardcoded to "current" — there is no DeDi
+  // record yet so rotation history is by definition empty.
+  const publicKeyJwk = signer.metadata.publicKeyJwk;
+  if (!publicKeyJwk) {
+    return c.json(
+      {
+        error: {
+          code: "VALIDATION_ERROR",
+          message:
+            "Active signer does not expose publicKeyJwk on its metadata. " +
+            "GET /v1/keys/did-document requires a software-backed signer; KMS-backed signers " +
+            "(AWS KMS / Azure KV / GCP KMS) do not currently surface the JWK — track issue #635.",
+          signerType: signer.type,
+        },
+      },
+      400,
+    );
+  }
+
+  const document = generateDidWebDocument(issuerDid, publicKeyJwk as JWK);
+  return c.json({
+    did: issuerDid,
+    document,
+    keyStatus: "current" as const,
+    source: "active-signer",
+  });
 });
 
 // --- DeDi public-key registry ---

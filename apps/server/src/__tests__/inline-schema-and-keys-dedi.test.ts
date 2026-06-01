@@ -766,3 +766,183 @@ describe("POST /v1/keys/rotate", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 });
+
+// ---------------------------------------------------------------------------
+// GET /v1/keys/did-document — operator-side did.json export
+// ---------------------------------------------------------------------------
+//
+// Path A operators (self-host .well-known/did.json) need the canonical
+// document JSON for upload to their domain. Path B operators want to fetch
+// what they (or auto-publish) wrote to DeDi so they can mirror it locally.
+// The endpoint serves both: prefers DeDi's record when configured (carries
+// rotation history), falls back to deriving from the active signer's JWK.
+
+describe("GET /v1/keys/did-document", () => {
+  const HOST = "issuer.test.local";
+  const DID = `did:web:${HOST}`;
+  const JWK = { kty: "EC", crv: "P-256", x: "x-bytes", y: "y-bytes" } as Record<string, unknown>;
+
+  it("returns 503 when no signer is loaded", async () => {
+    setActiveSigner(null);
+    const res = await app.request("/v1/keys/did-document");
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("NO_SIGNER");
+  });
+
+  it("returns 400 UNSUPPORTED_DID_METHOD for did:key issuers", async () => {
+    // testKey is a did:key signer; the endpoint should reject because
+    // did:key DIDs are self-resolving and don't need a .well-known/did.json.
+    setActiveSigner(testKey.signer);
+    const res = await app.request("/v1/keys/did-document");
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; activeDid: string } };
+    expect(body.error.code).toBe("UNSUPPORTED_DID_METHOD");
+    expect(body.error.activeDid).toMatch(/^did:key:/);
+  });
+
+  it("derives the document from active signer when DeDi is not configured", async () => {
+    setActiveSigner(buildDidWebSigner(HOST, JWK));
+    // No setDeDiClient — beforeEach resets it, this case validates the
+    // "no DeDi" branch.
+    const res = await app.request("/v1/keys/did-document");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      did: string;
+      document: {
+        verificationMethod: Array<{ id: string; publicKeyJwk: Record<string, unknown> }>;
+      };
+      keyStatus: "current" | "rotated";
+      source: string;
+    };
+    expect(body.source).toBe("active-signer");
+    expect(body.keyStatus).toBe("current");
+    expect(body.did).toBe(DID);
+    expect(body.document.verificationMethod[0]!.id).toBe(`${DID}#key-0`);
+    expect(body.document.verificationMethod[0]!.publicKeyJwk).toEqual(JWK);
+  });
+
+  it("returns the DeDi-persisted document (with rotation history) when DeDi has the record", async () => {
+    // Simulate a multi-key DeDi record — what /v1/keys/rotate produces.
+    // The endpoint should surface this verbatim instead of deriving a
+    // fresh single-key doc.
+    const rotatedDocument = {
+      "@context": ["https://www.w3.org/ns/did/v1"],
+      id: DID,
+      verificationMethod: [
+        {
+          id: `${DID}#key-0`,
+          type: "JsonWebKey",
+          controller: DID,
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "old-x", y: "old-y" },
+          supersededAt: "2026-05-01T00:00:00Z",
+        },
+        {
+          id: `${DID}#key-1`,
+          type: "JsonWebKey",
+          controller: DID,
+          publicKeyJwk: JWK,
+        },
+      ],
+      assertionMethod: [`${DID}#key-1`],
+    };
+    setActiveSigner(buildDidWebSigner(HOST, JWK));
+    setDeDiClient({
+      resolveDID: async (did: string) => ({
+        did,
+        document: rotatedDocument,
+        keyStatus: "current" as const,
+      }),
+    } as never);
+
+    const res = await app.request("/v1/keys/did-document");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      did: string;
+      document: { verificationMethod: Array<{ id: string; supersededAt?: string }> };
+      keyStatus: "current" | "rotated";
+      source: string;
+    };
+    expect(body.source).toBe("dedi");
+    // For did:web, keyStatus on the record is always "current"; rotation
+    // history lives inside verificationMethod[]. Passing the field through
+    // verbatim keeps the response shape consistent with /v1/keys/resolve.
+    expect(body.keyStatus).toBe("current");
+    expect(body.document.verificationMethod).toHaveLength(2);
+    expect(body.document.verificationMethod[0]!.supersededAt).toBe("2026-05-01T00:00:00Z");
+    expect(body.document.verificationMethod[1]!.id).toBe(`${DID}#key-1`);
+  });
+
+  it("falls back to active-signer derivation when DeDi returns 404 (not yet published)", async () => {
+    // DeDi configured but the DID hasn't been auto-published yet (e.g. on
+    // first boot before OPENCRED_AUTO_PUBLISH_KEY took effect, or when the
+    // operator deliberately uses Path A only).
+    setActiveSigner(buildDidWebSigner(HOST, JWK));
+    setDeDiClient({
+      resolveDID: async () => {
+        const { DeDiClientError } = await import("@opencred/shared");
+        throw new DeDiClientError("Not found", 404);
+      },
+    } as never);
+
+    const res = await app.request("/v1/keys/did-document");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      source: string;
+      document: { verificationMethod: Array<{ id: string }> };
+    };
+    expect(body.source).toBe("active-signer");
+    expect(body.document.verificationMethod[0]!.id).toBe(`${DID}#key-0`);
+  });
+
+  it("falls back to active-signer derivation when DeDi errors with non-404 (logs warn, continues)", async () => {
+    // Auth, network, or 5xx errors shouldn't block the operator from
+    // getting *some* document back — fallback is the active signer's key.
+    setActiveSigner(buildDidWebSigner(HOST, JWK));
+    setDeDiClient({
+      resolveDID: async () => {
+        const { DeDiClientError } = await import("@opencred/shared");
+        throw new DeDiClientError("DeDi API error: 503", 502);
+      },
+    } as never);
+
+    const res = await app.request("/v1/keys/did-document");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { source: string };
+    expect(body.source).toBe("active-signer");
+  });
+
+  it("returns 400 VALIDATION_ERROR when the active signer has no publicKeyJwk (KMS case) and DeDi has no record", async () => {
+    // KMS-backed signers don't surface publicKeyJwk today (#635), so when
+    // there's no DeDi fallback either, the endpoint cannot produce a
+    // document. Surface a clear error instead of guessing.
+    const kmsSigner: Parameters<typeof setActiveSigner>[0] = {
+      id: `${DID}#key-1`,
+      algorithm: "P-256",
+      type: "pkcs11",
+      metadata: {
+        id: `${DID}#key-1`,
+        algorithm: "P-256",
+        type: "pkcs11",
+        fingerprint: "deadbeef".repeat(8),
+      },
+      async sign() {
+        throw new Error("unused");
+      },
+    };
+    setActiveSigner(kmsSigner);
+    // No DeDi configured.
+    const res = await app.request("/v1/keys/did-document");
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; signerType: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.signerType).toBe("pkcs11");
+  });
+
+  it("rejects /v1/keys/did-document without Bearer token", async () => {
+    const authedApp = createTestApp({ apiKey: "secret-token" });
+    setActiveSigner(buildDidWebSigner(HOST, JWK));
+    const res = await authedApp.request("/v1/keys/did-document");
+    expect(res.status).toBe(401);
+  });
+});
