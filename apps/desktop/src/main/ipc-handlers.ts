@@ -2614,7 +2614,8 @@ async function handleLogTail(
 
 import { exportDidDocument } from "./did-web-export.js";
 import { exportDidKeyDocument } from "./did-key-export.js";
-import { DIDWebResolver, encodeDidWeb } from "@opencred/did";
+import { DIDWebResolver, encodeDidWeb, generateDidWebDocumentMultiKey } from "@opencred/did";
+import type { JWK, DidWebKeyInput } from "@opencred/did";
 import type {
   DidWebExportRequest,
   DidWebExportResponse,
@@ -2876,21 +2877,77 @@ async function handleDeDiPublishKey(
     return { success: false, error: "Failed to publish key to DeDi" };
   }
 
+  const store = getStore();
+
   let didDocumentStored: boolean | undefined;
-  if (request.hostDidDocument && request.document) {
-    const docResult = await mgr.publishDidDocument(
-      request.did,
-      request.document,
-      request.namespace,
-    );
-    didDocumentStored = docResult != null;
+  if (request.hostDidDocument) {
+    // Assemble the did.json from the issuer's CURRENT non-revoked key set,
+    // mirroring the server's `assembleDidDocument` (apps/server/src/routes/keys.ts).
+    //   - Active key = the one being published now.
+    //   - Retained keys = previously-published verification methods that are
+    //     still non-revoked. Each is resolved best-effort from DeDi; a 404 /
+    //     outage / revoked key is silently skipped.
+    //   - De-duplicated by verification method id, active first.
+    // For the common one-key issuer this produces the same single-key doc as
+    // before, but it correctly drops revoked keys and keeps any distinct
+    // non-revoked keys. did:web only — other DID methods fall back below.
+    let documentToPublish: unknown = request.document;
+    if (request.did.startsWith("did:web:")) {
+      try {
+        const activeKey: DidWebKeyInput = {
+          id: verificationMethod,
+          publicKeyJwk: jwk as JWK,
+        };
+        const retained: DidWebKeyInput[] = [];
+        const previouslyPublished = store.get("dediPublishedKeys") ?? [];
+        for (const vm of previouslyPublished) {
+          if (vm === verificationMethod) continue;
+          try {
+            const record = await mgr.rawClient.resolveKey(vm);
+            if (record.status === "revoked") continue;
+            retained.push({
+              id: record.keyId,
+              publicKeyJwk: record.publicKeyJwk as JWK,
+            });
+          } catch {
+            // 404 / outage / unresolvable — skip this key (best-effort).
+          }
+        }
+
+        const seen = new Set<string>();
+        const orderedKeys: DidWebKeyInput[] = [];
+        for (const key of [activeKey, ...retained]) {
+          if (seen.has(key.id)) continue;
+          seen.add(key.id);
+          orderedKeys.push(key);
+        }
+
+        documentToPublish = generateDidWebDocumentMultiKey(request.did, orderedKeys);
+      } catch (assembleErr) {
+        // Assembly failed entirely (e.g. unexpected JWK shape). Fall back to
+        // the single-key document the renderer supplied so publish never
+        // hard-fails on a hosting refresh.
+        logger.warn("did.json multi-key assembly failed; falling back to single-key document", {
+          error: assembleErr instanceof Error ? assembleErr.message : String(assembleErr),
+        });
+        documentToPublish = request.document;
+      }
+    }
+
+    if (documentToPublish) {
+      const docResult = await mgr.publishDidDocument(
+        request.did,
+        documentToPublish,
+        request.namespace,
+      );
+      didDocumentStored = docResult != null;
+    }
   }
 
   // Track the published verification method locally so the next
   // key-generation can flag it rotated without an extra round-trip to
   // look it up. Idempotent — republishing the same key is a no-op on
   // the local list.
-  const store = getStore();
   const published = store.get("dediPublishedKeys") ?? [];
   if (!published.includes(verificationMethod)) {
     store.set("dediPublishedKeys", [...published, verificationMethod]);

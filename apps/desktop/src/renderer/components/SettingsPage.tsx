@@ -17,6 +17,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card } from "./ui/Card";
 import { Button } from "./ui/Button";
 import { KeyManagement } from "./KeyManagement";
+import { DeDiKeyActions } from "./DeDiKeyActions";
 import { BrandingSettings } from "./BrandingSettings";
 import { BugReportDialog } from "./BugReportDialog";
 import type { UpdateStatusResponse, DeDiStatusResponse } from "../../shared/ipc-types";
@@ -84,14 +85,45 @@ function DeDiCard() {
     type: "success" | "error";
     message: string;
   } | null>(null);
+  // Active signing key + issuer DID, needed to surface per-key Revoke/Rotate
+  // actions. Resolved best-effort whenever DeDi is configured and a namespace
+  // is set; null until both a key and a did:web DID are available.
+  const [activeKeyInfo, setActiveKeyInfo] = useState<{ keyId: string; did: string } | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
       const s = await window.opencred.dediGetStatus();
       setStatus(s);
       if (s.configured && s.namespace) setNamespace(s.namespace);
+
+      // Resolve the active key id + issuer DID for the per-key actions.
+      // Mirrors handlePublishDID: first key is the active signer, the DID is
+      // derived from the configured namespace (domain) via exportDidDocument.
+      if (s.configured && s.namespace) {
+        try {
+          const { keys } = await window.opencred.listKeys();
+          if (keys.length > 0) {
+            const exportResult = await window.opencred.exportDidDocument({
+              keyId: keys[0].id,
+              domain: s.namespace,
+            });
+            if (exportResult.success && exportResult.did) {
+              setActiveKeyInfo({ keyId: keys[0].id, did: exportResult.did });
+            } else {
+              setActiveKeyInfo(null);
+            }
+          } else {
+            setActiveKeyInfo(null);
+          }
+        } catch {
+          setActiveKeyInfo(null);
+        }
+      } else {
+        setActiveKeyInfo(null);
+      }
     } catch {
       setStatus({ configured: false, registriesReady: false, publishedSchemas: [] });
+      setActiveKeyInfo(null);
     }
   }, []);
 
@@ -318,6 +350,12 @@ function DeDiCard() {
               }
             />
           </div>
+
+          {/* Per-key Revoke / Rotate — only when DeDi is configured and the
+              active signing key + issuer DID are resolvable. */}
+          {activeKeyInfo && (
+            <DeDiKeyActions did={activeKeyInfo.did} signerKeyId={activeKeyInfo.keyId} />
+          )}
 
           <div className="flex gap-2 pt-1">
             <Button
