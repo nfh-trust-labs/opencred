@@ -609,13 +609,15 @@ describe("POST /v1/keys/rotate", () => {
    * The rotate route calls: publishKey (new key), setKeyStatus (retire old key),
    * resolveKey (look up old key for did.json rebuild), publishDidDocument (optional).
    */
-  function makeRotateMockClient(opts: {
-    publishKeyResult?: Record<string, unknown>;
-    setKeyStatusResult?: Record<string, unknown>;
-    resolveKeyResult?: Record<string, unknown> | null;
-    publishDidDocumentResult?: Record<string, unknown>;
-    namespace?: string;
-  } = {}) {
+  function makeRotateMockClient(
+    opts: {
+      publishKeyResult?: Record<string, unknown>;
+      setKeyStatusResult?: Record<string, unknown>;
+      resolveKeyResult?: Record<string, unknown> | null;
+      publishDidDocumentResult?: Record<string, unknown>;
+      namespace?: string;
+    } = {},
+  ) {
     const publishKeyCalls: Array<{ key: Record<string, unknown>; namespace?: string }> = [];
     const setKeyStatusCalls: Array<{ vm: string; status: string; namespace?: string }> = [];
     const publishDidDocumentCalls: Array<{ did: string; namespace?: string }> = [];
@@ -623,40 +625,48 @@ describe("POST /v1/keys/rotate", () => {
     const client = {
       publishKey: async (key: Record<string, unknown>, namespace?: string) => {
         publishKeyCalls.push({ key, namespace });
-        return opts.publishKeyResult ?? {
-          published: true,
-          recordName: `${DID}#key-0`,
-          namespace: namespace ?? "default-ns",
-        };
+        return (
+          opts.publishKeyResult ?? {
+            published: true,
+            recordName: `${DID}#key-0`,
+            namespace: namespace ?? "default-ns",
+          }
+        );
       },
       setKeyStatus: async (vm: string, status: string, namespace?: string) => {
         setKeyStatusCalls.push({ vm, status, namespace });
-        return opts.setKeyStatusResult ?? {
-          changed: true,
-          keyId: vm,
-          from: "active",
-          to: status,
-          namespace: namespace ?? "default-ns",
-        };
+        return (
+          opts.setKeyStatusResult ?? {
+            changed: true,
+            keyId: vm,
+            from: "active",
+            to: status,
+            namespace: namespace ?? "default-ns",
+          }
+        );
       },
       resolveKey: async (_vm: string, _namespace?: string) => {
         if (opts.resolveKeyResult === null) throw new Error("not found");
-        return opts.resolveKeyResult ?? {
-          keyId: _vm,
-          controllerDid: DID,
-          algorithm: "P-256",
-          publicKeyJwk: { kty: "EC", crv: "P-256", x: "x-old", y: "y-old" },
-          purpose: ["assertionMethod"],
-          status: "rotated",
-        };
+        return (
+          opts.resolveKeyResult ?? {
+            keyId: _vm,
+            controllerDid: DID,
+            algorithm: "P-256",
+            publicKeyJwk: { kty: "EC", crv: "P-256", x: "x-old", y: "y-old" },
+            purpose: ["assertionMethod"],
+            status: "rotated",
+          }
+        );
       },
       publishDidDocument: async (did: string, _doc: unknown, namespace?: string) => {
         publishDidDocumentCalls.push({ did, namespace });
-        return opts.publishDidDocumentResult ?? {
-          published: true,
-          recordName: did,
-          namespace: namespace ?? "default-ns",
-        };
+        return (
+          opts.publishDidDocumentResult ?? {
+            published: true,
+            recordName: did,
+            namespace: namespace ?? "default-ns",
+          }
+        );
       },
     } as never;
 

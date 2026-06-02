@@ -87,7 +87,10 @@ type PublishKeyCall = { key: KeyRecord; namespace?: string };
 type PublishDidDocumentCall = { did: string; document: unknown; namespace?: string };
 
 function makeDeDiClient(opts: {
-  publishKey?: (key: KeyRecord, namespace?: string) => Promise<{ recordName: string; published: boolean; namespace: string }>;
+  publishKey?: (
+    key: KeyRecord,
+    namespace?: string,
+  ) => Promise<{ recordName: string; published: boolean; namespace: string }>;
   publishDidDocument?: (did: string, document: unknown, namespace?: string) => Promise<unknown>;
 }): {
   client: DeDiClient;

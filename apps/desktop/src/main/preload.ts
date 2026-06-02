@@ -229,8 +229,7 @@ const api: OpenCredDesktopAPI = {
 
   dediSetKeyStatus: (
     request: import("../shared/ipc-types.js").DeDiSetKeyStatusRequest,
-  ): Promise<DeDiPublishResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.DEDI_SET_KEY_STATUS, request),
+  ): Promise<DeDiPublishResponse> => ipcRenderer.invoke(IPC_CHANNELS.DEDI_SET_KEY_STATUS, request),
 
   dediPublishSchema: (
     request: import("../shared/ipc-types.js").DeDiPublishSchemaRequest,

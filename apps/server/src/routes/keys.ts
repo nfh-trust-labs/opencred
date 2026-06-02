@@ -408,8 +408,7 @@ keys.post("/keys/publish", async (c) => {
   }
 
   const config = getConfig();
-  const isDidWeb =
-    config.OPENCRED_ISSUER_DID_METHOD === "web" && !!config.OPENCRED_ISSUER_DOMAIN;
+  const isDidWeb = config.OPENCRED_ISSUER_DID_METHOD === "web" && !!config.OPENCRED_ISSUER_DOMAIN;
   const issuerDid = isDidWeb
     ? encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!)
     : signer.id.split("#")[0]!;
@@ -588,7 +587,11 @@ keys.post("/keys/revoke", async (c) => {
   const dediClient = getDeDiClient();
   if (!dediClient) return dediNotConfigured(c);
 
-  const result = await dediClient.setKeyStatus(parsed.verificationMethod, "revoked", parsed.namespace);
+  const result = await dediClient.setKeyStatus(
+    parsed.verificationMethod,
+    "revoked",
+    parsed.namespace,
+  );
 
   // Best-effort did.json refresh (did:web only). Only when the active signer
   // is still a valid, non-revoked key — never republish a document built
@@ -598,8 +601,7 @@ keys.post("/keys/revoke", async (c) => {
   const hostDidDoc = parsed.hostDidDocument ?? config.OPENCRED_DEDI_HOST_DID_DOC;
   let didDocumentStored = false;
   if (hostDidDoc && signer) {
-    const isDidWeb =
-      config.OPENCRED_ISSUER_DID_METHOD === "web" && !!config.OPENCRED_ISSUER_DOMAIN;
+    const isDidWeb = config.OPENCRED_ISSUER_DID_METHOD === "web" && !!config.OPENCRED_ISSUER_DOMAIN;
     const issuerDid = isDidWeb ? encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!) : "";
     const publicKeyJwk = signer.metadata.publicKeyJwk;
     const activeKeyId = isDidWeb ? didWebVerificationMethodId(issuerDid) : signer.id;
