@@ -116,5 +116,25 @@ Breaking changes documented:
 
 - **Surface the `proof` block on `DIDRecord` / `SchemaRecord`** so verifiers can use the CORD blockchain anchor for cryptographic verification. Spawned as a separate task — see GitHub Issues.
 - **Capture `reason` in the desktop revocation UI.** The dedi-client and server route already accept it; UI plumbing is still pass-through.
-- **Multi-user safety for `markDIDRotated`.** The read-merge-write helper is racy under concurrent rotations from multiple desktops; an `If-Match`/version check on `update-record` would close the window. Track with DeDi team.
+- **Multi-user safety for `markDIDRotated`.** The read-merge-write helper is racy under concurrent rotations from multiple desktops; an `If-Match`/version check on `update-record` would close the window. Track with DeDi team. _(Superseded by D4 below — `markDIDRotated` was replaced by the per-key `setKeyStatus` in the per-key-registry redesign; the same concurrency question now lives there.)_
 - **Confirm DeDi's JSON Schema validator** (draft-07, Ajv strict mode?) so we can trust the optional-`document` design for did:key without surprises.
+
+---
+
+## D4. `setKeyStatus` optimistic concurrency (issue [#659](https://github.com/nfh-trust-labs/opencred/issues/659))
+
+The per-key-registry redesign replaced the per-DID `markDIDRotated` with [`setKeyStatus(verificationMethod, status, ns)`](../../packages/dedi-client/src/adapter/client.ts), which advances a key's lifecycle (`active → rotated → revoked`) via DeDi's `update-record`. `update-record` carries **no conditional-update parameter** — no `If-Match`, no ETag, no `version` CAS — so the write is a blind, last-writer-wins overwrite of the whole payload.
+
+**Why it's safe enough today.** `status` is the *only* mutable field, and it advances monotonically. The rank guard refuses any move backward from the state the caller observed, so `revoked` is **terminal once observed** — no writer that has seen it will downgrade it. This is not the same as full race-freedom: two writers that BOTH read the same pre-terminal state can each pass the guard and race their blind writes, so a stale lower-rank write could land last and drop a higher-rank update (a lost update). In practice per-key lifecycle ops are normally causally ordered (you revoke a key you already know about), so the window is small — but it is real, and an Option-A CAS is what closes it. The wire envelope's `version` field exists (`DeDiRecord.version`, a string) but the adapter did not previously read it.
+
+**The real hazard — a future schema extension.** Adding any *other* mutable field that can diverge between writers (e.g. a `revokedAt` timestamp, or the `reason` field from the revocation-reason work, [#658](https://github.com/nfh-trust-labs/opencred/issues/658)) silently reintroduces the lost-update race, because the whole payload is overwritten last-writer-wins. Nothing structural prevents that — it relied on a contributor reading the type JSDoc.
+
+**Decision — Option C now, Option A when DeDi supports it.**
+
+- **Now (shipped with #659):**
+  - `resolveKey` extracts `version` from the DeDi envelope and logs it at `debug` (no behavior change) so the adapter is positioned to adopt a conditional update later.
+  - A load-bearing comment + `TODO(#659)` sits at the `setKeyStatus` `updateRecord` call documenting the monotone invariant and forbidding new mutable fields.
+  - A unit test pins the `update-record` payload to exactly the six fields (`keyId`, `controllerDid`, `algorithm`, `publicKeyJwk`, `purpose`, `status`); a second test asserts concurrent rotate-then-revoke converges on `revoked`.
+- **Later (Option A):** once DeDi exposes a `version`/ETag conditional `update-record`, pass the read `version` as an If-Match precondition; on a stale-write rejection, re-read and retry. This closes the window for any future divergent field.
+
+**DeDi-team ask:** does `update-record` support (or can it add) a conditional update keyed on the record `version` / an ETag, so a stale write is rejected rather than silently clobbering? Until then, **no mutable `KeyRecord` field beyond `status` may be added** — if `KeyRecord.reason` (#658 Phase B) lands, that PR must address concurrency first.
