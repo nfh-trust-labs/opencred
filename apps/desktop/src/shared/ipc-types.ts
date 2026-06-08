@@ -748,11 +748,30 @@ export interface DeDiPublishKeyRequest {
   signerKeyId: string;
   /** The controller DID to publish the key under (did:web:domain or did:key:...). */
   did: string;
+  /**
+   * The sequential index this key takes (did:web only). The operator states it
+   * explicitly: 0 for a first publish, N+1 for a rotation. Published at
+   * `<did>#key-<keyIndex>`. Default 0.
+   */
+  keyIndex?: number;
+  /**
+   * When rotating, the verification method of the key being retired. It is
+   * flipped to `rotated` (stays valid) and carried forward in the regenerated
+   * did.json. Omit for a first publish.
+   */
+  previousVerificationMethod?: string;
+  /**
+   * The issuer's CURRENT did.json, imported as a whole to carry every existing
+   * key forward and validate the chosen index is free (rejected if taken). When
+   * omitted, the key set is reconstructed best-effort by resolving each
+   * previously-published key from DeDi. did:web only.
+   */
+  currentDidDocument?: unknown;
   /** Optional assembled did.json for did:web hosting (only used when hostDidDocument is set). */
   document?: unknown;
   /** Optional DeDi namespace override. */
   namespace?: string;
-  /** When true (and `document` is present), also store the did:web document in DeDi. */
+  /** When true, also store the did:web document in DeDi. */
   hostDidDocument?: boolean;
 }
 
@@ -761,6 +780,17 @@ export interface DeDiSetKeyStatusRequest {
   verificationMethod: string;
   /** The new key status. */
   status: "rotated" | "revoked";
+  /**
+   * The issuer DID (did:web:...). When provided with `hostDidDocument` on a
+   * `revoked` transition, the did.json is regenerated so the revoked key stays
+   * in `verificationMethod[]` (its signatures still resolve → REVOKED) but is
+   * dropped from every verification relationship.
+   */
+  did?: string;
+  /** The issuer's current did.json, imported as a whole for the revoke regeneration. */
+  currentDidDocument?: unknown;
+  /** When true (and `did` is a did:web DID), regenerate + re-host the did.json. */
+  hostDidDocument?: boolean;
   /** Optional DeDi namespace override. */
   namespace?: string;
 }

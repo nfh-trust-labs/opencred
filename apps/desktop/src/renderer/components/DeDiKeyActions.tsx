@@ -4,7 +4,8 @@
  * Surfaces the already-landed `dediSetKeyStatus` IPC to the user. The
  * verification method is derived the same way the main-process handler
  * derives it when publishing:
- *   - did:web issuers have exactly one key slot, `<did>#key-0`;
+ *   - did:web issuers reference the active key by its sequential index
+ *     (`<did>#key-<n>`, default `#key-0`);
  *   - any other DID method uses the signer's own key id.
  *
  * Revoke is destructive — flipping a key to `revoked` makes verifiers reject
@@ -24,18 +25,21 @@ interface DeDiKeyActionsProps {
   did: string;
   /** The local signer key id (used as the verification method for non-did:web). */
   signerKeyId: string;
+  /** The active key's sequential index (did:web only). Defaults to 0. */
+  keyIndex?: number;
 }
 
 type Pending = "rotate" | "revoke" | null;
 
-export function DeDiKeyActions({ did, signerKeyId }: DeDiKeyActionsProps) {
+export function DeDiKeyActions({ did, signerKeyId, keyIndex = 0 }: DeDiKeyActionsProps) {
   const [pending, setPending] = useState<Pending>(null);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [result, setResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
-  // did:web issuers have a single key slot (#key-0); other methods use the
-  // signer key id directly. Mirrors the main-process publish handler.
-  const vm = did.startsWith("did:web:") ? did + "#key-0" : signerKeyId;
+  // did:web issuers reference the active key by its sequential index
+  // (`#key-<n>`); other methods use the signer key id directly. Mirrors the
+  // main-process publish handler.
+  const vm = did.startsWith("did:web:") ? `${did}#key-${keyIndex}` : signerKeyId;
 
   async function applyStatus(status: "rotated" | "revoked") {
     setResult(null);
@@ -44,6 +48,11 @@ export function DeDiKeyActions({ did, signerKeyId }: DeDiKeyActionsProps) {
       const response = await window.opencred.dediSetKeyStatus({
         verificationMethod: vm,
         status,
+        // On revoke, ask the main process to regenerate the DeDi-hosted did.json
+        // so the revoked key drops out of the verification relationships while
+        // staying resolvable. Ignored for `rotated` and for non-did:web issuers.
+        did,
+        hostDidDocument: status === "revoked",
       });
       if (!response.success) {
         setResult({ type: "error", message: response.error ?? "Failed to update key status." });

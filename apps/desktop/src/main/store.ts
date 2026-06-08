@@ -175,6 +175,14 @@ export interface StoreSchema {
    * `setKeyStatus(vm, "rotated")` and swallow it.
    */
   dediPublishedKeys: string[];
+  /**
+   * The sequential index (`#key-<n>`) of the issuer's CURRENT did:web signing
+   * key. Set explicitly when a key is published or rotated; read at signing
+   * time so issued credentials carry the matching `#key-<n>` verification
+   * method. Defaults to `0` (a fresh issuer's first key). Stateless by design —
+   * this records the operator's explicit choice, it is never auto-incremented.
+   */
+  dediActiveKeyIndex: number;
   /** ISO 8601 date until which the key rotation reminder is snoozed. */
   keyRotationDismissedUntil?: string;
   /** Issuer branding customization for credential templates. */
@@ -197,6 +205,7 @@ const DEFAULTS: StoreSchema = {
   customSchemas: [],
   dediPublishedSchemas: [],
   dediPublishedKeys: [],
+  dediActiveKeyIndex: 0,
 };
 
 let store: ElectronStore<StoreSchema> | null = null;

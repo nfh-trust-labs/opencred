@@ -510,7 +510,8 @@ async function handleSignCredential(
     // For did:web issuers, use the did:web verification method ID.
     const issuer = unsignedCredential.issuer;
     const issuerDid = typeof issuer === "string" ? issuer : issuer?.id;
-    const verificationMethod = deriveVerificationMethod(issuerDid, signer.id);
+    const keyIndex = getStore().get("dediActiveKeyIndex") ?? 0;
+    const verificationMethod = deriveVerificationMethod(issuerDid, signer.id, keyIndex);
 
     const { dataToSign, proofConfig } = await prepareProof(unsignedCredential, {
       verificationMethod,
@@ -678,8 +679,13 @@ async function handleBuildAndSign(
       const vct = request.additionalTypes?.[0] ?? request.schemaId;
 
       // For did:web issuers, the verificationMethod must reference the
-      // did:web DID's key, not the signer's internal did:key-based ID.
-      const verificationMethod = deriveVerificationMethod(request.issuerDid, signer.id);
+      // did:web DID's key, not the signer's internal did:key-based ID. The
+      // active key index (set on publish/rotate) selects the #key-<n>.
+      const verificationMethod = deriveVerificationMethod(
+        request.issuerDid,
+        signer.id,
+        getStore().get("dediActiveKeyIndex") ?? 0,
+      );
 
       // Custom JSON-LD contexts are served by the shared document loader
       // from a per-URL cache. The cache write path (handleCustomSchemaSave)
@@ -711,6 +717,7 @@ async function handleBuildAndSign(
       const result = await buildAndSign(signer, {
         schemaId: request.schemaId,
         issuerDid: request.issuerDid,
+        keyIndex: getStore().get("dediActiveKeyIndex") ?? 0,
         credentialSubject: request.credentialSubject,
         validFrom: request.validFrom,
         validUntil: request.validUntil,
@@ -1348,6 +1355,7 @@ async function handleBatchStart(
     const engine = createBatchEngine(signer, parseResult.rows, {
       schemaId: request.schemaId,
       issuerDid: request.issuerDid,
+      keyIndex: getStore().get("dediActiveKeyIndex") ?? 0,
       validFrom: request.validFrom,
       validUntil: request.validUntil,
       revocationRegistryUrl: request.revocationRegistryUrl,
@@ -2618,7 +2626,8 @@ import {
   DIDWebResolver,
   encodeDidWeb,
   generateDidWebDocumentMultiKey,
-  didWebVerificationMethodId,
+  didWebVerificationMethodIdForIndex,
+  importDidWebDocument,
 } from "@opencred/did";
 import type { JWK, DidWebKeyInput } from "@opencred/did";
 import type {
@@ -2838,7 +2847,8 @@ async function handleDeDiGetStatus(_event: IpcMainInvokeEvent): Promise<DeDiStat
  * public JWK + algorithm from the in-memory signer registry.
  *
  * The published verification method:
- *   - `did:web:domain` → `<did>#key-0` (stable id inside the document);
+ *   - `did:web:domain` → `<did>#key-<keyIndex>` (the operator-chosen index,
+ *     default 0; the new key is published under this fragment);
  *   - any other method (e.g. `did:key:...`) → the signer id itself.
  *
  * Security invariant (CLAUDE.md #2): the `publicKeyJwk` looked up from
@@ -2864,9 +2874,28 @@ async function handleDeDiPublishKey(
     };
   }
 
+  const keyIndex = request.keyIndex ?? 0;
   const verificationMethod = request.did.startsWith("did:web:")
-    ? didWebVerificationMethodId(request.did)
+    ? didWebVerificationMethodIdForIndex(request.did, keyIndex)
     : request.signerKeyId;
+
+  // When the operator supplies the current did.json, validate the chosen index
+  // is free before publishing — mirrors the server's 409 KEY_INDEX_TAKEN.
+  // Without this an in-use index would silently overwrite an existing key slot,
+  // breaking verification of credentials signed by the key it replaces.
+  if (request.did.startsWith("did:web:") && request.currentDidDocument) {
+    try {
+      const imported = importDidWebDocument(request.currentDidDocument);
+      if (imported.usedIndices.includes(keyIndex)) {
+        return {
+          success: false,
+          error: `#key-${keyIndex} is already present in the current did.json (next free index: ${imported.maxKeyIndex + 1}).`,
+        };
+      }
+    } catch {
+      // Malformed document — let the did.json assembly path surface the error.
+    }
+  }
 
   const keyRecord: KeyRecord = {
     keyId: verificationMethod,
@@ -2884,44 +2913,68 @@ async function handleDeDiPublishKey(
 
   const store = getStore();
 
+  // Rotation: when a previous key is named, retire it (flip to `rotated`). It
+  // stays valid — a clean rotation does not invalidate its credentials — and is
+  // carried forward in the regenerated did.json below.
+  if (request.previousVerificationMethod) {
+    await mgr.setKeyStatus(request.previousVerificationMethod, "rotated", request.namespace);
+  }
+
   let didDocumentStored: boolean | undefined;
   if (request.hostDidDocument) {
-    // Assemble the did.json from the issuer's CURRENT non-revoked key set,
-    // mirroring the server's `assembleDidDocument` (apps/server/src/routes/keys.ts).
-    //   - Active key = the one being published now.
-    //   - Retained keys = previously-published verification methods that are
-    //     still non-revoked. Each is resolved best-effort from DeDi; a 404 /
-    //     outage / revoked key is silently skipped.
-    //   - De-duplicated by verification method id, active first.
-    // For the common one-key issuer this produces the same single-key doc as
-    // before, but it correctly drops revoked keys and keeps any distinct
-    // non-revoked keys. did:web only — other DID methods fall back below.
+    // Assemble the did.json from the issuer's CURRENT key set, mirroring the
+    // server (apps/server/src/routes/keys.ts).
+    //   - New key = the one being published now (appended last).
+    //   - Existing keys = carried forward from the operator-supplied
+    //     `currentDidDocument` (imported as a whole) or, as a fallback, resolved
+    //     best-effort from DeDi. Each preserves its revoked status: a revoked
+    //     key STAYS in verificationMethod[] (so its signatures still resolve →
+    //     REVOKED) but is dropped from the relationships by
+    //     generateDidWebDocumentMultiKey (W3C DID Core §5.3).
+    //   - De-duplicated by verification method id.
+    // For the common one-key issuer this is a single-key doc. did:web only —
+    // other DID methods fall back below.
     let documentToPublish: unknown = request.document;
     if (request.did.startsWith("did:web:")) {
       try {
-        const activeKey: DidWebKeyInput = {
+        const newKey: DidWebKeyInput = {
           id: verificationMethod,
           publicKeyJwk: jwk as JWK,
         };
-        const retained: DidWebKeyInput[] = [];
-        const previouslyPublished = store.get("dediPublishedKeys") ?? [];
-        for (const vm of previouslyPublished) {
-          if (vm === verificationMethod) continue;
-          try {
-            const record = await mgr.rawClient.resolveKey(vm);
-            if (record.status === "revoked") continue;
-            retained.push({
-              id: record.keyId,
-              publicKeyJwk: record.publicKeyJwk as JWK,
-            });
-          } catch {
-            // 404 / outage / unresolvable — skip this key (best-effort).
+        // Carry every existing key forward, preserving its revoked status. A
+        // revoked key stays in verificationMethod[] (so its signatures still
+        // resolve → REVOKED) but is dropped from the relationships by
+        // generateDidWebDocumentMultiKey.
+        let retained: DidWebKeyInput[] = [];
+        if (request.currentDidDocument) {
+          // Preferred: import the operator-supplied did.json as a whole.
+          const imported = importDidWebDocument(request.currentDidDocument);
+          retained = imported.keys.map((key) => ({
+            id: key.id,
+            publicKeyJwk: key.publicKeyJwk,
+            revoked: key.revoked,
+          }));
+        } else {
+          // Fallback: resolve each previously-published key from DeDi.
+          const previouslyPublished = store.get("dediPublishedKeys") ?? [];
+          for (const vm of previouslyPublished) {
+            if (vm === verificationMethod) continue;
+            try {
+              const record = await mgr.rawClient.resolveKey(vm);
+              retained.push({
+                id: record.keyId,
+                publicKeyJwk: record.publicKeyJwk as JWK,
+                revoked: record.status === "revoked",
+              });
+            } catch {
+              // 404 / outage / unresolvable — skip this key (best-effort).
+            }
           }
         }
 
         const seen = new Set<string>();
         const orderedKeys: DidWebKeyInput[] = [];
-        for (const key of [activeKey, ...retained]) {
+        for (const key of [...retained, newKey]) {
           if (seen.has(key.id)) continue;
           seen.add(key.id);
           orderedKeys.push(key);
@@ -2958,6 +3011,12 @@ async function handleDeDiPublishKey(
     store.set("dediPublishedKeys", [...published, verificationMethod]);
   }
 
+  // Record the active key's index so credential signing stamps the matching
+  // #key-<n>. did:web only — did:key carries its own fragment.
+  if (request.did.startsWith("did:web:")) {
+    store.set("dediActiveKeyIndex", keyIndex);
+  }
+
   return {
     success: true,
     recordName: result.recordName,
@@ -2991,6 +3050,44 @@ async function handleDeDiSetKeyStatus(
     return { success: false, error: "Failed to set key status in DeDi" };
   }
 
+  // On revoke (did:web + hosting): regenerate the did.json so the revoked key
+  // stays in verificationMethod[] (its signatures still resolve → the verifier
+  // reports REVOKED) but is dropped from every verification relationship
+  // (W3C DID Core §5.3). The registry status flip above is authoritative; this
+  // did.json refresh is best-effort and skipped if revoking would leave no
+  // active key.
+  let didDocumentStored: boolean | undefined;
+  if (
+    request.status === "revoked" &&
+    request.hostDidDocument &&
+    request.did?.startsWith("did:web:")
+  ) {
+    try {
+      let currentDoc: unknown = request.currentDidDocument;
+      if (!currentDoc) {
+        const record = await mgr.rawClient.resolveDidDocument(request.did, request.namespace);
+        currentDoc = record?.document;
+      }
+      if (currentDoc) {
+        const imported = importDidWebDocument(currentDoc);
+        const keySet: DidWebKeyInput[] = imported.keys.map((key) => ({
+          id: key.id,
+          publicKeyJwk: key.publicKeyJwk,
+          revoked: key.revoked || key.id === request.verificationMethod,
+        }));
+        if (keySet.some((key) => !key.revoked)) {
+          const doc = generateDidWebDocumentMultiKey(request.did, keySet);
+          const docResult = await mgr.publishDidDocument(request.did, doc, request.namespace);
+          didDocumentStored = docResult != null;
+        }
+      }
+    } catch (err) {
+      logger.warn("did.json regeneration after revoke failed (non-fatal)", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   return {
     success: true,
     statusChange: {
@@ -2998,6 +3095,7 @@ async function handleDeDiSetKeyStatus(
       keyId: result.keyId,
       status: request.status,
     },
+    didDocumentStored,
   };
 }
 
@@ -3062,6 +3160,10 @@ async function handleDeDiDisconnect(
   store.delete("dediConfig" as never);
   store.set("dediPublishedSchemas", []);
   store.delete("dediRegistriesReady" as never);
+  // Reset per-issuer key tracking so a reconnect under a different issuer/
+  // namespace doesn't sign with a stale #key-<n> or carry forward old keys.
+  store.set("dediPublishedKeys", []);
+  store.set("dediActiveKeyIndex", 0);
   const prefs = store.get("preferences");
   if (prefs && typeof prefs === "object" && "dediCredentialEncrypted" in prefs) {
     const rest = { ...(prefs as Record<string, unknown>) };

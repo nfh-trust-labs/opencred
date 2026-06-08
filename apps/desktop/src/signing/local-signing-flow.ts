@@ -49,6 +49,12 @@ export interface LocalSigningOptions {
   schemaId: string;
   /** The issuer DID (e.g., "did:web:university.example"). */
   issuerDid: string;
+  /**
+   * The active did:web key index (`#key-<n>`) stamped as the verification
+   * method. Default 0. After a rotation the caller passes the new index so
+   * issued credentials carry the current key's fragment (did:web only).
+   */
+  keyIndex?: number;
   /** The credential subject containing claims. */
   credentialSubject: Record<string, unknown>;
   /** ISO 8601 date string for when the credential becomes valid. */
@@ -240,7 +246,11 @@ export async function buildAndSign(
 
   // For did:web issuers, the verificationMethod in the proof should use the
   // did:web DID's verification method ID, not the signer's did:key-based ID
-  const verificationMethod = deriveVerificationMethod(options.issuerDid, signer.id);
+  const verificationMethod = deriveVerificationMethod(
+    options.issuerDid,
+    signer.id,
+    options.keyIndex ?? 0,
+  );
 
   let signedOutput: string;
   let isCompactToken: boolean;
