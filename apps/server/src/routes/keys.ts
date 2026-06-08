@@ -23,9 +23,9 @@ import type { Context } from "hono";
 import { z } from "zod";
 import {
   encodeDidWeb,
-  generateDidWebDocument,
   generateDidWebDocumentMultiKey,
-  didWebVerificationMethodId,
+  didWebVerificationMethodIdForIndex,
+  importDidWebDocument,
   type JWK,
   type DidWebKeyInput,
 } from "@opencred/did";
@@ -59,11 +59,17 @@ function dediNotConfigured(c: Context) {
 
 /**
  * Build the active signer's verification method id (the key id used as the
- * `opencred-key-registry` record key). For did:web it's `<did>#key-0`; for
- * did:key the signer's own id already carries the method-specific fragment.
+ * `opencred-key-registry` record key). For did:web it's `<did>#key-<index>`
+ * (the configured `OPENCRED_DIDWEB_KEY_INDEX`); for did:key the signer's own
+ * id already carries the method-specific fragment.
  */
-function activeSignerKeyId(signer: Signer, issuerDid: string, isDidWeb: boolean): string {
-  return isDidWeb ? didWebVerificationMethodId(issuerDid) : signer.id;
+function activeSignerKeyId(
+  signer: Signer,
+  issuerDid: string,
+  isDidWeb: boolean,
+  keyIndex: number,
+): string {
+  return isDidWeb ? didWebVerificationMethodIdForIndex(issuerDid, keyIndex) : signer.id;
 }
 
 /** Build a `KeyRecord` (status `active`) from the active signer's public JWK. */
@@ -72,9 +78,10 @@ function buildActiveKeyRecord(
   issuerDid: string,
   isDidWeb: boolean,
   publicKeyJwk: Record<string, unknown>,
+  keyIndex: number,
 ): KeyRecord {
   return {
-    keyId: activeSignerKeyId(signer, issuerDid, isDidWeb),
+    keyId: activeSignerKeyId(signer, issuerDid, isDidWeb, keyIndex),
     controllerDid: issuerDid,
     algorithm: String(signer.algorithm),
     publicKeyJwk,
@@ -84,43 +91,41 @@ function buildActiveKeyRecord(
 }
 
 /**
- * Assemble the current did.json for a did:web issuer from its non-revoked
- * key set, de-duplicated by verification method id. The active key is always
- * first; `retainedKeys` carries cleanly-rotated (non-revoked) keys that must
- * stay published so credentials signed by them still resolve.
+ * Load the issuer's current did.json and import it as a stateless key set.
+ *
+ * The rotate/revoke endpoints hold NO local rotation history — the authoritative
+ * existing key set comes entirely from the current did.json. This prefers the
+ * document the operator passed in the request body (`provided`, e.g. pasted from
+ * their domain or DeDi); otherwise it fetches the DeDi-hosted document from the
+ * `did-documents` registry. Returns `null` when neither is available, so the
+ * caller can fail closed (rotate) or skip the did.json refresh (revoke) rather
+ * than silently regenerate a document missing the issuer's older keys.
  */
-function assembleDidDocument(
+async function loadCurrentDidDocument(
+  dediClient: DeDiClient,
   issuerDid: string,
-  activeKey: DidWebKeyInput,
-  retainedKeys: DidWebKeyInput[],
-) {
-  const seen = new Set<string>();
-  const ordered: DidWebKeyInput[] = [];
-  for (const key of [activeKey, ...retainedKeys]) {
-    if (seen.has(key.id)) continue;
-    seen.add(key.id);
-    ordered.push(key);
+  provided: Record<string, unknown> | undefined,
+  namespace: string | undefined,
+): Promise<ReturnType<typeof importDidWebDocument> | null> {
+  if (provided) {
+    return importDidWebDocument(provided);
   }
-  return generateDidWebDocumentMultiKey(issuerDid, ordered);
+  try {
+    const record = await dediClient.resolveDidDocument(issuerDid, namespace);
+    if (record.document) return importDidWebDocument(record.document);
+  } catch {
+    // 404 / outage — no DeDi-hosted document to import; caller decides.
+  }
+  return null;
 }
 
-/**
- * Best-effort lookup of a previously-published key's public JWK from DeDi, so
- * a rotated-but-not-revoked key can be re-listed in the regenerated did.json.
- * Returns `null` when the key isn't resolvable (404 / outage / revoked).
- */
-async function resolveRetainedKey(
-  dediClient: DeDiClient,
-  verificationMethod: string,
-  namespace: string | undefined,
-): Promise<DidWebKeyInput | null> {
-  try {
-    const record = await dediClient.resolveKey(verificationMethod, namespace);
-    if (record.status === "revoked") return null;
-    return { id: record.keyId, publicKeyJwk: record.publicKeyJwk as JWK };
-  } catch {
-    return null;
-  }
+/** Map an imported key set to the generator's `DidWebKeyInput[]`, preserving revoked status. */
+function carryForwardKeys(keys: ReturnType<typeof importDidWebDocument>["keys"]): DidWebKeyInput[] {
+  return keys.map((key) => ({
+    id: key.id,
+    publicKeyJwk: key.publicKeyJwk,
+    revoked: key.revoked,
+  }));
 }
 
 interface KeyDescriptor {
@@ -315,7 +320,10 @@ keys.get("/keys/did-document", async (c) => {
     );
   }
 
-  const document = generateDidWebDocument(issuerDid, publicKeyJwk as JWK);
+  const activeKeyId = activeSignerKeyId(signer, issuerDid, true, config.OPENCRED_DIDWEB_KEY_INDEX);
+  const document = generateDidWebDocumentMultiKey(issuerDid, [
+    { id: activeKeyId, publicKeyJwk: publicKeyJwk as JWK },
+  ]);
   return c.json({ did: issuerDid, document, source: "active-signer" });
 });
 
@@ -343,12 +351,27 @@ const publishKeySchema = z.object({
 
 const rotateKeySchema = z.object({
   /**
+   * The sequential index of the NEW key, e.g. `1`. The operator chooses this
+   * explicitly (OpenCred never guesses) and it must not already be taken in the
+   * current did.json — the new key is published at `did:web:<domain>#key-<n>`.
+   */
+  newKeyIndex: z.number().int().min(0),
+  /**
    * The verification method of the key being retired, e.g.
    * `did:web:issuer.example.org#key-0`. Flipped to `rotated` in the key
-   * registry and kept in the regenerated did.json so credentials it signed
-   * still resolve. Omit on a first publish (nothing to retire yet).
+   * registry and kept in the regenerated did.json (relationships included) so
+   * credentials it signed still resolve. Omit only when adding a key without
+   * retiring one.
    */
   previousVerificationMethod: z.string().optional(),
+  /**
+   * The issuer's CURRENT did.json, imported as a whole. This is the stateless
+   * source of truth for the existing key set + taken indices. When omitted, the
+   * server falls back to the DeDi-hosted document (`did-documents` registry);
+   * if neither is available the request is rejected so older keys are never
+   * silently dropped.
+   */
+  currentDidDocument: z.record(z.unknown()).optional(),
   namespace: z.string().optional(),
   hostDidDocument: z.boolean().optional(),
 });
@@ -356,6 +379,14 @@ const rotateKeySchema = z.object({
 const revokeKeySchema = z.object({
   /** The verification method of the key to revoke. */
   verificationMethod: z.string().min(1),
+  /**
+   * The issuer's CURRENT did.json (imported as a whole). Used to regenerate the
+   * document so the revoked key drops out of every verification relationship
+   * while STAYING in `verificationMethod[]`. When omitted, the DeDi-hosted
+   * document is used; if neither is available the registry status flip is still
+   * authoritative and the did.json refresh is skipped.
+   */
+  currentDidDocument: z.record(z.unknown()).optional(),
   namespace: z.string().optional(),
   hostDidDocument: z.boolean().optional(),
 });
@@ -408,8 +439,7 @@ keys.post("/keys/publish", async (c) => {
   }
 
   const config = getConfig();
-  const isDidWeb =
-    config.OPENCRED_ISSUER_DID_METHOD === "web" && !!config.OPENCRED_ISSUER_DOMAIN;
+  const isDidWeb = config.OPENCRED_ISSUER_DID_METHOD === "web" && !!config.OPENCRED_ISSUER_DOMAIN;
   const issuerDid = isDidWeb
     ? encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!)
     : signer.id.split("#")[0]!;
@@ -430,13 +460,29 @@ keys.post("/keys/publish", async (c) => {
     );
   }
 
-  const keyRecord = buildActiveKeyRecord(signer, issuerDid, isDidWeb, publicKeyJwk);
+  const keyRecord = buildActiveKeyRecord(
+    signer,
+    issuerDid,
+    isDidWeb,
+    publicKeyJwk,
+    config.OPENCRED_DIDWEB_KEY_INDEX,
+  );
   const result = await dediClient.publishKey(keyRecord, parsed.namespace);
 
-  const hostDidDoc = isDidWeb && (parsed.hostDidDocument ?? config.OPENCRED_DEDI_HOST_DID_DOC);
+  // Only host a SINGLE-key did.json for a fresh issuer (index 0) — same guard as
+  // startup auto-publish. After a rotation (index > 0) the did.json is a
+  // multi-key document owned by /v1/keys/rotate; publishing a single-key
+  // document here would clobber it and drop the issuer's older keys. The key
+  // RECORD is still published regardless.
+  const hostDidDoc =
+    isDidWeb &&
+    (parsed.hostDidDocument ?? config.OPENCRED_DEDI_HOST_DID_DOC) &&
+    config.OPENCRED_DIDWEB_KEY_INDEX === 0;
   let didDocumentStored = false;
   if (hostDidDoc) {
-    const document = generateDidWebDocument(issuerDid, publicKeyJwk as JWK);
+    const document = generateDidWebDocumentMultiKey(issuerDid, [
+      { id: keyRecord.keyId, publicKeyJwk: publicKeyJwk as JWK },
+    ]);
     await dediClient.publishDidDocument(issuerDid, document, parsed.namespace);
     didDocumentStored = true;
   }
@@ -517,42 +563,113 @@ keys.post("/keys/rotate", async (c) => {
   const dediClient = getDeDiClient();
   if (!dediClient) return dediNotConfigured(c);
 
-  const newKeyRecord = buildActiveKeyRecord(signer, issuerDid, true, publicKeyJwk);
+  // Advisory cross-check: the new key's index should equal this deployment's
+  // signing index (the configured key index). If they differ, the key is
+  // published/listed under #key-<newKeyIndex> while every credential this server
+  // issues is stamped with the signing index's fragment — they MUST match for a
+  // verifier to resolve the same key. We warn loudly rather than hard-fail so an
+  // operator mid-migration isn't blocked, but a mismatch is almost always a
+  // mistake (set the signing key index to the new index before rotating). Only
+  // the integer indices are logged — never key material.
+  const signingKeyIndex = config.OPENCRED_DIDWEB_KEY_INDEX;
+  if (parsed.newKeyIndex !== signingKeyIndex) {
+    getLogger().warn(
+      { newKeyIndex: parsed.newKeyIndex, signingKeyIndex },
+      "rotate: newKeyIndex differs from the server's signing key index — credentials this server " +
+        "signs will not carry the rotated key's #key-<n>. Align the signing key index with the new index.",
+    );
+  }
 
-  // Publish the new key (idempotent: a re-run after a transient failure sees
-  // the record already there, which is fine).
+  // The operator explicitly states which #key-<n> the new key takes.
+  const newVerificationMethod = didWebVerificationMethodIdForIndex(issuerDid, parsed.newKeyIndex);
+
+  // Import the current did.json (operator-provided or DeDi-hosted) — the
+  // stateless source of truth for the existing key set + taken indices.
+  const current = await loadCurrentDidDocument(
+    dediClient,
+    issuerDid,
+    parsed.currentDidDocument,
+    parsed.namespace,
+  );
+  if (!current) {
+    return c.json(
+      {
+        error: {
+          code: "NO_CURRENT_DOCUMENT",
+          message:
+            "Rotation needs the issuer's current did.json to carry existing keys forward. " +
+            "Provide it as `currentDidDocument`, or enable DeDi-hosting so it can be fetched " +
+            "from the did-documents registry.",
+        },
+      },
+      400,
+    );
+  }
+  if (current.did !== issuerDid) {
+    return c.json(
+      {
+        error: {
+          code: "DID_MISMATCH",
+          message: `currentDidDocument is for ${current.did}, but this issuer is ${issuerDid}.`,
+        },
+      },
+      400,
+    );
+  }
+  if (current.usedIndices.includes(parsed.newKeyIndex)) {
+    return c.json(
+      {
+        error: {
+          code: "KEY_INDEX_TAKEN",
+          message:
+            `#key-${String(parsed.newKeyIndex)} is already present in the current did.json. ` +
+            `The next free index is ${String(current.maxKeyIndex + 1)}.`,
+          usedIndices: current.usedIndices,
+        },
+      },
+      409,
+    );
+  }
+
+  // Publish the new active key at #key-<newKeyIndex> (idempotent on re-run).
+  const newKeyRecord: KeyRecord = {
+    keyId: newVerificationMethod,
+    controllerDid: issuerDid,
+    algorithm: String(signer.algorithm),
+    publicKeyJwk,
+    purpose: ["assertionMethod"],
+    status: "active",
+  };
   try {
     await dediClient.publishKey(newKeyRecord, parsed.namespace);
   } catch (err) {
     if (!(err instanceof DeDiRecordExistsError)) throw err;
   }
 
-  // Retire the previous key and keep it (non-revoked) in the regenerated
-  // did.json so older credentials still resolve.
+  // Retire the previous key (flip to `rotated`). It stays in the regenerated
+  // did.json's relationships — a clean rotation does not invalidate the
+  // credentials it signed.
   let retired: Awaited<ReturnType<DeDiClient["setKeyStatus"]>> | null = null;
-  let retainedKeys: DidWebKeyInput[] = [];
   if (parsed.previousVerificationMethod) {
     retired = await dediClient.setKeyStatus(
       parsed.previousVerificationMethod,
       "rotated",
       parsed.namespace,
     );
-    const retained = await resolveRetainedKey(
-      dediClient,
-      parsed.previousVerificationMethod,
-      parsed.namespace,
-    );
-    if (retained) retainedKeys = [retained];
   }
+
+  // Regenerate the did.json: carry every existing key forward (preserving each
+  // one's revoked status) and append the new active key. Returned in the
+  // response so an operator self-hosting at their domain can re-publish it.
+  const keySet: DidWebKeyInput[] = [
+    ...carryForwardKeys(current.keys),
+    { id: newVerificationMethod, publicKeyJwk: publicKeyJwk as JWK },
+  ];
+  const document = generateDidWebDocumentMultiKey(issuerDid, keySet);
 
   const hostDidDoc = parsed.hostDidDocument ?? config.OPENCRED_DEDI_HOST_DID_DOC;
   let didDocumentStored = false;
   if (hostDidDoc) {
-    const document = assembleDidDocument(
-      issuerDid,
-      { id: newKeyRecord.keyId, publicKeyJwk: publicKeyJwk as JWK },
-      retainedKeys,
-    );
     await dediClient.publishDidDocument(issuerDid, document, parsed.namespace);
     didDocumentStored = true;
   }
@@ -560,8 +677,10 @@ keys.post("/keys/rotate", async (c) => {
   return c.json({
     rotated: true,
     did: issuerDid,
-    currentKeyId: newKeyRecord.keyId,
+    currentKeyId: newVerificationMethod,
+    newKeyIndex: parsed.newKeyIndex,
     retired,
+    didDocument: document,
     didDocumentStored,
   });
 });
@@ -574,11 +693,15 @@ keys.post("/keys/rotate", async (c) => {
  * credential it signed (top-level `REVOKED`), regardless of when they were
  * issued. This is the per-key counterpart to per-credential revocation.
  *
- * When DeDi-hosting is enabled and the revoked key is not the active signer's
- * own key, the did.json is regenerated from the active signer's current key
- * (dropping the revoked key) and re-stored. (A headless server doesn't track
- * the full historical key set; the authoritative reject is the `revoked`
- * status flip, not the did.json contents.)
+ * For did:web issuers with DeDi-hosting, the did.json is regenerated so the
+ * revoked key drops out of every verification relationship (`assertionMethod`,
+ * …) while STAYING in `verificationMethod[]`. Keeping it dereferenceable lets a
+ * verifier resolve the signing key and then report a precise `REVOKED` (via the
+ * registry status) rather than "unresolvable"; dropping it from relationships
+ * de-authorizes it for W3C-only verifiers (W3C DID Core §5.3). The registry
+ * status flip is always authoritative — the did.json refresh is best-effort and
+ * skipped if the current document can't be obtained or revoking would leave no
+ * active key.
  */
 keys.post("/keys/revoke", async (c) => {
   const body = await parseJsonBody(c);
@@ -588,29 +711,47 @@ keys.post("/keys/revoke", async (c) => {
   const dediClient = getDeDiClient();
   if (!dediClient) return dediNotConfigured(c);
 
-  const result = await dediClient.setKeyStatus(parsed.verificationMethod, "revoked", parsed.namespace);
+  const result = await dediClient.setKeyStatus(
+    parsed.verificationMethod,
+    "revoked",
+    parsed.namespace,
+  );
 
-  // Best-effort did.json refresh (did:web only). Only when the active signer
-  // is still a valid, non-revoked key — never republish a document built
-  // around the key we just revoked.
   const config = getConfig();
-  const signer = getActiveSigner();
+  const isDidWeb = config.OPENCRED_ISSUER_DID_METHOD === "web" && !!config.OPENCRED_ISSUER_DOMAIN;
   const hostDidDoc = parsed.hostDidDocument ?? config.OPENCRED_DEDI_HOST_DID_DOC;
   let didDocumentStored = false;
-  if (hostDidDoc && signer) {
-    const isDidWeb =
-      config.OPENCRED_ISSUER_DID_METHOD === "web" && !!config.OPENCRED_ISSUER_DOMAIN;
-    const issuerDid = isDidWeb ? encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!) : "";
-    const publicKeyJwk = signer.metadata.publicKeyJwk;
-    const activeKeyId = isDidWeb ? didWebVerificationMethodId(issuerDid) : signer.id;
-    if (isDidWeb && publicKeyJwk && activeKeyId !== parsed.verificationMethod) {
-      const document = generateDidWebDocument(issuerDid, publicKeyJwk as JWK);
-      await dediClient.publishDidDocument(issuerDid, document, parsed.namespace);
-      didDocumentStored = true;
+  let document: ReturnType<typeof generateDidWebDocumentMultiKey> | null = null;
+
+  if (isDidWeb && hostDidDoc) {
+    const issuerDid = encodeDidWeb(config.OPENCRED_ISSUER_DOMAIN!);
+    const current = await loadCurrentDidDocument(
+      dediClient,
+      issuerDid,
+      parsed.currentDidDocument,
+      parsed.namespace,
+    );
+    if (current) {
+      // Mark the target key revoked; keep every key in verificationMethod[].
+      const keySet: DidWebKeyInput[] = current.keys.map((key) => ({
+        id: key.id,
+        publicKeyJwk: key.publicKeyJwk,
+        revoked: key.revoked || key.id === parsed.verificationMethod,
+      }));
+      if (keySet.some((key) => !key.revoked)) {
+        document = generateDidWebDocumentMultiKey(issuerDid, keySet);
+        await dediClient.publishDidDocument(issuerDid, document, parsed.namespace);
+        didDocumentStored = true;
+      } else {
+        getLogger().warn(
+          { issuerDid, verificationMethod: parsed.verificationMethod },
+          "Revoke would leave no active key; did.json not regenerated (registry status is authoritative).",
+        );
+      }
     }
   }
 
-  return c.json({ revoked: true, ...result, didDocumentStored });
+  return c.json({ revoked: true, ...result, didDocument: document, didDocumentStored });
 });
 
 /**
