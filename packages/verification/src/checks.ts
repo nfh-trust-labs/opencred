@@ -75,11 +75,17 @@ export async function checkRevocation(
     const hash = resolveRevocationHash(credential);
     const record = await dediClient.queryRevocationHash(hash);
     if (record.revoked) {
-      return {
-        name: "revocation",
-        passed: false,
-        detail: `Credential revoked${record.revokedAt ? ` at ${record.revokedAt}` : ""}`,
-      };
+      const at = record.revokedAt ? ` at ${record.revokedAt}` : "";
+      // Surface the issuer-supplied revocation reason when present so the
+      // verifier can see *why* a credential was revoked. The reason is
+      // already plumbed end-to-end at the data layer
+      // (`RevocationHashRecord.reason`, populated from `details.reason`); it
+      // was previously dropped here. When no reason is supplied the detail is
+      // unchanged.
+      const detail = record.reason
+        ? `Credential revoked${at}. Reason: ${record.reason}.`
+        : `Credential revoked${at}`;
+      return { name: "revocation", passed: false, detail };
     }
     return { name: "revocation", passed: true };
   } catch {

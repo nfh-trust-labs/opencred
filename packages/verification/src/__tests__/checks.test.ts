@@ -102,6 +102,35 @@ describe("checkRevocation", () => {
     expect(result.detail).toContain("2026-06-01T00:00:00Z");
   });
 
+  it("includes the revocation reason in the detail when present (#658)", async () => {
+    const mockClient = {
+      queryRevocationHash: vi.fn().mockResolvedValue({
+        revoked: true,
+        revokedAt: "2026-06-01T00:00:00Z",
+        reason: "Key compromised",
+      }),
+    } as unknown as DeDiClient;
+
+    const result = await checkRevocation({ id: "test" }, mockClient);
+    expect(result.passed).toBe(false);
+    expect(result.detail).toBe(
+      "Credential revoked at 2026-06-01T00:00:00Z. Reason: Key compromised.",
+    );
+  });
+
+  it("omits the reason clause when no reason is supplied (detail unchanged)", async () => {
+    const mockClient = {
+      queryRevocationHash: vi.fn().mockResolvedValue({
+        revoked: true,
+        revokedAt: "2026-06-01T00:00:00Z",
+      }),
+    } as unknown as DeDiClient;
+
+    const result = await checkRevocation({ id: "test" }, mockClient);
+    expect(result.detail).toBe("Credential revoked at 2026-06-01T00:00:00Z");
+    expect(result.detail).not.toContain("Reason");
+  });
+
   it("should fail when DeDi is unavailable", async () => {
     const mockClient = {
       queryRevocationHash: vi.fn().mockRejectedValue(new Error("Connection refused")),
