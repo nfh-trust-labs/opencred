@@ -469,7 +469,15 @@ keys.post("/keys/publish", async (c) => {
   );
   const result = await dediClient.publishKey(keyRecord, parsed.namespace);
 
-  const hostDidDoc = isDidWeb && (parsed.hostDidDocument ?? config.OPENCRED_DEDI_HOST_DID_DOC);
+  // Only host a SINGLE-key did.json for a fresh issuer (index 0) — same guard as
+  // startup auto-publish. After a rotation (index > 0) the did.json is a
+  // multi-key document owned by /v1/keys/rotate; publishing a single-key
+  // document here would clobber it and drop the issuer's older keys. The key
+  // RECORD is still published regardless.
+  const hostDidDoc =
+    isDidWeb &&
+    (parsed.hostDidDocument ?? config.OPENCRED_DEDI_HOST_DID_DOC) &&
+    config.OPENCRED_DIDWEB_KEY_INDEX === 0;
   let didDocumentStored = false;
   if (hostDidDoc) {
     const document = generateDidWebDocumentMultiKey(issuerDid, [
@@ -554,6 +562,23 @@ keys.post("/keys/rotate", async (c) => {
 
   const dediClient = getDeDiClient();
   if (!dediClient) return dediNotConfigured(c);
+
+  // Advisory cross-check: the new key's index should equal this deployment's
+  // signing index (the configured key index). If they differ, the key is
+  // published/listed under #key-<newKeyIndex> while every credential this server
+  // issues is stamped with the signing index's fragment — they MUST match for a
+  // verifier to resolve the same key. We warn loudly rather than hard-fail so an
+  // operator mid-migration isn't blocked, but a mismatch is almost always a
+  // mistake (set the signing key index to the new index before rotating). Only
+  // the integer indices are logged — never key material.
+  const signingKeyIndex = config.OPENCRED_DIDWEB_KEY_INDEX;
+  if (parsed.newKeyIndex !== signingKeyIndex) {
+    getLogger().warn(
+      { newKeyIndex: parsed.newKeyIndex, signingKeyIndex },
+      "rotate: newKeyIndex differs from the server's signing key index — credentials this server " +
+        "signs will not carry the rotated key's #key-<n>. Align the signing key index with the new index.",
+    );
+  }
 
   // The operator explicitly states which #key-<n> the new key takes.
   const newVerificationMethod = didWebVerificationMethodIdForIndex(issuerDid, parsed.newKeyIndex);

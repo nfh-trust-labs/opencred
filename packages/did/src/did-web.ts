@@ -119,6 +119,33 @@ export interface DidWebKeyInput {
 }
 
 /**
+ * RFC 7517/7518 private JWK members. These must NEVER appear in a published DID
+ * document — a did.json is public (served at `.well-known/did.json` and/or in
+ * DeDi's public registry). See CLAUDE.md security rule 1.
+ */
+const PRIVATE_JWK_MEMBERS = ["d", "p", "q", "dp", "dq", "qi", "oth", "k"] as const;
+
+/**
+ * Return a copy of a JWK containing only its PUBLIC members.
+ *
+ * Defence-in-depth against a private key leaking into a published document: an
+ * operator-supplied did.json (passed to {@link importDidWebDocument} and the
+ * rotate/revoke endpoints) could carry a private `d` scalar inside a
+ * `publicKeyJwk`. The server's `rejectKeyMaterial` guard matches field *names*
+ * and PEM blocks and does NOT catch a bare JWK `d`, so we strip private members
+ * at the point where key material enters/leaves a generated document. This
+ * guarantees no private key material is ever embedded in a did.json or returned
+ * to a caller (CLAUDE.md rule 1 / rule 5).
+ */
+function toPublicJwk(jwk: JWK): JWK {
+  const cleaned: Record<string, unknown> = { ...(jwk as Record<string, unknown>) };
+  for (const member of PRIVATE_JWK_MEMBERS) {
+    delete cleaned[member];
+  }
+  return cleaned as JWK;
+}
+
+/**
  * Build a multi-key DID document suitable for publishing at
  * `.well-known/did.json` (or in DeDi's `did-documents` registry).
  *
@@ -152,7 +179,7 @@ export function generateDidWebDocumentMultiKey(did: string, keys: DidWebKeyInput
     id: key.id,
     type: "JsonWebKey",
     controller: did,
-    publicKeyJwk: key.publicKeyJwk,
+    publicKeyJwk: toPublicJwk(key.publicKeyJwk),
   }));
 
   return {
@@ -298,7 +325,7 @@ export function importDidWebDocument(document: unknown): ImportedDidWebDocument 
     if (typeof id !== "string" || !publicKeyJwk || typeof publicKeyJwk !== "object") continue;
     keys.push({
       id,
-      publicKeyJwk: publicKeyJwk as JWK,
+      publicKeyJwk: toPublicJwk(publicKeyJwk as JWK),
       index: keyIndexFromVerificationMethod(id),
       revoked: !isInRelationship(id),
     });

@@ -603,7 +603,8 @@ describe("POST /v1/keys/rotate", () => {
   const HOST = "issuer.test.local";
   const DID = `did:web:${HOST}`;
   const NEW_JWK = { kty: "EC", crv: "P-256", x: "x-new", y: "y-new" };
-  const OLD_JWK = { kty: "EC", crv: "P-256", x: "x-old", y: "y-old" };
+  // Includes a private `d` scalar to prove it is stripped from the published doc.
+  const OLD_JWK = { kty: "EC", crv: "P-256", x: "x-old", y: "y-old", d: "OLD-PRIVATE-SCALAR" };
 
   /** A current did.json with a single active key `#key-0` (the import source). */
   function currentDocWithKey0(did = DID): Record<string, unknown> {
@@ -841,6 +842,9 @@ describe("POST /v1/keys/rotate", () => {
     };
     expect(stored.verificationMethod.map((v) => v.id)).toEqual([`${DID}#key-0`, `${DID}#key-1`]);
     expect(stored.assertionMethod).toEqual([`${DID}#key-0`, `${DID}#key-1`]);
+    // The private `d` scalar in the operator-supplied did.json never makes it
+    // into the regenerated/published document (CLAUDE.md rule 1).
+    expect(JSON.stringify(stored)).not.toContain("OLD-PRIVATE-SCALAR");
     // ...and it's echoed in the response for self-hosting.
     expect(body.didDocument.verificationMethod.map((v) => v.id)).toEqual([
       `${DID}#key-0`,

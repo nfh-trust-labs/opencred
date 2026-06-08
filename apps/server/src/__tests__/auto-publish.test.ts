@@ -316,6 +316,29 @@ describe("runAutoPublishIfEnabled — did:web success path", () => {
     });
   });
 
+  it("does NOT host the did.json when the key index > 0 (rotated deploy)", async () => {
+    // After a rotation the multi-key did.json is owned by /v1/keys/rotate; a
+    // single-key auto-publish at index > 0 would clobber it. The key RECORD is
+    // still published, under the new #key-<n>.
+    const { client, publishKeyCalls, publishDidDocumentCalls } = makeDeDiClient({});
+    const result = await runAutoPublishIfEnabled(
+      makeConfig({
+        OPENCRED_DEDI_HOST_DID_DOC: true,
+        OPENCRED_ISSUER_DID_METHOD: "web",
+        OPENCRED_ISSUER_DOMAIN: "issuer.example.org",
+        OPENCRED_DIDWEB_KEY_INDEX: 1,
+      }),
+      client,
+      makeSoftwareSigner(),
+      makeLogger(),
+    );
+    expect(result.didPublish).toBe(true);
+    expect(publishKeyCalls).toHaveLength(1);
+    expect(publishKeyCalls[0]!.key.keyId).toBe("did:web:issuer.example.org#key-1");
+    // did.json hosting is skipped at index > 0 — the multi-key document is preserved.
+    expect(publishDidDocumentCalls).toHaveLength(0);
+  });
+
   it("returns no-jwk outcome when did:web signer lacks publicKeyJwk", async () => {
     // PKCS#11 / OS-cert signers don't expose publicKeyJwk today. The
     // helper must skip the publish gracefully rather than throwing or

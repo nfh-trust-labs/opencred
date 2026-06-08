@@ -81,6 +81,23 @@ describe("generateDidWebDocumentMultiKey with revoked keys", () => {
       ]),
     ).toThrow(/non-revoked/);
   });
+
+  it("strips private JWK members so no private key leaks into the document", () => {
+    const withPrivate = {
+      kty: "EC",
+      crv: "P-256",
+      x: "pub-x",
+      y: "pub-y",
+      d: "PRIVATE-SCALAR",
+    } as unknown as JWK;
+    const doc = generateDidWebDocumentMultiKey(DID, [
+      { id: `${DID}#key-0`, publicKeyJwk: withPrivate },
+    ]);
+    const vmJwk = doc.verificationMethod![0]!.publicKeyJwk as Record<string, unknown>;
+    expect(vmJwk.d).toBeUndefined();
+    expect(vmJwk.x).toBe("pub-x");
+    expect(JSON.stringify(doc)).not.toContain("PRIVATE-SCALAR");
+  });
 });
 
 describe("importDidWebDocument", () => {
@@ -133,5 +150,24 @@ describe("importDidWebDocument", () => {
   it("rejects non-did:web documents", () => {
     expect(() => importDidWebDocument(null)).toThrow();
     expect(() => importDidWebDocument({ id: "did:key:z6Mk" })).toThrow();
+  });
+
+  it("strips private JWK members from an operator-supplied document", () => {
+    const malicious = {
+      id: DID,
+      verificationMethod: [
+        {
+          id: `${DID}#key-0`,
+          type: "JsonWebKey",
+          controller: DID,
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "pub-x", y: "pub-y", d: "LEAKED-PRIVATE" },
+        },
+      ],
+      assertionMethod: [`${DID}#key-0`],
+    };
+    const imported = importDidWebDocument(malicious);
+    const k0 = imported.keys[0]!.publicKeyJwk as Record<string, unknown>;
+    expect(k0.d).toBeUndefined();
+    expect(k0.x).toBe("pub-x");
   });
 });
