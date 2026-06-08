@@ -268,9 +268,7 @@ export function migrateCredentialHistory(s: ElectronStore<StoreSchema>): void {
  * and drop the old key. Idempotent: a no-op once migrated.
  */
 export function migrateDediPublishedKeys(s: ElectronStore<StoreSchema>): void {
-  const legacy = s.get("dediPublishedDIDs" as keyof StoreSchema) as unknown as
-    | string[]
-    | undefined;
+  const legacy = s.get("dediPublishedDIDs" as keyof StoreSchema) as unknown as string[] | undefined;
   if (!Array.isArray(legacy) || legacy.length === 0) {
     return;
   }

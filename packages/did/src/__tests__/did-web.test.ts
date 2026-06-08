@@ -137,7 +137,9 @@ describe("generateDidWebDocumentMultiKey", () => {
   };
 
   it("emits a single verificationMethod for a one-key set", () => {
-    const doc = generateDidWebDocumentMultiKey(did, [{ id: `${did}#key-0`, publicKeyJwk: sampleJwk }]);
+    const doc = generateDidWebDocumentMultiKey(did, [
+      { id: `${did}#key-0`, publicKeyJwk: sampleJwk },
+    ]);
 
     expect(doc["@context"]).toEqual([
       "https://www.w3.org/ns/did/v1",
@@ -204,9 +206,9 @@ describe("generateDidWebDocumentMultiKey", () => {
   });
 
   it("throws DIDResolutionError when keys is null/undefined", () => {
-    expect(() =>
-      generateDidWebDocumentMultiKey(did, undefined as unknown as never),
-    ).toThrow(DIDResolutionError);
+    expect(() => generateDidWebDocumentMultiKey(did, undefined as unknown as never)).toThrow(
+      DIDResolutionError,
+    );
   });
 });
 

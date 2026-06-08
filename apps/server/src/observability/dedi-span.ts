@@ -110,17 +110,13 @@ export function wrapDeDiClientWithTracing(client: DeDiClient, baseUrl: string): 
   // ── DID documents registry ──────────────────────────────────────
 
   wrapped.publishDidDocument = (did, document, namespace) =>
-    runInSpan(
-      "dedi.publish_record",
-      { "dedi.host": host, "dedi.registry": "did-documents" },
-      () => client.publishDidDocument(did, document, namespace),
+    runInSpan("dedi.publish_record", { "dedi.host": host, "dedi.registry": "did-documents" }, () =>
+      client.publishDidDocument(did, document, namespace),
     );
 
   wrapped.resolveDidDocument = (did, namespace) =>
-    runInSpan(
-      "dedi.lookup_record",
-      { "dedi.host": host, "dedi.registry": "did-documents" },
-      () => client.resolveDidDocument(did, namespace),
+    runInSpan("dedi.lookup_record", { "dedi.host": host, "dedi.registry": "did-documents" }, () =>
+      client.resolveDidDocument(did, namespace),
     );
 
   // ── Schema registry ─────────────────────────────────────────────

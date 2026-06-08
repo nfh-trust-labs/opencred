@@ -658,7 +658,10 @@ describe("IPC Handler Integration Tests", () => {
       const result = (await handler(fakeEvent, {
         verificationMethod: "did:web:issuer.example.org#key-0",
         status: "rotated",
-      })) as { success: boolean; statusChange?: { changed: boolean; keyId: string; status: string } };
+      })) as {
+        success: boolean;
+        statusChange?: { changed: boolean; keyId: string; status: string };
+      };
 
       expect(result.success).toBe(true);
       expect(result.statusChange?.changed).toBe(true);
