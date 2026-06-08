@@ -4,7 +4,13 @@ import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CredentialVerifier } from "../renderer/components/CredentialVerifier";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  // First render test in the desktop app — reset the IPC-bridge stub so it
+  // never leaks into a future `.test.tsx` sharing the same module worker.
+  delete (window as unknown as { opencred?: unknown }).opencred;
+  vi.restoreAllMocks();
+});
 
 describe("CredentialVerifier (render)", () => {
   // Phase A of #658: the revocation reason produced by `checkRevocation`
