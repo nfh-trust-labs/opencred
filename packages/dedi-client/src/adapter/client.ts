@@ -502,13 +502,21 @@ export class DeDiClient {
     // ── Optimistic-concurrency note (issue #659) ─────────────────────────
     // DeDi's `update-record` takes no conditional-update parameter (no
     // If-Match / ETag / version CAS), so this is a *blind* last-writer-wins
-    // overwrite of the whole payload. It is race-safe ONLY because `status`
-    // is the single mutable field and it advances monotonically
-    // (active → rotated → revoked): every writer reads-then-advances, the
-    // rank guard above refuses any backward move, so concurrent writers
-    // converge on the highest rank requested and `revoked` is terminal.
+    // overwrite of the whole payload. `status` is the single mutable field and
+    // it advances monotonically (active → rotated → revoked); the rank guard
+    // above refuses any move backward from the state THIS caller observed.
+    // That makes `revoked` terminal once observed — no writer that has seen it
+    // will downgrade it.
     //
-    // That invariant is load-bearing. Adding ANY other mutable field to
+    // It does NOT make blind concurrent writes fully race-free: two writers
+    // that BOTH read the same pre-terminal state can each pass the guard and
+    // race their writes, so a stale lower-rank write could land last and drop
+    // a higher-rank update (a lost update). In practice per-key lifecycle ops
+    // are normally causally ordered (you revoke a key you already know about),
+    // so the window is small — but it is real, and closing it is exactly what
+    // an Option-A version/ETag CAS would do.
+    //
+    // The single-mutable-field property is load-bearing. Adding ANY other mutable field to
     // `updatedDetails` (e.g. a `revokedAt` timestamp or a revocation
     // `reason`) reintroduces the lost-update race: two writers that diverge
     // on the new field would clobber each other under last-writer-wins.

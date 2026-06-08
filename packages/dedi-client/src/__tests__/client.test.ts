@@ -1223,13 +1223,21 @@ describe("DeDiClient (adapter)", () => {
       );
     });
 
-    it("concurrent rotate-then-revoke converges to revoked (monotone safety, #659)", async () => {
-      // Models DeDi's lock-free, last-writer-wins `update-record` with a
-      // stateful mock: both calls read `active`, the rank guard lets both
-      // advance, and because revoke writes last the record converges on the
-      // terminal `revoked` state. A subsequent stale rotate is then refused
-      // (backward move) and can never un-revoke — the real safety property
-      // the monotone invariant buys us in the absence of a CAS token.
+    it("sequential rotate-then-revoke ends at revoked; revoked is terminal (#659)", async () => {
+      // Causally-ordered rotate then revoke — the realistic operator path. A
+      // stateful mock models DeDi's last-writer-wins `update-record`: each call
+      // reads the previous write, so the rank guard advances
+      // active → rotated → revoked. Once any writer has *observed* `revoked`,
+      // the guard refuses every backward move, so a late stale rotate cannot
+      // un-revoke it: revoked is terminal.
+      //
+      // What this does NOT exercise (deliberately, to avoid asserting a
+      // guarantee the design doesn't give): the residual lost-update window
+      // where two writers BOTH read the *same* pre-revoke state and race their
+      // blind writes — last-writer-wins could then drop the revoke. That window
+      // is what an Option-A CAS/version token closes; see the OCC note at the
+      // `updateRecord` call. The guard only protects a writer that has already
+      // observed the higher state.
       const client = createClient("example.com");
       const api = mockApi();
       let state: "active" | "rotated" | "revoked" = "active";
@@ -1253,11 +1261,15 @@ describe("DeDiClient (adapter)", () => {
         return Promise.resolve({});
       }) as never);
 
-      await Promise.all([client.setKeyStatus(vm, "rotated"), client.setKeyStatus(vm, "revoked")]);
+      await client.setKeyStatus(vm, "rotated");
+      expect(state).toBe("rotated");
 
+      await client.setKeyStatus(vm, "revoked");
       expect(state).toBe("revoked");
       expect(api.updateRecord).toHaveBeenCalledTimes(2);
 
+      // A late stale rotate reads the revoked record and is refused — revoked
+      // is terminal, so a key can never be un-revoked.
       const late = await client.setKeyStatus(vm, "rotated");
       expect(late).toMatchObject({ changed: false, reason: "monotone-refused" });
       expect(state).toBe("revoked");
