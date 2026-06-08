@@ -1267,9 +1267,7 @@ describe("DeDiClient (adapter)", () => {
         new DeDiClientError("DeDi API error: 500", 502, "internal error"),
       );
 
-      await expect(client.publishDidDocument(did, document)).rejects.toThrow(
-        "DeDi API error: 500",
-      );
+      await expect(client.publishDidDocument(did, document)).rejects.toThrow("DeDi API error: 500");
       expect(api.updateRecord).not.toHaveBeenCalled();
     });
 

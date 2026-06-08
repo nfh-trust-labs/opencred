@@ -939,9 +939,11 @@ describe("checkKeyStatus", () => {
 
   it("DeDi 400 (namespace undeterminable) → passes with 'namespace could not be determined'", async () => {
     const mockClient = {
-      resolveKey: vi.fn().mockRejectedValue(
-        new DeDiClientError("No namespace provided and no defaultNamespace configured", 400),
-      ),
+      resolveKey: vi
+        .fn()
+        .mockRejectedValue(
+          new DeDiClientError("No namespace provided and no defaultNamespace configured", 400),
+        ),
     } as unknown as DeDiClient;
     const result = await checkKeyStatus(makeDidKeyCredential(), mockClient);
     expect(result.passed).toBe(true);

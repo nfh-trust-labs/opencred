@@ -272,7 +272,13 @@ describe("DeDi adapter spans", () => {
         };
       },
       async setKeyStatus() {
-        return { changed: true, keyId: "did:web:x#key-0", from: "active", to: "rotated", namespace: "ns" };
+        return {
+          changed: true,
+          keyId: "did:web:x#key-0",
+          from: "active",
+          to: "rotated",
+          namespace: "ns",
+        };
       },
       async publishDidDocument() {
         return { published: true, recordName: "x", namespace: "ns" };
@@ -313,7 +319,17 @@ describe("DeDi adapter spans", () => {
     );
 
     await wrapped.queryRevocationHash("abc", "ns");
-    await wrapped.publishKey({ keyId: "did:web:x#key-0", controllerDid: "did:web:x", algorithm: "P-256", publicKeyJwk: {}, purpose: ["assertionMethod"], status: "active" }, "ns");
+    await wrapped.publishKey(
+      {
+        keyId: "did:web:x#key-0",
+        controllerDid: "did:web:x",
+        algorithm: "P-256",
+        publicKeyJwk: {},
+        purpose: ["assertionMethod"],
+        status: "active",
+      },
+      "ns",
+    );
     await wrapped.setKeyStatus("did:web:x#key-0", "rotated", "ns");
 
     const spans = exporter.getFinishedSpans();
