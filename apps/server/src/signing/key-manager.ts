@@ -13,7 +13,7 @@
 
 import { createSoftwareSigner } from "@opencred/signing";
 import type { Signer } from "@opencred/signing";
-import { didWebVerificationMethodId, encodeDidWeb } from "@opencred/did";
+import { didWebVerificationMethodIdForIndex, encodeDidWeb } from "@opencred/did";
 import { getConfig } from "../config.js";
 import { getLogger } from "../logger.js";
 
@@ -33,17 +33,20 @@ let activeSigner: Signer | null = null;
  * Returns `undefined` for method=key — the derived `did:key:…` value is
  * the correct identifier in that case and no override is needed.
  *
- * `#key-0` matches what `generateDidWebDocument` (used by the startup
- * auto-publish path and the rotate endpoint's existing-doc reader)
- * already emits, keeping the JOSE header and the published DID Document
- * in lockstep.
+ * The fragment is `#key-<OPENCRED_DIDWEB_KEY_INDEX>` (default `#key-0`),
+ * matching the record this deployment's key has in the `opencred-key-registry`
+ * and its entry in the published did.json. After a rotation the operator bumps
+ * `OPENCRED_DIDWEB_KEY_INDEX`, so the JOSE header / proof verification method
+ * tracks the new key automatically — keeping the credential, the did.json, and
+ * the key registry in lockstep without any server-side rotation state.
  */
 function computeVerificationMethodIdOverride(
   method: "key" | "web",
   domain: string | undefined,
+  keyIndex: number,
 ): string | undefined {
   if (method !== "web" || !domain) return undefined;
-  return didWebVerificationMethodId(encodeDidWeb(domain));
+  return didWebVerificationMethodIdForIndex(encodeDidWeb(domain), keyIndex);
 }
 
 /**
@@ -64,6 +67,7 @@ export function loadSigningKey(): Signer | null {
   const verificationMethodIdOverride = computeVerificationMethodIdOverride(
     config.OPENCRED_ISSUER_DID_METHOD,
     config.OPENCRED_ISSUER_DOMAIN,
+    config.OPENCRED_DIDWEB_KEY_INDEX,
   );
 
   const { signer, format } = createSoftwareSigner(

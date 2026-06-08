@@ -87,7 +87,10 @@ type PublishKeyCall = { key: KeyRecord; namespace?: string };
 type PublishDidDocumentCall = { did: string; document: unknown; namespace?: string };
 
 function makeDeDiClient(opts: {
-  publishKey?: (key: KeyRecord, namespace?: string) => Promise<{ recordName: string; published: boolean; namespace: string }>;
+  publishKey?: (
+    key: KeyRecord,
+    namespace?: string,
+  ) => Promise<{ recordName: string; published: boolean; namespace: string }>;
   publishDidDocument?: (did: string, document: unknown, namespace?: string) => Promise<unknown>;
 }): {
   client: DeDiClient;
@@ -121,6 +124,7 @@ function makeConfig(overrides: Partial<AutoPublishConfig> = {}): AutoPublishConf
     OPENCRED_DEDI_HOST_DID_DOC: false,
     OPENCRED_ISSUER_DID_METHOD: "key",
     OPENCRED_DEDI_NAMESPACE: "test-ns",
+    OPENCRED_DIDWEB_KEY_INDEX: 0,
     ...overrides,
   };
 }

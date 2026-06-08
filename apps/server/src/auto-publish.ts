@@ -30,8 +30,8 @@
 
 import {
   encodeDidWeb,
-  generateDidWebDocument,
-  didWebVerificationMethodId,
+  generateDidWebDocumentMultiKey,
+  didWebVerificationMethodIdForIndex,
   type JWK,
 } from "@opencred/did";
 import { DeDiRecordExistsError } from "@opencred/shared";
@@ -50,6 +50,8 @@ export interface AutoPublishConfig {
   OPENCRED_ISSUER_DID_METHOD: "key" | "web";
   OPENCRED_ISSUER_DOMAIN?: string;
   OPENCRED_DEDI_NAMESPACE?: string;
+  /** Sequential index of this deployment's active key (the `#key-<n>` fragment). */
+  OPENCRED_DIDWEB_KEY_INDEX: number;
 }
 
 /**
@@ -118,9 +120,12 @@ export async function runAutoPublishIfEnabled(
     };
   }
 
-  // keyId is the verification method. For did:web it's `<did>#key-0`; for
-  // did:key the signer's id already carries the method-specific fragment.
-  const keyId = isDidWeb ? didWebVerificationMethodId(issuerDid) : signer.id;
+  // keyId is the verification method. For did:web it's `<did>#key-<index>`
+  // (the configured OPENCRED_DIDWEB_KEY_INDEX); for did:key the signer's id
+  // already carries the method-specific fragment.
+  const keyId = isDidWeb
+    ? didWebVerificationMethodIdForIndex(issuerDid, config.OPENCRED_DIDWEB_KEY_INDEX)
+    : signer.id;
   const keyRecord: KeyRecord = {
     keyId,
     controllerDid: issuerDid,
@@ -130,12 +135,19 @@ export async function runAutoPublishIfEnabled(
     status: "active",
   };
   const namespace = config.OPENCRED_DEDI_NAMESPACE;
-  const hostDidDoc = isDidWeb && config.OPENCRED_DEDI_HOST_DID_DOC;
+  // Only auto-host a SINGLE-key did.json for a fresh issuer (index 0). After a
+  // rotation (index > 0) the did.json is a multi-key document managed by
+  // /v1/keys/rotate — auto-publishing a single-key document here would clobber
+  // it and drop the issuer's older keys. The key RECORD is still published.
+  const hostDidDoc =
+    isDidWeb && config.OPENCRED_DEDI_HOST_DID_DOC && config.OPENCRED_DIDWEB_KEY_INDEX === 0;
 
   try {
     const result = await dediClient.publishKey(keyRecord, namespace);
     if (hostDidDoc) {
-      const document = generateDidWebDocument(issuerDid, jwk as JWK);
+      const document = generateDidWebDocumentMultiKey(issuerDid, [
+        { id: keyId, publicKeyJwk: jwk as JWK },
+      ]);
       await dediClient.publishDidDocument(issuerDid, document, namespace);
       logger.info({ issuerDid }, "Issuer did.json stored in DeDi (did-documents registry)");
     }
@@ -158,7 +170,9 @@ export async function runAutoPublishIfEnabled(
       logger.info({ issuerDid, keyId }, "Issuer key already published to DeDi (idempotent skip)");
       if (hostDidDoc) {
         try {
-          const document = generateDidWebDocument(issuerDid, jwk as JWK);
+          const document = generateDidWebDocumentMultiKey(issuerDid, [
+            { id: keyId, publicKeyJwk: jwk as JWK },
+          ]);
           await dediClient.publishDidDocument(issuerDid, document, namespace);
         } catch (docErr) {
           logger.warn(

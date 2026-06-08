@@ -13,14 +13,19 @@ export type {
   DidWebVerificationResult,
   VerifyDidWebOptions,
   DidWebKeyInput,
+  ImportedDidWebKey,
+  ImportedDidWebDocument,
 } from "./did-web.js";
 export {
   DIDWebResolver,
   encodeDidWeb,
   didWebVerificationMethodId,
+  didWebVerificationMethodIdForIndex,
+  keyIndexFromVerificationMethod,
   didWebToUrl,
   generateDidWebDocument,
   generateDidWebDocumentMultiKey,
+  importDidWebDocument,
   verifyDidWeb,
 } from "./did-web.js";
 export { CompositeDIDResolver } from "./composite-resolver.js";

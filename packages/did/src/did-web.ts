@@ -42,11 +42,58 @@ export function encodeDidWeb(domain: string, path?: string[]): string {
 }
 
 /**
- * Get the verification method ID for a did:web DID.
- * Uses the convention `#key-0` for the primary key.
+ * Build the verification-method id for the Nth key of a did:web DID, using the
+ * sequential `#key-<n>` convention (`did:web:acme.com#key-0`, `…#key-1`, …).
+ *
+ * The fragment is the stable join key across three places that MUST agree for a
+ * credential to verify: the credential's `proof.verificationMethod` (or JWT
+ * `kid`), the `verificationMethod[]` entry in the issuer's did.json, and the
+ * record name in the `opencred-key-registry`. Sequential indices keep the
+ * fragment human-readable AND enumerable, which is what lets a stateless issuer
+ * compute "the next key in line" from the current did.json.
+ *
+ * @param did - The did:web DID (e.g., "did:web:example.com").
+ * @param index - The zero-based key index. Must be a non-negative integer.
+ * @throws {DIDResolutionError} If `index` is not a non-negative integer.
+ */
+export function didWebVerificationMethodIdForIndex(did: string, index: number): string {
+  if (!Number.isInteger(index) || index < 0) {
+    throw new DIDResolutionError(
+      `did:web key index must be a non-negative integer, got ${String(index)}`,
+    );
+  }
+  return `${did}#key-${index}`;
+}
+
+/**
+ * Get the verification method ID for the primary key of a did:web DID.
+ * Uses the convention `#key-0`. Thin wrapper over
+ * {@link didWebVerificationMethodIdForIndex} preserved for callers that only
+ * deal with the first key.
  */
 export function didWebVerificationMethodId(did: string): string {
-  return `${did}#key-0`;
+  return didWebVerificationMethodIdForIndex(did, 0);
+}
+
+/**
+ * Extract the sequential key index from a `#key-<n>` verification-method id.
+ *
+ * Accepts a full verification method (`did:web:acme.com#key-3`) or a bare
+ * fragment (`#key-3` / `key-3`). Returns the integer `n`, or `null` when the
+ * fragment is not in the canonical `key-<n>` form (e.g. a did:key fragment or a
+ * thumbprint id) — callers treat `null` as "not a sequential did:web key".
+ *
+ * @param verificationMethod - The verification method id or fragment.
+ */
+export function keyIndexFromVerificationMethod(verificationMethod: string): number | null {
+  if (typeof verificationMethod !== "string") return null;
+  const fragment = verificationMethod.includes("#")
+    ? verificationMethod.slice(verificationMethod.indexOf("#") + 1)
+    : verificationMethod;
+  const match = /^key-(\d+)$/.exec(fragment);
+  if (!match) return null;
+  const index = Number(match[1]);
+  return Number.isSafeInteger(index) ? index : null;
 }
 
 /**
@@ -55,33 +102,50 @@ export function didWebVerificationMethodId(did: string): string {
  * `id` is the full verification-method id (`did:web:acme.com#key-0`, or a
  * `did:key:...#z...` fragment for cross-method cases). `publicKeyJwk` is the
  * public key material — never a private `d` member.
+ *
+ * `revoked` (default `false`) controls relationship membership. A revoked key
+ * stays in `verificationMethod[]` so previously-issued signatures still
+ * resolve (yielding a precise `REVOKED` verdict rather than "unresolvable"),
+ * but it is dropped from every verification relationship (`assertionMethod`,
+ * `authentication`, …). This matches W3C DID Core §5.3 — "the DID document
+ * does not express revoked keys using a verification relationship" — while
+ * keeping the key dereferenceable. Active and cleanly-rotated keys keep
+ * `revoked` falsy and remain in all relationships.
  */
 export interface DidWebKeyInput {
   id: string;
   publicKeyJwk: JWK;
+  revoked?: boolean;
 }
 
 /**
  * Build a multi-key DID document suitable for publishing at
  * `.well-known/did.json` (or in DeDi's `did-documents` registry).
  *
- * Every key in `keys` becomes one `verificationMethod` entry and is
- * referenced from all verification relationships (`assertionMethod`,
- * `authentication`, `capabilityInvocation`, `capabilityDelegation`).
- * Callers pass their **current non-revoked** key set: an active key alone,
- * or an active key plus cleanly-rotated keys (so credentials signed by a
- * rotated-but-not-revoked key still resolve). A revoked key is simply left
- * out of the set — dropping it from the document is what makes a
- * compromised key's credentials fail to resolve.
+ * Every key in `keys` becomes one `verificationMethod` entry. Non-revoked keys
+ * (active + cleanly-rotated) are additionally referenced from all verification
+ * relationships (`assertionMethod`, `authentication`, `capabilityInvocation`,
+ * `capabilityDelegation`) so credentials they signed still verify. A `revoked`
+ * key is kept in `verificationMethod[]` (so its signatures still resolve and
+ * the verifier can report `REVOKED`) but is excluded from every relationship,
+ * per W3C DID Core §5.3.
  *
  * @param did - The did:web DID (e.g., "did:web:example.com").
- * @param keys - The non-revoked keys to publish. Must be non-empty.
+ * @param keys - The full key set (active, rotated, and revoked). Must be
+ *   non-empty and contain at least one non-revoked key — a document whose only
+ *   keys are revoked has no usable signing identity.
  * @returns A W3C DID document listing every key.
- * @throws {DIDResolutionError} If `keys` is empty.
+ * @throws {DIDResolutionError} If `keys` is empty or has no non-revoked key.
  */
 export function generateDidWebDocumentMultiKey(did: string, keys: DidWebKeyInput[]): DIDDocument {
   if (!keys || keys.length === 0) {
     throw new DIDResolutionError("generateDidWebDocumentMultiKey requires at least one key");
+  }
+  const activeIds = keys.filter((key) => !key.revoked).map((key) => key.id);
+  if (activeIds.length === 0) {
+    throw new DIDResolutionError(
+      "generateDidWebDocumentMultiKey requires at least one non-revoked key",
+    );
   }
 
   const verificationMethod: VerificationMethod[] = keys.map((key) => ({
@@ -90,16 +154,15 @@ export function generateDidWebDocumentMultiKey(did: string, keys: DidWebKeyInput
     controller: did,
     publicKeyJwk: key.publicKeyJwk,
   }));
-  const ids = keys.map((key) => key.id);
 
   return {
     "@context": ["https://www.w3.org/ns/did/v1", "https://w3id.org/security/suites/jws-2020/v1"],
     id: did,
     verificationMethod,
-    authentication: ids,
-    assertionMethod: ids,
-    capabilityInvocation: ids,
-    capabilityDelegation: ids,
+    authentication: activeIds,
+    assertionMethod: activeIds,
+    capabilityInvocation: activeIds,
+    capabilityDelegation: activeIds,
   };
 }
 
@@ -115,6 +178,143 @@ export function generateDidWebDocumentMultiKey(did: string, keys: DidWebKeyInput
  */
 export function generateDidWebDocument(did: string, publicKeyJwk: JWK): DIDDocument {
   return generateDidWebDocumentMultiKey(did, [{ id: `${did}#key-0`, publicKeyJwk }]);
+}
+
+/**
+ * A single key extracted from an existing did:web document by
+ * {@link importDidWebDocument}. Superset of {@link DidWebKeyInput} — it can be
+ * fed straight back into {@link generateDidWebDocumentMultiKey} to carry the
+ * key forward into a regenerated document.
+ */
+export interface ImportedDidWebKey extends DidWebKeyInput {
+  /**
+   * The sequential index parsed from a `#key-<n>` fragment, or `null` when the
+   * verification method does not use the canonical sequential form.
+   */
+  index: number | null;
+  /** Always `false` for active/rotated keys; `true` when the key is revoked. */
+  revoked: boolean;
+}
+
+/**
+ * The structured, stateless view of an existing did:web document, returned by
+ * {@link importDidWebDocument}.
+ */
+export interface ImportedDidWebDocument {
+  /** The document's `id` (the did:web DID). */
+  did: string;
+  /**
+   * Every verification method that carries `publicKeyJwk`, in document order,
+   * with its parsed index and revoked status. Directly reusable as
+   * `DidWebKeyInput[]`.
+   */
+  keys: ImportedDidWebKey[];
+  /** The highest `#key-<n>` index present, or `-1` when there are none. */
+  maxKeyIndex: number;
+  /** Every `#key-<n>` index already taken (sorted ascending). */
+  usedIndices: number[];
+}
+
+/** Normalize a verification-relationship entry (string ref or embedded VM) to its id string. */
+function relationshipEntryId(entry: unknown): string | undefined {
+  if (typeof entry === "string") return entry;
+  if (entry && typeof entry === "object" && typeof (entry as { id?: unknown }).id === "string") {
+    return (entry as { id: string }).id;
+  }
+  return undefined;
+}
+
+/** The verification relationships a signing key can appear in. */
+const VERIFICATION_RELATIONSHIPS = [
+  "assertionMethod",
+  "authentication",
+  "capabilityInvocation",
+  "capabilityDelegation",
+  "keyAgreement",
+] as const;
+
+/** Collect every id referenced by any verification relationship in the document. */
+function collectRelationshipIds(doc: Record<string, unknown>): Set<string> {
+  const ids = new Set<string>();
+  for (const rel of VERIFICATION_RELATIONSHIPS) {
+    const entries = doc[rel];
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      const id = relationshipEntryId(entry);
+      if (id) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Import an existing did:web document as a whole and return a stateless,
+ * structured view of its key set.
+ *
+ * This is the input a stateless issuer needs to rotate or revoke a key without
+ * tracking any local history: the operator hands OpenCred the current did.json
+ * (fetched from their domain or DeDi's `did-documents` registry), and this
+ * function reports the full key set, which `#key-<n>` indices are taken, and
+ * each key's revoked status — everything required to (a) validate the operator's
+ * chosen next index and (b) carry every existing key forward into the
+ * regenerated document.
+ *
+ * A key is reported as `revoked: true` when it appears in `verificationMethod[]`
+ * but is referenced by NO verification relationship — exactly how
+ * {@link generateDidWebDocumentMultiKey} encodes a revoked key.
+ *
+ * @param document - The DID document (parsed JSON object).
+ * @returns The structured key set, taken indices, and max index.
+ * @throws {DIDResolutionError} If the input is not a did:web DID document.
+ */
+export function importDidWebDocument(document: unknown): ImportedDidWebDocument {
+  if (!document || typeof document !== "object") {
+    throw new DIDResolutionError("importDidWebDocument: document must be a JSON object");
+  }
+  const doc = document as Record<string, unknown>;
+  const did = doc["id"];
+  if (typeof did !== "string" || !did.startsWith("did:web:")) {
+    throw new DIDResolutionError("importDidWebDocument: document.id must be a did:web DID");
+  }
+
+  const relationshipIds = collectRelationshipIds(doc);
+  const isInRelationship = (id: string): boolean => {
+    if (relationshipIds.has(id)) return true;
+    // A document may reference keys by bare fragment (`#key-2`) instead of the
+    // full id (`did:web:acme.com#key-2`); treat either as a match.
+    if (id.includes("#")) {
+      const fragment = `#${id.slice(id.indexOf("#") + 1)}`;
+      if (relationshipIds.has(fragment)) return true;
+    }
+    return false;
+  };
+
+  const vms = Array.isArray(doc["verificationMethod"]) ? doc["verificationMethod"] : [];
+  const keys: ImportedDidWebKey[] = [];
+  for (const vm of vms) {
+    if (!vm || typeof vm !== "object") continue;
+    const id = (vm as { id?: unknown }).id;
+    const publicKeyJwk = (vm as { publicKeyJwk?: unknown }).publicKeyJwk;
+    if (typeof id !== "string" || !publicKeyJwk || typeof publicKeyJwk !== "object") continue;
+    keys.push({
+      id,
+      publicKeyJwk: publicKeyJwk as JWK,
+      index: keyIndexFromVerificationMethod(id),
+      revoked: !isInRelationship(id),
+    });
+  }
+
+  const usedIndices = keys
+    .map((key) => key.index)
+    .filter((index): index is number => index !== null)
+    .sort((a, b) => a - b);
+
+  return {
+    did,
+    keys,
+    maxKeyIndex: usedIndices.length > 0 ? usedIndices[usedIndices.length - 1]! : -1,
+    usedIndices,
+  };
 }
 
 /**

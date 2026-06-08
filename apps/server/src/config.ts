@@ -183,6 +183,21 @@ const configSchema = z.object({
   OPENCRED_ISSUER_DOMAIN: z.string().optional(),
 
   /**
+   * The sequential index of THIS deployment's active signing key, used as the
+   * `#key-<n>` fragment in the did:web verification method (`did:web:<domain>#key-<n>`).
+   *
+   * Default `0` (a fresh issuer's first key). The design is deliberately
+   * STATELESS: the server holds no rotation counter. When you rotate to a new
+   * key you deploy the new key file AND bump this index (e.g. to `1`), so every
+   * credential the new deployment issues is stamped with the matching
+   * `#key-<n>` — the fragment that the `opencred-key-registry` record and the
+   * did.json `verificationMethod[]` entry agree on. You explicitly choose the
+   * number; OpenCred never guesses it. Ignored for `OPENCRED_ISSUER_DID_METHOD=key`
+   * (a did:key carries its own fragment).
+   */
+  OPENCRED_DIDWEB_KEY_INDEX: z.coerce.number().int().min(0).default(0),
+
+  /**
    * When true and DeDi is configured, the server will publish its DID
    * document to DeDi at startup. Used as bundled hosting for did:web
    * issuers who don't want to run their own web server. Ignored when
