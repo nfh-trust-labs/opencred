@@ -127,6 +127,24 @@ RUN pnpm --filter @opencred/server... build
 # pnpm 10 removed the `prune` command — re-install with --prod instead.
 RUN pnpm install --prod --filter @opencred/server...
 
+# Purge dev/build tooling that `install --prod` leaves behind in the
+# content-addressed .pnpm store. After --prod the dependency tree no longer
+# symlinks to these packages, but pnpm does not garbage-collect the now-orphaned
+# directories, so they ship in the runtime image. `pnpm why <pkg> --prod` shows
+# NO production path to any of them (they are reachable only via `vitest` in
+# workspace devDependencies), so the runtime never loads them — yet Trivy scans
+# their package.json + prebuilt binaries and trips on every esbuild Go-stdlib
+# and vitest disclosure, forcing an ever-growing .trivyignore. Delete the
+# orphans so the production image ships production code only. See #638.
+RUN find /build/node_modules/.pnpm -maxdepth 1 -type d \( \
+        -name 'esbuild@*'    -o -name '@esbuild+*' \
+     -o -name 'vitest@*'     -o -name '@vitest+*' \
+     -o -name 'vite@*'       -o -name 'vite-node@*' \
+     -o -name 'rollup@*'     -o -name '@rollup+*' \
+     -o -name 'tsx@*' \
+    \) -prune -exec rm -rf {} + \
+ && echo "Pruned dev/build tooling (esbuild, vitest, vite, rollup, tsx) from the production .pnpm store."
+
 # -----------------------------------------------------------------------------
 # Stage 2: runtime — minimal image with only production artifacts
 # -----------------------------------------------------------------------------
