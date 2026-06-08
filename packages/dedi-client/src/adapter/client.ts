@@ -410,6 +410,21 @@ export class DeDiClient {
     assertDeDiRecordShape(response, "lookupRecord");
     const details = response.data.details;
     assertKeyRecordShape(details);
+    // Surface the DeDi `version` envelope field (a string on the wire, e.g.
+    // "1") at debug. No behavior change today — but it positions
+    // `setKeyStatus` to adopt a conditional/CAS `update-record` keyed on
+    // `version` if DeDi ever exposes one (issue #659, Option A). Only the
+    // public verification-method id and status are logged — never key
+    // material (CLAUDE.md: "Log the key ID or fingerprint, never the key
+    // itself"). The narrowing `assert` drops `version` from the static type,
+    // so read it through a cast (the wire type carries it — `DeDiRecord`).
+    const version = (response.data as { version?: string }).version;
+    this.logger.debug("Resolved key record", {
+      keyId: verificationMethod,
+      status: details.status,
+      namespace: ns,
+      version: version ?? null,
+    });
     const proof = extractProof(response.data);
     return proof ? { ...details, proof } : details;
   }
@@ -484,6 +499,23 @@ export class DeDiClient {
       };
     }
 
+    // ── Optimistic-concurrency note (issue #659) ─────────────────────────
+    // DeDi's `update-record` takes no conditional-update parameter (no
+    // If-Match / ETag / version CAS), so this is a *blind* last-writer-wins
+    // overwrite of the whole payload. It is race-safe ONLY because `status`
+    // is the single mutable field and it advances monotonically
+    // (active → rotated → revoked): every writer reads-then-advances, the
+    // rank guard above refuses any backward move, so concurrent writers
+    // converge on the highest rank requested and `revoked` is terminal.
+    //
+    // That invariant is load-bearing. Adding ANY other mutable field to
+    // `updatedDetails` (e.g. a `revokedAt` timestamp or a revocation
+    // `reason`) reintroduces the lost-update race: two writers that diverge
+    // on the new field would clobber each other under last-writer-wins.
+    // Do not add fields here without first closing the race at the DeDi side.
+    // A test in client.test.ts pins this payload to exactly the six fields.
+    // TODO(#659): adopt a `version`/ETag conditional update once DeDi
+    // supports one (Option A) — `resolveKey` already surfaces `version`.
     const updatedDetails: Omit<KeyRecord, "proof"> = {
       keyId: existing.keyId,
       controllerDid: existing.controllerDid,

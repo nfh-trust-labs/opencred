@@ -350,6 +350,43 @@ describe("DeDiClient (adapter)", () => {
       expect(result).toEqual(keyDetail);
     });
 
+    it("logs the DeDi envelope version at debug (positions OCC, #659)", async () => {
+      // resolveKey surfaces the wire `version` so setKeyStatus can adopt a
+      // conditional update later. Only the public verification-method id and
+      // status are logged — never key material.
+      const logger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const client = new DeDiClient({
+        baseUrl: "https://dedi.example.com",
+        timeoutMs: 5000,
+        maxRetries: 0,
+        circuitBreakerThreshold: 5,
+        auth: { type: "api-key", apiKey: "dk_test" },
+        defaultNamespace: "example.com",
+        logger,
+      });
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: recordName,
+          registry: OPENCRED_KEY_REGISTRY,
+          namespace: "example.com",
+          details: keyDetail,
+          state: "live",
+          version: "7",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+
+      await client.resolveKey(vm);
+
+      expect(logger.debug).toHaveBeenCalledWith(
+        "Resolved key record",
+        expect.objectContaining({ version: "7", status: "active", keyId: vm }),
+      );
+    });
+
     it("returns a rotated key record with status 'rotated'", async () => {
       const client = createClient("example.com");
       const api = mockApi();
@@ -1184,6 +1221,70 @@ describe("DeDiClient (adapter)", () => {
         recordName,
         expect.objectContaining({ status: "revoked" }),
       );
+    });
+
+    it("concurrent rotate-then-revoke converges to revoked (monotone safety, #659)", async () => {
+      // Models DeDi's lock-free, last-writer-wins `update-record` with a
+      // stateful mock: both calls read `active`, the rank guard lets both
+      // advance, and because revoke writes last the record converges on the
+      // terminal `revoked` state. A subsequent stale rotate is then refused
+      // (backward move) and can never un-revoke — the real safety property
+      // the monotone invariant buys us in the absence of a CAS token.
+      const client = createClient("example.com");
+      const api = mockApi();
+      let state: "active" | "rotated" | "revoked" = "active";
+      vi.mocked(api.lookupRecord).mockImplementation((() =>
+        Promise.resolve({
+          message: "ok",
+          data: {
+            record_name: recordName,
+            registry: OPENCRED_KEY_REGISTRY,
+            namespace: "example.com",
+            details: existingKey(state),
+            state: "live",
+            version: "1",
+            created_at: "",
+            updated_at: "",
+          },
+        })) as never);
+      vi.mocked(api.updateRecord).mockImplementation(((...callArgs: unknown[]) => {
+        // DeDi is last-writer-wins; record the status the write carried.
+        state = (callArgs[3] as { status: typeof state }).status;
+        return Promise.resolve({});
+      }) as never);
+
+      await Promise.all([client.setKeyStatus(vm, "rotated"), client.setKeyStatus(vm, "revoked")]);
+
+      expect(state).toBe("revoked");
+      expect(api.updateRecord).toHaveBeenCalledTimes(2);
+
+      const late = await client.setKeyStatus(vm, "rotated");
+      expect(late).toMatchObject({ changed: false, reason: "monotone-refused" });
+      expect(state).toBe("revoked");
+    });
+
+    it("writes back exactly the six immutable+status fields — concurrency guard (#659)", async () => {
+      // The OCC invariant at the `updateRecord` call permits exactly one
+      // mutable field: `status`. If a future change adds any other field to
+      // the update payload (e.g. a divergent `revokedAt` / `reason`), it must
+      // first close the lost-update race at the DeDi side — this test fails
+      // loudly to force that conversation.
+      const client = createClient("example.com");
+      const api = mockApi();
+      mockResolveKey(api, "active");
+      vi.mocked(api.updateRecord).mockResolvedValue({} as never);
+
+      await client.setKeyStatus(vm, "revoked");
+
+      const details = vi.mocked(api.updateRecord).mock.calls[0]![3] as Record<string, unknown>;
+      expect(Object.keys(details).sort()).toEqual([
+        "algorithm",
+        "controllerDid",
+        "keyId",
+        "publicKeyJwk",
+        "purpose",
+        "status",
+      ]);
     });
   });
 
