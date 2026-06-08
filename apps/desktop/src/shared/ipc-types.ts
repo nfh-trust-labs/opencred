@@ -762,8 +762,9 @@ export interface DeDiPublishKeyRequest {
   previousVerificationMethod?: string;
   /**
    * The issuer's CURRENT did.json, imported as a whole to carry every existing
-   * key forward and validate the chosen index is free. When omitted, the
-   * DeDi-hosted document is fetched. did:web only.
+   * key forward and validate the chosen index is free (rejected if taken). When
+   * omitted, the key set is reconstructed best-effort by resolving each
+   * previously-published key from DeDi. did:web only.
    */
   currentDidDocument?: unknown;
   /** Optional assembled did.json for did:web hosting (only used when hostDidDocument is set). */

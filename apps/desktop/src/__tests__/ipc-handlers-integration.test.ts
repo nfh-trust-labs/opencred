@@ -171,6 +171,7 @@ beforeEach(() => {
   storeData["recentTemplates"] = [];
   storeData["dediPublishedSchemas"] = [];
   storeData["dediPublishedKeys"] = [];
+  storeData["dediActiveKeyIndex"] = 0;
   storeData["credentialHistory"] = [];
   delete storeData["dediConfig"];
 });
@@ -523,6 +524,39 @@ describe("IPC Handler Integration Tests", () => {
       // The active index is recorded so subsequent signing stamps #key-1.
       expect(storeData["dediActiveKeyIndex"]).toBe(1);
       expect(storeData["dediPublishedKeys"]).toContain(did + "#key-1");
+    });
+
+    it("did:web: rejects publishing at an index already present in the current did.json", async () => {
+      await setupConfiguredDeDi();
+      const genHandler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const gen = (await genHandler(fakeEvent, {})) as { success: boolean; key: { id: string } };
+      const keyId = gen.key.id;
+      mockPublishKey.mockClear();
+
+      const did = "did:web:issuer.example.org";
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_PUBLISH_KEY];
+      const result = (await handler(fakeEvent, {
+        signerKeyId: keyId,
+        did,
+        keyIndex: 0,
+        currentDidDocument: {
+          id: did,
+          verificationMethod: [
+            {
+              id: did + "#key-0",
+              type: "JsonWebKey",
+              controller: did,
+              publicKeyJwk: { kty: "EC", crv: "P-256", x: "x0", y: "y0" },
+            },
+          ],
+          assertionMethod: [did + "#key-0"],
+        },
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("#key-0 is already");
+      // Validation runs BEFORE publishKey — nothing is written to DeDi.
+      expect(mockPublishKey).not.toHaveBeenCalled();
     });
 
     it("did:web rotation: retires the previous key and carries both into the did.json", async () => {
@@ -928,6 +962,31 @@ describe("IPC Handler Integration Tests", () => {
       expect(signed.proof.type).toBe("DataIntegrityProof");
       expect(signed.proof.cryptosuite).toBe("ecdsa-rdfc-2019");
       expect(signed.proof.proofValue).toBeDefined();
+    });
+
+    it("data-integrity + did:web: stamps the active key index as the verification method", async () => {
+      const { keyId } = await importTestKey();
+      // Simulate a post-rotation issuer signing under #key-2.
+      storeData["dediActiveKeyIndex"] = 2;
+
+      const result = await buildAndSign({
+        keyId,
+        schemaId: "functional-identity/v1",
+        issuerDid: "did:web:issuer.example.org",
+        credentialSubject: {
+          name: "Jane Doe",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
+        },
+        validFrom: "2025-01-01T00:00:00Z",
+        proofFormat: "data-integrity",
+      });
+
+      expect(result.success).toBe(true);
+      const signed = JSON.parse(result.signedCredential!);
+      // The data-integrity / batch path (buildAndSign) must honor the active
+      // index — not the hardcoded #key-0 — or post-rotation creds break.
+      expect(signed.proof.verificationMethod).toBe("did:web:issuer.example.org#key-2");
     });
 
     it("sd-jwt-vc: should sign with education schema", async () => {

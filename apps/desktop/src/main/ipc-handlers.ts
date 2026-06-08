@@ -717,6 +717,7 @@ async function handleBuildAndSign(
       const result = await buildAndSign(signer, {
         schemaId: request.schemaId,
         issuerDid: request.issuerDid,
+        keyIndex: getStore().get("dediActiveKeyIndex") ?? 0,
         credentialSubject: request.credentialSubject,
         validFrom: request.validFrom,
         validUntil: request.validUntil,
@@ -1354,6 +1355,7 @@ async function handleBatchStart(
     const engine = createBatchEngine(signer, parseResult.rows, {
       schemaId: request.schemaId,
       issuerDid: request.issuerDid,
+      keyIndex: getStore().get("dediActiveKeyIndex") ?? 0,
       validFrom: request.validFrom,
       validUntil: request.validUntil,
       revocationRegistryUrl: request.revocationRegistryUrl,
@@ -2845,7 +2847,8 @@ async function handleDeDiGetStatus(_event: IpcMainInvokeEvent): Promise<DeDiStat
  * public JWK + algorithm from the in-memory signer registry.
  *
  * The published verification method:
- *   - `did:web:domain` → `<did>#key-0` (stable id inside the document);
+ *   - `did:web:domain` → `<did>#key-<keyIndex>` (the operator-chosen index,
+ *     default 0; the new key is published under this fragment);
  *   - any other method (e.g. `did:key:...`) → the signer id itself.
  *
  * Security invariant (CLAUDE.md #2): the `publicKeyJwk` looked up from
@@ -2876,6 +2879,24 @@ async function handleDeDiPublishKey(
     ? didWebVerificationMethodIdForIndex(request.did, keyIndex)
     : request.signerKeyId;
 
+  // When the operator supplies the current did.json, validate the chosen index
+  // is free before publishing — mirrors the server's 409 KEY_INDEX_TAKEN.
+  // Without this an in-use index would silently overwrite an existing key slot,
+  // breaking verification of credentials signed by the key it replaces.
+  if (request.did.startsWith("did:web:") && request.currentDidDocument) {
+    try {
+      const imported = importDidWebDocument(request.currentDidDocument);
+      if (imported.usedIndices.includes(keyIndex)) {
+        return {
+          success: false,
+          error: `#key-${keyIndex} is already present in the current did.json (next free index: ${imported.maxKeyIndex + 1}).`,
+        };
+      }
+    } catch {
+      // Malformed document — let the did.json assembly path surface the error.
+    }
+  }
+
   const keyRecord: KeyRecord = {
     keyId: verificationMethod,
     controllerDid: request.did,
@@ -2901,16 +2922,18 @@ async function handleDeDiPublishKey(
 
   let didDocumentStored: boolean | undefined;
   if (request.hostDidDocument) {
-    // Assemble the did.json from the issuer's CURRENT non-revoked key set,
-    // mirroring the server's `assembleDidDocument` (apps/server/src/routes/keys.ts).
-    //   - Active key = the one being published now.
-    //   - Retained keys = previously-published verification methods that are
-    //     still non-revoked. Each is resolved best-effort from DeDi; a 404 /
-    //     outage / revoked key is silently skipped.
-    //   - De-duplicated by verification method id, active first.
-    // For the common one-key issuer this produces the same single-key doc as
-    // before, but it correctly drops revoked keys and keeps any distinct
-    // non-revoked keys. did:web only — other DID methods fall back below.
+    // Assemble the did.json from the issuer's CURRENT key set, mirroring the
+    // server (apps/server/src/routes/keys.ts).
+    //   - New key = the one being published now (appended last).
+    //   - Existing keys = carried forward from the operator-supplied
+    //     `currentDidDocument` (imported as a whole) or, as a fallback, resolved
+    //     best-effort from DeDi. Each preserves its revoked status: a revoked
+    //     key STAYS in verificationMethod[] (so its signatures still resolve →
+    //     REVOKED) but is dropped from the relationships by
+    //     generateDidWebDocumentMultiKey (W3C DID Core §5.3).
+    //   - De-duplicated by verification method id.
+    // For the common one-key issuer this is a single-key doc. did:web only —
+    // other DID methods fall back below.
     let documentToPublish: unknown = request.document;
     if (request.did.startsWith("did:web:")) {
       try {
@@ -3137,6 +3160,10 @@ async function handleDeDiDisconnect(
   store.delete("dediConfig" as never);
   store.set("dediPublishedSchemas", []);
   store.delete("dediRegistriesReady" as never);
+  // Reset per-issuer key tracking so a reconnect under a different issuer/
+  // namespace doesn't sign with a stale #key-<n> or carry forward old keys.
+  store.set("dediPublishedKeys", []);
+  store.set("dediActiveKeyIndex", 0);
   const prefs = store.get("preferences");
   if (prefs && typeof prefs === "object" && "dediCredentialEncrypted" in prefs) {
     const rest = { ...(prefs as Record<string, unknown>) };

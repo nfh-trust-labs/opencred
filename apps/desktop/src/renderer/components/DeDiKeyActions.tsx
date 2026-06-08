@@ -4,7 +4,8 @@
  * Surfaces the already-landed `dediSetKeyStatus` IPC to the user. The
  * verification method is derived the same way the main-process handler
  * derives it when publishing:
- *   - did:web issuers have exactly one key slot, `<did>#key-0`;
+ *   - did:web issuers reference the active key by its sequential index
+ *     (`<did>#key-<n>`, default `#key-0`);
  *   - any other DID method uses the signer's own key id.
  *
  * Revoke is destructive — flipping a key to `revoked` makes verifiers reject
