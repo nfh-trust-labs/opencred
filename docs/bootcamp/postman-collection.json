@@ -510,14 +510,14 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"did\": \"{{issuerDid}}\"\n}"
+              "raw": "{}"
             },
             "url": {
               "raw": "{{baseUrl}}/v1/keys/publish",
               "host": ["{{baseUrl}}"],
               "path": ["v1", "keys", "publish"]
             },
-            "description": "Publish the issuer's signing key (defaults to the loaded did:key from `{{issuerDid}}`) to the DeDi `opencred-key-registry` so verifiers can resolve it without a separate registrar. OpenCred writes **one record per key** (record name = slug of `DID#fragment`); the W3C did.json is carried as an optional immutable `document` snapshot on each key record. There is no separate `did-documents` registry.\n\n**Body shape:** `{ did, document?, namespace?, hostDidDocument? }`.\n- did:key — `{ \"did\": \"...\" }` is sufficient. The server drops `document` for did:key (the doc is derivable from the DID).\n- did:web — pass `document` (the full DID Document) and set `hostDidDocument: true` to embed the did.json snapshot on the key records.\n\n**On 409 `DEDI_RECORD_EXISTS`**: the key is already published — switch to **POST /v1/keys/resolve** below to fetch the existing record. The error response carries a `hint` pointing you there.\n\nThe `rejectKeyMaterial` defense-in-depth guard runs on the body — a `privateKey` field, or any string starting with `-----BEGIN ... PRIVATE KEY-----`, fails 400 before anything reaches DeDi.\n\n**Returns** `{ published, recordName, namespace, keyId, didDocumentStored }` (`didDocumentStored` is true when the did.json snapshot was embedded). `503 DEDI_NOT_CONFIGURED` until `OPENCRED_DEDI_*` env vars are set.\n\nThe post-test script saves the issuer DID into `{{lastPublishedDid}}` so the resolve request below picks it up automatically.",
+            "description": "Publish the issuer's signing key (defaults to the loaded did:key from `{{issuerDid}}`) to the DeDi `opencred-key-registry` so verifiers can resolve it without a separate registrar. OpenCred writes **one record per key** (record name = slug of `DID#fragment`); the W3C did.json is carried as an optional immutable `document` snapshot on each key record. There is no separate `did-documents` registry.\n\n**Body shape:** `{ namespace?, hostDidDocument? }` — both optional. The server publishes the **active signer's PUBLIC key**; the DID comes from `OPENCRED_ISSUER_DID_METHOD`/`OPENCRED_ISSUER_DOMAIN` and the public key from the signer, so you send **neither a DID nor key material**. `hostDidDocument` applies to did:web only (did:key is self-describing — no did.json to host).\n\n**On 409 `DEDI_RECORD_EXISTS`**: the key is already published — switch to **POST /v1/keys/resolve** below to fetch the existing record. The error response carries a `hint` pointing you there.\n\nThe `rejectKeyMaterial` defense-in-depth guard runs on the body — a `privateKey` field, or any string starting with `-----BEGIN ... PRIVATE KEY-----`, fails 400 before anything reaches DeDi.\n\n**Returns** `{ published, recordName, namespace, keyId, didDocumentStored }` (`didDocumentStored` is true when the did.json snapshot was embedded). `503 DEDI_NOT_CONFIGURED` until `OPENCRED_DEDI_*` env vars are set.\n\nThe post-test script saves the issuer DID into `{{lastPublishedDid}}` so the resolve request below picks it up automatically.",
             "auth": null
           }
         },
@@ -528,14 +528,14 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"did\": \"did:web:bootcamp.example.org\",\n  \"hostDidDocument\": true,\n  \"document\": {\n    \"@context\": \"https://www.w3.org/ns/did/v1\",\n    \"id\": \"did:web:bootcamp.example.org\",\n    \"verificationMethod\": [\n      {\n        \"id\": \"did:web:bootcamp.example.org#key-1\",\n        \"type\": \"JsonWebKey2020\",\n        \"controller\": \"did:web:bootcamp.example.org\",\n        \"publicKeyJwk\": {\n          \"kty\": \"EC\",\n          \"crv\": \"P-256\",\n          \"x\": \"<paste-x>\",\n          \"y\": \"<paste-y>\"\n        }\n      }\n    ],\n    \"assertionMethod\": [\"did:web:bootcamp.example.org#key-1\"]\n  }\n}"
+              "raw": "{\n  \"hostDidDocument\": true\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/v1/keys/publish",
               "host": ["{{baseUrl}}"],
               "path": ["v1", "keys", "publish"]
             },
-            "description": "Full did:web publish with the document body the adapter needs. Use this form when your issuer runs as did:web (`OPENCRED_ISSUER_DID_METHOD=web` + `OPENCRED_ISSUER_DOMAIN=<your-domain>`). The server writes one record per key into `opencred-key-registry` and, when `hostDidDocument: true`, embeds the did.json as an immutable `document` snapshot on those key records.\n\nThis is the manual equivalent of `OPENCRED_AUTO_PUBLISH_KEY=true` (or `OPENCRED_DEDI_HOST_DID_DOC=true`, which also embeds the did.json snapshot) — those flags publish the same keys at container startup automatically. If you set either flag and restart, you can skip this request entirely; `POST /v1/keys/resolve` returns the key record and `GET /v1/keys/did-document` returns the projected did.json.\n\n**Body shape** mirrors the W3C DID Core document produced by `packages/did/src/did-web.ts:59` (`generateDidWebDocument`): one `verificationMethod` entry with the issuer's `publicKeyJwk`, `assertionMethod` pointing at that entry. The verification-method ID is `did:web:<domain>#key-0` (since v1.6.1 the signer's `kid` matches this exact ID, so JWTs verify against this document).\n\nReplace `bootcamp.example.org` with your own domain and `<paste-x>` / `<paste-y>` with the P-256 public-key JWK coordinates from `GET /v1/keys`.\n\n**Path B vs Path A**: this request publishes the keys (and optional did.json snapshot) to **DeDi only**. Non-DeDi verifiers walking `https://<your-domain>/.well-known/did.json` will still see a 404 unless you ALSO upload the same JSON to your domain (Path A — the canonical did:web setup). See `docs/concepts/dids.md#publishing-your-didweb-did-document` for the trade-off."
+            "description": "did:web publish. The server assembles the did.json from its own current key set and embeds it as the `document` snapshot — you do not supply a DID or a document. Use this form when your issuer runs as did:web (`OPENCRED_ISSUER_DID_METHOD=web` + `OPENCRED_ISSUER_DOMAIN=<your-domain>`). The server writes one record per key into `opencred-key-registry` and, when `hostDidDocument: true`, embeds the did.json as an immutable `document` snapshot on those key records.\n\nThis is the manual equivalent of `OPENCRED_AUTO_PUBLISH_KEY=true` (or `OPENCRED_DEDI_HOST_DID_DOC=true`, which also embeds the did.json snapshot) — those flags publish the same keys at container startup automatically. If you set either flag and restart, you can skip this request entirely; `POST /v1/keys/resolve` returns the key record and `GET /v1/keys/did-document` returns the projected did.json.\n\n**Body shape:** `{ namespace?, hostDidDocument? }` — identical to the did:key form; only the server's `OPENCRED_ISSUER_DID_METHOD=web` config differs. The verification-method ID is `did:web:<domain>#key-0` (the signer's `kid` matches this exact ID, so JWTs verify against the assembled document).\n\n**Path B vs Path A**: this request publishes the keys (and optional did.json snapshot) to **DeDi only**. Non-DeDi verifiers walking `https://<your-domain>/.well-known/did.json` will still see a 404 unless you ALSO upload the same JSON to your domain (Path A — the canonical did:web setup). See `docs/concepts/dids.md#publishing-your-didweb-did-document` for the trade-off."
           }
         },
         {
@@ -552,7 +552,11 @@
                   "const issuerDid = pm.collectionVariables.get('issuerDid');",
                   "const did = lastPublished || issuerDid;",
                   "if (did) {",
-                  "    pm.request.body.raw = JSON.stringify({ did });",
+                  "    // resolve takes a verificationMethod (DID#fragment), not a bare DID.",
+                  "    const vm = did.indexOf('did:key:') === 0",
+                  "        ? did + '#' + did.slice('did:key:'.length)",
+                  "        : did + '#key-0';",
+                  "    pm.request.body.raw = JSON.stringify({ verificationMethod: vm });",
                   "}"
                 ]
               }
@@ -563,14 +567,14 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"did\": \"{{lastPublishedDid}}\"\n}"
+              "raw": "{\n  \"verificationMethod\": \"{{lastPublishedDid}}#key-0\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/v1/keys/resolve",
               "host": ["{{baseUrl}}"],
               "path": ["v1", "keys", "resolve"]
             },
-            "description": "Resolve a signing-key record from the DeDi `opencred-key-registry`. POST (not GET) so DIDs containing colons or slashes don't have to be URL-encoded.\n\n**Where this looks**: DeDi only. This endpoint queries `/dedi/lookup/{namespace}/opencred-key-registry/{record}` on the configured DeDi instance (record name = slug of `DID#fragment`). It does **not** walk the canonical `https://<domain>/.well-known/did.json` URL — if you self-host a did:web document on your domain (Path A in the bootcamp), this endpoint will return 404 unless you also publish it to DeDi (Path B). For end-to-end verification of self-hosted did:web documents, use `POST /v1/credentials/verify` or the `@opencred/verify` SDK, which walks the canonical HTTPS URL first.\n\n**Returns the bare key record** `{ keyId, controllerDid, algorithm, publicKeyJwk, purpose, status, document?, proof? }`, where `status` is `\"active\"`, `\"rotated\"`, or `\"revoked\"`. `document` (the did.json snapshot) is present only when it was hosted at publish/rotate time; `proof` (CORD-blockchain anchor metadata) is present when DeDi anchored the record on-chain. For the grouped did.json projected from these per-key snapshots, call `GET /v1/keys/did-document` (returns `{ did, document, source }`).\n\n**Auto-threading**: pre-request script picks `{{lastPublishedDid}}` (set by the publish request above) if available, otherwise falls back to `{{issuerDid}}`. So a click-chain `Inspect → GET /v1/keys` → `Publish` → `Resolve` works without manual variable copying.\n\n503 if DeDi isn't configured."
+            "description": "Resolve a signing-key record from the DeDi `opencred-key-registry`. POST (not GET) so the verification method (a `DID#fragment`, colons and all) doesn't have to be URL-encoded.\n\n**Where this looks**: DeDi only. This endpoint queries `/dedi/lookup/{namespace}/opencred-key-registry/{record}` on the configured DeDi instance (record name = slug of `DID#fragment`). It does **not** walk the canonical `https://<domain>/.well-known/did.json` URL — if you self-host a did:web document on your domain (Path A in the bootcamp), this endpoint will return 404 unless you also publish it to DeDi (Path B). For end-to-end verification of self-hosted did:web documents, use `POST /v1/credentials/verify` or the `@opencred/verify` SDK, which walks the canonical HTTPS URL first.\n\n**Returns the bare key record** `{ keyId, controllerDid, algorithm, publicKeyJwk, purpose, status, document?, proof? }`, where `status` is `\"active\"`, `\"rotated\"`, or `\"revoked\"`. `document` (the did.json snapshot) is present only when it was hosted at publish/rotate time; `proof` (CORD-blockchain anchor metadata) is present when DeDi anchored the record on-chain. For the grouped did.json projected from these per-key snapshots, call `GET /v1/keys/did-document` (returns `{ did, document, source }`).\n\n**Auto-threading**: the pre-request script builds the verification method (`<did>#key-0` for did:web, `<did>#<id>` for did:key) from `{{lastPublishedDid}}` (set by the publish request above), falling back to `{{issuerDid}}`. So a click-chain `Inspect → GET /v1/keys` → `Publish` → `Resolve` works without manual variable copying.\n\n503 if DeDi isn't configured."
           }
         },
         {

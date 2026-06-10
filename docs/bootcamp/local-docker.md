@@ -855,36 +855,23 @@ layer. There is no separate `did-documents` registry.
 > [`docs/decisions/dedi-key-registry-redesign.md`](../decisions/dedi-key-registry-redesign.md)).
 
 ```bash
-# Publish — body is { did, document?, namespace?, hostDidDocument? }. The
-# "document" is a standard W3C DID Core document; verificationMethod entries
-# hold public keys only. The server writes one record per key into
-# opencred-key-registry and, when hostDidDocument is true, embeds the did.json
-# snapshot on those key records. The server's defense-in-depth guard rejects
-# any nested PEM private-key block before the request reaches DeDi.
+# Publish — body is { namespace?, hostDidDocument? }. The server publishes the
+# active signer's PUBLIC key (one record per key) into opencred-key-registry:
+# the DID comes from OPENCRED_ISSUER_DID_METHOD/OPENCRED_ISSUER_DOMAIN and the
+# public key from the signer — you never send a DID or key material in the body.
+# When hostDidDocument is true (did:web only), the server assembles the did.json
+# from its current key set and embeds that snapshot on the key record.
 curl -s http://localhost:3100/v1/keys/publish \
   -H "Authorization: Bearer $OPENCRED_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "did": "did:web:bootcamp.example.org",
-    "document": {
-      "@context": "https://www.w3.org/ns/did/v1",
-      "id": "did:web:bootcamp.example.org",
-      "verificationMethod": [{
-        "id": "did:web:bootcamp.example.org#key-1",
-        "type": "JsonWebKey2020",
-        "controller": "did:web:bootcamp.example.org",
-        "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." }
-      }],
-      "assertionMethod": ["did:web:bootcamp.example.org#key-1"]
-    }
-  }' | jq
+  -d '{ "hostDidDocument": true }' | jq
 
-# Resolve — body is { did, namespace? }. POST not GET so DIDs with colons
-# don't have to be URL-encoded.
+# Resolve — body is { verificationMethod, namespace? }. POST not GET so the
+# verification method (a DID#fragment, colons and all) needn't be URL-encoded.
 curl -s http://localhost:3100/v1/keys/resolve \
   -H "Authorization: Bearer $OPENCRED_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{ "did": "did:web:bootcamp.example.org" }' | jq
+  -d '{ "verificationMethod": "did:web:bootcamp.example.org#key-0" }' | jq
 ```
 
 `/v1/keys/publish` returns `{ published, recordName, namespace, keyId,
@@ -1048,7 +1035,7 @@ a domain and whether your verifiers know how to talk to DeDi.
    curl -s http://localhost:3100/v1/keys/resolve \
      -H "Authorization: Bearer $OPENCRED_API_KEY" \
      -H "Content-Type: application/json" \
-     -d '{ "did": "did:web:bootcamp.example.org" }' | jq
+     -d '{ "verificationMethod": "did:web:bootcamp.example.org#key-0" }' | jq
    # Returns the key record { keyId, controllerDid, algorithm,
    # publicKeyJwk, purpose, status: "active", document?, proof? }.
    # `document` (the did.json snapshot) is present when it was hosted at

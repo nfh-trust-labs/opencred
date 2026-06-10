@@ -686,33 +686,25 @@ those per-key snapshots — so this lets you stop hosting your own
 DeDi-aware verifiers. There is no separate `did-documents` registry.
 
 ```bash
-# Publish (POST body: { did, document?, namespace?, hostDidDocument? })
+# Publish (POST body: { namespace?, hostDidDocument? }). The server publishes
+# the active signer's PUBLIC key into opencred-key-registry — the DID comes from
+# OPENCRED_ISSUER_DID_METHOD/OPENCRED_ISSUER_DOMAIN and the public key from the
+# signer, so you send neither a DID nor key material. With hostDidDocument true
+# (did:web only) it assembles the did.json from its current key set and embeds
+# that snapshot on the key record.
 LOCAL$ curl -s http://localhost:3100/v1/keys/publish \
   -H "Authorization: Bearer $OPENCRED_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "did": "did:web:bootcamp.example.org",
-    "document": {
-      "@context": "https://www.w3.org/ns/did/v1",
-      "id": "did:web:bootcamp.example.org",
-      "verificationMethod": [{
-        "id": "did:web:bootcamp.example.org#key-1",
-        "type": "JsonWebKey2020",
-        "controller": "did:web:bootcamp.example.org",
-        "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." }
-      }],
-      "assertionMethod": ["did:web:bootcamp.example.org#key-1"]
-    }
-  }' | jq
+  -d '{ "hostDidDocument": true }' | jq
 
-# Resolve (POST body: { did, namespace? })
+# Resolve (POST body: { verificationMethod, namespace? })
 # Returns the bare key record { keyId, controllerDid, algorithm,
 #   publicKeyJwk, purpose, status, document?, proof? }, where status is
 #   one of "active" | "rotated" | "revoked".
 LOCAL$ curl -s http://localhost:3100/v1/keys/resolve \
   -H "Authorization: Bearer $OPENCRED_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{ "did": "did:web:bootcamp.example.org" }' | jq
+  -d '{ "verificationMethod": "did:web:bootcamp.example.org#key-0" }' | jq
 
 # Grouped did.json — projected from the per-key snapshots
 # (GET; returns { did, document, source }).
