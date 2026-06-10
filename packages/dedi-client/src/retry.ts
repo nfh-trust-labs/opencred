@@ -106,8 +106,7 @@ export async function withRetry<T>(
           ? Math.min(error.retryAfterMs, 10_000)
           : undefined;
       const jitter = 0.75 + Math.random() * 0.25;
-      const delay =
-        retryAfterMs ?? Math.round(opts.baseDelayMs * Math.pow(2, attempt) * jitter);
+      const delay = retryAfterMs ?? Math.round(opts.baseDelayMs * Math.pow(2, attempt) * jitter);
       await sleep(delay);
     }
   }
