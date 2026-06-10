@@ -207,6 +207,56 @@ describe("withRetry", () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
+  describe("Retry-After on 429 (issue #679)", () => {
+    it("retries a 429 and waits the Retry-After duration instead of the exponential delay", async () => {
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new DeDiClientError("rate limited", 429, undefined, 3000))
+        .mockResolvedValue("ok");
+
+      const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+      expect(fn).toHaveBeenCalledTimes(1);
+
+      // Exponential would be 100ms; the server said 3000ms. No jitter — the
+      // Retry-After path is deterministic.
+      await vi.advanceTimersByTimeAsync(2999);
+      expect(fn).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await promise;
+
+      expect(result).toBe("ok");
+      expect(fn).toHaveBeenCalledTimes(2);
+    });
+
+    it("caps the Retry-After delay at 10s", async () => {
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new DeDiClientError("rate limited", 429, undefined, 60_000))
+        .mockResolvedValue("ok");
+
+      const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await promise;
+
+      expect(result).toBe("ok");
+      expect(fn).toHaveBeenCalledTimes(2);
+    });
+
+    it("retries a 429 without Retry-After using the exponential formula", async () => {
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new DeDiClientError("rate limited", 429))
+        .mockResolvedValue("ok");
+
+      const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+      await vi.advanceTimersByTimeAsync(100);
+      const result = await promise;
+
+      expect(result).toBe("ok");
+      expect(fn).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe("retryable: false (issue #546)", () => {
     it("does NOT retry a 5xx when retryable is false", async () => {
       // 500 would normally be retried (it's a transient error), but the

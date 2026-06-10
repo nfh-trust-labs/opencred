@@ -45,10 +45,9 @@ function hasTransientNetworkCode(error: unknown): boolean {
 
 function isTransientError(error: unknown): boolean {
   if (error instanceof DeDiClientError) {
-    // 429 (rate limited) is transient by definition — the request is valid
-    // and will succeed once the window resets. DeDiClientError does not
-    // carry response headers, so a server-provided Retry-After cannot be
-    // honoured; the jittered exponential backoff below stands in for it.
+    // 5xx upstream failures and 429 rate limits are transient. 429 delays
+    // honour the server's `Retry-After` when present — see the delay
+    // computation in `withRetry`.
     return error.statusCode >= 500 || error.statusCode === 429;
   }
   if (error instanceof TypeError && error.message.includes("fetch")) {
@@ -95,12 +94,19 @@ export async function withRetry<T>(
         throw error;
       }
       opts.logger?.debug(`Retrying request, attempt ${attempt + 1} of ${opts.maxRetries}`);
-      // Subtractive jitter (0.75–1.0×) de-synchronises replicas retrying the
-      // same outage so they don't hammer DeDi in lockstep when it recovers.
-      // Never exceeds the deterministic exponential delay, so callers can
-      // treat baseDelayMs * 2^attempt as the upper bound per attempt.
+      // A server-provided `Retry-After` (429, issue #679) wins over the
+      // exponential formula — deterministic (no jitter; the server already
+      // picked the moment), capped at 10s so a hostile or buggy header
+      // can't stall the caller. Otherwise: exponential backoff with
+      // subtractive jitter (0.75–1.0×) to de-synchronise replicas retrying
+      // the same outage — never exceeds the deterministic
+      // baseDelayMs * 2^attempt upper bound per attempt.
+      const retryAfterMs =
+        error instanceof DeDiClientError && error.retryAfterMs !== undefined
+          ? Math.min(error.retryAfterMs, 10_000)
+          : undefined;
       const jitter = 0.75 + Math.random() * 0.25;
-      const delay = Math.round(opts.baseDelayMs * Math.pow(2, attempt) * jitter);
+      const delay = retryAfterMs ?? Math.round(opts.baseDelayMs * Math.pow(2, attempt) * jitter);
       await sleep(delay);
     }
   }
