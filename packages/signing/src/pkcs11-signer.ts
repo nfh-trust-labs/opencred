@@ -200,6 +200,9 @@ function buildEcSigner(session: Pkcs11Session, targetKey: Pkcs11KeyInfo, label?:
     type: "pkcs11",
     fingerprint,
     label: label ?? (targetKey.label || undefined),
+    // Public JWK only — the private key never leaves the token. Needed for
+    // the DeDi key lifecycle (publish/rotate) and did:web document assembly.
+    publicKeyJwk: publicKey.export({ format: "jwk" }) as Record<string, unknown>,
   };
 
   return {
@@ -260,6 +263,9 @@ function buildRsaSigner(session: Pkcs11Session, targetKey: Pkcs11KeyInfo, label?
     type: "pkcs11",
     fingerprint,
     label: label ?? (targetKey.label || undefined),
+    // Public JWK only — the private key never leaves the token. Needed for
+    // the DeDi key lifecycle (publish/rotate) and did:web document assembly.
+    publicKeyJwk: publicKey.export({ format: "jwk" }) as Record<string, unknown>,
   };
 
   return {
