@@ -112,21 +112,23 @@ Published DID saved to new `lastPublishedDid` collection variable. Also: the ser
 
 **Status**: **Implemented** in [PR #628](https://github.com/nfh-trust-labs/opencred/pull/628), released in v1.6.0. Design spike merged via [PR #622](https://github.com/nfh-trust-labs/opencred/pull/622) (`docs/spikes/spike-619-did-web-rotation.md`); production code closes [issue #627](https://github.com/nfh-trust-labs/opencred/issues/627).
 
-**Landed**:
+> **Superseded by #670** (per-key registry redesign, PR #671). The original #628 implementation rotated keys *inside* a single per-DID `public_key_registry` record by stamping `supersededAt` on `verificationMethod[]` entries. OpenCred now stores **one record per key** in `opencred-key-registry`: rotation writes a new key record and marks the prior key's record `status: "rotated"` (terminal states are `"active" | "rotated" | "revoked"`). The did.json is an immutable snapshot embedded on each key record, not a mutable document being read-merge-written. The bullets below are retained as the historical #628 record; for the current model see [`docs/decisions/dedi-key-registry-redesign.md`](../decisions/dedi-key-registry-redesign.md).
 
-- New `POST /v1/keys/rotate` endpoint. Reads the active signer, validates the DID is `did:web:`, pulls `publicKeyJwk` from signer metadata, and calls the new adapter method.
-- New `DeDiClient.rotateDIDWeb(did, newKeyJwk, namespace?)` adapter method. Read-merge-write against the existing `public_key_registry` record: appends new VM entry, marks every prior un-superseded VM with `supersededAt: now`, points `assertionMethod` at the new VM only, writes via `updateRecord`. Returns a discriminated `RotateResult` union (`{ rotated: true, did, currentKeyId, superseded[], namespace }` or `{ rotated: false, did, currentKeyId, reason: "already-current", namespace }`).
-- **Idempotent short-circuit**: if the active signer's `publicKeyJwk` already matches the most-recent un-superseded VM (canonicalised JWK comparison), no DeDi write is issued.
-- **`markDIDRotated` semantic split**: did:key keeps its whole-record `keyStatus` flip behaviour; did:web becomes a no-op at the record level with a warn log (rotation lives inside the document, not on the parent record). Signature preserved (`Promise<void>`) — no breaking change to existing desktop callers.
+**Landed (#628; mechanics superseded by #670 — see note above)**:
+
+- New `POST /v1/keys/rotate` endpoint. Reads the active signer, validates the DID is `did:web:`, pulls `publicKeyJwk` from signer metadata, and calls the adapter. Under the current (#670) model the body is `{ newKeyIndex, currentDidDocument?, hostDidDocument? }` and the response is `{ rotated, did, currentKeyId, newKeyIndex, retired, didDocument, didDocumentStored }` (`retired` is the old key's `SetKeyStatusResult`).
+- *(Original #628)* `DeDiClient.rotateDIDWeb(did, newKeyJwk, namespace?)` adapter method — read-merge-write against the existing `public_key_registry` record, appending a new VM entry and stamping `supersededAt` on prior entries. **Replaced by #670**: rotation now writes a fresh per-key record into `opencred-key-registry` and sets the prior key's record `status: "rotated"`; old keys are retained as their own records rather than carried as superseded entries inside one document.
+- **Idempotent short-circuit**: re-running rotate when the active signer's key is already the current one issues no DeDi write.
+- *(Original #628)* `markDIDRotated` semantic split. **Replaced by #670**: `markDIDRotated` is gone; key lifecycle is advanced per-key via `setKeyStatus(verificationMethod, status, ns)` (`active → rotated → revoked`).
 - **Read-only gating**: free — `/v1/keys/` is already in `WRITE_PREFIXES`, so a read-tier replica returns `403 READ_ONLY_MODE` automatically.
-- **Verifier impact: none** — `packages/verification/src/vc-jwt.ts:179-213` already iterates `verificationMethod[]` and matches by `kid` from the JWT header, so credentials signed under any prior (now-superseded) key still verify.
+- **Verifier impact: none** — `packages/verification/src/vc-jwt.ts:179-213` already iterates `verificationMethod[]` and matches by `kid` from the JWT header, so credentials signed under any prior (now-rotated) key still verify.
 
 **Out of scope (filed for separate follow-ups, still parked)**:
 
 - KMS-backed key rotation orchestration. Today only software signers expose `publicKeyJwk`; hardware-token / KMS public-key extraction is its own work item.
-- Per-key revocation (`revoked: true` semantics distinct from `supersededAt`). Credentials signed under a revoked-because-compromised key should fail verification; the current verifier doesn't consult per-key revoke flags.
+- Per-key revocation. Under #670 this is the key record's `status: "revoked"` lifecycle state (set via `POST /v1/keys/revoke`), distinct from credential revocation in `vc-revocation-registry`.
 - Rotation audit log.
-- DeDi-side optimistic concurrency. Current implementation is **last-writer-wins** — multi-replica deployments running simultaneous rotations against the same DID risk one rotation clobbering the other. The right fix is DeDi exposing an `If-Match`-style primitive; raised separately with the DeDi team.
+- DeDi-side optimistic concurrency. The per-key `setKeyStatus` write is still **last-writer-wins** — `update-record` carries no `If-Match`/`version` CAS, so simultaneous lifecycle writes against the same key can race. The right fix is DeDi exposing an `If-Match`-style primitive; raised separately with the DeDi team (see D4 in `docs/decisions/dedi-integration-open-questions.md`).
 
 **Doc surface**: `docs/concepts/dids.md` carries the operator-facing "did:web key rotation" section; `docs/bootcamp/local-docker.md` §7d describes the rotate flow alongside publish/resolve.
 
