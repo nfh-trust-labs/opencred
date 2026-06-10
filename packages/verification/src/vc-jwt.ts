@@ -5,8 +5,13 @@ import { VerificationError, assertJwtSize } from "@opencred/shared";
 import { publicKeyFromMultibase } from "./key-utils.js";
 import type { VerificationCheck } from "./types.js";
 
-/** Allowed JWT signing algorithms — prevents algorithm confusion attacks. */
-const ALLOWED_ALGORITHMS = ["ES256", "ES384", "ES512", "EdDSA"] as const;
+/**
+ * Allowed JWT signing algorithms — prevents algorithm confusion attacks.
+ * Mirrors the algorithms produced by @opencred/crypto for VC signing
+ * (see signingAlgorithmToJwsAlg): ES256 (P-256), ES384 (P-384),
+ * PS256 (RSA-2048/3072/4096), EdDSA (Ed25519).
+ */
+const ALLOWED_ALGORITHMS = ["ES256", "ES384", "ES512", "PS256", "EdDSA"] as const;
 
 /**
  * Decoded VC-JWT payload with extracted credential data.

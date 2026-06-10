@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { generateKeyPairSync, createHash, type KeyObject } from "node:crypto";
 import * as jose from "jose";
 import forge from "node-forge";
-import { signCredential } from "@opencred/crypto";
+import { signCredential, signCredentialEdDsa } from "@opencred/crypto";
 import type { UnsignedCredential } from "@opencred/vc-core";
 import type {
   DIDResolver,
@@ -640,6 +640,183 @@ describe("verifyCredential — VC-JWT", () => {
   });
 });
 
+// Algorithm coverage (#678): every signing algorithm @opencred/crypto can
+// produce (see signingAlgorithmToJwsAlg) must round-trip through
+// verifyCredential — ES256 is covered above; here we cover PS256 (RSA),
+// ES384 (P-384), and EdDSA (Ed25519).
+describe("verifyCredential — VC-JWT algorithm coverage (#678)", () => {
+  const issuerDid = "did:web:university.example";
+
+  function vcJwtPayload(): Record<string, unknown> {
+    return {
+      iss: issuerDid,
+      sub: "did:example:holder123",
+      nbf: Math.floor(Date.now() / 1000) - 60,
+      vc: {
+        "@context": ["https://www.w3.org/ns/credentials/v2"],
+        type: ["VerifiableCredential"],
+        credentialSubject: { name: "Jane Doe" },
+      },
+    };
+  }
+
+  function resolverFor(publicKey: KeyObject): DIDResolver {
+    return createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: publicKey.export({ format: "jwk" }) as import("@opencred/did").JWK,
+    });
+  }
+
+  /** Re-encode the JWT payload with a mutated claim, keeping the original signature. */
+  function tamperVcJwt(jwt: string): string {
+    const [header, payload, signature] = jwt.split(".");
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString()) as Record<
+      string,
+      unknown
+    >;
+    const vc = claims.vc as Record<string, unknown>;
+    vc.credentialSubject = { name: "Tampered" };
+    const tamperedPayload = Buffer.from(JSON.stringify(claims)).toString("base64url");
+    return `${header}.${tamperedPayload}.${signature}`;
+  }
+
+  it("should return VALID for an RSA-2048 VC-JWT signed with PS256", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+
+    const jwt = await createVcJwt(privateKey, vcJwtPayload(), "PS256");
+    const result = await verifyCredential(jwt, { didResolver: resolverFor(publicKey) });
+
+    expect(result.code).toBe("VALID");
+    expect(result.verified).toBe(true);
+  });
+
+  it("should return INVALID for a tampered RSA-2048 PS256 VC-JWT", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+
+    const jwt = await createVcJwt(privateKey, vcJwtPayload(), "PS256");
+    const result = await verifyCredential(tamperVcJwt(jwt), {
+      didResolver: resolverFor(publicKey),
+    });
+
+    expect(result.code).toBe("INVALID");
+    expect(result.verified).toBe(false);
+  });
+
+  it("should return VALID for a P-384 VC-JWT signed with ES384", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-384" });
+
+    const jwt = await createVcJwt(privateKey, vcJwtPayload(), "ES384");
+    const result = await verifyCredential(jwt, { didResolver: resolverFor(publicKey) });
+
+    expect(result.code).toBe("VALID");
+    expect(result.verified).toBe(true);
+  });
+
+  it("should return INVALID for a tampered P-384 ES384 VC-JWT", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-384" });
+
+    const jwt = await createVcJwt(privateKey, vcJwtPayload(), "ES384");
+    const result = await verifyCredential(tamperVcJwt(jwt), {
+      didResolver: resolverFor(publicKey),
+    });
+
+    expect(result.code).toBe("INVALID");
+    expect(result.verified).toBe(false);
+  });
+
+  it("should return VALID for an Ed25519 VC-JWT signed with EdDSA", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+
+    const jwt = await createVcJwt(privateKey, vcJwtPayload(), "EdDSA");
+    const result = await verifyCredential(jwt, { didResolver: resolverFor(publicKey) });
+
+    expect(result.code).toBe("VALID");
+    expect(result.verified).toBe(true);
+  });
+
+  it("should return INVALID for a tampered Ed25519 EdDSA VC-JWT", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+
+    const jwt = await createVcJwt(privateKey, vcJwtPayload(), "EdDSA");
+    const result = await verifyCredential(tamperVcJwt(jwt), {
+      didResolver: resolverFor(publicKey),
+    });
+
+    expect(result.code).toBe("INVALID");
+    expect(result.verified).toBe(false);
+  });
+});
+
+describe("verifyCredential — Ed25519 Data Integrity (eddsa-rdfc-2022) (#678)", () => {
+  it("should return VALID for a credential signed with signCredentialEdDsa", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const unsignedVC = createTestCredential();
+    const jwk = publicKey.export({ format: "jwk" });
+    const verificationMethodId = "did:web:university.example#key-1";
+
+    const signedVC = await signCredentialEdDsa(
+      unsignedVC,
+      { id: verificationMethodId, privateKey, publicKey, algorithm: "Ed25519" },
+      {
+        verificationMethod: verificationMethodId,
+        proofPurpose: "assertionMethod",
+      },
+    );
+
+    const resolver = createMockResolver("did:web:university.example", {
+      id: verificationMethodId,
+      type: "JsonWebKey",
+      controller: "did:web:university.example",
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const result = await verifyCredential(signedVC as unknown as Record<string, unknown>, {
+      didResolver: resolver,
+    });
+
+    expect(result.code).toBe("VALID");
+    expect(result.verified).toBe(true);
+    expect(result.checks.some((c) => c.name === "signature" && c.passed)).toBe(true);
+  });
+
+  it("should return INVALID for a tampered Ed25519 Data Integrity credential", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const unsignedVC = createTestCredential();
+    const jwk = publicKey.export({ format: "jwk" });
+    const verificationMethodId = "did:web:university.example#key-1";
+
+    const signedVC = await signCredentialEdDsa(
+      unsignedVC,
+      { id: verificationMethodId, privateKey, publicKey, algorithm: "Ed25519" },
+      {
+        verificationMethod: verificationMethodId,
+        proofPurpose: "assertionMethod",
+      },
+    );
+
+    const tampered = {
+      ...signedVC,
+      credentialSubject: { ...signedVC.credentialSubject, name: "Tampered" },
+    };
+
+    const resolver = createMockResolver("did:web:university.example", {
+      id: verificationMethodId,
+      type: "JsonWebKey",
+      controller: "did:web:university.example",
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const result = await verifyCredential(tampered as unknown as Record<string, unknown>, {
+      didResolver: resolver,
+    });
+
+    expect(result.code).toBe("INVALID");
+    expect(result.verified).toBe(false);
+  });
+});
+
 describe("verifyCredential — SD-JWT VC", () => {
   it("should return VALID for a valid SD-JWT VC", async () => {
     const { privateKey, publicKey } = generateTestKeyPair();
@@ -659,6 +836,40 @@ describe("verifyCredential — SD-JWT VC", () => {
         _sd_alg: "sha-256",
       },
       [d1],
+    );
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const result = await verifyCredential(sdJwtVc, { didResolver: resolver });
+
+    expect(result.code).toBe("VALID");
+    expect(result.verified).toBe(true);
+  });
+
+  it("should return VALID for an RSA-2048 SD-JWT VC signed with PS256 (#678)", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const issuerDid = "did:web:university.example";
+    const jwk = publicKey.export({ format: "jwk" });
+
+    const d1 = createDisclosure("salt1", "given_name", "Jane");
+    const digest1 = computeDigest(d1);
+
+    const sdJwtVc = await createSdJwtVc(
+      privateKey,
+      {
+        iss: issuerDid,
+        vct: "VerifiableCredential",
+        nbf: Math.floor(Date.now() / 1000) - 60,
+        _sd: [digest1],
+        _sd_alg: "sha-256",
+      },
+      [d1],
+      "PS256",
     );
 
     const resolver = createMockResolver(issuerDid, {
