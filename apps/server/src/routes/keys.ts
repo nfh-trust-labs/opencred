@@ -269,12 +269,16 @@ keys.get("/keys/did-document", async (c) => {
     );
   }
 
-  // Path 1: prefer DeDi's projected did.json (assembled from the per-key
-  // snapshots in `opencred-key-registry`). It is the authoritative current
-  // document — it carries every non-revoked key (multi-key
-  // `verificationMethod[]`) after rotation/revocation. Falls through when the
-  // DID has no key carrying a document snapshot; any DeDi error is logged at
-  // warn level so the operator can debug but doesn't block the response.
+  // Path 1: prefer DeDi's projected did.json — the immutable snapshot on the
+  // highest-index active key record in `opencred-key-registry` (the latest era
+  // written at the most recent publish/rotate). It is a frozen snapshot, not a
+  // live re-assembly: a `revoke` that is not followed by a rotation writes no
+  // new snapshot, so the projected document can still list the revoked key in
+  // its relationships. Revocation is still enforced — the verifier's separate
+  // key-status check returns `REVOKED` regardless of the did.json contents.
+  // Falls through when the DID has no key carrying a document snapshot; any
+  // DeDi error is logged at warn level so the operator can debug but doesn't
+  // block the response.
   const dediClient = getDeDiClient();
   if (dediClient) {
     try {

@@ -1379,6 +1379,21 @@ describe("DeDiClient (adapter)", () => {
       expect(api.queryRecords).toHaveBeenCalledWith("example.com", OPENCRED_KEY_REGISTRY);
     });
 
+    it("prefers the highest-index active key when several are active (rotation window)", async () => {
+      // During the brief window between publishing the new key and flipping the
+      // prior key to `rotated`, both are `active`. The stale prior key (whose
+      // snapshot predates the new key) is listed first, but the projection must
+      // pick the highest-index active key so the result stays current.
+      const client = createClient("example.com");
+      const api = mockApi();
+      mockQuery(api, [
+        keyRecord(`${did}#key-0`, "active", true),
+        keyRecord(`${did}#key-1`, "active", true),
+      ]);
+      const doc = await client.resolveDidWebDocument(did);
+      expect(doc).toEqual(docFor(`${did}#key-1`));
+    });
+
     it("falls back to the highest-index key when none is active", async () => {
       const client = createClient("example.com");
       const api = mockApi();

@@ -554,8 +554,11 @@ export class DeDiClient {
    *
    * Lists the key registry, keeps records whose `controllerDid` matches and
    * that carry a `document` snapshot, and returns the snapshot of the
-   * **active** key — or, when no key is active, the **highest-indexed**
-   * (`#key-N`) key, i.e. the most recent / most complete era. Returns `null`
+   * **highest-indexed active** key — or, when no key is active, the
+   * **highest-indexed** (`#key-N`) key overall, i.e. the most recent / most
+   * complete era. Selecting the highest index among active keys keeps the
+   * result stable through the brief rotation window where the newly-published
+   * key and the not-yet-`rotated` prior key are both `active`. Returns `null`
    * when the DID has no key carrying a document: a did:key (self-describing),
    * or a did:web issuer who hosts `.well-known/did.json` on their own domain
    * (`OPENCRED_DEDI_HOST_DID_DOC` unset). On a `null`/failure the fallback
@@ -586,10 +589,13 @@ export class DeDiClient {
       const m = /#key-(\d+)$/.exec(vm);
       return m ? Number(m[1]) : -1;
     };
-    // Prefer the live (active) key's document; otherwise the latest era.
-    const chosen =
-      candidates.find((d) => d.status === "active") ??
-      candidates.reduce((best, d) => (keyIndex(d.keyId) > keyIndex(best.keyId) ? d : best));
+    const highestIndex = (pool: KeyRecord[]): KeyRecord =>
+      pool.reduce((best, d) => (keyIndex(d.keyId) > keyIndex(best.keyId) ? d : best));
+    // Prefer the live (active) key's document — the highest-index active key
+    // when more than one is briefly active mid-rotation; otherwise the latest
+    // era (highest index overall).
+    const active = candidates.filter((d) => d.status === "active");
+    const chosen = active.length > 0 ? highestIndex(active) : highestIndex(candidates);
     return chosen.document ?? null;
   }
 
