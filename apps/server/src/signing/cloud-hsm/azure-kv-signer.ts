@@ -115,6 +115,10 @@ export async function createAzureKvSigner(
     type: "software",
     fingerprint,
     label: `azure-kv:${keyName}`,
+    // Public JWK only — exporting a public KeyObject can never yield
+    // private parameters. Required for /v1/keys/publish and
+    // /v1/keys/rotate (DeDi key lifecycle) with KMS-backed signers (#675).
+    publicKeyJwk: publicKeyObj.export({ format: "jwk" }) as Record<string, unknown>,
   };
 
   return {

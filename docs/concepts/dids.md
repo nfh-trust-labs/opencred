@@ -181,7 +181,7 @@ Operator: swap OPENCRED_KEY_PATH, restart container, then:
 
 **Concurrency**: today's implementation is last-writer-wins for the DeDi write. Multi-replica deployments running simultaneous rotations against the same DID risk one rotation clobbering the other. DeDi-side optimistic concurrency is the right long-term fix — see [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md) §5.
 
-**Out of scope for v1**: KMS-backed signer rotation (KMS public-key extraction is a separate work item — today only software signers expose `publicKeyJwk`) and rotation audit log.
+**Out of scope for v1**: rotation audit log. (KMS-backed rotation became possible in #675 — Cloud HSM signers now expose `publicKeyJwk`; note that rotating the KMS key *version* remains a provider-side operation.)
 
 ### Auto-publishing the issuer DID at startup (opt-in)
 

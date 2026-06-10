@@ -73,6 +73,10 @@ export async function createGcpKmsSigner(keyName: string, timeoutMs = 30_000): P
     type: "software",
     fingerprint,
     label: `gcp-kms:${shortName}`,
+    // Public JWK only — exporting a public KeyObject can never yield
+    // private parameters. Required for /v1/keys/publish and
+    // /v1/keys/rotate (DeDi key lifecycle) with KMS-backed signers (#675).
+    publicKeyJwk: publicKeyObj.export({ format: "jwk" }) as Record<string, unknown>,
   };
 
   return {
