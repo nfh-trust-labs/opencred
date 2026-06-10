@@ -300,6 +300,13 @@ export class DeDiApiClient {
   // `docs/decisions/dedi-integration-open-questions.md`.
 
   // ── Query & Search ───────────────────────────────────────────────
+  //
+  // Pagination: `DeDiQueryParams` forwards `page`/`per_page` to DeDi, but
+  // the response envelope carries no total/has_next metadata, so callers
+  // cannot iterate beyond the first page reliably. OpenCred's lifecycle
+  // operations use direct record lookups (by record name), which is why
+  // this hasn't mattered; treat these two methods as "first page only"
+  // until DeDi exposes pagination metadata.
 
   async queryRecords<T = unknown>(
     ns: string,

@@ -12,6 +12,7 @@
   * [did.json snapshot on each key record](concepts/dids.md#didjson-snapshot-on-each-key-record-and-the-two-path-model)
   * [Riverside University worked example](concepts/dids.md#worked-example--riverside-university)
 * [Trust chains](concepts/trust-chains.md)
+* [Credential support matrix](concepts/support-matrix.md)
 * [Revocation](concepts/revocation.md)
   * [Key revocation vs per-credential revocation](concepts/revocation.md#key-revocation-vs-per-credential-revocation)
   * [No DeDi status available — credential is still VALID](concepts/revocation.md#the-no-dedi-status-available-case--credential-stays-valid)
