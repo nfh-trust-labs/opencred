@@ -15,7 +15,7 @@
  * Each run generates fresh keys, so verification-method record names and
  * credential hashes never collide across runs.
  */
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createVerifier } from "@opencred/verify";
 import {
   E2E_IMAGE,
@@ -70,12 +70,17 @@ describe.runIf(runnable)("DeDi key lifecycle (did:web, staging namespace)", () =
 
   // DeDi-aware verifier — revocation + key-status checks active, did:web
   // resolution falls back to DeDi when the canonical fetch fails.
-  const verify = createVerifier({
-    dedi: {
-      baseUrl: DEDI_BASE_URL!,
-      namespace: DEDI_NAMESPACE!,
-      auth: { type: "api-key", apiKey: DEDI_API_KEY! },
-    },
+  // Constructed lazily: describe callbacks run at collection even when the
+  // suite is skipped, and DeDiClient rejects an undefined baseUrl.
+  let verify: ReturnType<typeof createVerifier>;
+  beforeAll(() => {
+    verify = createVerifier({
+      dedi: {
+        baseUrl: DEDI_BASE_URL!,
+        namespace: DEDI_NAMESPACE!,
+        auth: { type: "api-key", apiKey: DEDI_API_KEY! },
+      },
+    });
   });
 
   let serverA: ServerContainer | undefined;
