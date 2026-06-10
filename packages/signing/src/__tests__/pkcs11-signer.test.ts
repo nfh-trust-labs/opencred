@@ -382,6 +382,9 @@ describe("PKCS#11 Signer", () => {
       expect(signer.id).toContain("#");
       expect(signer.metadata.fingerprint).toMatch(/^[a-f0-9]{64}$/);
       expect(signer.metadata.type).toBe("pkcs11");
+      // Public JWK surfaced for DeDi key lifecycle (#676) — public params only
+      expect(signer.metadata.publicKeyJwk).toMatchObject({ kty: "EC", crv: "P-256" });
+      expect(signer.metadata.publicKeyJwk!.d).toBeUndefined();
       expect(availableKeys.length).toBeGreaterThan(0);
     });
 
@@ -462,6 +465,10 @@ describe("PKCS#11 Signer", () => {
       expect(signer.id).toMatch(/^did:jwk:/);
       expect(signer.id).toContain("#0");
       expect(signer.metadata.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+      // Public JWK surfaced for DeDi key lifecycle (#676) — public params only
+      expect(signer.metadata.publicKeyJwk).toMatchObject({ kty: "RSA" });
+      expect(signer.metadata.publicKeyJwk!.n).toBeTruthy();
+      expect(signer.metadata.publicKeyJwk!.d).toBeUndefined();
     });
 
     it("should produce an RSA signature from sign()", async () => {

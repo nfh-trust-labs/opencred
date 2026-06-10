@@ -212,6 +212,9 @@ describe("OS Certificate Store Signer", () => {
       expect(signer.metadata.fingerprint).toMatch(/^[a-f0-9]{64}$/);
       expect(signer.metadata.type).toBe("os-cert");
       expect(signer.metadata.label).toBe("My macOS Cert");
+      // Public JWK surfaced for DeDi key lifecycle (#676) — public params only
+      expect(signer.metadata.publicKeyJwk).toMatchObject({ kty: "EC", crv: "P-256" });
+      expect(signer.metadata.publicKeyJwk!.d).toBeUndefined();
     });
 
     it("should produce a valid did:key ID", async () => {
