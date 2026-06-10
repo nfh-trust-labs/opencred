@@ -58,54 +58,51 @@ function tamper(credential: Record<string, unknown> | string): Record<string, un
   return copy;
 }
 
-describe.runIf(runnable).each(MATRIX)(
-  "matrix: $algorithm",
-  ({ algorithm, formats, port }) => {
-    let server: ServerContainer;
+describe.runIf(runnable).each(MATRIX)("matrix: $algorithm", ({ algorithm, formats, port }) => {
+  let server: ServerContainer;
 
-    beforeAll(async () => {
-      server = await startServer(algorithm, port);
-    });
+  beforeAll(async () => {
+    server = await startServer(algorithm, port);
+  });
 
-    afterAll(() => {
-      server?.stop();
-    });
+  afterAll(() => {
+    server?.stop();
+  });
 
-    describe.each(formats.map((f) => ({ format: f })))("$format", ({ format }) => {
-      it("issues, verifies via SDK and server, rejects tampering", async () => {
-        const issued = await issueCredential(server.baseUrl, format, {
-          id: `did:example:holder-${algorithm}-${format}`,
-        });
-        expect(issued.status, JSON.stringify(issued.error)).toBe(200);
-        const credential = issued.credential!;
-
-        const sdkResult = await verify(credential as never);
-        expect(sdkResult.code, JSON.stringify(sdkResult.checks)).toBe("VALID");
-        expect(sdkResult.verified).toBe(true);
-
-        const serverResult = await verifyViaServer(server.baseUrl, credential);
-        expect(serverResult.code, JSON.stringify(serverResult.checks)).toBe("VALID");
-
-        const tampered = tamper(credential);
-        const tamperedResult = await verify(tampered as never);
-        expect(tamperedResult.verified).toBe(false);
+  describe.each(formats.map((f) => ({ format: f })))("$format", ({ format }) => {
+    it("issues, verifies via SDK and server, rejects tampering", async () => {
+      const issued = await issueCredential(server.baseUrl, format, {
+        id: `did:example:holder-${algorithm}-${format}`,
       });
-    });
-
-    it("rejects an expired credential at verification (EXPIRED)", async () => {
-      const issued = await issueCredential(
-        server.baseUrl,
-        formats[0],
-        { id: "did:example:expired-holder" },
-        { validFrom: "2020-01-01T00:00:00Z", validUntil: "2021-01-01T00:00:00Z" },
-      );
       expect(issued.status, JSON.stringify(issued.error)).toBe(200);
-      const result = await verify(issued.credential as never);
-      expect(result.verified).toBe(false);
-      expect(result.code).toBe("EXPIRED");
+      const credential = issued.credential!;
+
+      const sdkResult = await verify(credential as never);
+      expect(sdkResult.code, JSON.stringify(sdkResult.checks)).toBe("VALID");
+      expect(sdkResult.verified).toBe(true);
+
+      const serverResult = await verifyViaServer(server.baseUrl, credential);
+      expect(serverResult.code, JSON.stringify(serverResult.checks)).toBe("VALID");
+
+      const tampered = tamper(credential);
+      const tamperedResult = await verify(tampered as never);
+      expect(tamperedResult.verified).toBe(false);
     });
-  },
-);
+  });
+
+  it("rejects an expired credential at verification (EXPIRED)", async () => {
+    const issued = await issueCredential(
+      server.baseUrl,
+      formats[0],
+      { id: "did:example:expired-holder" },
+      { validFrom: "2020-01-01T00:00:00Z", validUntil: "2021-01-01T00:00:00Z" },
+    );
+    expect(issued.status, JSON.stringify(issued.error)).toBe(200);
+    const result = await verify(issued.credential as never);
+    expect(result.verified).toBe(false);
+    expect(result.code).toBe("EXPIRED");
+  });
+});
 
 describe.runIf(runnable)("documented exclusions", () => {
   let server: ServerContainer;

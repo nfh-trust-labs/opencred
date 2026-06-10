@@ -17,14 +17,21 @@
  */
 import { describe, it, expect, afterAll } from "vitest";
 import { createVerifier } from "@opencred/verify";
-import { E2E_IMAGE, dockerAvailable, startServer, type ServerContainer, API_KEY } from "./docker.js";
+import {
+  E2E_IMAGE,
+  dockerAvailable,
+  startServer,
+  type ServerContainer,
+  API_KEY,
+} from "./docker.js";
 import { issueCredential, verifyViaServer } from "./server-client.js";
 
 const DEDI_BASE_URL = process.env.OPENCRED_E2E_DEDI_BASE_URL;
 const DEDI_NAMESPACE = process.env.OPENCRED_E2E_DEDI_NAMESPACE;
 const DEDI_API_KEY = process.env.OPENCRED_E2E_DEDI_API_KEY;
 
-const runnable = Boolean(E2E_IMAGE && DEDI_BASE_URL && DEDI_NAMESPACE && DEDI_API_KEY) && dockerAvailable();
+const runnable =
+  Boolean(E2E_IMAGE && DEDI_BASE_URL && DEDI_NAMESPACE && DEDI_API_KEY) && dockerAvailable();
 if (!runnable) {
   // eslint-disable-next-line no-console
   console.warn(
