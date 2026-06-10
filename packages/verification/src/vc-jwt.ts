@@ -204,9 +204,24 @@ export async function verifyVcJwt(
       };
     }
 
-    await jose.jwtVerify(jwt, publicKey, {
-      algorithms: ALLOWED_ALGORITHMS as unknown as string[],
-    });
+    try {
+      await jose.jwtVerify(jwt, publicKey, {
+        algorithms: ALLOWED_ALGORITHMS as unknown as string[],
+      });
+    } catch (error) {
+      // jose validates the signature BEFORE evaluating registered claims,
+      // so an exp/nbf claim failure means the signature itself is sound.
+      // Let the dedicated date check downstream classify it (EXPIRED /
+      // not-yet-valid) — otherwise an expired vc-jwt surfaces as INVALID
+      // while an expired data-integrity credential surfaces as EXPIRED,
+      // and relying parties can't branch on the result code consistently.
+      const code = (error as { code?: string }).code;
+      const claim = (error as { claim?: string }).claim;
+      const isDateClaimFailure =
+        code === "ERR_JWT_EXPIRED" ||
+        (code === "ERR_JWT_CLAIM_VALIDATION_FAILED" && (claim === "nbf" || claim === "exp"));
+      if (!isDateClaimFailure) throw error;
+    }
 
     return {
       check: { name: "signature", passed: true },

@@ -369,6 +369,12 @@ describe("verifyCredential — VC-JWT", () => {
 
     const result = await verifyCredential(jwt, { didResolver: resolver });
     expect(result.verified).toBe(false);
+    // Result-code consistency across proof formats: expired vc-jwt must
+    // surface as EXPIRED (like data-integrity), not INVALID — jose's
+    // exp-claim rejection happens after signature validation and must not
+    // masquerade as a signature failure.
+    expect(result.code).toBe("EXPIRED");
+    expect(result.checks.some((c) => c.name === "signature" && c.passed)).toBe(true);
   });
 
   describe("JsonWebSignature2020 envelope (canonical vc-jwt issuance output)", () => {

@@ -2815,18 +2815,27 @@ async function handleDeDiSetConfig(
     const mgr = getDeDiPublishManager();
     if (!mgr) {
       logger.error("DeDi publish manager could not be created");
-      return { success: true, registriesReady: false };
+      return {
+        success: true,
+        registriesReady: false,
+        error: "DeDi client could not be created from the stored configuration",
+      };
     }
+    // Carry the failure reason to the UI so "registries not ready yet" is
+    // distinguishable from "registry creation failed" when debugging.
     let registriesReady = false;
+    let registriesError: string | undefined;
     try {
       registriesReady = await mgr.ensureRegistries(request.namespace);
+      if (!registriesReady) registriesError = "Registry creation failed — see logs";
     } catch (regErr) {
+      registriesError = ipcErrorMessage(regErr, "Registry creation failed");
       logger.error("DeDi ensureRegistries failed", {
         error: regErr instanceof Error ? regErr.message : String(regErr),
       });
     }
     store.set("dediRegistriesReady", registriesReady);
-    return { success: true, registriesReady };
+    return { success: true, registriesReady, error: registriesError };
   } catch (err) {
     return {
       success: false,

@@ -153,12 +153,13 @@ const configSchema = z.object({
   /**
    * Which DID method this server's issuer identity uses.
    *
-   * - `key` (default): issuer DID is derived from the signer's public key
-   *   as `did:key:z…`. The DID is self-contained — verifiers resolve it
-   *   offline without any network call. Best when the server has no public
-   *   domain, runs air-gapped, or wants offline-verifiable credentials.
-   *   Note: did:key has no key rotation; treat HSM-backed keys as a
-   *   compensating control.
+   * - `key` (default): issuer DID is derived from the signer's public key —
+   *   `did:key:z…` for EC/Ed25519 keys, `did:jwk:…` for RSA keys (no
+   *   multicodec exists for RSA). Either way the DID is self-contained —
+   *   verifiers resolve it offline without any network call. Best when the
+   *   server has no public domain, runs air-gapped, or wants
+   *   offline-verifiable credentials. Note: self-describing DIDs have no
+   *   key rotation; treat HSM-backed keys as a compensating control.
    *
    * - `web`: issuer DID is `did:web:<OPENCRED_ISSUER_DOMAIN>`. Verifiers
    *   resolve the DID over HTTPS from that domain. Best when the issuer

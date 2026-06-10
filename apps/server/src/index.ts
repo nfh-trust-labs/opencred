@@ -201,12 +201,17 @@ if (cloudSigner) {
       "No active signer; skipping issuer-identity validation",
     );
   } else if (config.OPENCRED_ISSUER_DID_METHOD === "key") {
-    if (!activeSigner.id.startsWith("did:key:")) {
+    // Method "key" means "self-describing DID — no hosted document". EC
+    // software keys derive did:key; RSA keys derive did:jwk (no multicodec
+    // exists for RSA). Both resolve fully offline, so both satisfy the
+    // method's contract; rejecting did:jwk here made the server unbootable
+    // with an RSA software key for no security gain.
+    if (!activeSigner.id.startsWith("did:key:") && !activeSigner.id.startsWith("did:jwk:")) {
       const msg =
         `OPENCRED_ISSUER_DID_METHOD=key but the loaded signer (${activeSigner.id}) ` +
-        "is not a did:key. Software signers using RSA produce did:jwk; either " +
-        "switch to an EC key (P-256/P-384/Ed25519) or set " +
-        "OPENCRED_ISSUER_DID_METHOD=web with OPENCRED_ISSUER_DOMAIN.";
+        "is not a self-describing DID (did:key / did:jwk). Set " +
+        "OPENCRED_ISSUER_DID_METHOD=web with OPENCRED_ISSUER_DOMAIN to sign " +
+        "under a domain identity instead.";
       logger.fatal(msg);
       process.stderr.write(`\n[opencred-server] FATAL: ${msg}\n\n`);
       process.exit(1);
