@@ -84,12 +84,15 @@ export async function deliverWebhook(
     Host: originalHost,
   };
 
-  const delays = [0, 1000, 4000]; // 3 attempts: immediate, 1s, 4s backoff
+  // 3 attempts: immediate, ~1s, ~4s. Jitter (+0–25%) de-synchronises worker
+  // replicas retrying delivery to the same recovering consumer.
+  const delays = [0, 1000, 4000];
   let lastError: Error | undefined;
 
   for (let attempt = 0; attempt < delays.length; attempt++) {
     if (delays[attempt] > 0) {
-      await new Promise((r) => setTimeout(r, delays[attempt]));
+      const jittered = Math.round(delays[attempt] * (1 + Math.random() * 0.25));
+      await new Promise((r) => setTimeout(r, jittered));
     }
 
     try {

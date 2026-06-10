@@ -75,7 +75,7 @@ The check lives in `packages/verification/src/checks.ts` (`checkRevocation`).
 
 The OpenCred packages include a DeDi HTTP client at `packages/dedi-client`. It provides:
 
-* `DeDiClient` — high-level adapter (revocation, delegation, schemas, contexts)
+* `DeDiClient` — high-level adapter (revocation, key records, schemas, contexts)
 * `DeDiApiClient` — low-level API client
 * `DeDiPublishManager` — orchestrator for publishing operations
 * `CircuitBreaker`, `withRetry` — resilience helpers

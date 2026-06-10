@@ -102,10 +102,13 @@ export interface VerifySdkOptions {
    *  - `did:web` resolution falls back to DeDi's `did-documents` registry
    *    when canonical HTTPS resolution fails.
    *
-   * Omit for a pure offline verifier. Note that without DeDi, the
-   * revocation check is silently skipped — credentials carrying a
-   * `credentialStatus` block will verify as VALID even if they've been
-   * revoked, because there's no way to query the registry.
+   * Omit for a pure offline verifier. Note that without DeDi, revocation
+   * cannot be checked — credentials carrying a `credentialStatus` block
+   * will verify as VALID even if they've been revoked, because there's no
+   * way to query the registry. The skip is surfaced in `result.checks` as
+   * a non-failing `revocation` row whose detail says the check was NOT
+   * performed; strict relying parties can treat that row as a policy
+   * failure.
    */
   dedi?: DeDiClientConfig;
 
@@ -213,10 +216,39 @@ export function createVerifier(options: VerifySdkOptions = {}): Verifier {
     dediClient: dediClient ?? undefined,
   };
 
-  const fn = async (input: VerificationInput): Promise<CredentialVerificationResult> =>
-    _verifyCredential(input, verifierConfig);
+  // The public SDK contract is "always returns a CredentialVerificationResult"
+  // — verifier services feed it untrusted input (QR scans, uploads), so an
+  // undetectable format or an oversized token must come back as a structured
+  // INVALID, not an exception. The internal engine throws typed errors for
+  // these (the Docker image maps them to HTTP 400s); the facade is where
+  // that contract changes.
+  const toInvalidResult = (err: unknown): CredentialVerificationResult => ({
+    code: "INVALID",
+    verified: false,
+    checks: [
+      {
+        name: "input",
+        passed: false,
+        detail: err instanceof Error ? err.message : "Input is not a verifiable credential",
+      },
+    ],
+  });
 
-  (fn as Verifier).pdf = async (pdfBytes: Uint8Array) => _verifyPdf(pdfBytes, verifierConfig);
+  const fn = async (input: VerificationInput): Promise<CredentialVerificationResult> => {
+    try {
+      return await _verifyCredential(input, verifierConfig);
+    } catch (err) {
+      return toInvalidResult(err);
+    }
+  };
+
+  (fn as Verifier).pdf = async (pdfBytes: Uint8Array) => {
+    try {
+      return await _verifyPdf(pdfBytes, verifierConfig);
+    } catch (err) {
+      return toInvalidResult(err);
+    }
+  };
 
   return fn as Verifier;
 }

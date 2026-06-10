@@ -230,11 +230,23 @@ function DeDiCard() {
         hostDidDocument: true,
       });
 
-      setActionResult(
-        pubResult.success
-          ? { type: "success", message: "Key published successfully." }
-          : { type: "error", message: pubResult.error ?? "Failed to publish key." },
-      );
+      // Partial success: the key record is in DeDi's registry, but the
+      // hosted did.json refresh failed — verifiers resolving via DeDi
+      // would see a stale key set until the publish is retried.
+      if (pubResult.success && pubResult.didDocumentStored === false) {
+        setActionResult({
+          type: "error",
+          message:
+            "Key published, but storing the hosted did.json failed. " +
+            "Verifiers may see a stale key set — retry publishing.",
+        });
+      } else {
+        setActionResult(
+          pubResult.success
+            ? { type: "success", message: "Key published successfully." }
+            : { type: "error", message: pubResult.error ?? "Failed to publish key." },
+        );
+      }
     } catch (err) {
       setActionResult({
         type: "error",
