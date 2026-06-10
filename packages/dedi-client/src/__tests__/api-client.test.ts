@@ -502,6 +502,48 @@ describe("DeDiApiClient", () => {
     });
   });
 
+  // ── Retry-After parsing (issue #679) ─────────────────────────────
+
+  describe("Retry-After parsing", () => {
+    it("surfaces an integer-seconds Retry-After on 429 as retryAfterMs", async () => {
+      mockFetch.mockResolvedValue(
+        new Response("rate limited", { status: 429, headers: { "Retry-After": "7" } }),
+      );
+
+      const client = new DeDiApiClient(createConfig());
+      const err = await client.lookupNamespace("busy").catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(DeDiClientError);
+      expect((err as DeDiClientError).statusCode).toBe(429);
+      expect((err as DeDiClientError).retryAfterMs).toBe(7000);
+    });
+
+    it("ignores the HTTP-date form of Retry-After", async () => {
+      mockFetch.mockResolvedValue(
+        new Response("rate limited", {
+          status: 429,
+          headers: { "Retry-After": "Wed, 10 Jun 2026 07:28:00 GMT" },
+        }),
+      );
+
+      const client = new DeDiApiClient(createConfig());
+      const err = await client.lookupNamespace("busy").catch((e: unknown) => e);
+
+      expect((err as DeDiClientError).retryAfterMs).toBeUndefined();
+    });
+
+    it("ignores Retry-After on non-429 responses", async () => {
+      mockFetch.mockResolvedValue(
+        new Response("error", { status: 503, headers: { "Retry-After": "7" } }),
+      );
+
+      const client = new DeDiApiClient(createConfig());
+      const err = await client.lookupNamespace("broken").catch((e: unknown) => e);
+
+      expect((err as DeDiClientError).retryAfterMs).toBeUndefined();
+    });
+  });
+
   // ── Timeout ──────────────────────────────────────────────────────
 
   describe("timeout", () => {

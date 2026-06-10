@@ -245,6 +245,10 @@ export class DeDiClient {
   private readonly api: DeDiApiClient;
   private readonly defaultNamespace?: string;
   readonly logger: DeDiLogger;
+  // Per-key write chains for `setKeyStatus` (#677): the tail promise of the
+  // last in-flight status write for each verification method. Entries are
+  // dropped once their chain drains.
+  private readonly keyStatusWrites = new Map<string, Promise<unknown>>();
 
   constructor(config: DeDiClientConfig) {
     this.api = new DeDiApiClient(config);
@@ -432,6 +436,11 @@ export class DeDiClient {
    * to move backward (e.g. `revoked → rotated`) or to set the status it's
    * already at is a no-op (`changed: false`), not an error.
    *
+   * Concurrent calls for the same verification method within this process
+   * are serialised through a per-key promise chain (#677) so their
+   * read-modify-write cycles never interleave; multi-instance writers still
+   * race (a DeDi-side CAS is tracked with the DeDi team, #659).
+   *
    * - `rotated`: clean retirement. Credentials signed by the key stay
    *   valid (a clean rotation means the key was never compromised).
    * - `revoked`: compromise / withdrawal. The verifier rejects every
@@ -441,6 +450,30 @@ export class DeDiClient {
    * change the status of a key you never published.
    */
   async setKeyStatus(
+    verificationMethod: string,
+    status: KeyStatus,
+    namespace?: string,
+  ): Promise<SetKeyStatusResult> {
+    // Per-key promise-chain mutex (#677): chain onto the previous write for
+    // this verification method so concurrent read-modify-write cycles can't
+    // interleave. A failed predecessor must not poison the chain (`catch`).
+    const prior = this.keyStatusWrites.get(verificationMethod) ?? Promise.resolve();
+    const run = prior
+      .catch(() => undefined)
+      .then(() => this.doSetKeyStatus(verificationMethod, status, namespace));
+    const tail = run.catch(() => undefined);
+    this.keyStatusWrites.set(verificationMethod, tail);
+    // Drop the map entry once the chain drains so the map can't grow unbounded.
+    void tail.then(() => {
+      if (this.keyStatusWrites.get(verificationMethod) === tail) {
+        this.keyStatusWrites.delete(verificationMethod);
+      }
+    });
+    return run;
+  }
+
+  /** `setKeyStatus` body — runs on the per-key chain; do not call directly. */
+  private async doSetKeyStatus(
     verificationMethod: string,
     status: KeyStatus,
     namespace?: string,

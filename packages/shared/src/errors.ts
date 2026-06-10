@@ -470,10 +470,22 @@ export class DeDiClientError extends OpenCredError {
    * `{ code: "NAMESPACE_EXISTS" }` from a generic 400.
    */
   readonly responseBody?: unknown;
-  constructor(message: string, statusCode: number = 502, responseBody?: unknown) {
+  /**
+   * Milliseconds the server asked us to wait before retrying, parsed from
+   * the `Retry-After` header of a 429 response (integer-seconds form only).
+   * `withRetry` uses it as the backoff delay for that attempt when present.
+   */
+  readonly retryAfterMs?: number;
+  constructor(
+    message: string,
+    statusCode: number = 502,
+    responseBody?: unknown,
+    retryAfterMs?: number,
+  ) {
     super(message, "DEDI_CLIENT_ERROR", statusCode, { kind: "DeDiClientError" });
     this.name = "DeDiClientError";
     this.responseBody = responseBody;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 

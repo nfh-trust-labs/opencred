@@ -412,6 +412,8 @@ export class DeDiApiClient {
             throw new DeDiClientError(
               `DeDi API error: ${response.status}`,
               response.status >= 500 ? 502 : response.status,
+              undefined,
+              parseRetryAfterMs(response),
             );
           }
           let parsed: unknown;
@@ -501,6 +503,7 @@ export class DeDiApiClient {
         `DeDi API error: ${response.status}`,
         response.status >= 500 ? 502 : response.status,
         json ?? (text ? text : undefined),
+        parseRetryAfterMs(response),
       );
     }
 
@@ -521,6 +524,7 @@ export class DeDiApiClient {
         `DeDi API error: ${response.status}`,
         response.status >= 500 ? 502 : response.status,
         json ?? (text ? text : undefined),
+        parseRetryAfterMs(response),
       );
     }
   }
@@ -674,6 +678,19 @@ function stripIpv6Brackets(hostname: string): string {
 
 function enc(value: string): string {
   return encodeURIComponent(value);
+}
+
+/**
+ * Parse a 429 response's `Retry-After` header into milliseconds for
+ * `DeDiClientError.retryAfterMs` (issue #679). Only the integer-seconds
+ * form is honoured; the HTTP-date form is ignored. `withRetry` caps the
+ * value, so no clamping here.
+ */
+function parseRetryAfterMs(response: Response): number | undefined {
+  if (response.status !== 429) return undefined;
+  const header = response.headers.get("retry-after")?.trim();
+  if (header === undefined || !/^\d+$/.test(header)) return undefined;
+  return Number(header) * 1000;
 }
 
 /**

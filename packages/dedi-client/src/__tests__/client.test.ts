@@ -1325,6 +1325,80 @@ describe("DeDiClient (adapter)", () => {
       expect(details["document"]).toEqual(snapshot); // immutable — unchanged
       expect(details["status"]).toBe("revoked"); // the only mutation
     });
+
+    it("serialises concurrent calls for the same key — no interleaving (#677)", async () => {
+      // Two concurrent read-modify-writes for the same verification method
+      // must not interleave: the second call's read must happen after the
+      // first call's write completed. The first write is held open on a gate
+      // and the mocks record operation order against a stateful record.
+      const client = createClient("example.com");
+      const api = mockApi();
+      const order: string[] = [];
+      let state: "active" | "rotated" | "revoked" = "active";
+      let writeCalls = 0;
+      let releaseFirstWrite!: () => void;
+      const firstWriteGate = new Promise<void>((resolve) => {
+        releaseFirstWrite = resolve;
+      });
+
+      vi.mocked(api.lookupRecord).mockImplementation((() => {
+        order.push(`read:${state}`);
+        return Promise.resolve({
+          message: "ok",
+          data: {
+            record_name: recordName,
+            registry: OPENCRED_KEY_REGISTRY,
+            namespace: "example.com",
+            details: existingKey(state),
+            state: "live",
+            version: "1",
+            created_at: "",
+            updated_at: "",
+          },
+        });
+      }) as never);
+      vi.mocked(api.updateRecord).mockImplementation((async (...callArgs: unknown[]) => {
+        writeCalls += 1;
+        if (writeCalls === 1) await firstWriteGate;
+        const target = (callArgs[3] as { status: typeof state }).status;
+        order.push(`write:${target}`);
+        state = target;
+        return {};
+      }) as never);
+
+      const first = client.setKeyStatus(vm, "rotated");
+      const second = client.setKeyStatus(vm, "revoked");
+
+      // Flush pending microtasks: the first call is blocked inside its write,
+      // and the second call must NOT have read yet — that's the serialisation.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(order).toEqual(["read:active"]);
+
+      releaseFirstWrite();
+      await expect(first).resolves.toMatchObject({ changed: true, to: "rotated" });
+      await expect(second).resolves.toMatchObject({ changed: true, to: "revoked" });
+
+      // The second read observed the first write's result — no interleaving.
+      expect(order).toEqual(["read:active", "write:rotated", "read:rotated", "write:revoked"]);
+      expect(state).toBe("revoked");
+    });
+
+    it("a failed call does not poison the per-key chain (#677)", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockRejectedValueOnce(
+        new DeDiClientError("DeDi API error: 404", 404),
+      );
+
+      await expect(client.setKeyStatus(vm, "rotated")).rejects.toThrow(DeDiClientError);
+
+      mockResolveKey(api, "active");
+      vi.mocked(api.updateRecord).mockResolvedValue({} as never);
+      await expect(client.setKeyStatus(vm, "revoked")).resolves.toMatchObject({
+        changed: true,
+        to: "revoked",
+      });
+    });
   });
 
   // ── resolveDidWebDocument (did:web fallback projection, #670) ─────────
