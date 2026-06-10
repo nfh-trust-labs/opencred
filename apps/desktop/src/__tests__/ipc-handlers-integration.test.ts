@@ -86,16 +86,12 @@ vi.mock("electron-updater", () => ({
 // Mock DeDi publish manager — we test DeDi separately
 const mockEnsureSchemaPublished = vi.fn();
 const mockPublishKey = vi.fn();
-const mockPublishDidDocument = vi.fn();
 const mockEnsureRegistries = vi.fn();
 const mockSetKeyStatus = vi.fn();
 // `rawClient.resolveKey` is consulted when assembling the hosted did.json from
 // the issuer's current non-revoked key set (GAP 1). Default: every lookup
 // 404s, so the common one-key issuer assembles a single-key document.
 const mockResolveKey = vi.fn();
-// `rawClient.resolveDidDocument` is the fallback source for the revoke did.json
-// regeneration when the caller doesn't supply `currentDidDocument`.
-const mockResolveDidDocument = vi.fn();
 
 vi.mock("@opencred/dedi-client", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
@@ -104,11 +100,10 @@ vi.mock("@opencred/dedi-client", async (importOriginal) => {
     createPublishManager: vi.fn(() => ({
       ensureSchemaPublished: mockEnsureSchemaPublished,
       publishKey: mockPublishKey,
-      publishDidDocument: mockPublishDidDocument,
       ensureRegistries: mockEnsureRegistries,
       setKeyStatus: mockSetKeyStatus,
       getPublishedSchemaIds: () => [],
-      rawClient: { resolveKey: mockResolveKey, resolveDidDocument: mockResolveDidDocument },
+      rawClient: { resolveKey: mockResolveKey },
     })),
     DeDiPublishManager: vi.fn(),
   };
@@ -401,8 +396,7 @@ describe("IPC Handler Integration Tests", () => {
       storeData["preferences"] = prefs;
 
       // Drop the cached publishManager singleton so the configured
-      // mocks (publishKey / publishDidDocument / setKeyStatus) wire in
-      // fresh.
+      // mocks (publishKey / setKeyStatus) wire in fresh.
       const disconnect = registeredHandlers[IPC_CHANNELS.DEDI_DISCONNECT];
       await disconnect(fakeEvent);
 
@@ -465,7 +459,6 @@ describe("IPC Handler Integration Tests", () => {
       mockSetKeyStatus.mockClear();
 
       mockPublishKey.mockResolvedValue({ recordName: "rec-web" });
-      mockPublishDidDocument.mockResolvedValue({ recordName: "doc-web" });
 
       const did = "did:web:issuer.example.org";
       const handler = registeredHandlers[IPC_CHANNELS.DEDI_PUBLISH_KEY];
@@ -480,16 +473,15 @@ describe("IPC Handler Integration Tests", () => {
       expect(result.keyId).toBe(did + "#key-0");
       expect(result.didDocumentStored).toBe(true);
 
+      // The did.json snapshot now lives ON the key record (no separate
+      // did-documents registry). It's freshly ASSEMBLED from the active key
+      // set, not the single-key `document` the renderer supplied. For a
+      // one-key issuer that's a single-key doc with the active #key-0 method.
+      expect(mockPublishKey).toHaveBeenCalledTimes(1);
       const keyRecord = mockPublishKey.mock.calls[0]![0] as Record<string, unknown>;
       expect(keyRecord.keyId).toBe(did + "#key-0");
       expect(keyRecord.controllerDid).toBe(did);
-
-      expect(mockPublishDidDocument).toHaveBeenCalledTimes(1);
-      expect(mockPublishDidDocument.mock.calls[0]![0]).toBe(did);
-      // GAP 1: the hosted did.json is freshly ASSEMBLED from the active key
-      // set, not the single-key `document` the renderer supplied. For a
-      // one-key issuer that's a single-key doc with the active #key-0 method.
-      const storedDoc = mockPublishDidDocument.mock.calls[0]![1] as {
+      const storedDoc = keyRecord.document as {
         id: string;
         verificationMethod: { id: string }[];
       };
@@ -568,8 +560,6 @@ describe("IPC Handler Integration Tests", () => {
       mockSetKeyStatus.mockResolvedValue({ changed: true, keyId: "" });
       mockPublishKey.mockClear();
       mockPublishKey.mockResolvedValue({ recordName: "rec-rot" });
-      mockPublishDidDocument.mockClear();
-      mockPublishDidDocument.mockResolvedValue({ recordName: "doc-rot" });
 
       const did = "did:web:issuer.example.org";
       const currentDidDocument = {
@@ -599,11 +589,15 @@ describe("IPC Handler Integration Tests", () => {
 
       expect(result.success).toBe(true);
       expect(result.keyId).toBe(did + "#key-1");
-      // The previous key was flipped to rotated (stays valid).
+      // The previous key was flipped to rotated (stays valid). setKeyStatus
+      // carries the old key record's own did.json snapshot forward unchanged —
+      // no document is passed to it.
       expect(mockSetKeyStatus).toHaveBeenCalledWith(did + "#key-0", "rotated", "test-ns");
 
-      // The regenerated did.json carries BOTH keys (old #key-0 still resolves).
-      const storedDoc = mockPublishDidDocument.mock.calls[0]![1] as {
+      // The NEW key record carries the regenerated did.json snapshot embedded on
+      // it, with BOTH keys (old #key-0 still resolves).
+      const newKeyRecord = mockPublishKey.mock.calls[0]![0] as Record<string, unknown>;
+      const storedDoc = newKeyRecord.document as {
         verificationMethod: { id: string }[];
         assertionMethod: string[];
       };
@@ -615,62 +609,35 @@ describe("IPC Handler Integration Tests", () => {
       expect(storeData["dediActiveKeyIndex"]).toBe(1);
     });
 
-    it("did:web revoke: keeps the key resolvable but drops it from the relationships", async () => {
+    it("did:web revoke: flips the per-key registry status (the authoritative signal)", async () => {
       await setupConfiguredDeDi();
       mockSetKeyStatus.mockClear();
       mockSetKeyStatus.mockResolvedValue({
         changed: true,
         keyId: "did:web:issuer.example.org#key-0",
       });
-      mockPublishDidDocument.mockClear();
-      mockPublishDidDocument.mockResolvedValue({ recordName: "doc-rev" });
 
       const did = "did:web:issuer.example.org";
-      const currentDidDocument = {
-        id: did,
-        verificationMethod: [
-          {
-            id: did + "#key-0",
-            type: "JsonWebKey",
-            controller: did,
-            publicKeyJwk: { kty: "EC", crv: "P-256", x: "x0", y: "y0" },
-          },
-          {
-            id: did + "#key-1",
-            type: "JsonWebKey",
-            controller: did,
-            publicKeyJwk: { kty: "EC", crv: "P-256", x: "x1", y: "y1" },
-          },
-        ],
-        assertionMethod: [did + "#key-0", did + "#key-1"],
-        authentication: [did + "#key-0", did + "#key-1"],
-      };
 
       const handler = registeredHandlers[IPC_CHANNELS.DEDI_SET_KEY_STATUS];
       const result = (await handler(fakeEvent, {
         verificationMethod: did + "#key-0",
         status: "revoked",
         did,
-        currentDidDocument,
         hostDidDocument: true,
         namespace: "test-ns",
-      })) as { success: boolean; didDocumentStored?: boolean };
+      })) as { success: boolean; statusChange?: { changed: boolean }; didDocumentStored?: boolean };
 
+      // Revoke is a single status flip on the per-key registry record — the
+      // verifier reads that `status` to report REVOKED, and the live did.json is
+      // projected from the per-key snapshots. There is no separate did.json
+      // regeneration (no did-documents registry), and setKeyStatus carries each
+      // record's immutable snapshot forward unchanged.
       expect(result.success).toBe(true);
+      expect(result.statusChange?.changed).toBe(true);
       expect(mockSetKeyStatus).toHaveBeenCalledWith(did + "#key-0", "revoked", "test-ns");
-      expect(result.didDocumentStored).toBe(true);
-
-      const storedDoc = mockPublishDidDocument.mock.calls[0]![1] as {
-        verificationMethod: { id: string }[];
-        assertionMethod: string[];
-      };
-      // Both keys stay resolvable in verificationMethod[]...
-      expect(storedDoc.verificationMethod.map((v) => v.id)).toEqual([
-        did + "#key-0",
-        did + "#key-1",
-      ]);
-      // ...but the revoked key is dropped from the relationship.
-      expect(storedDoc.assertionMethod).toEqual([did + "#key-1"]);
+      // No document is re-published on revoke; the field is no longer surfaced.
+      expect(result.didDocumentStored).toBeUndefined();
     });
 
     it("did:web: assembled did.json keeps revoked keys resolvable but drops them from relationships", async () => {
@@ -690,7 +657,6 @@ describe("IPC Handler Integration Tests", () => {
       storeData["dediPublishedKeys"] = [activeVm, rotatedVm, revokedVm];
 
       mockPublishKey.mockResolvedValue({ recordName: "rec-web" });
-      mockPublishDidDocument.mockResolvedValue({ recordName: "doc-web" });
       const retainedJwk = { kty: "EC", crv: "P-256", x: "ret-x", y: "ret-y" };
       mockResolveKey.mockImplementation(async (vm: string) => {
         if (vm === rotatedVm) {
@@ -734,7 +700,9 @@ describe("IPC Handler Integration Tests", () => {
       expect(resolvedVms).toContain(revokedVm);
       expect(resolvedVms).not.toContain(activeVm);
 
-      const storedDoc = mockPublishDidDocument.mock.calls[0]![1] as {
+      // The assembled did.json snapshot is embedded on the published key record.
+      const keyRecord = mockPublishKey.mock.calls[0]![0] as Record<string, unknown>;
+      const storedDoc = keyRecord.document as {
         verificationMethod: { id: string }[];
         assertionMethod: string[];
       };
@@ -765,7 +733,6 @@ describe("IPC Handler Integration Tests", () => {
       storeData["dediPublishedKeys"] = [unreachableVm];
 
       mockPublishKey.mockResolvedValue({ recordName: "rec-web" });
-      mockPublishDidDocument.mockResolvedValue({ recordName: "doc-web" });
       mockResolveKey.mockRejectedValue(new Error("DeDi unreachable"));
 
       const handler = registeredHandlers[IPC_CHANNELS.DEDI_PUBLISH_KEY];
@@ -779,7 +746,8 @@ describe("IPC Handler Integration Tests", () => {
       // Publish still succeeds; the unreachable key is silently skipped.
       expect(result.success).toBe(true);
       expect(result.didDocumentStored).toBe(true);
-      const storedDoc = mockPublishDidDocument.mock.calls[0]![1] as {
+      const keyRecord = mockPublishKey.mock.calls[0]![0] as Record<string, unknown>;
+      const storedDoc = keyRecord.document as {
         verificationMethod: { id: string }[];
       };
       const ids = storedDoc.verificationMethod.map((m) => m.id);

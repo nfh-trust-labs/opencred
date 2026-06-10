@@ -15,9 +15,13 @@
  *   7. OPENCRED_DEDI_HOST_DID_DOC=true + did:key → does NOT trigger
  *      (HOST_DID_DOC is did:web-specific by design)
  *   8. did:web + signer without publicKeyJwk → outcome: "no-jwk"
- *   9. did:web success path calls publishKey with a KeyRecord + publishDidDocument
- *      when OPENCRED_DEDI_HOST_DID_DOC=true
- *  10. did:key success path calls publishKey and no publishDidDocument
+ *   9. did:web success path calls publishKey with a KeyRecord whose `document`
+ *      carries the generated did.json when OPENCRED_DEDI_HOST_DID_DOC=true
+ *  10. did:key success path calls publishKey with no `document` on the record
+ *
+ * Under the per-key registry redesign the did.json snapshot is embedded ON the
+ * key record (the `document` field) rather than published to a separate
+ * did-documents registry — there is no `publishDidDocument` anymore.
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -84,21 +88,17 @@ function makePkcs11Signer(): Signer {
 }
 
 type PublishKeyCall = { key: KeyRecord; namespace?: string };
-type PublishDidDocumentCall = { did: string; document: unknown; namespace?: string };
 
 function makeDeDiClient(opts: {
   publishKey?: (
     key: KeyRecord,
     namespace?: string,
   ) => Promise<{ recordName: string; published: boolean; namespace: string }>;
-  publishDidDocument?: (did: string, document: unknown, namespace?: string) => Promise<unknown>;
 }): {
   client: DeDiClient;
   publishKeyCalls: PublishKeyCall[];
-  publishDidDocumentCalls: PublishDidDocumentCall[];
 } {
   const publishKeyCalls: PublishKeyCall[] = [];
-  const publishDidDocumentCalls: PublishDidDocumentCall[] = [];
   const client = {
     publishKey: async (key: KeyRecord, namespace?: string) => {
       publishKeyCalls.push({ key, namespace });
@@ -107,15 +107,8 @@ function makeDeDiClient(opts: {
       }
       return { published: true, recordName: key.controllerDid, namespace: namespace ?? "test-ns" };
     },
-    publishDidDocument: async (did: string, document: unknown, namespace?: string) => {
-      publishDidDocumentCalls.push({ did, document, namespace });
-      if (opts.publishDidDocument) {
-        return opts.publishDidDocument(did, document, namespace);
-      }
-      return { published: true, recordName: did, namespace: namespace ?? "test-ns" };
-    },
   } as unknown as DeDiClient;
-  return { client, publishKeyCalls, publishDidDocumentCalls };
+  return { client, publishKeyCalls };
 }
 
 function makeConfig(overrides: Partial<AutoPublishConfig> = {}): AutoPublishConfig {
@@ -184,7 +177,7 @@ describe("runAutoPublishIfEnabled — flag matrix", () => {
 describe("runAutoPublishIfEnabled — did:key success path", () => {
   it("publishes the signer's did:key as a KeyRecord and returns published outcome", async () => {
     const logger = makeLogger();
-    const { client, publishKeyCalls, publishDidDocumentCalls } = makeDeDiClient({
+    const { client, publishKeyCalls } = makeDeDiClient({
       publishKey: async (key) => ({
         published: true,
         recordName: key.controllerDid,
@@ -203,9 +196,9 @@ describe("runAutoPublishIfEnabled — did:key success path", () => {
       expect(result.issuerDid).toBe("did:key:z6MkTestKey123");
       expect(result.recordName).toBe("did:key:z6MkTestKey123");
     }
-    // publishKey called once; publishDidDocument NOT called for did:key
+    // publishKey called once; no did.json embedded on the record for did:key
     expect(publishKeyCalls).toHaveLength(1);
-    expect(publishDidDocumentCalls).toHaveLength(0);
+    expect(publishKeyCalls[0]!.key.document).toBeUndefined();
     // The KeyRecord must carry the issuer DID as controllerDid (no fragment).
     expect(publishKeyCalls[0]!.key.controllerDid).toBe("did:key:z6MkTestKey123");
     expect(publishKeyCalls[0]!.key.status).toBe("active");
@@ -240,8 +233,8 @@ describe("runAutoPublishIfEnabled — did:key success path", () => {
 });
 
 describe("runAutoPublishIfEnabled — did:web success path", () => {
-  it("publishes did:web as a KeyRecord (no publishDidDocument when HOST_DID_DOC=false)", async () => {
-    const { client, publishKeyCalls, publishDidDocumentCalls } = makeDeDiClient({
+  it("publishes did:web as a KeyRecord (no embedded did.json when HOST_DID_DOC=false)", async () => {
+    const { client, publishKeyCalls } = makeDeDiClient({
       publishKey: async (_key) => ({
         published: true,
         recordName: "did-web-bootcamp-example-org",
@@ -272,14 +265,15 @@ describe("runAutoPublishIfEnabled — did:web success path", () => {
       kty: "EC",
       crv: "P-256",
     });
-    // No publishDidDocument when HOST_DID_DOC=false
-    expect(publishDidDocumentCalls).toHaveLength(0);
+    // No embedded did.json when HOST_DID_DOC=false
+    expect(publishKeyCalls[0]!.key.document).toBeUndefined();
   });
 
-  it("calls publishDidDocument ALSO when OPENCRED_DEDI_HOST_DID_DOC=true + did:web", async () => {
-    // Regression guard: HOST_DID_DOC=true + method=web must both call
-    // publishKey AND publishDidDocument with a generated did.json.
-    const { client, publishKeyCalls, publishDidDocumentCalls } = makeDeDiClient({
+  it("embeds the did.json on the key record when OPENCRED_DEDI_HOST_DID_DOC=true + did:web", async () => {
+    // Regression guard: HOST_DID_DOC=true + method=web must publish a KeyRecord
+    // whose `document` field carries the generated did.json (the separate
+    // publishDidDocument call was removed by the per-key registry redesign).
+    const { client, publishKeyCalls } = makeDeDiClient({
       publishKey: async (_key) => ({
         published: true,
         recordName: "did-web-issuer-example-org",
@@ -300,27 +294,27 @@ describe("runAutoPublishIfEnabled — did:web success path", () => {
     expect(result.outcome).toBe("published");
     expect(publishKeyCalls).toHaveLength(1);
     expect(publishKeyCalls[0]!.key.controllerDid).toBe("did:web:issuer.example.org");
-    // publishDidDocument must have been called with the generated did.json
-    expect(publishDidDocumentCalls).toHaveLength(1);
-    expect(publishDidDocumentCalls[0]!.did).toBe("did:web:issuer.example.org");
-    const doc = publishDidDocumentCalls[0]!.document as {
-      id: string;
-      verificationMethod: Array<{ publicKeyJwk: Record<string, unknown> }>;
-    };
+    // The generated did.json is embedded on the published key record.
+    const doc = publishKeyCalls[0]!.key.document as
+      | {
+          id: string;
+          verificationMethod: Array<{ publicKeyJwk: Record<string, unknown> }>;
+        }
+      | undefined;
     expect(doc).toBeDefined();
-    expect(doc.id).toBe("did:web:issuer.example.org");
-    expect(doc.verificationMethod).toBeDefined();
-    expect(doc.verificationMethod[0]!.publicKeyJwk).toMatchObject({
+    expect(doc!.id).toBe("did:web:issuer.example.org");
+    expect(doc!.verificationMethod).toBeDefined();
+    expect(doc!.verificationMethod[0]!.publicKeyJwk).toMatchObject({
       kty: "EC",
       crv: "P-256",
     });
   });
 
-  it("does NOT host the did.json when the key index > 0 (rotated deploy)", async () => {
+  it("does NOT embed the did.json when the key index > 0 (rotated deploy)", async () => {
     // After a rotation the multi-key did.json is owned by /v1/keys/rotate; a
-    // single-key auto-publish at index > 0 would clobber it. The key RECORD is
-    // still published, under the new #key-<n>.
-    const { client, publishKeyCalls, publishDidDocumentCalls } = makeDeDiClient({});
+    // single-key snapshot at index > 0 would drop the issuer's older keys. The
+    // key RECORD is still published, under the new #key-<n>.
+    const { client, publishKeyCalls } = makeDeDiClient({});
     const result = await runAutoPublishIfEnabled(
       makeConfig({
         OPENCRED_DEDI_HOST_DID_DOC: true,
@@ -335,8 +329,8 @@ describe("runAutoPublishIfEnabled — did:web success path", () => {
     expect(result.didPublish).toBe(true);
     expect(publishKeyCalls).toHaveLength(1);
     expect(publishKeyCalls[0]!.key.keyId).toBe("did:web:issuer.example.org#key-1");
-    // did.json hosting is skipped at index > 0 — the multi-key document is preserved.
-    expect(publishDidDocumentCalls).toHaveLength(0);
+    // did.json embedding is skipped at index > 0 — the multi-key document is preserved.
+    expect(publishKeyCalls[0]!.key.document).toBeUndefined();
   });
 
   it("returns no-jwk outcome when did:web signer lacks publicKeyJwk", async () => {

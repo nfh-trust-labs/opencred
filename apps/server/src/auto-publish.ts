@@ -3,21 +3,23 @@
  *
  * Publishes the active signer as a record in the `opencred-key-registry`
  * (one record per key, status `active`). For did:web issuers who opt into
- * `OPENCRED_DEDI_HOST_DID_DOC`, it ALSO stores the assembled `did.json` in
- * the `did-documents` registry so DeDi can serve it (and back the did:web
- * fallback resolver).
+ * `OPENCRED_DEDI_HOST_DID_DOC`, the assembled `did.json` snapshot is embedded
+ * ON that key record (the per-key `document` field) so DeDi can serve it and
+ * back the did:web fallback resolver. There is no longer a separate
+ * `did-documents` registry.
  *
  * Two flags trigger this:
  *
  *   1. `OPENCRED_AUTO_PUBLISH_KEY=true` — publishes the key record for any
  *      DID method.
  *   2. `OPENCRED_DEDI_HOST_DID_DOC=true` AND `OPENCRED_ISSUER_DID_METHOD=web`
- *      — publishes the key record AND stores `did.json` in DeDi.
+ *      — publishes the key record with the `did.json` snapshot embedded.
  *
  * Idempotency: if the key is already published, DeDi returns 409 → the
  * dedi-client adapter rewraps as `DeDiRecordExistsError` (#615). We log a
- * friendly "already published" message and treat it as success (still
- * upserting the DID document when DeDi-hosting is enabled). Any other DeDi
+ * friendly "already published" message and treat it as success. The embedded
+ * `document` snapshot is immutable and was written when the record was first
+ * published, so there is nothing to refresh on a re-deploy. Any other DeDi
  * failure is logged at warn level; the caller (server bootstrap) must still
  * start because auto-publish is a convenience, not a precondition.
  *
@@ -126,6 +128,15 @@ export async function runAutoPublishIfEnabled(
   const keyId = isDidWeb
     ? didWebVerificationMethodIdForIndex(issuerDid, config.OPENCRED_DIDWEB_KEY_INDEX)
     : signer.id;
+  const namespace = config.OPENCRED_DEDI_NAMESPACE;
+  // Only embed a SINGLE-key did.json snapshot for a fresh issuer (index 0).
+  // After a rotation (index > 0) the did.json is a multi-key document managed
+  // by /v1/keys/rotate — embedding a single-key snapshot here would drop the
+  // issuer's older keys from the resolver's view. The key RECORD is still
+  // published either way.
+  const hostDidDoc =
+    isDidWeb && config.OPENCRED_DEDI_HOST_DID_DOC && config.OPENCRED_DIDWEB_KEY_INDEX === 0;
+
   const keyRecord: KeyRecord = {
     keyId,
     controllerDid: issuerDid,
@@ -133,23 +144,23 @@ export async function runAutoPublishIfEnabled(
     publicKeyJwk: jwk,
     purpose: ["assertionMethod"],
     status: "active",
+    // did:web + HOST_DID_DOC: embed the immutable did.json snapshot on the key
+    // record itself (replaces the old separate did-documents publish). Only the
+    // public JWK material goes in — generateDidWebDocumentMultiKey strips any
+    // private members.
+    ...(hostDidDoc
+      ? {
+          document: generateDidWebDocumentMultiKey(issuerDid, [
+            { id: keyId, publicKeyJwk: jwk as JWK },
+          ]) as unknown as Record<string, unknown>,
+        }
+      : {}),
   };
-  const namespace = config.OPENCRED_DEDI_NAMESPACE;
-  // Only auto-host a SINGLE-key did.json for a fresh issuer (index 0). After a
-  // rotation (index > 0) the did.json is a multi-key document managed by
-  // /v1/keys/rotate — auto-publishing a single-key document here would clobber
-  // it and drop the issuer's older keys. The key RECORD is still published.
-  const hostDidDoc =
-    isDidWeb && config.OPENCRED_DEDI_HOST_DID_DOC && config.OPENCRED_DIDWEB_KEY_INDEX === 0;
 
   try {
     const result = await dediClient.publishKey(keyRecord, namespace);
     if (hostDidDoc) {
-      const document = generateDidWebDocumentMultiKey(issuerDid, [
-        { id: keyId, publicKeyJwk: jwk as JWK },
-      ]);
-      await dediClient.publishDidDocument(issuerDid, document, namespace);
-      logger.info({ issuerDid }, "Issuer did.json stored in DeDi (did-documents registry)");
+      logger.info({ issuerDid }, "Issuer did.json snapshot embedded on the key record in DeDi");
     }
     logger.info(
       { issuerDid, keyId, recordName: result.recordName },
@@ -163,24 +174,12 @@ export async function runAutoPublishIfEnabled(
     };
   } catch (err) {
     if (err instanceof DeDiRecordExistsError) {
-      // The key was published in a prior run; the key registry already has
-      // the record. Still upsert the DID document when DeDi-hosting is on,
-      // so a re-deploy refreshes did.json. From the flag's POV this is
-      // success — verifiers can already resolve the key's status via DeDi.
+      // The key was published in a prior run; the key registry already has the
+      // record, and (for did:web + HOST_DID_DOC) its immutable did.json snapshot
+      // was written at first publish. There is nothing to refresh — from the
+      // flag's POV this is success: verifiers can already resolve the key's
+      // status (and document) via DeDi.
       logger.info({ issuerDid, keyId }, "Issuer key already published to DeDi (idempotent skip)");
-      if (hostDidDoc) {
-        try {
-          const document = generateDidWebDocumentMultiKey(issuerDid, [
-            { id: keyId, publicKeyJwk: jwk as JWK },
-          ]);
-          await dediClient.publishDidDocument(issuerDid, document, namespace);
-        } catch (docErr) {
-          logger.warn(
-            { error: docErr instanceof Error ? docErr.message : String(docErr), issuerDid },
-            "Failed to refresh DeDi-hosted did.json (non-fatal)",
-          );
-        }
-      }
       return { didPublish: true, outcome: "already-published", issuerDid };
     }
     const errorMessage = err instanceof Error ? err.message : String(err);

@@ -11,7 +11,6 @@ export type {
   RevocationHashRecord,
   KeyRecord,
   KeyStatus,
-  DidDocumentRecord,
   SetKeyStatusResult,
   SchemaRecord,
   ContextRecord,
@@ -20,10 +19,8 @@ export type {
 export {
   REVOCATION_REGISTRY,
   OPENCRED_KEY_REGISTRY,
-  DID_DOCUMENTS_REGISTRY,
   SCHEMA_REGISTRY,
   CONTEXT_REGISTRY,
-  didToRecordName,
   verificationMethodToRecordName,
 } from "./adapter/registry-names.js";
 

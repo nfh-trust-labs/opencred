@@ -208,7 +208,7 @@ Publish the active signer's signing key to the DeDi `opencred-key-registry` (sta
 ```ts
 {
   namespace?: string;        // override OPENCRED_DEDI_NAMESPACE
-  hostDidDocument?: boolean; // also store did.json in `did-documents` (did:web only)
+  hostDidDocument?: boolean; // also embed the did.json snapshot on the key record (did:web only)
 }
 ```
 
@@ -238,7 +238,7 @@ Source: `apps/server/src/routes/keys.ts`
 
 ### POST /v1/keys/rotate
 
-Clean rotation for a `did:web` issuer. Publishes the new key (status `active`), flips the previous key to `rotated`, and regenerates the `did.json`. Credentials signed by the retired key remain valid — a clean rotation is not a compromise.
+Clean rotation for a `did:web` issuer. Publishes the new key (status `active`) at its own sequential `#key-<newKeyIndex>`, flips the previous key to `rotated`, and regenerates the multi-key `did.json`. Credentials signed by the retired key remain valid — a clean rotation is not a compromise, and the retired key keeps its distinct fragment in `verificationMethod[]` so its credentials still resolve ([#653](https://github.com/nfh-trust-labs/opencred/issues/653) resolved). When DeDi-hosting is enabled the regenerated `did.json` is embedded as the snapshot on the new key's record — there is no separate `did-documents` registry.
 
 **Scope:** `did:web` only. For `did:key`, regenerate the key (produces a new DID).
 
@@ -248,9 +248,11 @@ Clean rotation for a `did:web` issuer. Publishes the new key (status `active`), 
 
 ```ts
 {
+  newKeyIndex: number;                 // sequential index of the NEW key, e.g. 1
   previousVerificationMethod?: string; // the key being retired, e.g. "did:web:issuer.example.org#key-0"
+  currentDidDocument?: Record<string, unknown>; // the issuer's CURRENT did.json (existing key set)
   namespace?: string;
-  hostDidDocument?: boolean;           // regenerate and store did.json
+  hostDidDocument?: boolean;           // embed the regenerated did.json on the new key record
 }
 ```
 
@@ -261,7 +263,15 @@ Clean rotation for a `did:web` issuer. Publishes the new key (status `active`), 
   "rotated": true,
   "did": "did:web:issuer.example.org",
   "currentKeyId": "did:web:issuer.example.org#key-1",
-  "retired": { "keyId": "did:web:issuer.example.org#key-0", "status": "rotated" },
+  "newKeyIndex": 1,
+  "retired": {
+    "changed": true,
+    "keyId": "did:web:issuer.example.org#key-0",
+    "from": "active",
+    "to": "rotated",
+    "namespace": "issuer.example.org"
+  },
+  "didDocument": { "id": "did:web:issuer.example.org", "verificationMethod": ["..."] },
   "didDocumentStored": true
 }
 ```
@@ -272,7 +282,10 @@ Clean rotation for a `did:web` issuer. Publishes the new key (status `active`), 
 |--------|------|------|
 | `400` | `VALIDATION_ERROR` | No active signer or signer doesn't expose `publicKeyJwk`. |
 | `400` | `KEY_METHOD_MISMATCH` | Active signer DID is `did:key:` — regenerate instead. |
+| `400` | `NO_CURRENT_DOCUMENT` | No `currentDidDocument` supplied and none projectable from the per-key snapshots. |
+| `400` | `DID_MISMATCH` | Supplied `currentDidDocument` is for a different DID. |
 | `403` | `READ_ONLY_MODE` | Replica running with `OPENCRED_READ_ONLY=true`. |
+| `409` | `KEY_INDEX_TAKEN` | `#key-<newKeyIndex>` is already present in the current `did.json`. |
 | `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
 
 Source: `apps/server/src/routes/keys.ts`
@@ -281,7 +294,7 @@ Source: `apps/server/src/routes/keys.ts`
 
 ### POST /v1/keys/revoke
 
-Revoke a signing key — flips its `opencred-key-registry` status to `revoked`. Every credential that key ever signed will be rejected by DeDi-aware verifiers. Use only for key compromise.
+Revoke a signing key — flips its `opencred-key-registry` status to `revoked`. Every credential that key ever signed will be rejected by DeDi-aware verifiers. Use only for key compromise. Optionally regenerates the `did.json` (revoked key dropped from relationships but kept in `verificationMethod[]`); there is no separate `did-documents` registry.
 
 **Auth:** Required.
 
@@ -290,8 +303,9 @@ Revoke a signing key — flips its `opencred-key-registry` status to `revoked`. 
 ```ts
 {
   verificationMethod: string;  // e.g. "did:web:issuer.example.org#key-0"
+  currentDidDocument?: Record<string, unknown>; // the issuer's CURRENT did.json
   namespace?: string;
-  hostDidDocument?: boolean;   // regenerate did.json dropping the revoked key (did:web only)
+  hostDidDocument?: boolean;   // regenerate did.json with the key de-authorized (did:web only)
 }
 ```
 
@@ -300,9 +314,13 @@ Revoke a signing key — flips its `opencred-key-registry` status to `revoked`. 
 ```json
 {
   "revoked": true,
+  "changed": true,
   "keyId": "did:web:issuer.example.org#key-0",
-  "status": "revoked",
-  "didDocumentStored": true
+  "from": "active",
+  "to": "revoked",
+  "namespace": "issuer.example.org",
+  "didDocument": { "id": "did:web:issuer.example.org", "verificationMethod": ["..."] },
+  "didDocumentRegenerated": true
 }
 ```
 
@@ -348,7 +366,7 @@ Resolve a signing key's record from the DeDi `opencred-key-registry`. Returns th
 }
 ```
 
-`status` is `"active"`, `"rotated"` (cleanly retired — credentials remain valid), or `"revoked"` (compromised — all credentials rejected).
+`status` is `"active"`, `"rotated"` (cleanly retired — credentials remain valid), or `"revoked"` (compromised — all credentials rejected). The record may also carry an optional `document` (the immutable `did.json` snapshot for the key's era, did:web + DeDi-hosting only) and a `proof` (CORD anchor) block.
 
 A `GET /v1/keys/resolve?verificationMethod=...&namespace=...` variant exists for CDN-cacheable reads.
 

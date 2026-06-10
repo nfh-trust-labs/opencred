@@ -56,14 +56,26 @@ export type KeyStatus = "active" | "rotated" | "revoked";
  *                     (e.g. `["assertionMethod"]`).
  * - `status`        — {@link KeyStatus}.
  *
+ * - `document`      — OPTIONAL. The assembled W3C did.json **snapshot as of
+ *                     this key's publish/rotate** (did:web only; gated by the
+ *                     issuer's `OPENCRED_DEDI_HOST_DID_DOC` choice). Each
+ *                     key's row carries the document of its own era —
+ *                     `…#key-0`'s snapshot has `#key-0`, `…#key-1`'s has both
+ *                     — which gives single-lookup, self-contained did:web
+ *                     resolution and **permanent historical resolution**. It
+ *                     replaces the old separate `did-documents` registry.
+ *
  * Concurrency invariant — read before adding fields. DeDi's
  * `update-record` has no optimistic-lock parameter, so `setKeyStatus`
- * is safe under concurrent writes only because the only mutable field,
+ * is safe under concurrent writes only because the only **mutable** field,
  * `status`, transitions monotonically (`active → rotated → revoked`) and
- * converges. Every other field is immutable for the life of the record
- * (a new key is a new record). Any new field that can diverge between
- * concurrent writers would reintroduce the lost-update race — close it
- * at the DeDi side first.
+ * converges. Every other field — including `document` — is **immutable** for
+ * the life of the record: a new key is a new record, and the document
+ * snapshot is written once at publish/rotate and carried forward unchanged
+ * by `setKeyStatus`. Any new field that can DIVERGE between concurrent
+ * writers would reintroduce the lost-update race — close it at the DeDi side
+ * first. (An immutable field is safe because all writers carry the same
+ * value forward.)
  */
 export interface KeyRecord {
   keyId: string;
@@ -73,6 +85,14 @@ export interface KeyRecord {
   purpose: string[];
   status: KeyStatus;
   /**
+   * Immutable did.json snapshot for did:web keys (see the interface doc).
+   * Public material only — assembled through `toPublicJwk`, never a private
+   * `d`. Absent for did:key (self-describing) and for issuers who host
+   * `.well-known/did.json` on their own domain (`OPENCRED_DEDI_HOST_DID_DOC`
+   * unset).
+   */
+  document?: Record<string, unknown>;
+  /**
    * CORD-blockchain anchor metadata copied off the DeDi envelope by the
    * adapter. Not part of the published `details` payload — DeDi sets this
    * server-side and surfaces it on lookup responses. Verifier callers use
@@ -80,28 +100,6 @@ export interface KeyRecord {
    * DID; absence simply means DeDi did not include a proof in this
    * response.
    */
-  proof?: DeDiProof;
-}
-
-/**
- * DeDi-hosted DID document record — the `did-documents` registry payload,
- * one record per DID. Stores the assembled W3C `did.json` so DeDi can host
- * a no-webserver issuer's did:web document and back the did:web fallback
- * resolver.
- *
- * - `did`      — the DID this document describes (required).
- * - `document` — the full W3C DID Document (required; this registry only
- *                exists to hold documents).
- *
- * Unlike {@link KeyRecord}, this record is *mutable*: every rotation /
- * revocation regenerates the document (adding the new key, dropping a
- * revoked key) and re-publishes it here. `publishDidDocument` is therefore
- * upsert — it updates an existing record rather than failing on collision.
- */
-export interface DidDocumentRecord {
-  did: string;
-  document: Record<string, unknown>;
-  /** See {@link KeyRecord.proof}. */
   proof?: DeDiProof;
 }
 

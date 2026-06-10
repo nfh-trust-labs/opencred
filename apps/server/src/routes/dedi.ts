@@ -2,7 +2,7 @@
  * DeDi runtime endpoints — operations that aren't tied to a specific registry.
  *
  *   `POST /dedi/namespace/ensure` — idempotently create a namespace and the
- *   four DeDi registries OpenCred relies on (revocation, public-key, schema,
+ *   four DeDi registries OpenCred relies on (revocation, key, schema,
  *   context). Wraps the same `dediClient.ensureRegistries(...)` helper that
  *   runs once at server startup, so operators can bootstrap additional
  *   namespaces at runtime without restarting the container.
@@ -26,7 +26,6 @@ import { z } from "zod";
 import {
   REVOCATION_REGISTRY,
   OPENCRED_KEY_REGISTRY,
-  DID_DOCUMENTS_REGISTRY,
   SCHEMA_REGISTRY,
   CONTEXT_REGISTRY,
 } from "@opencred/dedi-client";
@@ -37,7 +36,7 @@ const dedi = new Hono();
 
 const ensureNamespaceSchema = z.object({
   /**
-   * The DeDi namespace to ensure. Created if missing; the five registries
+   * The DeDi namespace to ensure. Created if missing; the four registries
    * OpenCred reads/writes are then created (or left alone if they already
    * exist — `ensureRegistries` ignores 409 conflicts).
    */
@@ -55,7 +54,6 @@ const ensureNamespaceSchema = z.object({
 const ENSURED_REGISTRIES: readonly string[] = [
   REVOCATION_REGISTRY,
   OPENCRED_KEY_REGISTRY,
-  DID_DOCUMENTS_REGISTRY,
   SCHEMA_REGISTRY,
   CONTEXT_REGISTRY,
 ];
@@ -63,7 +61,7 @@ const ENSURED_REGISTRIES: readonly string[] = [
 /**
  * POST /dedi/namespace/ensure
  *
- * Idempotently create a DeDi namespace and the five registries OpenCred uses.
+ * Idempotently create a DeDi namespace and the four registries OpenCred uses.
  *
  * Request body:
  *   { namespace: string }

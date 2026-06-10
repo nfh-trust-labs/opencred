@@ -27,8 +27,8 @@ export class DeDiPublishManager {
    *
    * Read-only access for consumers that need to perform DeDi operations
    * outside the publish-manager's lazy-publish workflow — primarily
-   * verification paths that need `resolveDidDocument()` for did:web fallback
-   * (see `createDeDiDIDWebFallback`). Reusing the manager's client
+   * verification paths that need `resolveDidWebDocument()` for did:web
+   * fallback (see `createDeDiDIDWebFallback`). Reusing the manager's client
    * preserves the shared circuit breaker, retry state, and auth token
    * cache rather than spinning up a parallel client.
    */
@@ -107,32 +107,6 @@ export class DeDiPublishManager {
     } catch (error) {
       this.logger.error("Failed to publish key to DeDi (non-fatal)", {
         keyId: key.keyId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-  }
-
-  /**
-   * Store (or update) a DID document in the `did-documents` registry —
-   * the DeDi-hosted did.json path and the did:web fallback source.
-   * Fire-and-forget: errors are logged, never thrown.
-   */
-  async publishDidDocument(
-    did: string,
-    document: unknown,
-    namespace?: string,
-  ): Promise<PublishResult | null> {
-    try {
-      const result = await this.client.publishDidDocument(did, document, namespace);
-      this.logger.debug("DID document stored in DeDi", {
-        did,
-        recordName: result.recordName,
-      });
-      return result;
-    } catch (error) {
-      this.logger.error("Failed to store DID document in DeDi (non-fatal)", {
-        did,
         error: error instanceof Error ? error.message : String(error),
       });
       return null;
