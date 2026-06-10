@@ -1,3 +1,5 @@
+> Superseded by #670 (did.json snapshot on each key record) — see docs/decisions/dedi-key-registry-redesign.md.
+
 # Spike 619 — did:web Key Rotation
 
 **Status:** **Implemented** in [PR #628](https://github.com/nfh-trust-labs/opencred/pull/628) (closes [#627](https://github.com/nfh-trust-labs/opencred/issues/627) — production code; this doc is preserved as design rationale). Released in v1.6.0.

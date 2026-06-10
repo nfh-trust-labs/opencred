@@ -206,21 +206,25 @@ VM$ export OPENCRED_DEDI_NAMESPACE="your-namespace-id"
 
 The OpenCred container's startup hook will create your namespace and
 the four registries inside it (`vc-revocation-registry`,
-`public_key_registry`, `schema_registry`, `context_registry`) on first
+`opencred-key-registry`, `schema_registry`, `context_registry`) on first
 boot — no pre-provisioning required.
 
 > **Schema-collision caveat.** Pre-existing registries are only safe to
 > reuse when their attached schema matches what OpenCred writes. DeDi
 > backends ship built-in JSON Schemas for some registry names — notably
 > `public_key.json` with shape `{public_key_id, publicKey, keyType, …}`,
-> which is **not** the shape OpenCred writes (`{did, document?,
-> keyStatus}` — `document` is omitted for `did:key` records, and
-> `keyStatus` is `"current"` or `"rotated"`). If a DeDi operator
-> pre-creates a `public_key_registry` with the built-in schema before
-> OpenCred boots, every `/v1/keys/publish` call will fail with a `400
-> "Record data does not match the registry schema"`. Let OpenCred create
-> the registries on first boot to avoid this; see local-docker.md §3a for
-> the full mitigation note.
+> which is **not** the shape OpenCred writes. OpenCred stores **one record
+> per signing key** in `opencred-key-registry` (record name = slug of
+> `DID#fragment`), each record `{ keyId, controllerDid, algorithm,
+> publicKeyJwk, purpose[], status }` with `status` one of `"active"`,
+> `"rotated"`, or `"revoked"`; the W3C did.json rides along as an optional
+> immutable `document` snapshot on each key record (written when
+> `OPENCRED_DEDI_HOST_DID_DOC=true`). If a DeDi operator pre-creates a
+> registry of this name with a different built-in schema before OpenCred
+> boots, every `/v1/keys/publish` call will fail with a `400 "Record data
+> does not match the registry schema"`. Let OpenCred create the registries
+> on first boot to avoid this; see local-docker.md §3a for the full
+> mitigation note.
 
 Pull the public OpenCred image. ~30 seconds on a GCP VM:
 
@@ -668,47 +672,52 @@ The full revoke + revocation-status flow is in §7c of the local guide
 (`BOOTCAMP.md`); the curl examples are identical except `localhost:3100`
 on your laptop reaches the VM through the SSH tunnel.
 
-#### 7c. DeDi public-key registry — publish your DID document
+#### 7c. DeDi key registry — publish your signing key
 
-With DeDi configured (§7b), you can push a DID document to the
-`public_key_registry` and resolve it back. OpenCred's verifier tries the
-canonical `did:web` HTTPS endpoint first and falls back to DeDi when the
-well-known URL is unreachable, so this lets you stop hosting your own
+With DeDi configured (§7b), you can push a signing key to the
+`opencred-key-registry` and resolve it back. OpenCred stores **one record
+per key** here (record name = slug of `DID#fragment`); the W3C did.json
+rides along as an optional immutable `document` snapshot on each key record
+(written when `OPENCRED_DEDI_HOST_DID_DOC=true`). OpenCred's verifier tries
+the canonical `did:web` HTTPS endpoint first and falls back to DeDi when
+the well-known URL is unreachable — the fallback projects the did.json from
+those per-key snapshots — so this lets you stop hosting your own
 `.well-known/did.json` and let DeDi serve as the discovery layer for
-DeDi-aware verifiers.
+DeDi-aware verifiers. There is no separate `did-documents` registry.
 
 ```bash
-# Publish (POST body: { did, document, namespace? })
+# Publish (POST body: { namespace?, hostDidDocument? }). The server publishes
+# the active signer's PUBLIC key into opencred-key-registry — the DID comes from
+# OPENCRED_ISSUER_DID_METHOD/OPENCRED_ISSUER_DOMAIN and the public key from the
+# signer, so you send neither a DID nor key material. With hostDidDocument true
+# (did:web only) it assembles the did.json from its current key set and embeds
+# that snapshot on the key record.
 LOCAL$ curl -s http://localhost:3100/v1/keys/publish \
   -H "Authorization: Bearer $OPENCRED_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "did": "did:web:bootcamp.example.org",
-    "document": {
-      "@context": "https://www.w3.org/ns/did/v1",
-      "id": "did:web:bootcamp.example.org",
-      "verificationMethod": [{
-        "id": "did:web:bootcamp.example.org#key-1",
-        "type": "JsonWebKey2020",
-        "controller": "did:web:bootcamp.example.org",
-        "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." }
-      }],
-      "assertionMethod": ["did:web:bootcamp.example.org#key-1"]
-    }
-  }' | jq
+  -d '{ "hostDidDocument": true }' | jq
 
-# Resolve (POST body: { did, namespace? })
+# Resolve (POST body: { verificationMethod, namespace? })
+# Returns the bare key record { keyId, controllerDid, algorithm,
+#   publicKeyJwk, purpose, status, document?, proof? }, where status is
+#   one of "active" | "rotated" | "revoked".
 LOCAL$ curl -s http://localhost:3100/v1/keys/resolve \
   -H "Authorization: Bearer $OPENCRED_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{ "did": "did:web:bootcamp.example.org" }' | jq
+  -d '{ "verificationMethod": "did:web:bootcamp.example.org#key-0" }' | jq
+
+# Grouped did.json — projected from the per-key snapshots
+# (GET; returns { did, document, source }).
+LOCAL$ curl -s http://localhost:3100/v1/keys/did-document \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" | jq
 ```
 
-Both endpoints return `503 DEDI_NOT_CONFIGURED` until DeDi is wired up.
-The same `rejectKeyMaterial` defense-in-depth guard runs over the request
-body — a `privateKey` field anywhere in the payload, or a string starting
-with `-----BEGIN ... PRIVATE KEY-----`, fails 400 before anything reaches
-DeDi.
+`/v1/keys/publish` returns `{ published, recordName, namespace, keyId,
+didDocumentStored }`. All three endpoints return `503 DEDI_NOT_CONFIGURED`
+until DeDi is wired up. The same `rejectKeyMaterial` defense-in-depth guard
+runs over the request body — a `privateKey` field anywhere in the payload,
+or a string starting with `-----BEGIN ... PRIVATE KEY-----`, fails 400
+before anything reaches DeDi.
 
 #### 7d. Public TLS endpoint (only do this if you actually need one)
 

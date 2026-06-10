@@ -150,7 +150,7 @@ For **bearer auth** instead of api-key, set `OPENCRED_DEDI_AUTH_TYPE=bearer` and
 
 The OpenCred container's startup hook calls `ensureRegistries()` on
 first boot — your namespace and the four registries inside it
-(`vc-revocation-registry`, `public_key_registry`, `schema_registry`,
+(`vc-revocation-registry`, `opencred-key-registry`, `schema_registry`,
 `context_registry`) get created if missing and reused if they already
 exist. No pre-provisioning required.
 
@@ -159,15 +159,20 @@ exist. No pre-provisioning required.
 > identical to what OpenCred publishes). DeDi backends ship built-in JSON
 > Schemas for some registry names — notably `public_key.json` with shape
 > `{public_key_id, publicKey, keyType, ...}`, which is **not** the shape
-> OpenCred writes (`{did, document?, keyStatus}` — `document` is omitted
-> for `did:key` records, and `keyStatus` is `"current"` or `"rotated"`).
-> If a DeDi operator pre-creates a `public_key_registry` using the
-> built-in catalogue schema before OpenCred boots, every `/v1/keys/publish`
-> call will fail with a `400 "Record data does not match the registry
-> schema"` from DeDi's AJV check. The same applies to any other registry
-> name DeDi has a built-in schema for. Easiest mitigation: let OpenCred
-> create the registries on first boot, and if you do pre-provision, make
-> sure the schema you attach matches what OpenCred writes (look at
+> OpenCred writes. OpenCred stores **one record per signing key** in
+> `opencred-key-registry` (record name = slug of `DID#fragment`), each
+> record being `{ keyId, controllerDid, algorithm, publicKeyJwk,
+> purpose[], status }` with `status` one of `"active"`, `"rotated"`, or
+> `"revoked"`. The W3C did.json is carried as an optional immutable
+> `document` snapshot on the key record (written at publish/rotate time
+> when `OPENCRED_DEDI_HOST_DID_DOC=true`). If a DeDi operator pre-creates
+> a registry of this name using a different built-in catalogue schema
+> before OpenCred boots, every `/v1/keys/publish` call will fail with a
+> `400 "Record data does not match the registry schema"` from DeDi's AJV
+> check. The same applies to any other registry name DeDi has a built-in
+> schema for. Easiest mitigation: let OpenCred create the registries on
+> first boot, and if you do pre-provision, make sure the schema you attach
+> matches what OpenCred writes (look at
 > `packages/dedi-client/src/adapter/client.ts` for the canonical shapes).
 
 ### 4. Run the container
@@ -261,11 +266,11 @@ for the `OPENCRED_AUTO_PUBLISH_KEY=true` / `OPENCRED_DEDI_HOST_DID_DOC=true`
 opt-in. With the default (flags off), the DID is **not** auto-published —
 you call `POST /v1/keys/publish` once, as walked through in §7d.
 
-> **Heads-up — the issuer's DID is not published to DeDi by default.**
+> **Heads-up — the issuer's key is not published to DeDi by default.**
 > Container startup creates the four empty registries (`vc-revocation-registry`,
-> `public_key_registry`, `schema_registry`, `context_registry`) and loads
-> your signing key into memory, but it does not write your DID into
-> `public_key_registry` unless you opt in. The `Issuer identity configured`
+> `opencred-key-registry`, `schema_registry`, `context_registry`) and loads
+> your signing key into memory, but it does not write a key record into
+> `opencred-key-registry` unless you opt in. The `Issuer identity configured`
 > log line at boot is purely an in-memory configuration message. To make
 > verifiers discover your public key via DeDi, either set
 > `OPENCRED_AUTO_PUBLISH_KEY=true` (works for did:key and did:web) or call
@@ -799,14 +804,19 @@ is part of the point — revocation is a separate trust check, intentionally).
 > credential — never bake it into the image, never commit it to git, mount it
 > via secrets management in production (Docker secrets, AWS SSM, etc.).
 
-#### 7d. Publish a public key (DID document) to DeDi
+#### 7d. Publish a public key to DeDi
 
 Same DeDi instance, same namespace, different registry. The
-`public_key_registry` lets verifiers **discover an issuer's DID document
-via DeDi** — OpenCred's verifier tries the canonical `did:web` HTTPS
+`opencred-key-registry` lets verifiers **discover an issuer's signing
+keys via DeDi** — OpenCred's verifier tries the canonical `did:web` HTTPS
 endpoint first, and falls back to DeDi when the well-known URL is
-unreachable. This means an issuer can stop hosting their own
-`.well-known/did.json` and let DeDi serve as the discovery layer.
+unreachable. OpenCred stores **one record per key** here (record name =
+slug of `DID#fragment`); the W3C did.json is carried as an optional
+immutable `document` snapshot embedded on each key record (written when
+`OPENCRED_DEDI_HOST_DID_DOC=true`). The did:web fallback projects the
+did.json from those per-key snapshots, so an issuer can stop hosting
+their own `.well-known/did.json` and let DeDi serve as the discovery
+layer. There is no separate `did-documents` registry.
 
 > **Two ways to publish, and you need to pick one.** There are two
 > independent paths to make your did:web DID Document resolvable by
@@ -818,69 +828,67 @@ unreachable. This means an issuer can stop hosting their own
 > calls) is the request surface used by Path B.
 
 > **Heads-up — publish-to-DeDi is opt-in.** With default flags off,
-> container startup only initializes the empty `public_key_registry`;
-> it does not publish your issuer DID. The `Issuer identity configured`
+> container startup only initializes the empty `opencred-key-registry`;
+> it does not publish your issuer key. The `Issuer identity configured`
 > log line at boot means "the server is configured to sign with this
-> DID," NOT "this DID is published to DeDi." Verifiers calling
+> DID," NOT "this key is published to DeDi." Verifiers calling
 > `/v1/keys/resolve` will return 404 until you either set
 > `OPENCRED_AUTO_PUBLISH_KEY=true` (or `OPENCRED_DEDI_HOST_DID_DOC=true`
-> for did:web) and restart, or call `POST /v1/keys/publish` below at
-> least once.
+> to also embed the did.json snapshot on the key records) and restart,
+> or call `POST /v1/keys/publish` below at least once.
 
 > **Key rotation under did:web — use `POST /v1/keys/rotate`.** Swap
 > `OPENCRED_KEY_PATH` to the new key, restart the container, then call
-> `POST /v1/keys/rotate` (no request body needed beyond an optional
-> `namespace`). The server appends the new key to the DID Document's
-> `verificationMethod[]`, stamps `supersededAt` on the prior current
-> key (so already-issued credentials continue to verify against it),
-> and points `assertionMethod` at the new key. The DID itself stays
-> stable. Idempotent: re-running rotate against a document that
-> already carries the active key returns `{rotated: false}` without
-> writing. did:key issuers cannot rotate this way — regenerate the
-> key (which produces a new DID). See
+> `POST /v1/keys/rotate` with a body of `{ newKeyIndex, currentDidDocument?,
+> hostDidDocument? }`. The server writes a new key record for the new key
+> and marks the prior key's record `status: "rotated"` (so already-issued
+> credentials continue to verify against it — the verifier matches by
+> `kid`). The DID itself stays stable. When `hostDidDocument` is set, the
+> regenerated did.json snapshot is re-embedded on the key records. The
+> response is `{ rotated, did, currentKeyId, newKeyIndex, retired,
+> didDocument, didDocumentStored }` (`retired` is the old key's
+> `SetKeyStatusResult`). did:key issuers cannot rotate this way —
+> regenerate the key (which produces a new DID). See
 > [`docs/spikes/spike-619-did-web-rotation.md`](../spikes/spike-619-did-web-rotation.md)
-> for the design (Status: Implemented in [PR #628](https://github.com/nfh-trust-labs/opencred/pull/628)).
+> for the original design (Status: Implemented in [PR #628](https://github.com/nfh-trust-labs/opencred/pull/628);
+> superseded by the per-key registry redesign — see
+> [`docs/decisions/dedi-key-registry-redesign.md`](../decisions/dedi-key-registry-redesign.md)).
 
 ```bash
-# Publish — body is { did, document, namespace? }. The "document" is a
-# standard W3C DID Core document; verificationMethod entries hold public
-# keys only. The server's defense-in-depth guard rejects any nested PEM
-# private-key block before the request reaches DeDi.
+# Publish — body is { namespace?, hostDidDocument? }. The server publishes the
+# active signer's PUBLIC key (one record per key) into opencred-key-registry:
+# the DID comes from OPENCRED_ISSUER_DID_METHOD/OPENCRED_ISSUER_DOMAIN and the
+# public key from the signer — you never send a DID or key material in the body.
+# When hostDidDocument is true (did:web only), the server assembles the did.json
+# from its current key set and embeds that snapshot on the key record.
 curl -s http://localhost:3100/v1/keys/publish \
   -H "Authorization: Bearer $OPENCRED_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "did": "did:web:bootcamp.example.org",
-    "document": {
-      "@context": "https://www.w3.org/ns/did/v1",
-      "id": "did:web:bootcamp.example.org",
-      "verificationMethod": [{
-        "id": "did:web:bootcamp.example.org#key-1",
-        "type": "JsonWebKey2020",
-        "controller": "did:web:bootcamp.example.org",
-        "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." }
-      }],
-      "assertionMethod": ["did:web:bootcamp.example.org#key-1"]
-    }
-  }' | jq
+  -d '{ "hostDidDocument": true }' | jq
 
-# Resolve — body is { did, namespace? }. POST not GET so DIDs with colons
-# don't have to be URL-encoded.
+# Resolve — body is { verificationMethod, namespace? }. POST not GET so the
+# verification method (a DID#fragment, colons and all) needn't be URL-encoded.
 curl -s http://localhost:3100/v1/keys/resolve \
   -H "Authorization: Bearer $OPENCRED_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{ "did": "did:web:bootcamp.example.org" }' | jq
+  -d '{ "verificationMethod": "did:web:bootcamp.example.org#key-0" }' | jq
 ```
 
-`/v1/keys/publish` returns `{ published: true, recordName, namespace }` on
-success. `/v1/keys/resolve` returns `{ did, document?, keyStatus }` — and may
-include a `proof` block when DeDi anchored the record to the CORD blockchain.
-`document` is omitted for `did:key` records (the verifier derives it from
-the DID itself); `keyStatus` is `"current"` for a freshly-published record
-and flips to `"rotated"` after the desktop's auto-rotation hook runs (see
+`/v1/keys/publish` returns `{ published, recordName, namespace, keyId,
+didDocumentStored }` on success (`didDocumentStored` is `true` when the
+did.json snapshot was embedded on the key record). `/v1/keys/resolve`
+returns the bare key record `{ keyId, controllerDid, algorithm,
+publicKeyJwk, purpose, status, document?, proof? }` — and `proof` is
+present when DeDi anchored the record to the CORD blockchain. `document`
+(the did.json snapshot) is present only when it was hosted at publish/rotate
+time; `status` is `"active"` for a freshly-published record and flips to
+`"rotated"` (or `"revoked"`) as the key's lifecycle advances — e.g. after
+the desktop's auto-rotation hook runs (see
 [Desktop → Key Management → Auto-rotation on key generation](../desktop/key-management.md#auto-rotation-on-key-generation)).
-Both endpoints return `503 DEDI_NOT_CONFIGURED` if the DeDi env vars from §7c
-aren't set.
+To fetch the current did.json projected from these per-key snapshots, call
+`GET /v1/keys/did-document`, which returns `{ did, document, source }`.
+These endpoints return `503 DEDI_NOT_CONFIGURED` if the DeDi env vars from
+§7c aren't set.
 
 > **The takeaway**: once you've run §7d, OpenCred-aware verifiers (and the
 > `@opencred/verify` SDK, or any verifier that wires `createDeDiDIDWebFallback`
@@ -903,10 +911,10 @@ a domain and whether your verifiers know how to talk to DeDi.
 | | **Path A — Self-host on your domain** | **Path B — Publish to DeDi** |
 |---|---|---|
 | **When to pick** | Production / interop with any W3C did:web verifier. | Demo / bootcamp / no domain available, AND your verifier is OpenCred-aware. |
-| **Where the DID Document lives** | `https://<your-domain>/.well-known/did.json` | DeDi `public_key_registry` (under your namespace). |
+| **Where the DID Document lives** | `https://<your-domain>/.well-known/did.json` | DeDi `opencred-key-registry` (under your namespace) — one record per key, with the did.json embedded as a snapshot when `OPENCRED_DEDI_HOST_DID_DOC=true`. |
 | **Who can resolve it** | Anyone with a standards-compliant did:web resolver. | Only OpenCred-aware verifiers / `@opencred/verify` clients configured with the same DeDi. |
 | **DeDi required?** | No. | Yes. |
-| **Key rotation** | You re-publish the document with a new `verificationMethod[0]` entry. | `POST /v1/keys/rotate` (read-merge-write on the DeDi record, same kid continuity). |
+| **Key rotation** | You re-publish the document with a new `verificationMethod[0]` entry. | `POST /v1/keys/rotate` (writes a new key record, marks the prior key `status: "rotated"`, same kid continuity). |
 | **Cost** | Domain + TLS + a static host (S3, Pages, nginx, etc.). | Zero infra beyond DeDi. |
 
 **Path A — self-host on your own domain.**
@@ -1027,31 +1035,35 @@ a domain and whether your verifiers know how to talk to DeDi.
    curl -s http://localhost:3100/v1/keys/resolve \
      -H "Authorization: Bearer $OPENCRED_API_KEY" \
      -H "Content-Type: application/json" \
-     -d '{ "did": "did:web:bootcamp.example.org" }' | jq
-   # Returns { did, document, keyStatus: "current", proof? }.
-   # `proof` is present if DeDi anchored the record on CORD.
+     -d '{ "verificationMethod": "did:web:bootcamp.example.org#key-0" }' | jq
+   # Returns the key record { keyId, controllerDid, algorithm,
+   # publicKeyJwk, purpose, status: "active", document?, proof? }.
+   # `document` (the did.json snapshot) is present when it was hosted at
+   # publish time; `proof` is present if DeDi anchored the record on CORD.
+   # For the grouped did.json, call GET /v1/keys/did-document instead.
    ```
 
 > **DeDi-hosted did:web documents are NOT reachable at the canonical
 > `.well-known/did.json` URL.** A pure W3C did:web resolver (one not
 > aware of DeDi) will walk `https://bootcamp.example.org/.well-known/did.json`
-> and get a 404 — DeDi serves the document at
-> `/dedi/lookup/{namespace}/public_key_registry/{record}`, not on
-> your domain. If you need interop with non-DeDi verifiers AS WELL,
-> follow Path A in parallel (the two are independent — no env-var
-> conflict).
+> and get a 404 — DeDi serves the per-key records at
+> `/dedi/lookup/{namespace}/opencred-key-registry/{record}`, and the
+> projected did.json via `GET /v1/keys/did-document`, not on your domain.
+> If you need interop with non-DeDi verifiers AS WELL, follow Path A in
+> parallel (the two are independent — no env-var conflict).
 
 4. To rotate the key later: swap `OPENCRED_KEY_PATH`, restart, then:
 
    ```bash
    curl -s -X POST http://localhost:3100/v1/keys/rotate \
      -H "Authorization: Bearer $OPENCRED_API_KEY" \
-     -H "Content-Type: application/json" -d '{}' | jq
-   # rotated: true on the first call after a key swap;
-   # rotated: false, reason: "already-current" on retries.
-   # Old credentials still verify because the prior key stays in
-   # `verificationMethod[]` with a `supersededAt` stamp, and the verifier
-   # matches by `kid` from the JWT header.
+     -H "Content-Type: application/json" \
+     -d '{ "newKeyIndex": 1, "hostDidDocument": true }' | jq
+   # Returns { rotated, did, currentKeyId, newKeyIndex, retired,
+   #   didDocument, didDocumentStored }.
+   # Old credentials still verify because the prior key's record is kept
+   # with `status: "rotated"` (not deleted), and the verifier matches by
+   # `kid` from the JWT header.
    ```
 
 The shell-level `POST /v1/keys/publish` / `resolve` / `rotate` calls
@@ -1107,7 +1119,7 @@ you have two options:
      "namespace": "did:web:my-tenant.example.org",
      "registries": [
        "vc-revocation-registry",
-       "public_key_registry",
+       "opencred-key-registry",
        "schema_registry",
        "context_registry"
      ]
@@ -1186,7 +1198,7 @@ you outgrow the single-instance model.
 | `Schema 'education' not found` (or any 404 / "no such schema") | That id is not in the built-in registry | List what's actually available: `curl -s http://localhost:3100/v1/schemas -H "Authorization: Bearer $OPENCRED_API_KEY" \| jq '.[].id'` |
 | `503 DEDI_NOT_CONFIGURED` on `/v1/credentials/revoke` or `/revocation-status` | DeDi env vars are missing — `dediConfigured: false` in `/v1/health` | Set `OPENCRED_DEDI_BASE_URL`, `OPENCRED_DEDI_AUTH_TYPE`, `OPENCRED_DEDI_NAMESPACE`, and the matching auth pair (`OPENCRED_DEDI_API_KEY` for `api-key`, or `OPENCRED_DEDI_EMAIL`+`OPENCRED_DEDI_PASSWORD` for `bearer`), then restart the container |
 | `409 DEDI_RECORD_EXISTS` on `/v1/credentials/revoke` (response body has a `hint` field) | The hash you're publishing is already revoked in `vc-revocation-registry` from a prior run. The DeDi record uses the hash as `record_name`, so re-revoking the same VC is a duplicate-key collision. | This is "success on a prior run" — confirm with `POST /v1/credentials/revocation-status` (the response `hint` points there). For a fresh revoke demo, issue a NEW credential with `revocationRegistryUrl` set: every issue mints a fresh `urn:uuid:` → fresh hash → no collision. |
-| `409 DEDI_RECORD_EXISTS` on `/v1/keys/publish` (response body has a `hint` field) | This DID was already published in a prior run — `public_key_registry` uses the DID as `record_name`, so republishing the same DID is a duplicate-key collision. | Skip the publish and call `POST /v1/keys/resolve` instead (the response `hint` points there) — the previous publish landed and the document is available. To demo a fresh publish, use a unique `did:web:<your-domain>` you haven't published before. |
+| `409 DEDI_RECORD_EXISTS` on `/v1/keys/publish` (response body has a `hint` field) | This key was already published in a prior run — `opencred-key-registry` uses the slug of `DID#fragment` as `record_name`, so republishing the same key is a duplicate-key collision. | Skip the publish and call `POST /v1/keys/resolve` instead (the response `hint` points there) — the previous publish landed and the key record is available. To demo a fresh publish, use a unique `did:web:<your-domain>` you haven't published before. |
 | Container exits with `OPENCRED_DEDI_AUTH_TYPE is required when OPENCRED_DEDI_BASE_URL is set` (or similar) | Partial DeDi config | Either set the full DeDi quartet (URL + auth-type + namespace + auth secret) or unset `OPENCRED_DEDI_BASE_URL` entirely. Run `opencred config validate` to catch this before `docker run`. |
 | Startup log shows DeDi lookup URL with `%E2%80%9C` / `%E2%80%9D` wrapping your namespace (e.g. `/dedi/lookup/%E2%80%9Cverifaistudio.co%E2%80%9D` → `404 Namespace not found` → `401 Invalid API key`) | Your `OPENCRED_DEDI_NAMESPACE` (or API key) was pasted with **Unicode smart quotes** (`"…"` instead of ASCII `"…"`), usually from a chat app, docs page, or note-taking app that auto-corrects | Re-export with straight ASCII quotes — or no quotes at all if the value has no spaces: `export OPENCRED_DEDI_NAMESPACE=verifaistudio.co`. Verify before `docker run` with `printf '%s\n' "$OPENCRED_DEDI_NAMESPACE" \| od -c \| head -1` — anything other than plain ASCII bytes means a smart quote slipped in. |
 | Build hangs at "fetching pnpm" | Conference Wi-Fi blocking npmjs.org | Use a phone hotspot, or distribute a pre-built image via `docker save`/`docker load` |
@@ -1303,6 +1315,8 @@ All under `/v1/*`. Auth: `Authorization: Bearer $OPENCRED_API_KEY` except where 
 | `POST /v1/credentials/revoke` | required | Revoke a credential via DeDi (only when DeDi is configured) |
 | `POST /v1/credentials/revocation-status` | required | Current revocation status (DeDi required) |
 | `POST /v1/credentials/package` | required | Render packaged outputs (QR, PDF, etc.) for a signed VC |
-| `POST /v1/keys/publish` | required | Publish a DID document to the DeDi `public_key_registry` (DeDi required) |
-| `POST /v1/keys/resolve` | required | Resolve a DID document from DeDi (DeDi required). Looks up the DeDi record only — does NOT walk the canonical `https://<domain>/.well-known/did.json`. |
-| `POST /v1/keys/rotate` | required | Rotate an issuer's did:web key in-place inside the existing DID Document on DeDi (did:web only; DeDi required). |
+| `POST /v1/keys/publish` | required | Publish a signing key (one record per key) to the DeDi `opencred-key-registry` (DeDi required) |
+| `POST /v1/keys/resolve` | required | Resolve a key record from DeDi (DeDi required). Looks up the DeDi record only — does NOT walk the canonical `https://<domain>/.well-known/did.json`. |
+| `GET /v1/keys/did-document` | required | Return the current did.json projected from the per-key snapshots (`{ did, document, source }`; DeDi required). |
+| `POST /v1/keys/rotate` | required | Rotate an issuer's did:web key — writes a new key record and marks the prior key `status: "rotated"` (did:web only; DeDi required). |
+| `POST /v1/keys/revoke` | required | Revoke a signing key by `verificationMethod` — sets the key record `status: "revoked"` (DeDi required). |
