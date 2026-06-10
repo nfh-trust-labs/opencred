@@ -334,6 +334,18 @@ importers:
         specifier: ^5.5.0
         version: 5.9.3
 
+  e2e:
+    devDependencies:
+      '@opencred/verify':
+        specifier: workspace:*
+        version: link:../packages/verify-sdk
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@20.19.33)(happy-dom@20.8.9)(jsdom@24.1.3)
+
   packages/batch-core:
     devDependencies:
       typescript:

@@ -1,0 +1,15 @@
+{
+  "name": "@opencred/e2e-matrix",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Credential-matrix E2E harness — issues and verifies every valid {proof format × algorithm × DID method × export format} cell against the built Docker image, with env-gated DeDi key-lifecycle cells. Not part of the unit-test run; see README.",
+  "type": "module",
+  "scripts": {
+    "e2e": "vitest run --config vitest.config.ts"
+  },
+  "devDependencies": {
+    "@opencred/verify": "workspace:*",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.8"
+  }
+}
