@@ -8,7 +8,6 @@ import type {
   RevocationHashRecord,
   KeyRecord,
   KeyStatus,
-  DidDocumentRecord,
   SchemaRecord,
   ContextRecord,
   PublishResult,
@@ -17,12 +16,10 @@ import type {
 import {
   REVOCATION_REGISTRY,
   OPENCRED_KEY_REGISTRY,
-  DID_DOCUMENTS_REGISTRY,
   SCHEMA_REGISTRY,
   CONTEXT_REGISTRY,
   schemaToRecordName,
   contextToRecordName,
-  didToRecordName,
   verificationMethodToRecordName,
 } from "./registry-names.js";
 
@@ -79,24 +76,17 @@ function assertKeyRecordShape(detail: unknown): asserts detail is KeyRecord {
       502,
     );
   }
-}
-
-/**
- * Validate a `did-documents` payload against the 2-field schema:
- * `{ did, document }`. Both are required — this registry exists solely to
- * hold DID documents. The `document` is validated only as "an object";
- * the downstream verifier enforces the W3C DID-Document contract.
- */
-function assertDidDocumentRecordShape(detail: unknown): asserts detail is DidDocumentRecord {
-  if (detail == null || typeof detail !== "object") {
-    throw new DeDiClientError("DID document record detail is missing or not an object", 502);
-  }
-  const rec = detail as Record<string, unknown>;
-  if (typeof rec["did"] !== "string") {
-    throw new DeDiClientError("DID document record detail missing required field: did", 502);
-  }
-  if (rec["document"] == null || typeof rec["document"] !== "object") {
-    throw new DeDiClientError("DID document record detail field 'document' must be an object", 502);
+  // `document` is optional (the embedded did.json snapshot, did:web only); when
+  // present it must be an object. The downstream verifier enforces the W3C
+  // DID-Document contract.
+  if (
+    rec["document"] !== undefined &&
+    (rec["document"] === null || typeof rec["document"] !== "object")
+  ) {
+    throw new DeDiClientError(
+      "Key record detail field 'document' must be an object when present",
+      502,
+    );
   }
 }
 
@@ -373,7 +363,9 @@ export class DeDiClient {
     const recordName = verificationMethodToRecordName(key.keyId);
 
     // Strip any server-set `proof` before publishing — `details` is the
-    // issuer-authored payload only.
+    // issuer-authored payload only. `document` (the immutable did.json
+    // snapshot) is included only when the caller set it (did:web +
+    // OPENCRED_DEDI_HOST_DID_DOC); did:key and domain-hosted issuers omit it.
     const detail = {
       keyId: key.keyId,
       controllerDid: key.controllerDid,
@@ -381,6 +373,7 @@ export class DeDiClient {
       publicKeyJwk: key.publicKeyJwk,
       purpose: key.purpose,
       status: key.status,
+      ...(key.document !== undefined ? { document: key.document } : {}),
     };
 
     try {
@@ -520,8 +513,10 @@ export class DeDiClient {
     // `updatedDetails` (e.g. a `revokedAt` timestamp or a revocation
     // `reason`) reintroduces the lost-update race: two writers that diverge
     // on the new field would clobber each other under last-writer-wins.
-    // Do not add fields here without first closing the race at the DeDi side.
-    // A test in client.test.ts pins this payload to exactly the six fields.
+    // Do not add a new MUTABLE field here without first closing the race at
+    // the DeDi side. The immutable `document` snapshot is safe to carry forward
+    // (every writer writes the same value). A test in client.test.ts pins the
+    // update payload's keys to the immutable set + `status`.
     // TODO(#659): adopt a `version`/ETag conditional update once DeDi
     // supports one (Option A) — `resolveKey` already surfaces `version`.
     const updatedDetails: Omit<KeyRecord, "proof"> = {
@@ -531,6 +526,10 @@ export class DeDiClient {
       publicKeyJwk: existing.publicKeyJwk,
       purpose: existing.purpose,
       status,
+      // Immutable did.json snapshot — carried forward unchanged (never diverges
+      // between concurrent writers, so it doesn't reintroduce the lost-update
+      // race). Only `status` is ever mutated.
+      ...(existing.document !== undefined ? { document: existing.document } : {}),
     };
     await this.api.updateRecord(ns, OPENCRED_KEY_REGISTRY, recordName, updatedDetails);
     this.logger.info("Key status advanced in DeDi", {
@@ -549,63 +548,49 @@ export class DeDiClient {
   }
 
   /**
-   * Publish (or re-publish) a DID document to the `did-documents`
-   * registry, keyed by `didToRecordName(did)`.
+   * Resolve the current did.json for a `did:web` DID from the per-key
+   * snapshots in `opencred-key-registry` (replaces the old `did-documents`
+   * lookup). Backs {@link createDeDiDIDWebFallback}.
    *
-   * **Upsert semantics.** Unlike key records, a DID document is mutable:
-   * every rotation/revocation regenerates `did.json` and republishes it
-   * here. So a collision on the record name is handled by updating the
-   * existing record rather than failing.
-   *
-   * This registry only exists to hold documents, so a `document` is
-   * required. did:key issuers never need this (their document is derived
-   * from the DID); the typical caller is a did:web issuer who has chosen
-   * to let DeDi host their `did.json` instead of (or in addition to)
-   * serving it from their own domain.
+   * Lists the key registry, keeps records whose `controllerDid` matches and
+   * that carry a `document` snapshot, and returns the snapshot of the
+   * **active** key — or, when no key is active, the **highest-indexed**
+   * (`#key-N`) key, i.e. the most recent / most complete era. Returns `null`
+   * when the DID has no key carrying a document: a did:key (self-describing),
+   * or a did:web issuer who hosts `.well-known/did.json` on their own domain
+   * (`OPENCRED_DEDI_HOST_DID_DOC` unset). On a `null`/failure the fallback
+   * re-raises the original HTTPS error.
    */
-  async publishDidDocument(
+  async resolveDidWebDocument(
     did: string,
-    document: unknown,
     namespace?: string,
-  ): Promise<PublishResult> {
+  ): Promise<Record<string, unknown> | null> {
     const ns = this.resolveNamespace(namespace);
-    const recordName = didToRecordName(did);
+    const response = await this.api.queryRecords<KeyRecord>(ns, OPENCRED_KEY_REGISTRY);
+    const records = response?.data;
+    if (!Array.isArray(records)) return null;
 
-    if (document == null || typeof document !== "object") {
-      throw new DeDiClientError("publishDidDocument: a DID Document object is required", 400);
-    }
+    const candidates = records
+      .map((r) => r?.details)
+      .filter(
+        (d): d is KeyRecord =>
+          d != null &&
+          typeof d === "object" &&
+          (d as KeyRecord).controllerDid === did &&
+          (d as KeyRecord).document != null &&
+          typeof (d as KeyRecord).document === "object",
+      );
+    if (candidates.length === 0) return null;
 
-    const detail: DidDocumentRecord = { did, document: document as Record<string, unknown> };
-
-    try {
-      await this.api.publishRecord(ns, DID_DOCUMENTS_REGISTRY, recordName, detail);
-    } catch (err) {
-      // The document already exists — this is the rotation/revocation
-      // re-publish path. Upsert: overwrite the prior document wholesale.
-      if (isDuplicateRecordBody(err)) {
-        await this.api.updateRecord(ns, DID_DOCUMENTS_REGISTRY, recordName, detail);
-        this.logger.info("DID document updated in DeDi (upsert)", { did, namespace: ns });
-        return { published: true, recordName, namespace: ns };
-      }
-      throw err;
-    }
-    return { published: true, recordName, namespace: ns };
-  }
-
-  /**
-   * Resolve a DID document from the `did-documents` registry. Backs the
-   * did:web fallback resolver: when an issuer's domain is unreachable, the
-   * verifier reads the DeDi-hosted `did.json` from here.
-   */
-  async resolveDidDocument(did: string, namespace?: string): Promise<DidDocumentRecord> {
-    const ns = this.resolveNamespace(namespace);
-    const recordName = didToRecordName(did);
-    const response = await this.api.lookupRecord(ns, DID_DOCUMENTS_REGISTRY, recordName);
-    assertDeDiRecordShape(response, "lookupRecord");
-    const details = response.data.details;
-    assertDidDocumentRecordShape(details);
-    const proof = extractProof(response.data);
-    return proof ? { ...details, proof } : details;
+    const keyIndex = (vm: string): number => {
+      const m = /#key-(\d+)$/.exec(vm);
+      return m ? Number(m[1]) : -1;
+    };
+    // Prefer the live (active) key's document; otherwise the latest era.
+    const chosen =
+      candidates.find((d) => d.status === "active") ??
+      candidates.reduce((best, d) => (keyIndex(d.keyId) > keyIndex(best.keyId) ? d : best));
+    return chosen.document ?? null;
   }
 
   async publishSchema(schema: SchemaRecord, namespace?: string): Promise<PublishResult> {
@@ -727,23 +712,15 @@ export class DeDiClient {
             publicKeyJwk: { type: "object", description: "Public key material as a JWK." },
             purpose: { type: "array", items: { type: "string" } },
             status: { type: "string", enum: ["active", "rotated", "revoked"] },
+            // Optional immutable did.json snapshot (did:web + HOST_DID_DOC).
+            // Replaces the separate did-documents registry. `additionalProperties`
+            // is false, so it must be declared here for DeDi to accept it.
+            document: {
+              type: "object",
+              description: "Immutable W3C did.json snapshot as of this key's publish/rotate.",
+            },
           },
           required: ["keyId", "controllerDid", "algorithm", "publicKeyJwk", "purpose", "status"],
-          additionalProperties: false,
-        }),
-      ),
-      // DeDi-hosted DID documents — optional per issuer; backs the did:web
-      // fallback resolver and lets a no-webserver issuer host did.json here.
-      ignoreConflict(() =>
-        this.api.createRegistry(namespace, DID_DOCUMENTS_REGISTRY, {
-          $schema: "http://json-schema.org/draft-07/schema#",
-          type: "object",
-          description: "OpenCred DeDi-hosted DID documents",
-          properties: {
-            did: { type: "string", pattern: "^did:" },
-            document: { type: "object", description: "W3C DID Document (did.json)." },
-          },
-          required: ["did", "document"],
           additionalProperties: false,
         }),
       ),
@@ -845,7 +822,7 @@ function isAlreadyExistsBody(error: unknown): boolean {
  * fields used by namespace/registry creation). This helper inspects the
  * human-readable `message`/`data` text — robust against minor wording drift
  * by checking both fields and JSON-stringified fallback. Used by
- * `publishRevocationHash`, `publishKey`, and `publishDidDocument` to translate the bare 409 from
+ * `publishRevocationHash` and `publishKey` to translate the bare 409 from
  * `publishRecord` into a `DeDiRecordExistsError` with an actionable hint.
  */
 const DUPLICATE_RECORD_TEXT_PATTERNS: readonly RegExp[] = [

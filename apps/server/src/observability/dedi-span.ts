@@ -3,9 +3,9 @@
  * lookup / publish / update operation emits a span.
  *
  * Spans emitted:
- *   - `dedi.lookup_record` — resolveKey / resolveDidDocument / resolveSchema /
+ *   - `dedi.lookup_record` — resolveKey / resolveDidWebDocument / resolveSchema /
  *     resolveContext / queryRevocationHash
- *   - `dedi.publish_record` — publishKey / publishDidDocument / publishSchema /
+ *   - `dedi.publish_record` — publishKey / publishSchema /
  *     publishContext / publishRevocationHash / ensureRegistries
  *   - `dedi.update_record` — setKeyStatus (DeDi `update-record`)
  *
@@ -107,16 +107,14 @@ export function wrapDeDiClientWithTracing(client: DeDiClient, baseUrl: string): 
       () => client.setKeyStatus(verificationMethod, status, namespace),
     );
 
-  // ── DID documents registry ──────────────────────────────────────
-
-  wrapped.publishDidDocument = (did, document, namespace) =>
-    runInSpan("dedi.publish_record", { "dedi.host": host, "dedi.registry": "did-documents" }, () =>
-      client.publishDidDocument(did, document, namespace),
-    );
-
-  wrapped.resolveDidDocument = (did, namespace) =>
-    runInSpan("dedi.lookup_record", { "dedi.host": host, "dedi.registry": "did-documents" }, () =>
-      client.resolveDidDocument(did, namespace),
+  // did:web fallback resolution — projects the did.json from the per-key
+  // registry snapshots (the separate did-documents registry was removed). It
+  // reads `opencred-key-registry`, so the span carries that registry label.
+  wrapped.resolveDidWebDocument = (did, namespace) =>
+    runInSpan(
+      "dedi.lookup_record",
+      { "dedi.host": host, "dedi.registry": "opencred-key-registry" },
+      () => client.resolveDidWebDocument(did, namespace),
     );
 
   // ── Schema registry ─────────────────────────────────────────────

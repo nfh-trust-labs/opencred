@@ -11,16 +11,6 @@ export const REVOCATION_REGISTRY = "vc-revocation-registry";
  */
 export const OPENCRED_KEY_REGISTRY = "opencred-key-registry";
 
-/**
- * DeDi-hosted DID documents. One record per DID, keyed by
- * `didToRecordName(did)`. Stores the assembled W3C `did.json` so an issuer
- * with no webserver can let DeDi host their did:web document, and so the
- * did:web fallback resolver has somewhere to read from when the issuer's
- * domain is unreachable. Optional per issuer — a did:web issuer who hosts
- * `.well-known/did.json` themselves never needs a record here.
- */
-export const DID_DOCUMENTS_REGISTRY = "did-documents";
-
 export const SCHEMA_REGISTRY = "schema_registry";
 export const CONTEXT_REGISTRY = "context_registry";
 
@@ -35,15 +25,6 @@ export const CONTEXT_REGISTRY = "context_registry";
  */
 function slugForDeDi(value: string): string {
   return value.replace(/[:#]/g, "-");
-}
-
-/**
- * Convert a DID into its `did-documents` record name.
- *
- * @example didToRecordName("did:web:acme.com") // "did-web-acme.com"
- */
-export function didToRecordName(did: string): string {
-  return slugForDeDi(did);
 }
 
 /**

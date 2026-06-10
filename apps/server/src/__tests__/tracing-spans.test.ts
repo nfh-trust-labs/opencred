@@ -280,11 +280,8 @@ describe("DeDi adapter spans", () => {
           namespace: "ns",
         };
       },
-      async publishDidDocument() {
-        return { published: true, recordName: "x", namespace: "ns" };
-      },
-      async resolveDidDocument() {
-        return { did: "did:web:x", document: { id: "did:web:x" } };
+      async resolveDidWebDocument() {
+        return { id: "did:web:x" };
       },
       async publishSchema() {
         return { published: true, recordName: "x", namespace: "ns" };

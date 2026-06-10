@@ -147,7 +147,8 @@ function toPublicJwk(jwk: JWK): JWK {
 
 /**
  * Build a multi-key DID document suitable for publishing at
- * `.well-known/did.json` (or in DeDi's `did-documents` registry).
+ * `.well-known/did.json` (or as the immutable snapshot embedded on each
+ * key record in DeDi's `opencred-key-registry`, gated by HOST_DID_DOC).
  *
  * Every key in `keys` becomes one `verificationMethod` entry. Non-revoked keys
  * (active + cleanly-rotated) are additionally referenced from all verification

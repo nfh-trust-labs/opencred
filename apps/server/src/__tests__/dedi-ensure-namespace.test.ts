@@ -91,19 +91,20 @@ describe("POST /v1/dedi/namespace/ensure when DeDi is configured", () => {
 
     const body = (await res.json()) as { namespace: string; registries: string[] };
     expect(body.namespace).toBe("bootcamp-2026-04-29");
-    // The endpoint advertises the five registries that `ensureRegistries`
+    // The endpoint advertises the four registries that `ensureRegistries`
     // brings into existence — keep this list in lock-step with
-    // `apps/server/src/routes/dedi.ts:ENSURED_REGISTRIES`.
+    // `apps/server/src/routes/dedi.ts:ENSURED_REGISTRIES`. The separate
+    // did-documents registry was removed (the did.json snapshot now lives on
+    // each key record in opencred-key-registry).
     expect(body.registries).toEqual(
       expect.arrayContaining([
         "vc-revocation-registry",
         "opencred-key-registry",
-        "did-documents",
         "schema_registry",
         "context_registry",
       ]),
     );
-    expect(body.registries).toHaveLength(5);
+    expect(body.registries).toHaveLength(4);
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.namespace).toBe("bootcamp-2026-04-29");

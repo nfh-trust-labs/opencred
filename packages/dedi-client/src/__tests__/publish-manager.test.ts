@@ -8,7 +8,6 @@ vi.mock("../adapter/client.js", () => {
   const MockDeDiClient = vi.fn();
   MockDeDiClient.prototype.publishSchema = vi.fn();
   MockDeDiClient.prototype.publishKey = vi.fn();
-  MockDeDiClient.prototype.publishDidDocument = vi.fn();
   MockDeDiClient.prototype.setKeyStatus = vi.fn();
   MockDeDiClient.prototype.ensureRegistries = vi.fn();
   MockDeDiClient.prototype.logger = { info() {}, debug() {}, warn() {}, error() {} };
@@ -122,39 +121,6 @@ describe("DeDiPublishManager", () => {
 
       const manager = new DeDiPublishManager(client);
       const result = await manager.publishKey(keyRecord);
-
-      expect(result).toBeNull();
-    });
-  });
-
-  describe("publishDidDocument", () => {
-    it("stores a DID document and returns the adapter's PublishResult", async () => {
-      const client = createMockClient();
-      const didResult: PublishResult = {
-        published: true,
-        recordName: "did-web-example.com",
-        namespace: "example.com",
-      };
-      vi.mocked(client.publishDidDocument).mockResolvedValue(didResult);
-
-      const manager = new DeDiPublishManager(client);
-      const document = { id: "did:web:example.com" };
-      const result = await manager.publishDidDocument("did:web:example.com", document);
-
-      expect(result).toEqual(didResult);
-      expect(client.publishDidDocument).toHaveBeenCalledWith(
-        "did:web:example.com",
-        document,
-        undefined,
-      );
-    });
-
-    it("swallows errors (fire-and-forget)", async () => {
-      const client = createMockClient();
-      vi.mocked(client.publishDidDocument).mockRejectedValue(new Error("timeout"));
-
-      const manager = new DeDiPublishManager(client);
-      const result = await manager.publishDidDocument("did:web:x.com", {});
 
       expect(result).toBeNull();
     });

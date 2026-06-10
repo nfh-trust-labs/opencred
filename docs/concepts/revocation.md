@@ -115,7 +115,7 @@ Key revocation operates at the level of a **signing key**, not an individual cre
 
 **Important distinction — `rotated` is not `revoked`:**
 
-A key that was cleanly rotated (status `rotated`) is not compromised. Only `revoked` triggers the blanket rejection. For **did:key** issuers, credentials signed by a rotated key remain valid and verifiers accept them — the old self-describing DID is independent of the new key. For **did:web** issuers, credentials signed under a rotated key are not verifiable after rotation today due to the `#key-0` verification-method fragment collision; this is a known limitation tracked in [#653](https://github.com/nfh-trust-labs/opencred/issues/653). See [Concepts → DIDs → Per-key registry](dids.md#per-key-registry--the-opencred-key-registry-model) for the full status model.
+A key that was cleanly rotated (status `rotated`) is not compromised. Only `revoked` triggers the blanket rejection. **Credentials signed by a rotated key remain valid and verifiers accept them** — for **did:key** issuers the old self-describing DID is independent of the new key; for **did:web** issuers the rotated key keeps its own sequential verification-method fragment (`#key-0`, `#key-1`, …) in the multi-key `did.json`, so the old key stays dereferenceable and its credentials still resolve and verify. See [Concepts → DIDs → Per-key registry](dids.md#per-key-registry--the-opencred-key-registry-model) for the full status model.
 
 ### The "no DeDi status available" case — credential stays VALID
 

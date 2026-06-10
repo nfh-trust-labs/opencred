@@ -621,22 +621,20 @@ describe("POST /v1/keys/rotate", () => {
   }
 
   /**
-   * Build a minimal DeDiClient stub for the stateless rotation flow. The rotate
-   * route calls: resolveDidDocument (import the current did.json when the
-   * operator didn't supply one), publishKey (new key), setKeyStatus (retire the
-   * old key), publishDidDocument (optional re-host).
+   * Build a minimal DeDiClient stub for the stateless rotation flow. Under the
+   * per-key registry redesign the rotate route calls: resolveDidWebDocument
+   * (project the current did.json from the key snapshots when the operator
+   * didn't supply one), publishKey (new key — the regenerated multi-key did.json
+   * rides on its `document` field), setKeyStatus (retire the old key; its own
+   * snapshot is carried forward inside setKeyStatus). There is no separate
+   * publishDidDocument call anymore.
    */
   function makeRotateMockClient(
-    opts: { resolveDidDocumentResult?: Record<string, unknown> | null } = {},
+    opts: { resolveDidWebDocumentResult?: Record<string, unknown> | null } = {},
   ) {
     const publishKeyCalls: Array<{ key: Record<string, unknown>; namespace?: string }> = [];
     const setKeyStatusCalls: Array<{ vm: string; status: string; namespace?: string }> = [];
-    const publishDidDocumentCalls: Array<{
-      did: string;
-      doc: Record<string, unknown>;
-      namespace?: string;
-    }> = [];
-    const resolveDidDocumentCalls: Array<{ did: string; namespace?: string }> = [];
+    const resolveDidWebDocumentCalls: Array<{ did: string; namespace?: string }> = [];
 
     const client = {
       publishKey: async (key: Record<string, unknown>, namespace?: string) => {
@@ -653,14 +651,10 @@ describe("POST /v1/keys/rotate", () => {
           namespace: namespace ?? "default-ns",
         };
       },
-      resolveDidDocument: async (did: string, namespace?: string) => {
-        resolveDidDocumentCalls.push({ did, namespace });
-        if (opts.resolveDidDocumentResult === null) throw new Error("not found");
-        return opts.resolveDidDocumentResult ?? { did, document: currentDocWithKey0(did) };
-      },
-      publishDidDocument: async (did: string, doc: Record<string, unknown>, namespace?: string) => {
-        publishDidDocumentCalls.push({ did, doc, namespace });
-        return { published: true, recordName: did, namespace: namespace ?? "default-ns" };
+      resolveDidWebDocument: async (did: string, namespace?: string) => {
+        resolveDidWebDocumentCalls.push({ did, namespace });
+        if (opts.resolveDidWebDocumentResult === null) return null;
+        return opts.resolveDidWebDocumentResult ?? currentDocWithKey0(did);
       },
     } as never;
 
@@ -668,8 +662,7 @@ describe("POST /v1/keys/rotate", () => {
       client,
       publishKeyCalls,
       setKeyStatusCalls,
-      publishDidDocumentCalls,
-      resolveDidDocumentCalls,
+      resolveDidWebDocumentCalls,
     };
   }
 
@@ -732,7 +725,7 @@ describe("POST /v1/keys/rotate", () => {
 
   it("publishes the new key at the chosen #key-<n> and returns rotated:true", async () => {
     setActiveSigner(buildDidWebSigner(HOST, NEW_JWK));
-    const { client, publishKeyCalls, resolveDidDocumentCalls } = makeRotateMockClient();
+    const { client, publishKeyCalls, resolveDidWebDocumentCalls } = makeRotateMockClient();
     setDeDiClient(client);
 
     const res = await app.request("/v1/keys/rotate", {
@@ -757,8 +750,8 @@ describe("POST /v1/keys/rotate", () => {
     expect(body.retired).toBeNull();
     expect(body.didDocumentStored).toBe(false);
 
-    // The current did.json was imported from DeDi (operator didn't supply it).
-    expect(resolveDidDocumentCalls).toHaveLength(1);
+    // The current did.json was projected from DeDi (operator didn't supply it).
+    expect(resolveDidWebDocumentCalls).toHaveLength(1);
     expect(publishKeyCalls).toHaveLength(1);
     expect(publishKeyCalls[0]!.key).toMatchObject({
       keyId: `${DID}#key-1`,
@@ -787,7 +780,7 @@ describe("POST /v1/keys/rotate", () => {
 
   it("rejects rotation when no current did.json is available (400 NO_CURRENT_DOCUMENT)", async () => {
     setActiveSigner(buildDidWebSigner(HOST, NEW_JWK));
-    const { client } = makeRotateMockClient({ resolveDidDocumentResult: null });
+    const { client } = makeRotateMockClient({ resolveDidWebDocumentResult: null });
     setDeDiClient(client);
 
     const res = await app.request("/v1/keys/rotate", {
@@ -803,7 +796,7 @@ describe("POST /v1/keys/rotate", () => {
   it("retires the previous key and carries every key forward into the new did.json", async () => {
     setActiveSigner(buildDidWebSigner(HOST, NEW_JWK));
     const PREV_VM = `${DID}#key-0`;
-    const { client, setKeyStatusCalls, publishDidDocumentCalls, resolveDidDocumentCalls } =
+    const { client, publishKeyCalls, setKeyStatusCalls, resolveDidWebDocumentCalls } =
       makeRotateMockClient();
     setDeDiClient(client);
 
@@ -831,12 +824,16 @@ describe("POST /v1/keys/rotate", () => {
     expect(setKeyStatusCalls[0]!.status).toBe("rotated");
     expect(body.retired).not.toBeNull();
 
-    // Operator-supplied doc means no DeDi import.
-    expect(resolveDidDocumentCalls).toHaveLength(0);
+    // Operator-supplied doc means no DeDi projection.
+    expect(resolveDidWebDocumentCalls).toHaveLength(0);
 
-    // The regenerated did.json carries BOTH keys (old #key-0 stays valid).
+    // The regenerated multi-key did.json is embedded on the NEW key's record
+    // (replaces the old separate publishDidDocument). Both keys are carried
+    // forward (old #key-0 stays valid).
     expect(body.didDocumentStored).toBe(true);
-    const stored = publishDidDocumentCalls[0]!.doc as {
+    expect(publishKeyCalls).toHaveLength(1);
+    expect(publishKeyCalls[0]!.key.keyId).toBe(`${DID}#key-1`);
+    const stored = publishKeyCalls[0]!.key.document as {
       verificationMethod: Array<{ id: string }>;
       assertionMethod: string[];
     };
@@ -912,19 +909,16 @@ describe("POST /v1/keys/revoke", () => {
 
   function makeRevokeMockClient() {
     const setKeyStatusCalls: Array<{ vm: string; status: string; namespace?: string }> = [];
-    const publishDidDocumentCalls: Array<{ did: string; doc: Record<string, unknown> }> = [];
     const client = {
       setKeyStatus: async (vm: string, status: string, namespace?: string) => {
         setKeyStatusCalls.push({ vm, status, namespace });
         return { changed: true, keyId: vm, from: "active", to: status, namespace: "ns" };
       },
-      resolveDidDocument: async (did: string) => ({ did, document: docWithKeys([]) }),
-      publishDidDocument: async (did: string, doc: Record<string, unknown>) => {
-        publishDidDocumentCalls.push({ did, doc });
-        return { published: true, recordName: did, namespace: "ns" };
-      },
+      // did:web fallback projection from the per-key snapshots (used only when
+      // the operator doesn't supply currentDidDocument).
+      resolveDidWebDocument: async () => docWithKeys([]),
     } as never;
-    return { client, setKeyStatusCalls, publishDidDocumentCalls };
+    return { client, setKeyStatusCalls };
   }
 
   afterEach(() => {
@@ -948,7 +942,7 @@ describe("POST /v1/keys/revoke", () => {
     process.env.OPENCRED_ISSUER_DOMAIN = HOST;
     app = createTestApp({ devModeNoAuth: true });
 
-    const { client, setKeyStatusCalls, publishDidDocumentCalls } = makeRevokeMockClient();
+    const { client, setKeyStatusCalls } = makeRevokeMockClient();
     setDeDiClient(client);
 
     const res = await app.request("/v1/keys/revoke", {
@@ -966,23 +960,21 @@ describe("POST /v1/keys/revoke", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       revoked: boolean;
-      didDocumentStored: boolean;
+      didDocumentRegenerated: boolean;
       didDocument: { verificationMethod: Array<{ id: string }>; assertionMethod: string[] };
     };
 
     expect(body.revoked).toBe(true);
+    // setKeyStatus("revoked") is the authoritative DeDi write — it carries the
+    // revoked key's own immutable snapshot forward (no document passed to it).
     expect(setKeyStatusCalls[0]).toMatchObject({ vm: `${DID}#key-0`, status: "revoked" });
 
-    // did.json regenerated: both keys remain resolvable...
-    expect(body.didDocumentStored).toBe(true);
-    const doc = publishDidDocumentCalls[0]!.doc as {
-      verificationMethod: Array<{ id: string }>;
-      assertionMethod: string[];
-    };
+    // did.json regenerated for self-hosting: both keys remain resolvable...
+    expect(body.didDocumentRegenerated).toBe(true);
+    const doc = body.didDocument;
     expect(doc.verificationMethod.map((v) => v.id)).toEqual([`${DID}#key-0`, `${DID}#key-1`]);
     // ...but the revoked key is gone from the relationship.
     expect(doc.assertionMethod).toEqual([`${DID}#key-1`]);
-    expect(body.didDocument.assertionMethod).toEqual([`${DID}#key-1`]);
   });
 
   it("skips did.json regeneration when revoking would leave no active key", async () => {
@@ -990,7 +982,7 @@ describe("POST /v1/keys/revoke", () => {
     process.env.OPENCRED_ISSUER_DOMAIN = HOST;
     app = createTestApp({ devModeNoAuth: true });
 
-    const { client, publishDidDocumentCalls } = makeRevokeMockClient();
+    const { client } = makeRevokeMockClient();
     setDeDiClient(client);
 
     const res = await app.request("/v1/keys/revoke", {
@@ -1003,12 +995,16 @@ describe("POST /v1/keys/revoke", () => {
       }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { revoked: boolean; didDocumentStored: boolean };
+    const body = (await res.json()) as {
+      revoked: boolean;
+      didDocumentRegenerated: boolean;
+      didDocument: unknown;
+    };
     // The registry status flip is authoritative; the all-revoked document is
     // not regenerated (it would have no usable signing identity).
     expect(body.revoked).toBe(true);
-    expect(body.didDocumentStored).toBe(false);
-    expect(publishDidDocumentCalls).toHaveLength(0);
+    expect(body.didDocumentRegenerated).toBe(false);
+    expect(body.didDocument).toBeNull();
   });
 });
 
@@ -1090,12 +1086,10 @@ describe("GET /v1/keys/did-document", () => {
       assertionMethod: [`${DID}#key-1`],
     };
     setActiveSigner(buildDidWebSigner(HOST, JWK));
-    // Source now calls resolveDidDocument (not resolveDID)
+    // The endpoint projects the did.json via resolveDidWebDocument (returns the
+    // document directly, or null) from the per-key registry snapshots.
     setDeDiClient({
-      resolveDidDocument: async (did: string) => ({
-        did,
-        document: rotatedDocument,
-      }),
+      resolveDidWebDocument: async () => rotatedDocument,
     } as never);
 
     const res = await app.request("/v1/keys/did-document");
@@ -1119,7 +1113,7 @@ describe("GET /v1/keys/did-document", () => {
     // operator deliberately uses Path A only).
     setActiveSigner(buildDidWebSigner(HOST, JWK));
     setDeDiClient({
-      resolveDidDocument: async () => {
+      resolveDidWebDocument: async () => {
         const { DeDiClientError } = await import("@opencred/shared");
         throw new DeDiClientError("Not found", 404);
       },
@@ -1140,7 +1134,7 @@ describe("GET /v1/keys/did-document", () => {
     // getting *some* document back — fallback is the active signer's key.
     setActiveSigner(buildDidWebSigner(HOST, JWK));
     setDeDiClient({
-      resolveDidDocument: async () => {
+      resolveDidWebDocument: async () => {
         const { DeDiClientError } = await import("@opencred/shared");
         throw new DeDiClientError("DeDi API error: 503", 502);
       },
