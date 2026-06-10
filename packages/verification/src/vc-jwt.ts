@@ -113,7 +113,9 @@ export function checkJwsEnvelopeConsistency(
   // Lifted registered claims.
   const issuer = envelope["issuer"];
   const issuerId =
-    typeof issuer === "string" ? issuer : ((issuer as { id?: string } | undefined)?.id ?? undefined);
+    typeof issuer === "string"
+      ? issuer
+      : ((issuer as { id?: string } | undefined)?.id ?? undefined);
   if (issuerId !== (payload["iss"] as string | undefined)) {
     mismatches.push("issuer does not match JWT iss");
   }
