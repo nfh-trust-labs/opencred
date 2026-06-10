@@ -122,6 +122,10 @@ export async function createAwsKmsSigner(keyArn: string, timeoutMs = 30_000): Pr
     type: "software",
     fingerprint,
     label: `aws-kms:${keyArn.split("/").pop() ?? keyArn}`,
+    // Public JWK only — exporting a public KeyObject can never yield
+    // private parameters. Required for /v1/keys/publish and
+    // /v1/keys/rotate (DeDi key lifecycle) with KMS-backed signers (#675).
+    publicKeyJwk: publicKeyObj.export({ format: "jwk" }) as Record<string, unknown>,
   };
 
   return {

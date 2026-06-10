@@ -218,9 +218,10 @@ keys.get("/keys", (c) => {
  *
  *   - Currently `did:web` only. did:key issuers don't need a self-hosted
  *     `.well-known/did.json` — the DID is its own document by construction.
- *   - Software signers only. KMS-backed signers do not currently expose
- *     `publicKeyJwk` on their metadata (tracked in #635). Returns 400
- *     with a clear hint if the active signer is KMS-backed.
+ *   - Requires a signer that exposes `publicKeyJwk` on its metadata.
+ *     Software AND Cloud HSM signers (AWS KMS / Azure KV / GCP KMS) do
+ *     (#675); PKCS#11 signers do not yet. Returns 400 with a clear hint
+ *     otherwise.
  *
  * No auth required for the JSON content itself — DID Documents are public
  * by construction — but the endpoint sits behind the same API-key
@@ -317,8 +318,8 @@ keys.get("/keys/did-document", async (c) => {
           code: "VALIDATION_ERROR",
           message:
             "Active signer does not expose publicKeyJwk on its metadata. " +
-            "GET /v1/keys/did-document requires a software-backed signer; KMS-backed signers " +
-            "(AWS KMS / Azure KV / GCP KMS) do not currently surface the JWK — track issue #635.",
+            "Software and Cloud HSM (AWS KMS / Azure KV / GCP KMS) signers surface it; " +
+            "PKCS#11 signers do not yet.",
           signerType: signer.type,
         },
       },
@@ -459,8 +460,9 @@ keys.post("/keys/publish", async (c) => {
         error: {
           code: "VALIDATION_ERROR",
           message:
-            "Active signer does not expose publicKeyJwk on its metadata. Publishing requires a " +
-            "software-backed signer; KMS-backed signers do not currently surface the JWK (#635).",
+            "Active signer does not expose publicKeyJwk on its metadata. " +
+            "Software and Cloud HSM (AWS KMS / Azure KV / GCP KMS) signers surface it; " +
+            "PKCS#11 signers do not yet.",
           signerType: signer.type,
         },
       },
@@ -563,8 +565,9 @@ keys.post("/keys/rotate", async (c) => {
         error: {
           code: "VALIDATION_ERROR",
           message:
-            "Active signer does not expose publicKeyJwk on its metadata. Rotation requires a " +
-            "software-backed signer; KMS-backed signers are not yet supported by /v1/keys/rotate.",
+            "Active signer does not expose publicKeyJwk on its metadata. " +
+            "Software and Cloud HSM (AWS KMS / Azure KV / GCP KMS) signers surface it; " +
+            "PKCS#11 signers do not yet.",
           signerType: signer.type,
         },
       },

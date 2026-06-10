@@ -350,7 +350,7 @@ The endpoint always reflects the **current** state. After `POST /v1/keys/rotate`
 | HTTP | Code | Trigger |
 |---|---|---|
 | `400` | `UNSUPPORTED_DID_METHOD` | The active issuer DID is `did:key:...`. did:key DIDs are self-resolving — verifiers derive the DID Document from the DID string directly, no `.well-known/did.json` is needed. Response includes the active DID in `error.activeDid`. |
-| `400` | `VALIDATION_ERROR` | The active signer does not expose `publicKeyJwk` on its metadata (KMS-backed signers — AWS KMS / Azure KV / GCP KMS). Tracked in #635. Response includes the signer's `type` in `error.signerType`. |
+| `400` | `VALIDATION_ERROR` | The active signer does not expose `publicKeyJwk` on its metadata (PKCS#11 signers — software and Cloud HSM signers surface it as of #675). Response includes the signer's `type` in `error.signerType`. |
 | `503` | `NO_SIGNER` | No signing key has been loaded. Set `OPENCRED_KEY_PATH` or a Cloud HSM provider. |
 
 ---
@@ -429,7 +429,7 @@ curl -s -X POST http://localhost:3100/v1/keys/publish \
 
 | Status | Code | When |
 |---|---|---|
-| `400` | `VALIDATION_ERROR` | Body failed Zod parsing, contained a forbidden key, or the active signer does not expose `publicKeyJwk` (KMS-backed signers, tracked in #635). |
+| `400` | `VALIDATION_ERROR` | Body failed Zod parsing, contained a forbidden key, or the active signer does not expose `publicKeyJwk` (PKCS#11 signers — software and Cloud HSM signers surface it as of #675). |
 | `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
 | `409` | `DEDI_RECORD_EXISTS` | This key is already in the registry from a prior publish. Re-publishing is idempotent from the caller's perspective — the existing record is unchanged. Response carries a `hint` field pointing at `GET /v1/keys/resolve`. |
 | `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. Set `OPENCRED_DEDI_BASE_URL`, `OPENCRED_DEDI_AUTH_TYPE`, `OPENCRED_DEDI_NAMESPACE`, and the matching auth secret. |
@@ -526,7 +526,7 @@ curl -s -X POST http://localhost:3100/v1/keys/rotate \
 
 | Status | Code | When |
 |---|---|---|
-| `400` | `VALIDATION_ERROR` | No active signer, or active signer does not expose `publicKeyJwk` (KMS-backed signers). |
+| `400` | `VALIDATION_ERROR` | No active signer, or active signer does not expose `publicKeyJwk` (PKCS#11 signers — software and Cloud HSM signers surface it as of #675). |
 | `400` | `KEY_METHOD_MISMATCH` | Active signer DID is `did:key:` (not `did:web:`). Regenerate the key instead of calling rotate. |
 | `400` | `NO_CURRENT_DOCUMENT` | No `currentDidDocument` was supplied and none could be projected from the per-key registry snapshots — rotation needs the current `did.json` to carry existing keys forward. |
 | `400` | `DID_MISMATCH` | The supplied `currentDidDocument` is for a different DID than the active issuer. |

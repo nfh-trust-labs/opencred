@@ -164,6 +164,20 @@ describe("AWS KMS signer", () => {
     expect(signer.metadata.fingerprint).toBeTruthy();
   });
 
+  it("surfaces the public JWK on metadata (DeDi key lifecycle, #675) without private params", async () => {
+    setupEnv("aws");
+    const { createAwsKmsSigner } = await import("../signing/cloud-hsm/aws-kms-signer.js");
+    const signer = await createAwsKmsSigner("arn:aws:kms:us-east-1:123456789:key/test-key-id");
+
+    const jwk = signer.metadata.publicKeyJwk!;
+    expect(jwk).toBeDefined();
+    expect(jwk.kty).toBe("EC");
+    expect(jwk.crv).toBe("P-256");
+    expect(jwk.x).toBeTruthy();
+    expect(jwk.y).toBeTruthy();
+    expect(jwk.d).toBeUndefined();
+  });
+
   it("sign() returns correct bytes from mocked KMS", async () => {
     setupEnv("aws");
     const { createAwsKmsSigner } = await import("../signing/cloud-hsm/aws-kms-signer.js");
@@ -187,6 +201,18 @@ describe("Azure Key Vault signer", () => {
     expect(signer.id).toBeTruthy();
     expect(signer.metadata.fingerprint).toBeTruthy();
     expect(signer.metadata.label).toBe("azure-kv:test-key");
+  });
+
+  it("surfaces the public JWK on metadata (DeDi key lifecycle, #675) without private params", async () => {
+    setupEnv("azure");
+    const { createAzureKvSigner } = await import("../signing/cloud-hsm/azure-kv-signer.js");
+    const signer = await createAzureKvSigner("https://test-vault.vault.azure.net", "test-key");
+
+    const jwk = signer.metadata.publicKeyJwk!;
+    expect(jwk).toBeDefined();
+    expect(jwk.kty).toBe("EC");
+    expect(jwk.crv).toBe("P-256");
+    expect(jwk.d).toBeUndefined();
   });
 
   it("sign() returns correct bytes from mocked Azure", async () => {
@@ -214,6 +240,20 @@ describe("GCP Cloud KMS signer", () => {
     expect(signer.id).toBeTruthy();
     expect(signer.metadata.fingerprint).toBeTruthy();
     expect(signer.metadata.label).toContain("gcp-kms:");
+  });
+
+  it("surfaces the public JWK on metadata (DeDi key lifecycle, #675) without private params", async () => {
+    setupEnv("gcp");
+    const { createGcpKmsSigner } = await import("../signing/cloud-hsm/gcp-kms-signer.js");
+    const signer = await createGcpKmsSigner(
+      "projects/test/locations/us/keyRings/ring/cryptoKeys/key/cryptoKeyVersions/1",
+    );
+
+    const jwk = signer.metadata.publicKeyJwk!;
+    expect(jwk).toBeDefined();
+    expect(jwk.kty).toBe("EC");
+    expect(jwk.crv).toBe("P-256");
+    expect(jwk.d).toBeUndefined();
   });
 
   it("sign() returns correct bytes from mocked GCP", async () => {
