@@ -108,7 +108,11 @@ export function DeDiSetup({
             document: JSON.parse(didDocument),
             hostDidDocument: true,
           });
-          if (!pubResult.success) {
+          // didDocumentStored === false means the key record made it into
+          // the registry but the hosted did.json refresh failed — verifiers
+          // resolving via DeDi would see a stale key set. Surface it the
+          // same way as a failed publish so the user retries.
+          if (!pubResult.success || pubResult.didDocumentStored === false) {
             setDidPublishFailed(true);
           }
         } catch {

@@ -75,7 +75,7 @@ const result = await verify(jwt);
 
 For bearer auth, use `auth: { type: "bearer", email, password }` instead.
 
-> **Warning — silent-skip behaviour.** If you issue credentials with `credentialStatus` but don't configure DeDi on the verifier, the revocation check is silently skipped — revoked credentials will still verify as `VALID` because the verifier has no way to query the registry. Always configure DeDi on production verifiers if your issuance flow uses revocation.
+> **Warning — revocation requires DeDi.** If you issue credentials with `credentialStatus` but don't configure DeDi on the verifier, revocation cannot be checked — revoked credentials will still verify as `VALID` because the verifier has no way to query the registry. The skip is visible in the result: `result.checks` contains a `revocation` row whose `detail` says the check was **NOT** performed. Production verifiers should configure DeDi whenever the issuance flow uses revocation, and strict relying parties can treat that check row as a policy failure.
 
 ## Verifying PDF certificates
 
@@ -158,9 +158,10 @@ The set of checks depends on the credential's shape:
 |---|---|
 | `signature` | Always |
 | `vc-jwt-claims` or `data-integrity-proof-config` | Always (proof-format-appropriate) |
+| `envelope-consistency` | When the input is the vc-jwt JSON envelope (`proof: { type: "JsonWebSignature2020", jwt }` — the shape OpenCred PDF/QR/JSON exports carry). Confirms the outer display fields match the signed token; a tampered display copy fails here. |
 | `date` | Always |
 | `x509-chain` | When the proof carries an `x5c` chain |
-| `revocation` | When `credentialStatus` is present AND DeDi is configured |
+| `revocation` | When `credentialStatus` is present AND DeDi is configured; when `credentialStatus` is present WITHOUT DeDi, a non-failing row records that revocation was **not** checked |
 | `pdf-*` | When the input is a PDF |
 
 ## Trust model

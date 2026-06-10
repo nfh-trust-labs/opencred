@@ -949,22 +949,13 @@ async function handleVerifyCredential(
         break;
       }
       case "json": {
-        const parsed = JSON.parse(trimmed);
-
-        // VC-JWT envelope detection: when the signed output is a JSON object
-        // with { proof: { type: "JsonWebSignature2020", jwt: "eyJ..." } },
-        // extract the raw JWT string. The verification package expects the
-        // compact JWT, not the JSON envelope.
-        verificationInput = parsed as Record<string, unknown>;
-        if (
-          typeof parsed === "object" &&
-          parsed !== null &&
-          parsed.proof &&
-          typeof parsed.proof === "object" &&
-          typeof parsed.proof.jwt === "string"
-        ) {
-          verificationInput = parsed.proof.jwt;
-        }
+        // Pass JSON credentials through as-is — including the VC-JWT
+        // envelope shape ({ proof: { type: "JsonWebSignature2020", jwt } }).
+        // The verification engine unwraps the envelope itself AND
+        // cross-validates the outer JSON against the signed payload, so a
+        // tampered display copy fails verification. Extracting proof.jwt
+        // here would silently skip that consistency check.
+        verificationInput = JSON.parse(trimmed) as Record<string, unknown>;
         break;
       }
       case "jwt-compact": {
@@ -2512,21 +2503,32 @@ async function handleCustomSchemaSave(
       // by the time this updates the store. The renderer re-reads the
       // customSchemas list to pick up the new state on the next poll
       // (or the user's next visit to the schema-management screen).
-      Promise.allSettled(publishPromises).then((results) => {
-        const failures = results.filter((r) => r.status === "rejected");
-        updateCustomSchemaPublishState(
-          entry.id,
-          failures.length === 0 ? "published" : "failed",
-          failures.length === 0
-            ? undefined
-            : failures
-                .map((r) => {
-                  const reason = (r as PromiseRejectedResult).reason;
-                  return reason instanceof Error ? reason.message : String(reason);
-                })
-                .join("; "),
-        );
-      });
+      Promise.allSettled(publishPromises)
+        .then((results) => {
+          const failures = results.filter((r) => r.status === "rejected");
+          updateCustomSchemaPublishState(
+            entry.id,
+            failures.length === 0 ? "published" : "failed",
+            failures.length === 0
+              ? undefined
+              : failures
+                  .map((r) => {
+                    const reason = (r as PromiseRejectedResult).reason;
+                    return reason instanceof Error ? reason.message : String(reason);
+                  })
+                  .join("; "),
+          );
+        })
+        .catch((err: unknown) => {
+          // updateCustomSchemaPublishState can itself fail (schema deleted
+          // while the publish was in flight). The IPC response has already
+          // returned, so an unhandled rejection here would surface as a
+          // process-level error with no context.
+          logger.warn("Failed to record DeDi schema publish state", {
+            schemaId: entry.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
     }
   }
 
@@ -2775,7 +2777,13 @@ function getDeDiCredentialFromKeychain(): string | null {
   if (!encrypted) return null;
   try {
     return safeStorage.decryptString(Buffer.from(encrypted, "base64"));
-  } catch {
+  } catch (err) {
+    // A stored-but-undecryptable credential (OS keychain reset, profile
+    // migration, corrupted blob) would otherwise present as "DeDi not
+    // configured" with no trail to debug from. Never log the blob itself.
+    logger.warn("Stored DeDi credential could not be decrypted — re-enter it in Settings", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }

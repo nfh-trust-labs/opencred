@@ -45,7 +45,11 @@ function hasTransientNetworkCode(error: unknown): boolean {
 
 function isTransientError(error: unknown): boolean {
   if (error instanceof DeDiClientError) {
-    return error.statusCode >= 500;
+    // 429 (rate limited) is transient by definition — the request is valid
+    // and will succeed once the window resets. DeDiClientError does not
+    // carry response headers, so a server-provided Retry-After cannot be
+    // honoured; the jittered exponential backoff below stands in for it.
+    return error.statusCode >= 500 || error.statusCode === 429;
   }
   if (error instanceof TypeError && error.message.includes("fetch")) {
     return true;
@@ -91,7 +95,12 @@ export async function withRetry<T>(
         throw error;
       }
       opts.logger?.debug(`Retrying request, attempt ${attempt + 1} of ${opts.maxRetries}`);
-      const delay = opts.baseDelayMs * Math.pow(2, attempt);
+      // Subtractive jitter (0.75–1.0×) de-synchronises replicas retrying the
+      // same outage so they don't hammer DeDi in lockstep when it recovers.
+      // Never exceeds the deterministic exponential delay, so callers can
+      // treat baseDelayMs * 2^attempt as the upper bound per attempt.
+      const jitter = 0.75 + Math.random() * 0.25;
+      const delay = Math.round(opts.baseDelayMs * Math.pow(2, attempt) * jitter);
       await sleep(delay);
     }
   }

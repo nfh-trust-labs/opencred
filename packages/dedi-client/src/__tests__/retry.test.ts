@@ -86,6 +86,30 @@ describe("withRetry", () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
+  it("retries on 429 rate-limit errors", async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new DeDiClientError("rate limited", 429))
+      .mockResolvedValue("ok");
+
+    const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+    const result = await promise;
+
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("exhausts retries on persistent 429 and surfaces the error", async () => {
+    const fn = vi.fn().mockRejectedValue(new DeDiClientError("rate limited", 429));
+
+    const promise = withRetry(fn, { maxRetries: 2, baseDelayMs: 100 });
+    const assertion = expect(promise).rejects.toThrow("rate limited");
+    await vi.advanceTimersByTimeAsync(300);
+    await assertion;
+    expect(fn).toHaveBeenCalledTimes(3); // initial + 2 retries
+  });
+
   it("retries on network errors (TypeError with fetch)", async () => {
     const fn = vi.fn().mockRejectedValueOnce(new TypeError("fetch failed")).mockResolvedValue("ok");
 

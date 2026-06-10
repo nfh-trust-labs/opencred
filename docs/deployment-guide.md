@@ -211,7 +211,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3100/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:3100/v1/health"]
       interval: 30s
       timeout: 5s
       retries: 3

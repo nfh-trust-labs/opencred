@@ -15,12 +15,12 @@ Three architectural questions surfaced while diffing our DeDi client against the
 
 | Registry | Approach | Rationale |
 |---|---|---|
-| `vc-revocation-registry` | **DeDi `tag: "revoke"`** | Canonical schema fits cleanly; we get tag-based discovery for free |
+| `vc-revocation-registry` | **DeDi `tag: "Revoke"`** | Canonical schema fits cleanly; we get tag-based discovery for free |
 | `public_key_registry` _(renamed `opencred-key-registry` in #670)_ | **Custom schema** (we own it) | DeDi's `public_key` schema doesn't fit our records; we want full control of the shape. _Under #670 the shape changed to one record per key — see the superseded note at the top._ |
 | `schema_registry` | Custom (unchanged) | No canonical `schema` tag exists |
 | `context_registry` | `tag: "custom"` (unchanged) | JSON-LD contexts are dynamic — already free-form |
 
-Tag casing fix: [`DeDiRegistryTag`](../../packages/dedi-client/src/api/types.ts) was capitalized (`"Revoke"`, `"Public_key"`); the Postman uses lowercase (`"revoke"`, `"public_key"`, `"membership"`). Switched to lowercase in #558.
+Tag casing history: [`DeDiRegistryTag`](../../packages/dedi-client/src/api/types.ts) started capitalized (`"Revoke"`, `"Public_key"`); #558 switched to lowercase to match the Postman collection. That turned out to be wrong against the real API — verified directly against api.dedi.global on 2026-05-21, the server accepts **only the capitalized forms** and rejects lowercase with `400 Invalid input: tag is not valid`. The code reverted to capitalized tags; the Postman collection is stale, the code comment in `types.ts` is authoritative.
 
 ### D2. Public-key model — full DID Document, our schema
 
@@ -49,7 +49,7 @@ DeDi's envelope `state` (`live` / `suspended` / `revoked` / `expired`) is ignore
 
 ## Final schemas
 
-### `vc-revocation-registry` — DeDi `tag: "revoke"`
+### `vc-revocation-registry` — DeDi `tag: "Revoke"`
 
 No schema body from us; DeDi enforces its canonical [revoke.json](https://dedi.global/revoke.json):
 
