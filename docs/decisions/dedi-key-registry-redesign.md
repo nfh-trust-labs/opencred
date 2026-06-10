@@ -22,7 +22,7 @@ Sources: [dedi-101](https://dedi-global.gitbook.io/docs/dedi.global-developers/d
 - **DeDi's canonical signing-keys model is one record per key:** `lookup/{domain}/{signing-keys}/{key-id}` → `{ algorithm, publicKey, purpose, validFrom/validUntil, version history, on-chain proof }`. **Old key records are retained** so "verifiers processing historical data can still resolve the key that was active at any point in time," and resolution works **offline** (issuer infra need not be up).
 - **Trust model:** verifiers maintain a list of **trusted namespaces (= issuer domains)**. Resolution coordinates come from the credential/DID; the trust list is a separate, legitimate policy layer — *not* the per-verifier resolution config the earlier draft wrongly assumed.
 
-**Implication for OpenCred:** our current `public_key_registry` (one record per DID holding a full embedded did.json + a single `keyStatus`) is the **divergence** from DeDi-native. Realigning to per-key records gets us per-key purpose/status, permanent historical resolution, and on-chain proof "for free." Revocation already uses DeDi's canonical `tag: "revoke"` shape and `credentialStatus` (no change needed there).
+**Implication for OpenCred:** our current `public_key_registry` (one record per DID holding a full embedded did.json + a single `keyStatus`) is the **divergence** from DeDi-native. Realigning to per-key records gets us per-key purpose/status, permanent historical resolution, and on-chain proof "for free." Revocation already uses DeDi's canonical `tag: "Revoke"` shape and `credentialStatus` (no change needed there).
 
 ---
 
@@ -33,7 +33,7 @@ Registries inside the issuer's own verified namespace `D-domain` (e.g. `riversid
 | Registry | Record name | Record payload | Role |
 |---|---|---|---|
 | **`opencred-key-registry`** | `slug(verificationMethod)` = `slug(DID#fragment)` | `{ keyId, controllerDid, algorithm, publicKeyJwk, purpose[], status }` | **Source of truth for "is *this* key valid."** One record per key, **all of the issuer's keys (every DID) in this one registry** (decision, F2). Self-contained → single-lookup verification. Old keys retained forever. No validity-window fields (F1). |
-| **`vc-revocation-registry`** | `hash(credential)` | DeDi `tag: "revoke"` → `{ revoked_id, reason? }` | **Per-credential revocation.** Already implemented + aligned. |
+| **`vc-revocation-registry`** | `hash(credential)` | DeDi `tag: "Revoke"` → `{ revoked_id, reason? }` | **Per-credential revocation.** Already implemented + aligned. |
 | **`did-documents`** *(deferred — F4)* | `slug(DID)` | the assembled W3C did.json for that DID | Only needed to serve standard did:web resolution from DeDi. **Parked** — not on the critical path. |
 
 Key points:

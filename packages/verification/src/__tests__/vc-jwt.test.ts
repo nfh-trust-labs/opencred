@@ -369,12 +369,46 @@ describe("crossValidateVcJwtClaims (#156)", () => {
     expect(errors).toHaveLength(0);
   });
 
-  it("should skip validation for DM 2.0 payloads (no vc wrapper)", () => {
+  it("should pass DM 2.0 payloads (no vc wrapper) without credential fields", () => {
     const errors = crossValidateVcJwtClaims({
       iss: "did:web:example",
       jti: "urn:uuid:12345",
       sub: "did:example:holder",
     });
+    expect(errors).toHaveLength(0);
+  });
+
+  it("should return error when DM 2.0 flat sub does not match credentialSubject.id", () => {
+    // Flat layout: credential fields live directly on the payload. A token
+    // pairing a trusted `sub` with a swapped credentialSubject must fail.
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      sub: "did:example:holder456",
+      credentialSubject: { id: "did:example:attacker", name: "Mallory" },
+    } as never);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("sub");
+    expect(errors[0]).toContain("credentialSubject.id");
+  });
+
+  it("should return error when DM 2.0 flat jti does not match credential id", () => {
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      jti: "urn:uuid:12345",
+      id: "urn:uuid:67890",
+    } as never);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("jti");
+  });
+
+  it("should pass DM 2.0 payloads when flat fields are consistent", () => {
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      jti: "urn:uuid:12345",
+      sub: "did:example:holder456",
+      id: "urn:uuid:12345",
+      credentialSubject: { id: "did:example:holder456", name: "Jane" },
+    } as never);
     expect(errors).toHaveLength(0);
   });
 });

@@ -371,6 +371,174 @@ describe("verifyCredential — VC-JWT", () => {
     expect(result.verified).toBe(false);
   });
 
+  describe("JsonWebSignature2020 envelope (canonical vc-jwt issuance output)", () => {
+    /**
+     * Build the exact shape the Desktop Client and Docker image emit for
+     * proofFormat "vc-jwt": the unsigned credential wrapped around its
+     * compact token, with registered claims lifted out of the `vc` claim
+     * exactly as `buildVcJwtClaims` does at signing time.
+     */
+    async function createEnvelopeCredential() {
+      const { privateKey, publicKey } = generateTestKeyPair();
+      const issuerDid = "did:web:university.example";
+      const jwk = publicKey.export({ format: "jwk" });
+
+      const unsigned = {
+        "@context": ["https://www.w3.org/ns/credentials/v2"],
+        id: "urn:uuid:envelope-test-001",
+        type: ["VerifiableCredential"],
+        issuer: issuerDid,
+        validFrom: "2026-01-01T00:00:00Z",
+        credentialSubject: { id: "did:example:holder123", name: "Jane Doe" },
+      };
+
+      const vc: Record<string, unknown> = { ...unsigned };
+      delete vc.issuer;
+      delete vc.validFrom;
+      vc.credentialSubject = { name: "Jane Doe" };
+
+      const jwt = await createVcJwt(privateKey, {
+        iss: issuerDid,
+        sub: "did:example:holder123",
+        jti: "urn:uuid:envelope-test-001",
+        nbf: Math.floor(Date.parse("2026-01-01T00:00:00Z") / 1000),
+        vc,
+      });
+
+      const envelope = { ...unsigned, proof: { type: "JsonWebSignature2020", jwt } };
+      const resolver = createMockResolver(issuerDid, {
+        id: `${issuerDid}#key-1`,
+        type: "JsonWebKey",
+        controller: issuerDid,
+        publicKeyJwk: jwk as import("@opencred/did").JWK,
+      });
+      return { envelope, resolver };
+    }
+
+    it("verifies the canonical issuance envelope as VALID", async () => {
+      const { envelope, resolver } = await createEnvelopeCredential();
+
+      const result = await verifyCredential(envelope as unknown as Record<string, unknown>, {
+        didResolver: resolver,
+      });
+
+      expect(result.code).toBe("VALID");
+      expect(result.verified).toBe(true);
+      expect(result.checks.some((c) => c.name === "envelope-consistency" && c.passed)).toBe(true);
+      expect(result.checks.some((c) => c.name === "signature" && c.passed)).toBe(true);
+    });
+
+    it("rejects an envelope whose outer credentialSubject was swapped", async () => {
+      const { envelope, resolver } = await createEnvelopeCredential();
+      const tampered = {
+        ...envelope,
+        credentialSubject: { id: "did:example:holder123", name: "Mallory" },
+      };
+
+      const result = await verifyCredential(tampered as unknown as Record<string, unknown>, {
+        didResolver: resolver,
+      });
+
+      expect(result.code).toBe("INVALID");
+      expect(result.verified).toBe(false);
+      const row = result.checks.find((c) => c.name === "envelope-consistency");
+      expect(row?.passed).toBe(false);
+      expect(row?.detail).toMatch(/does not match/);
+    });
+
+    it("rejects an envelope whose outer validFrom was altered", async () => {
+      const { envelope, resolver } = await createEnvelopeCredential();
+      const tampered = { ...envelope, validFrom: "2020-01-01T00:00:00Z" };
+
+      const result = await verifyCredential(tampered as unknown as Record<string, unknown>, {
+        didResolver: resolver,
+      });
+
+      expect(result.verified).toBe(false);
+      expect(result.checks.find((c) => c.name === "envelope-consistency")?.passed).toBe(false);
+    });
+
+    it("returns a structured failure when proof.jwt is garbage", async () => {
+      const { envelope, resolver } = await createEnvelopeCredential();
+      const broken = { ...envelope, proof: { type: "JsonWebSignature2020", jwt: "garbage" } };
+
+      const result = await verifyCredential(broken as unknown as Record<string, unknown>, {
+        didResolver: resolver,
+      });
+
+      expect(result.verified).toBe(false);
+      expect(result.checks[0]?.name).toBe("envelope-consistency");
+      expect(result.checks[0]?.passed).toBe(false);
+    });
+  });
+
+  it("surfaces a 'revocation NOT checked' row when credentialStatus is present but DeDi is not configured", async () => {
+    // An issuer that commits to a revocation registry (credentialStatus)
+    // must not have a revoked credential silently verify as VALID just
+    // because this verifier lacks a DeDi client. The headline result stays
+    // VALID (signature is sound), but the skip must be visible in checks.
+    const { privateKey, publicKey } = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = publicKey.export({ format: "jwk" });
+
+    const jwt = await createVcJwt(privateKey, {
+      iss: issuerDid,
+      nbf: Math.floor(Date.now() / 1000) - 60,
+      vc: {
+        "@context": ["https://www.w3.org/ns/credentials/v2"],
+        type: ["VerifiableCredential"],
+        credentialSubject: { name: "Jane Doe" },
+        credentialStatus: {
+          id: "https://dedi.example.com/dedi/lookup/example.com/vc-revocation-registry/abc123",
+          type: "RevocationList2020Status",
+        },
+      },
+    });
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const result = await verifyCredential(jwt, { didResolver: resolver });
+
+    expect(result.code).toBe("VALID");
+    const revocationRow = result.checks.find((c) => c.name === "revocation");
+    expect(revocationRow).toBeDefined();
+    expect(revocationRow!.passed).toBe(true);
+    expect(revocationRow!.detail).toMatch(/NOT checked/);
+  });
+
+  it("does NOT add a revocation row when neither credentialStatus nor DeDi is present", async () => {
+    const { privateKey, publicKey } = generateTestKeyPair();
+    const issuerDid = "did:web:university.example";
+    const jwk = publicKey.export({ format: "jwk" });
+
+    const jwt = await createVcJwt(privateKey, {
+      iss: issuerDid,
+      nbf: Math.floor(Date.now() / 1000) - 60,
+      vc: {
+        "@context": ["https://www.w3.org/ns/credentials/v2"],
+        type: ["VerifiableCredential"],
+        credentialSubject: { name: "Jane Doe" },
+      },
+    });
+
+    const resolver = createMockResolver(issuerDid, {
+      id: `${issuerDid}#key-1`,
+      type: "JsonWebKey",
+      controller: issuerDid,
+      publicKeyJwk: jwk as import("@opencred/did").JWK,
+    });
+
+    const result = await verifyCredential(jwt, { didResolver: resolver });
+
+    expect(result.code).toBe("VALID");
+    expect(result.checks.find((c) => c.name === "revocation")).toBeUndefined();
+  });
+
   it("returns INVALID when jti does not match vc.id (VC-JOSE-COSE §3.3.1)", async () => {
     const { privateKey, publicKey } = generateTestKeyPair();
     const issuerDid = "did:web:university.example";

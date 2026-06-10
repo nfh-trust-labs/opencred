@@ -42,6 +42,37 @@ import { applyCacheHeaders, CACHE_PRESETS } from "../middleware/cache-control.js
 
 const keys = new Hono();
 
+/**
+ * Store the did.json in DeDi, best-effort. The key-registry write that
+ * preceded this call is the authoritative state change; failing the whole
+ * request *after* it succeeded would tell the operator the operation failed
+ * when it (mostly) didn't. Instead the response carries
+ * `didDocumentStored: false` and the operator can re-run the endpoint —
+ * every step is idempotent, so a retry converges.
+ */
+async function storeDidDocumentBestEffort(
+  dediClient: DeDiClient,
+  issuerDid: string,
+  document: unknown,
+  namespace: string | undefined,
+  operation: string,
+): Promise<boolean> {
+  try {
+    await dediClient.publishDidDocument(issuerDid, document, namespace);
+    return true;
+  } catch (err) {
+    getLogger().warn(
+      {
+        issuerDid,
+        operation,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "did.json refresh failed after key-registry update — re-run the endpoint to retry (idempotent)",
+    );
+    return false;
+  }
+}
+
 /** Standard 503 body when DeDi is not configured. */
 function dediNotConfigured(c: Context) {
   return c.json(
@@ -437,8 +468,13 @@ keys.post("/keys/publish", async (c) => {
   let didDocumentStored = false;
   if (hostDidDoc) {
     const document = generateDidWebDocument(issuerDid, publicKeyJwk as JWK);
-    await dediClient.publishDidDocument(issuerDid, document, parsed.namespace);
-    didDocumentStored = true;
+    didDocumentStored = await storeDidDocumentBestEffort(
+      dediClient,
+      issuerDid,
+      document,
+      parsed.namespace,
+      "publish",
+    );
   }
   return c.json({ ...result, keyId: keyRecord.keyId, didDocumentStored });
 });
@@ -553,8 +589,13 @@ keys.post("/keys/rotate", async (c) => {
       { id: newKeyRecord.keyId, publicKeyJwk: publicKeyJwk as JWK },
       retainedKeys,
     );
-    await dediClient.publishDidDocument(issuerDid, document, parsed.namespace);
-    didDocumentStored = true;
+    didDocumentStored = await storeDidDocumentBestEffort(
+      dediClient,
+      issuerDid,
+      document,
+      parsed.namespace,
+      "rotate",
+    );
   }
 
   return c.json({
@@ -605,8 +646,13 @@ keys.post("/keys/revoke", async (c) => {
     const activeKeyId = isDidWeb ? didWebVerificationMethodId(issuerDid) : signer.id;
     if (isDidWeb && publicKeyJwk && activeKeyId !== parsed.verificationMethod) {
       const document = generateDidWebDocument(issuerDid, publicKeyJwk as JWK);
-      await dediClient.publishDidDocument(issuerDid, document, parsed.namespace);
-      didDocumentStored = true;
+      didDocumentStored = await storeDidDocumentBestEffort(
+        dediClient,
+        issuerDid,
+        document,
+        parsed.namespace,
+        "revoke",
+      );
     }
   }
 

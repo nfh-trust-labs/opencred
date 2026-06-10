@@ -380,8 +380,14 @@ async function verifyKeyBindingJwt(
       algorithms: ALLOWED_ALGORITHMS as unknown as string[],
     });
 
-    // Verify sd_hash: the hash of the SD-JWT without the KB-JWT part
-    const sdJwtWithoutKb = fullSdJwtVc.substring(0, fullSdJwtVc.lastIndexOf(keyBindingJwt));
+    // Verify sd_hash: the hash of the SD-JWT without the KB-JWT part.
+    // Per SD-JWT §4.3 the serialization is
+    // `<issuer-jwt>~<disclosure>~...~<kb-jwt>`, so the KB-JWT is exactly
+    // the segment after the LAST `~`. Cutting at that structural boundary
+    // (rather than string-searching for the KB-JWT's own bytes) cannot be
+    // confused by a crafted disclosure that happens to contain the KB-JWT
+    // as a substring.
+    const sdJwtWithoutKb = fullSdJwtVc.substring(0, fullSdJwtVc.lastIndexOf("~") + 1);
     const sdAlg = issuerPayload["_sd_alg"] as string | undefined;
     const expectedSdHash = computeSdHash(sdJwtWithoutKb, sdAlg);
     if (kbPayload["sd_hash"] !== expectedSdHash) {

@@ -653,6 +653,16 @@ if (config.OPENCRED_RATE_LIMIT_ENABLED) {
 //  4. Shut down the OTel tracer.
 function shutdown(signal: string) {
   logger.info({ signal }, "Shutting down");
+  // Hard deadline: if draining hangs (stuck keep-alive sockets, a wedged
+  // Redis close), exit before the orchestrator's SIGKILL lands so the
+  // failure is logged rather than silent. 25s leaves headroom inside the
+  // default 30s Kubernetes/docker-stop grace period. unref() keeps the
+  // timer from holding an otherwise-finished process open.
+  const forceExitTimer = setTimeout(() => {
+    logger.error("Graceful shutdown deadline (25s) exceeded — forcing exit");
+    process.exit(1);
+  }, 25_000);
+  forceExitTimer.unref();
   void (async () => {
     try {
       const interrupted = await finalizeAllRunningJobs();

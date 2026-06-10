@@ -10,7 +10,7 @@ A **trust chain** is the path a verifier walks from a credential's signature bac
 | **Type 2: Issuer Seeking DSC** | OpenCred's CA adapter facilitates a DSC request; once issued, the user becomes Type 1 | (none until DSC is obtained) | Same as Type 1 once a DSC is in hand |
 | **Type 3: Self-Published Keys** | OpenCred generates an ECDSA P-256 keypair locally; the user publishes the DID document on their own domain | `did:web:<domain>` | VC signature → published key → did:web resolution → domain TLS |
 
-> **Architecture note**: Type 3 used to be "OpenCred-Attested" — OpenCred would sign the issuer's public key with its own DSC. As of v2 (2026-03-25) that workflow was removed. The new Type 3 publishes via `did:web` so trust is anchored in the issuer's own domain TLS rather than in OpenCred. This eliminates OpenCred as a trust intermediary and simplifies the architecture. (See `packages/key-attestation/` and `packages/domain-verification/` — both deleted.)
+> **Architecture note**: Type 3 used to be "OpenCred-Attested" — OpenCred would sign the issuer's public key with its own DSC. As of v2 (2026-03-25) that workflow was removed. The new Type 3 publishes via `did:web` so trust is anchored in the issuer's own domain TLS rather than in OpenCred. This eliminates OpenCred as a trust intermediary and simplifies the architecture. Type 3 issuance remains fully supported — only the attestation packages (`packages/key-attestation/`, `packages/domain-verification/`) were deleted; signing, did:web publication, and verification live on in `@opencred/crypto`, `@opencred/did`, and `@opencred/verification`.
 
 ## Type 1: Issuer with DSC
 

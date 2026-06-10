@@ -814,6 +814,39 @@ describe("POST /v1/keys/rotate", () => {
     expect(publishKeyCalls[0]!.namespace).toBe("explicit-ns");
   });
 
+  it("still reports rotated:true with didDocumentStored:false when the did.json store fails", async () => {
+    // The key-registry writes (publishKey + setKeyStatus) are the
+    // authoritative state change. A did.json outage AFTER they succeed must
+    // not turn the response into a 500 — the operator would read "rotation
+    // failed" when the keys did rotate. Instead the response surfaces
+    // didDocumentStored:false so the operator can re-run (idempotent).
+    setActiveSigner(buildDidWebSigner(HOST, NEW_JWK));
+    const { client, setKeyStatusCalls } = makeRotateMockClient();
+    (client as { publishDidDocument: unknown }).publishDidDocument = async () => {
+      throw new Error("DeDi unreachable");
+    };
+    setDeDiClient(client);
+
+    const res = await app.request("/v1/keys/rotate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        hostDidDocument: true,
+        previousVerificationMethod: `${DID}#key-1`,
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      rotated: boolean;
+      didDocumentStored: boolean;
+      retired: Record<string, unknown> | null;
+    };
+    expect(body.rotated).toBe(true);
+    expect(body.didDocumentStored).toBe(false);
+    expect(body.retired).not.toBeNull();
+    expect(setKeyStatusCalls).toHaveLength(1);
+  });
+
   it("returns 400 when no signer is loaded", async () => {
     setActiveSigner(null);
     const { client } = makeRotateMockClient();
