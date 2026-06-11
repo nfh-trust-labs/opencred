@@ -1,0 +1,11 @@
+# Trivy Vulnerability Allowlist
+# ==============================================================================
+# Known false positives or accepted-risk CVEs.
+# Each entry must have a justification and an expiry date for re-review.
+#
+# Usage: trivy image --ignorefile deploy/trivy-allowlist.yaml <image>
+# ==============================================================================
+
+# Format: one CVE ID per line
+# Example (commented out — add real entries as needed):
+# CVE-2024-XXXXX  # Description — accepted risk because... (review by YYYY-MM-DD)

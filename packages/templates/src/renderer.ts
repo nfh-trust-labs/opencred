@@ -1,0 +1,109 @@
+/**
+ * SVG template renderer.
+ *
+ * Substitutes {{placeholder}} tokens in SVG templates with actual values.
+ * Supports nested subject fields ({{subject.fieldName}}) and
+ * conditional sections ({{#field}}...{{/field}}).
+ */
+
+import type { RenderOptions } from "./types.js";
+
+const PLACEHOLDER_RE = /\{\{([^#/}]+?)\}\}/g;
+const CONDITIONAL_RE = /\{\{#(\w+)\}\}([\s\S]*?)\{\{\/\1\}\}/g;
+
+const DEFAULT_PRIMARY_COLOR = "#1a56db";
+
+/**
+ * Render an SVG template with the given values and customization.
+ */
+export function renderSvg(svgTemplate: string, options: RenderOptions): string {
+  const { values, customization } = options;
+
+  // Build a flat lookup map for placeholders
+  const lookup = new Map<string, string>();
+
+  lookup.set("issuerName", values.issuerName);
+  lookup.set("credentialTitle", values.credentialTitle);
+  lookup.set("validFrom", formatDate(values.validFrom));
+  lookup.set("validUntil", values.validUntil ? formatDate(values.validUntil) : "No expiry");
+
+  // Subject fields
+  for (const [key, val] of Object.entries(values.subject)) {
+    lookup.set(`subject.${key}`, escapeXml(val));
+  }
+
+  // QR code
+  if (values.qrCode) {
+    lookup.set("qrCode", values.qrCode);
+  }
+
+  // Customization defaults
+  lookup.set("primaryColor", escapeXml(customization?.primaryColor ?? DEFAULT_PRIMARY_COLOR));
+  lookup.set("backgroundColor", escapeXml(customization?.backgroundColor ?? "#ffffff"));
+  lookup.set("secondaryColor", escapeXml(customization?.secondaryColor ?? "#2d5986"));
+  lookup.set("textColor", escapeXml(customization?.textColor ?? "#333333"));
+  lookup.set("labelColor", escapeXml(customization?.labelColor ?? "#666666"));
+  lookup.set("logoWidth", String(customization?.logoWidth ?? 50));
+  lookup.set("logoHeight", String(customization?.logoHeight ?? 50));
+  // Default footer is intentionally a generic verification disclaimer
+  // — no "powered by" attribution. The PDF generator follows the same
+  // convention. To suppress the footer entirely, pass `footerText: ""`.
+  lookup.set(
+    "footerText",
+    escapeXml(
+      customization?.footerText ??
+        "This credential is digitally signed and can be independently verified.",
+    ),
+  );
+
+  if (customization?.logoDataUri) {
+    lookup.set("logoDataUri", customization.logoDataUri);
+  }
+
+  if (customization?.sealDataUri) {
+    lookup.set("sealDataUri", customization.sealDataUri);
+  }
+
+  if (customization?.issuerDisplayName) {
+    lookup.set("issuerName", escapeXml(customization.issuerDisplayName));
+  }
+
+  // Process conditionals first ({{#field}}...{{/field}})
+  let result = svgTemplate.replace(CONDITIONAL_RE, (_match, field: string, content: string) => {
+    const value = lookup.get(field);
+    return value ? content : "";
+  });
+
+  // Then substitute placeholders
+  result = result.replace(PLACEHOLDER_RE, (_match, key: string) => {
+    const trimmedKey = key.trim();
+    return lookup.get(trimmedKey) ?? "";
+  });
+
+  return result;
+}
+
+/** Format ISO date to human-readable. */
+function formatDate(iso: string): string {
+  try {
+    const date = new Date(iso);
+    if (isNaN(date.getTime())) return iso;
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** Escape XML special characters. */
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}

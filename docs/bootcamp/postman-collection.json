@@ -1,0 +1,881 @@
+{
+  "info": {
+    "_postman_id": "f4a1c1f0-7b3e-4b2a-a3f0-opencred000001",
+    "name": "OpenCred Server (Docker)",
+    "description": "HTTP requests for the OpenCred Docker image (`apps/server`). Targets the `/v1/*` API surface.\n\n## How to use\n\n1. Start the container locally (or via SSH tunnel if it's on a remote VM):\n   ```\n   docker run -d --name opencred -p 3100:3100 \\\n     -e OPENCRED_API_KEY=\"$OPENCRED_API_KEY\" \\\n     -e OPENCRED_KEY_PATH=/secrets/issuer-key.pem \\\n     -v $PWD/keys/issuer-key.pem:/secrets/issuer-key.pem:ro \\\n     opencred:bootcamp\n   ```\n2. In Postman, edit the collection variables (Variables tab):\n   - `baseUrl` — default `http://localhost:3100`\n   - `apiKey` — paste the value of `OPENCRED_API_KEY`\n3. Run **Public → GET /v1/health** to confirm `signingKeyLoaded: true`.\n4. Run **Inspect → GET /v1/keys** — it auto-saves `issuerDid` into the collection variables for the issue requests.\n5. Run **Issue & Verify → POST /v1/credentials/issue (vc-jwt)** — it auto-saves the response into `lastCredential` for the verify request.\n6. Run **Issue & Verify → POST /v1/credentials/verify**.\n\nAuthentication is set at the collection level (Bearer `{{apiKey}}`); the two public endpoints override to no auth.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{apiKey}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3100", "type": "string" },
+    { "key": "apiKey", "value": "", "type": "string" },
+    { "key": "issuerDid", "value": "", "type": "string" },
+    { "key": "lastCredential", "value": "", "type": "string" },
+    { "key": "lastFullCredential", "value": "", "type": "string" },
+    { "key": "lastRevocationHash", "value": "", "type": "string" },
+    { "key": "lastPublishedDid", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Public (no auth)",
+      "item": [
+        {
+          "name": "GET /v1/health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "health"]
+            },
+            "description": "Liveness probe. Public — no Authorization header. Returns 200 when `signingKeyLoaded: true`, otherwise 503."
+          }
+        },
+        {
+          "name": "GET /v1/metrics",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "metrics"]
+            },
+            "description": "Prometheus metrics in text format. Public — designed to be scraped without holding the API key."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Inspect",
+      "item": [
+        {
+          "name": "GET /v1/keys",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Auto-save the active issuer DID into the collection variable so that",
+                  "// downstream issue requests can reference it as {{issuerDid}}.",
+                  "pm.test('Has at least one signing key', function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.keys).to.be.an('array');",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "if (body.keys && body.keys.length > 0 && body.keys[0].id) {",
+                  "    // The /v1/keys 'id' field is the verification-method id (DID#fragment).",
+                  "    // Strip the fragment so issue calls receive a bare DID.",
+                  "    const bareDid = String(body.keys[0].id).split('#')[0];",
+                  "    pm.collectionVariables.set('issuerDid', bareDid);",
+                  "    console.log('Saved issuerDid =', bareDid);",
+                  "} else {",
+                  "    console.warn('No signing key configured. Mount OPENCRED_KEY_PATH or set a Cloud HSM provider.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/keys",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "keys"]
+            },
+            "description": "Metadata about the loaded signer (DID, algorithm, source). Never returns key material. Auto-saves the first key's `id` to `{{issuerDid}}`."
+          }
+        },
+        {
+          "name": "GET /v1/schemas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/schemas",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "schemas"]
+            },
+            "description": "List every built-in credential schema. Useful when an issue call returns 'schema not found' — paste the offending id and it'll be missing here."
+          }
+        },
+        {
+          "name": "GET /v1/schemas (filtered by category)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/schemas?category=identity",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "schemas"],
+              "query": [{ "key": "category", "value": "identity" }]
+            },
+            "description": "Filter by schema category. Categories: identity, education, health, energy, finance, traceability, open-badges, dif."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Issue & Verify",
+      "item": [
+        {
+          "name": "POST /v1/credentials/issue (vc-jwt)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Auto-save the issued credential as a JSON string for the verify request.",
+                  "const body = pm.response.json();",
+                  "if (body.credential) {",
+                  "    // vc-jwt: credential is a JSON-LD object whose proof.jwt holds the",
+                  "    //   compact JWS — the verify endpoint wants just that JWT string.",
+                  "    // sd-jwt-vc: credential is already a compact ~-delimited string.",
+                  "    // data-integrity: credential is the JSON-LD VC; stringify wholesale.",
+                  "    let asString;",
+                  "    if (typeof body.credential === 'string') {",
+                  "        asString = body.credential;",
+                  "    } else if (body.credential.proof && typeof body.credential.proof.jwt === 'string') {",
+                  "        asString = body.credential.proof.jwt;",
+                  "    } else {",
+                  "        asString = JSON.stringify(body.credential);",
+                  "    }",
+                  "    pm.collectionVariables.set('lastCredential', asString);",
+                  "    console.log('Saved lastCredential (', body.proofFormat, ')');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"validUntil\": \"2027-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/issue",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "issue"]
+            },
+            "description": "Issue a credential with a compact JWT proof — the server's default. Works with every bundled schema (no JSON-LD context strict-mode constraints).\n\nThe response `credential` is a JSON-LD VC object whose `proof.jwt` holds the compact JWS.\n\nAuto-saves the response into `{{lastCredential}}` for the verify request."
+          }
+        },
+        {
+          "name": "POST /v1/credentials/issue (data-integrity)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.credential) {",
+                  "    // vc-jwt: credential is a JSON-LD object whose proof.jwt holds the",
+                  "    //   compact JWS — the verify endpoint wants just that JWT string.",
+                  "    // sd-jwt-vc: credential is already a compact ~-delimited string.",
+                  "    // data-integrity: credential is the JSON-LD VC; stringify wholesale.",
+                  "    let asString;",
+                  "    if (typeof body.credential === 'string') {",
+                  "        asString = body.credential;",
+                  "    } else if (body.credential.proof && typeof body.credential.proof.jwt === 'string') {",
+                  "        asString = body.credential.proof.jwt;",
+                  "    } else {",
+                  "        asString = JSON.stringify(body.credential);",
+                  "    }",
+                  "    pm.collectionVariables.set('lastCredential', asString);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"data-integrity\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/issue",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "issue"]
+            },
+            "description": "Issue a JSON-LD VC with a Data Integrity proof. Requires an EC key on the server side (RSA returns 500 CRYPTO_ERROR) and a JSON-LD context that does not redefine W3C-protected terms (otherwise 500 CRYPTO_ERROR: Invalid JSON-LD syntax). Prefer `vc-jwt` for portable workshops."
+          }
+        },
+        {
+          "name": "POST /v1/credentials/issue (sd-jwt-vc, selective disclosure)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.credential) {",
+                  "    // vc-jwt: credential is a JSON-LD object whose proof.jwt holds the",
+                  "    //   compact JWS — the verify endpoint wants just that JWT string.",
+                  "    // sd-jwt-vc: credential is already a compact ~-delimited string.",
+                  "    // data-integrity: credential is the JSON-LD VC; stringify wholesale.",
+                  "    let asString;",
+                  "    if (typeof body.credential === 'string') {",
+                  "        asString = body.credential;",
+                  "    } else if (body.credential.proof && typeof body.credential.proof.jwt === 'string') {",
+                  "        asString = body.credential.proof.jwt;",
+                  "    } else {",
+                  "        asString = JSON.stringify(body.credential);",
+                  "    }",
+                  "    pm.collectionVariables.set('lastCredential', asString);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"sd-jwt-vc\",\n  \"selectiveDisclosureClaims\": [\"/credentialSubject/role\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/issue",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "issue"]
+            },
+            "description": "Issue an SD-JWT VC. The `~`-separated compact token contains hashes of the disclosable claims plus the disclosures themselves. The holder can choose which to reveal."
+          }
+        },
+        {
+          "name": "POST /v1/credentials/issue (inline custom schema)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.credential) {",
+                  "    // vc-jwt: credential is a JSON-LD object whose proof.jwt holds the",
+                  "    //   compact JWS — the verify endpoint wants just that JWT string.",
+                  "    // sd-jwt-vc: credential is already a compact ~-delimited string.",
+                  "    // data-integrity: credential is the JSON-LD VC; stringify wholesale.",
+                  "    let asString;",
+                  "    if (typeof body.credential === 'string') {",
+                  "        asString = body.credential;",
+                  "    } else if (body.credential.proof && typeof body.credential.proof.jwt === 'string') {",
+                  "        asString = body.credential.proof.jwt;",
+                  "    } else {",
+                  "        asString = JSON.stringify(body.credential);",
+                  "    }",
+                  "    pm.collectionVariables.set('lastCredential', asString);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"inlineSchema\": {\n    \"$id\": \"https://example.org/schemas/training-cert/v1.json\",\n    \"title\": \"Training Certificate\",\n    \"type\": \"object\",\n    \"required\": [\"name\", \"course\", \"passedOn\"],\n    \"properties\": {\n      \"name\":     { \"type\": \"string\", \"minLength\": 1 },\n      \"course\":   { \"type\": \"string\", \"minLength\": 1 },\n      \"passedOn\": { \"type\": \"string\", \"format\": \"date\" },\n      \"score\":    { \"type\": \"number\", \"minimum\": 0, \"maximum\": 100 }\n    }\n  },\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"course\": \"Bootcamp 101\",\n    \"passedOn\": \"2026-04-27\",\n    \"score\": 95\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/issue",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "issue"]
+            },
+            "description": "Issue a credential against a JSON Schema you paste in the request body — no need for the schema to be in the bundled registry. The server compiles the schema, validates `credentialSubject` against it, and writes the schema's `$id` (or a base64 data-URI fallback) into the credential's `credentialSchema` block.\n\nWhen `inlineSchema` is provided, `schemaId` becomes optional. If both are passed, the inline schema wins for validation and `credentialSchema.id`."
+          }
+        },
+        {
+          "name": "POST /v1/credentials/issue (electricity/v1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.credential) {",
+                  "    // vc-jwt: credential is a JSON-LD object whose proof.jwt holds the",
+                  "    //   compact JWS — the verify endpoint wants just that JWT string.",
+                  "    // sd-jwt-vc: credential is already a compact ~-delimited string.",
+                  "    // data-integrity: credential is the JSON-LD VC; stringify wholesale.",
+                  "    let asString;",
+                  "    if (typeof body.credential === 'string') {",
+                  "        asString = body.credential;",
+                  "    } else if (body.credential.proof && typeof body.credential.proof.jwt === 'string') {",
+                  "        asString = body.credential.proof.jwt;",
+                  "    } else {",
+                  "        asString = JSON.stringify(body.credential);",
+                  "    }",
+                  "    pm.collectionVariables.set('lastCredential', asString);",
+                  "    // Save the full VC envelope (object form) so revocation-hash and",
+                  "    // package requests can pull the JSON-LD shape without re-parsing.",
+                  "    if (typeof body.credential === 'object' && body.credential !== null) {",
+                  "        pm.collectionVariables.set('lastFullCredential', JSON.stringify(body.credential));",
+                  "    }",
+                  "    // When `revocationRegistryUrl` is set on the issue request, the",
+                  "    // server embeds the per-credential SHA-256 hash as the LAST URL",
+                  "    // segment of `credential.credentialStatus.id`. Extract it so the",
+                  "    // /credentials/revoke request has the right hash auto-threaded —",
+                  "    // no separate /revocation-hash call needed for OpenCred-issued VCs.",
+                  "    const statusId = body.credential && body.credential.credentialStatus && body.credential.credentialStatus.id;",
+                  "    if (typeof statusId === 'string') {",
+                  "        const match = String(statusId).match(/([a-f0-9]{64})$/);",
+                  "        if (match) {",
+                  "            pm.collectionVariables.set('lastRevocationHash', match[1]);",
+                  "            console.log('Saved lastRevocationHash from credentialStatus.id =', match[1]);",
+                  "        }",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schemaId\": \"electricity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"customerProfile\": {\n      \"customerNumber\": \"BESCOM-1234567890\",\n      \"meterNumber\": \"MTR-99887766\",\n      \"meterType\": \"AMI\"\n    },\n    \"customerDetails\": {\n      \"fullName\": \"Jane Doe\",\n      \"installationAddress\": {\n        \"address\": \"42 MG Road, Bengaluru\",\n        \"area_code\": \"560001\",\n        \"city\":    { \"name\": \"Bengaluru\", \"code\": \"BLR\" },\n        \"state\":   { \"name\": \"Karnataka\", \"code\": \"KA\" },\n        \"country\": { \"name\": \"India\", \"code\": \"IN\" },\n        \"gps\": \"12.9716,77.5946\"\n      },\n      \"serviceConnectionDate\": \"2024-04-15T00:00:00Z\"\n    },\n    \"consumptionProfile\": {\n      \"premisesType\": \"Residential\",\n      \"connectionType\": \"Single-phase\",\n      \"sanctionedLoadKW\": 5,\n      \"tariffCategoryCode\": \"LT-2A\"\n    },\n    \"generationProfile\": {\n      \"assetId\": \"SOLAR-001\",\n      \"generationType\": \"Solar\",\n      \"capacityKW\": 3.2,\n      \"commissioningDate\": \"2025-06-01T00:00:00Z\",\n      \"manufacturer\": \"Tata Power Solar\",\n      \"modelNumber\": \"TP-320M\"\n    },\n    \"storageProfile\": {\n      \"assetId\": \"BAT-001\",\n      \"storageCapacityKWh\": 10,\n      \"powerRatingKW\": 5,\n      \"commissioningDate\": \"2025-06-01T00:00:00Z\",\n      \"storageType\": \"LithiumIon\"\n    }\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"validUntil\": \"2027-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\",\n  \"revocationRegistryUrl\": \"https://your-dedi-instance.example.org/dedi/lookup/your-namespace/vc-revocation-registry\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/issue",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "issue"]
+            },
+            "description": "Issue a Beckn-flavored electricity-customer credential (`schemaId: electricity/v1`) with **all five `credentialSubject` profile blocks** populated (`customerProfile`, `customerDetails`, `consumptionProfile`, `generationProfile`, `storageProfile`) and a DeDi-backed `credentialStatus` via `revocationRegistryUrl`.\n\nThree friction points to watch for:\n\n- `installationAddress.country` (and `city`, `state`) is `{ name?, code }`, where `code` matches ISO 3166-1 alpha-2 (`^[A-Z]{2}$`). Not a bare string.\n- All date fields in this schema are `date-time` (full ISO 8601 with timezone), not `date`. Applies to `serviceConnectionDate`, `commissioningDate`, etc.\n- Enums everywhere: `meterType` (`AMR | AMI | Electromechanical | Forward | Reverse | Bidirectional | Prepaid | NetMeter | Other`), `premisesType`, `connectionType`, `generationType`, `storageType`.\n\n`proofFormat: vc-jwt` is required — `data-integrity` against this schema currently returns `CRYPTO_ERROR: Invalid JSON-LD syntax; tried to redefine a protected term` (tracked as opencred#596).\n\nOnly `customerProfile` is required under `credentialSubject`; the other four blocks are optional but populated here so you can demo the full schema in one click.\n\n**Update the `revocationRegistryUrl`** to your DeDi instance's canonical lookup URL: `https://<host>/dedi/lookup/<namespace>/vc-revocation-registry`. The server stamps this verbatim into `credentialStatus.statusListCredential` and appends the per-credential SHA-256 hash to make `credentialStatus.id`.\n\n**Auto-threading**: the post-test script saves the JWT string into `{{lastCredential}}`, the full VC object into `{{lastFullCredential}}`, AND extracts the revocation hash from `credentialStatus.id` into `{{lastRevocationHash}}`. Click straight to **Revocation (DeDi) → POST /v1/credentials/revoke**; no separate hash call needed."
+          }
+        },
+        {
+          "name": "POST /v1/credentials/issue (with revocation registry URL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.credential) {",
+                  "    let asString;",
+                  "    if (typeof body.credential === 'string') {",
+                  "        asString = body.credential;",
+                  "    } else if (body.credential.proof && typeof body.credential.proof.jwt === 'string') {",
+                  "        asString = body.credential.proof.jwt;",
+                  "    } else {",
+                  "        asString = JSON.stringify(body.credential);",
+                  "    }",
+                  "    pm.collectionVariables.set('lastCredential', asString);",
+                  "    if (typeof body.credential === 'object' && body.credential !== null) {",
+                  "        pm.collectionVariables.set('lastFullCredential', JSON.stringify(body.credential));",
+                  "    }",
+                  "    // Extract per-credential revocation hash from credentialStatus.id (the",
+                  "    // server appends the hash as the last URL segment when revocationRegistryUrl",
+                  "    // is set). Auto-threads lastRevocationHash for the /revoke request.",
+                  "    const statusId = body.credential && body.credential.credentialStatus && body.credential.credentialStatus.id;",
+                  "    if (typeof statusId === 'string') {",
+                  "        const match = String(statusId).match(/([a-f0-9]{64})$/);",
+                  "        if (match) {",
+                  "            pm.collectionVariables.set('lastRevocationHash', match[1]);",
+                  "        }",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\",\n  \"revocationRegistryUrl\": \"https://your-dedi-instance.example.org/dedi/lookup/your-namespace/vc-revocation-registry\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/issue",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "issue"]
+            },
+            "description": "When `revocationRegistryUrl` is set, the server attaches a `credentialStatus` block of type `dedi` and generates a `urn:uuid:` credential id. The per-credential SHA-256 hash is embedded as the LAST URL segment of `credentialStatus.id`.\n\nUse the canonical DeDi lookup URL — `https://<host>/dedi/lookup/<namespace>/vc-revocation-registry` — so the credential is self-describing for W3C-compliant verifiers.\n\n**Auto-threading**: the post-test script saves `{{lastCredential}}`, `{{lastFullCredential}}`, and `{{lastRevocationHash}}` (extracted from `credentialStatus.id`) — click straight to **Revocation (DeDi) → POST /v1/credentials/revoke** next."
+          }
+        },
+        {
+          "name": "POST /v1/credentials/issue (vc-jwt + inline package)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\",\n  \"packageFormats\": [\"qr-png\", \"qr-svg\", \"pdf\", \"json\"],\n  \"customization\": {\n    \"primaryColor\": \"#1a56db\",\n    \"issuerDisplayName\": \"OpenCred Bootcamp\",\n    \"footerText\": \"\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/issue",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "issue"]
+            },
+            "description": "One-call issue + package. The same `customization` knobs documented on `/v1/credentials/package` apply here. The response shape:\n\n```json\n{\n  \"credential\": { ... },\n  \"proofFormat\": \"vc-jwt\",\n  \"isCompactToken\": false,\n  \"packagedOutputs\": [\n    { \"format\": \"qr-png\", \"data\": \"data:image/png;base64,...\", \"encoding\": \"utf-8\" },\n    { \"format\": \"qr-svg\", \"data\": \"<svg ...>\", \"encoding\": \"utf-8\" },\n    { \"format\": \"pdf\",    \"data\": \"JVBERi0...\", \"encoding\": \"base64\" },\n    { \"format\": \"json\",   \"data\": \"{ ... }\", \"encoding\": \"utf-8\" }\n  ]\n}\n```\n\nWorks with `proofFormat: \"data-integrity\"` and `\"sd-jwt-vc\"` too — for sd-jwt-vc the QR embeds the raw compact token verbatim."
+          }
+        },
+        {
+          "name": "POST /v1/credentials/verify",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Build the verify body programmatically from {{lastCredential}}.",
+                  "//",
+                  "// Why a pre-request script: the issue endpoint returns `credential`",
+                  "// as either a string (vc-jwt, sd-jwt-vc) or an object (data-integrity).",
+                  "// The post-response scripts on the issue requests JSON.stringify the",
+                  "// object form, so {{lastCredential}} is always a string. But naive",
+                  "// substitution like `\"{{lastCredential}}\"` breaks for data-integrity:",
+                  "// the JSON-stringified object contains literal `\"` characters which",
+                  "// terminate the surrounding string early and produce malformed JSON",
+                  "// (the server returns 400 INVALID_JSON in that case).",
+                  "//",
+                  "// JSON.stringify on the value handles both forms uniformly — it",
+                  "// produces a properly-escaped JSON string literal for embedding.",
+                  "const stored = pm.collectionVariables.get('lastCredential');",
+                  "if (!stored) {",
+                  "    console.warn('lastCredential is empty — run an issue request first.');",
+                  "}",
+                  "const body = JSON.stringify({ credential: stored ?? '' }, null, 2);",
+                  "pm.request.body.raw = body;"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"credential\": \"<auto-built by pre-request script from {{lastCredential}}>\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/verify",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "verify"]
+            },
+            "description": "Verify any of the three proof formats — the server auto-detects. The `credential` field is a string: a JSON-stringified VC for data-integrity, or the compact token for vc-jwt and sd-jwt-vc.\n\nThe body is built programmatically by a **pre-request script** that reads `{{lastCredential}}` and JSON-encodes it safely. This works whether the credential came from `data-integrity` (object → stringified, contains `\"`), `vc-jwt`, or `sd-jwt-vc`. The literal `\"raw\"` shown in Postman's body editor is overwritten before the request is sent — it's only there for documentation.\n\n`{{lastCredential}}` is set by the issue requests above."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Key registry (DeDi)",
+      "item": [
+        {
+          "name": "POST /v1/keys/publish (did:key, auto from {{issuerDid}})",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body && (body.published === true || typeof body.recordName === 'string')) {",
+                  "    // Echo the DID we published so /v1/keys/resolve can pick it up via",
+                  "    // {{lastPublishedDid}}. For did:key publish the route doesn't echo the",
+                  "    // DID directly; fall back to the request-body issuerDid the user sent.",
+                  "    const issuerDid = pm.collectionVariables.get('issuerDid');",
+                  "    if (issuerDid) {",
+                  "        pm.collectionVariables.set('lastPublishedDid', issuerDid);",
+                  "        console.log('Saved lastPublishedDid =', issuerDid);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/keys/publish",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "keys", "publish"]
+            },
+            "description": "Publish the issuer's signing key (defaults to the loaded did:key from `{{issuerDid}}`) to the DeDi `opencred-key-registry` so verifiers can resolve it without a separate registrar. OpenCred writes **one record per key** (record name = slug of `DID#fragment`); the W3C did.json is carried as an optional immutable `document` snapshot on each key record. There is no separate `did-documents` registry.\n\n**Body shape:** `{ namespace?, hostDidDocument? }` — both optional. The server publishes the **active signer's PUBLIC key**; the DID comes from `OPENCRED_ISSUER_DID_METHOD`/`OPENCRED_ISSUER_DOMAIN` and the public key from the signer, so you send **neither a DID nor key material**. `hostDidDocument` applies to did:web only (did:key is self-describing — no did.json to host).\n\n**On 409 `DEDI_RECORD_EXISTS`**: the key is already published — switch to **POST /v1/keys/resolve** below to fetch the existing record. The error response carries a `hint` pointing you there.\n\nThe `rejectKeyMaterial` defense-in-depth guard runs on the body — a `privateKey` field, or any string starting with `-----BEGIN ... PRIVATE KEY-----`, fails 400 before anything reaches DeDi.\n\n**Returns** `{ published, recordName, namespace, keyId, didDocumentStored }` (`didDocumentStored` is true when the did.json snapshot was embedded). `503 DEDI_NOT_CONFIGURED` until `OPENCRED_DEDI_*` env vars are set.\n\nThe post-test script saves the issuer DID into `{{lastPublishedDid}}` so the resolve request below picks it up automatically.",
+            "auth": null
+          }
+        },
+        {
+          "name": "POST /v1/keys/publish (did:web with document)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hostDidDocument\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/keys/publish",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "keys", "publish"]
+            },
+            "description": "did:web publish. The server assembles the did.json from its own current key set and embeds it as the `document` snapshot — you do not supply a DID or a document. Use this form when your issuer runs as did:web (`OPENCRED_ISSUER_DID_METHOD=web` + `OPENCRED_ISSUER_DOMAIN=<your-domain>`). The server writes one record per key into `opencred-key-registry` and, when `hostDidDocument: true`, embeds the did.json as an immutable `document` snapshot on those key records.\n\nThis is the manual equivalent of `OPENCRED_AUTO_PUBLISH_KEY=true` (or `OPENCRED_DEDI_HOST_DID_DOC=true`, which also embeds the did.json snapshot) — those flags publish the same keys at container startup automatically. If you set either flag and restart, you can skip this request entirely; `POST /v1/keys/resolve` returns the key record and `GET /v1/keys/did-document` returns the projected did.json.\n\n**Body shape:** `{ namespace?, hostDidDocument? }` — identical to the did:key form; only the server's `OPENCRED_ISSUER_DID_METHOD=web` config differs. The verification-method ID is `did:web:<domain>#key-0` (the signer's `kid` matches this exact ID, so JWTs verify against the assembled document).\n\n**Path B vs Path A**: this request publishes the keys (and optional did.json snapshot) to **DeDi only**. Non-DeDi verifiers walking `https://<your-domain>/.well-known/did.json` will still see a 404 unless you ALSO upload the same JSON to your domain (Path A — the canonical did:web setup). See `docs/concepts/dids.md#publishing-your-didweb-did-document` for the trade-off."
+          }
+        },
+        {
+          "name": "POST /v1/keys/resolve (auto from {{lastPublishedDid}} or {{issuerDid}})",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Default to {{lastPublishedDid}} if a prior /v1/keys/publish set it;",
+                  "// otherwise fall back to {{issuerDid}}. Either way the body is auto-filled.",
+                  "const lastPublished = pm.collectionVariables.get('lastPublishedDid');",
+                  "const issuerDid = pm.collectionVariables.get('issuerDid');",
+                  "const did = lastPublished || issuerDid;",
+                  "if (did) {",
+                  "    // resolve takes a verificationMethod (DID#fragment), not a bare DID.",
+                  "    const vm = did.indexOf('did:key:') === 0",
+                  "        ? did + '#' + did.slice('did:key:'.length)",
+                  "        : did + '#key-0';",
+                  "    pm.request.body.raw = JSON.stringify({ verificationMethod: vm });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"verificationMethod\": \"{{lastPublishedDid}}#key-0\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/keys/resolve",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "keys", "resolve"]
+            },
+            "description": "Resolve a signing-key record from the DeDi `opencred-key-registry`. POST (not GET) so the verification method (a `DID#fragment`, colons and all) doesn't have to be URL-encoded.\n\n**Where this looks**: DeDi only. This endpoint queries `/dedi/lookup/{namespace}/opencred-key-registry/{record}` on the configured DeDi instance (record name = slug of `DID#fragment`). It does **not** walk the canonical `https://<domain>/.well-known/did.json` URL — if you self-host a did:web document on your domain (Path A in the bootcamp), this endpoint will return 404 unless you also publish it to DeDi (Path B). For end-to-end verification of self-hosted did:web documents, use `POST /v1/credentials/verify` or the `@opencred/verify` SDK, which walks the canonical HTTPS URL first.\n\n**Returns the bare key record** `{ keyId, controllerDid, algorithm, publicKeyJwk, purpose, status, document?, proof? }`, where `status` is `\"active\"`, `\"rotated\"`, or `\"revoked\"`. `document` (the did.json snapshot) is present only when it was hosted at publish/rotate time; `proof` (CORD-blockchain anchor metadata) is present when DeDi anchored the record on-chain. For the grouped did.json projected from these per-key snapshots, call `GET /v1/keys/did-document` (returns `{ did, document, source }`).\n\n**Auto-threading**: the pre-request script builds the verification method (`<did>#key-0` for did:web, `<did>#<id>` for did:key) from `{{lastPublishedDid}}` (set by the publish request above), falling back to `{{issuerDid}}`. So a click-chain `Inspect → GET /v1/keys` → `Publish` → `Resolve` works without manual variable copying.\n\n503 if DeDi isn't configured."
+          }
+        },
+        {
+          "name": "POST /v1/keys/rotate (did:web only)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newKeyIndex\": 1,\n  \"hostDidDocument\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/keys/rotate",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "keys", "rotate"]
+            },
+            "description": "Rotate the active signer's did:web key. The DID stays stable; OpenCred writes a **new key record** into `opencred-key-registry` for the new key and marks the prior key's record `status: \"rotated\"`. Already-issued credentials continue to verify against the prior key — its record is retained (not deleted) and the verifier matches by `kid` from the JWT header (`packages/verification/src/vc-jwt.ts:179-213` iterates `verificationMethod[]` and picks the entry whose `id` matches the JWT's `kid`). New credentials carry the new `kid`. This is the **kid-continuity guarantee** that makes rotation safe for production did:web.\n\n**Scope**: did:web only. did:key rotation produces a new DID — regenerate the signing key instead (the old key's record advances to `status: \"rotated\"`).\n\n**Body**: `{ newKeyIndex, currentDidDocument?, hostDidDocument? }`. The rotation target is derived from the active signer — no `did` field. Set `hostDidDocument: true` to re-embed the regenerated did.json snapshot on the key records.\n\n**Workflow**:\n1. Stop the OpenCred container.\n2. Swap `OPENCRED_KEY_PATH` to the new key file.\n3. Restart the container.\n4. Hit this endpoint.\n\n**Response**: `{ rotated, did, currentKeyId, newKeyIndex, retired, didDocument, didDocumentStored }` — `retired` is the old key's `SetKeyStatusResult` and `didDocumentStored` is true when the snapshot was re-embedded.\n\n**Errors**:\n- `400 KEY_METHOD_MISMATCH` — active issuer is did:key (use the regenerate flow instead).\n- `400 VALIDATION_ERROR` — signer doesn't expose `publicKeyJwk` (KMS-backed signers not yet supported).\n- `404 DEDI_CLIENT_ERROR` — key has no existing DeDi record (call `/v1/keys/publish` first).\n- `503 DEDI_NOT_CONFIGURED` — DeDi env vars not set.\n\n**Concurrency**: last-writer-wins. The per-key `setKeyStatus` write carries no `If-Match`/`version` CAS, so simultaneous lifecycle writes against the same key can race — see `docs/decisions/dedi-key-registry-redesign.md` and D4 in `docs/decisions/dedi-integration-open-questions.md`."
+          }
+        },
+        {
+          "name": "POST /v1/keys/revoke (did:web only)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"verificationMethod\": \"did:web:bootcamp.example.org#key-1\",\n  \"hostDidDocument\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/keys/revoke",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "keys", "revoke"]
+            },
+            "description": "Revoke a single signing key by its `verificationMethod` (`DID#fragment`). Sets that key's record in `opencred-key-registry` to `status: \"revoked\"` — a terminal state. Distinct from credential revocation (`POST /v1/credentials/revoke`, which writes to `vc-revocation-registry`): this invalidates the **key**, so every credential signed under it fails verification.\n\n**Body**: `{ verificationMethod, currentDidDocument?, hostDidDocument? }`. Set `hostDidDocument: true` to regenerate and re-embed the did.json snapshot (which drops the revoked key) on the remaining key records.\n\n**Response**: `{ revoked: true, ...SetKeyStatusResult, didDocument, didDocumentRegenerated }` — `didDocumentRegenerated` is true when the snapshot was rebuilt without the revoked key.\n\n`503 DEDI_NOT_CONFIGURED` until `OPENCRED_DEDI_*` env vars are set. The same `rejectKeyMaterial` defense-in-depth guard runs on the body."
+          }
+        },
+        {
+          "name": "GET /v1/keys/did-document (projected did.json)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/keys/did-document",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "keys", "did-document"]
+            },
+            "description": "Return the current did.json projected from the per-key snapshots in `opencred-key-registry`. There is no separate `did-documents` registry — this rebuilds the grouped document from the active issuer's key records.\n\n**Response**: `{ did, document, source }`.\n\n`503 DEDI_NOT_CONFIGURED` until `OPENCRED_DEDI_*` env vars are set."
+          }
+        }
+      ]
+    },
+    {
+      "name": "DeDi runtime",
+      "item": [
+        {
+          "name": "POST /v1/dedi/namespace/ensure",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"namespace\": \"your-namespace-id\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/dedi/namespace/ensure",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "dedi", "namespace", "ensure"]
+            },
+            "description": "Idempotently bootstrap a DeDi namespace and the four registries OpenCred needs (`vc-revocation-registry`, `opencred-key-registry`, `schema_registry`, `context_registry`). There is no separate `did-documents` registry — the did.json is carried as a snapshot on each key record in `opencred-key-registry`.\n\nWraps the same `dediClient.ensureRegistries(...)` helper that runs once at server startup, so you can spin up additional namespaces at runtime without restarting the container — useful for per-tenant setups.\n\nReplace `your-namespace-id` in the body with the namespace ID issued by your DeDi operator. Unverified namespaces look like `did:web:did.cord.network:xyz`; verified ones look like `xyz.org`.\n\nReturns `{ namespace, registries }` listing the registry names that now exist on the namespace (whether freshly created or already present).\n\nReturns `503 DEDI_NOT_CONFIGURED` until `OPENCRED_DEDI_*` env vars are set. The same `rejectKeyMaterial` defense-in-depth guard runs on the body."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Revocation (DeDi)",
+      "item": [
+        {
+          "name": "POST /v1/credentials/revocation-hash",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.revocationHash) {",
+                  "    pm.collectionVariables.set('lastRevocationHash', body.revocationHash);",
+                  "    console.log('Saved lastRevocationHash =', body.revocationHash);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"credential\": {\n    \"@context\": [\"https://www.w3.org/ns/credentials/v2\"],\n    \"id\": \"urn:uuid:11111111-2222-3333-4444-555555555555\",\n    \"type\": [\"VerifiableCredential\", \"FunctionalIdentityCredential\"],\n    \"issuer\": \"{{issuerDid}}\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\",\n    \"credentialSubject\": {\n      \"name\": \"Jane Doe\",\n      \"role\": \"Bootcamp Attendee\",\n      \"validFrom\": \"2026-04-27T00:00:00Z\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/revocation-hash",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "revocation-hash"]
+            },
+            "description": "Compute the JCS+SHA-256 revocation hash for a credential. Works **without** DeDi configured — pure hash computation. The hash is what gets published to a revocation registry.\n\nAuto-saves the hash into `{{lastRevocationHash}}` for the revoke/status requests."
+          }
+        },
+        {
+          "name": "POST /v1/credentials/revocation-hash/batch",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"credentials\": [\n    {\n      \"@context\": [\"https://www.w3.org/ns/credentials/v2\"],\n      \"id\": \"urn:uuid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\n      \"type\": [\"VerifiableCredential\"],\n      \"issuer\": \"{{issuerDid}}\",\n      \"validFrom\": \"2026-04-27T00:00:00Z\",\n      \"credentialSubject\": { \"name\": \"Alice\" }\n    },\n    {\n      \"@context\": [\"https://www.w3.org/ns/credentials/v2\"],\n      \"id\": \"urn:uuid:11111111-2222-3333-4444-555555555555\",\n      \"type\": [\"VerifiableCredential\"],\n      \"issuer\": \"{{issuerDid}}\",\n      \"validFrom\": \"2026-04-27T00:00:00Z\",\n      \"credentialSubject\": { \"name\": \"Bob\" }\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/revocation-hash/batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "revocation-hash", "batch"]
+            },
+            "description": "Compute hashes for many credentials at once. Returns `revocationHashes[]` keyed by `credentialId` (or a positional `index:N` token if a credential has no `id`)."
+          }
+        },
+        {
+          "name": "POST /v1/credentials/revoke (DeDi required)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hash\": \"{{lastRevocationHash}}\",\n  \"reason\": \"key-compromised\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/revoke",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "revoke"]
+            },
+            "description": "Publish the hash to DeDi as revoked. Returns 503 DEDI_NOT_CONFIGURED unless `OPENCRED_DEDI_BASE_URL` (and friends) are set on the server.\n\n**`{{lastRevocationHash}}` auto-populates from the issue request when `revocationRegistryUrl` is set** — no separate `/v1/credentials/revocation-hash` call needed for OpenCred-issued VCs. The server embeds the hash as the last URL segment of `credentialStatus.id` at issue time, and the issue request's post-test script extracts it.\n\nYou can also send `{ \"credential\": {...} }` and the server will hash it for you. Add `\"namespace\": \"...\"` to override the configured default.\n\n`reason` is an optional free-text descriptor (per the DeDi canonical revoke.json schema) — typical values are short tags like `\"key-compromised\"`, `\"superseded\"`, or `\"holder-request\"`. When supplied, it is stored on the DeDi record and echoed by `/v1/credentials/revocation-status`.\n\n**On 409 `DEDI_RECORD_EXISTS`** (introduced in #615): the hash is already revoked in DeDi from a prior run. The error response carries a `hint` pointing you at `/v1/credentials/revocation-status` to confirm the prior revoke landed."
+          }
+        },
+        {
+          "name": "POST /v1/credentials/revocation-status (DeDi required)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hash\": \"{{lastRevocationHash}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/revocation-status",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "revocation-status"]
+            },
+            "description": "Query DeDi for the current status of a hash. Same 503 if DeDi isn't wired up."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Packaging",
+      "item": [
+        {
+          "name": "POST /v1/credentials/package (auto from {{lastCredential}})",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// /v1/credentials/package accepts `credential` in either form:",
+                  "//   - a JSON OBJECT → JSON-LD VC (data-integrity / vc-jwt)",
+                  "//   - a STRING       → compact token (sd-jwt-vc, or a raw vc-jwt token)",
+                  "//",
+                  "// {{lastCredential}} is always stored as a string by the issue",
+                  "// requests' post-response scripts. We try to parse it as JSON: if",
+                  "// it's an object, send it as one; otherwise send the raw string.",
+                  "// Either form produces the full set of outputs (PDF, QR, JSON).",
+                  "const stored = pm.collectionVariables.get('lastCredential');",
+                  "let credential = null;",
+                  "if (stored) {",
+                  "    try {",
+                  "        const parsed = JSON.parse(stored);",
+                  "        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {",
+                  "            credential = parsed;",
+                  "        } else {",
+                  "            credential = stored;  // unwrapped JSON primitive — treat as string",
+                  "        }",
+                  "    } catch (_) {",
+                  "        credential = stored;  // compact JWT/SD-JWT token — send verbatim",
+                  "    }",
+                  "}",
+                  "if (credential !== null && credential !== undefined && credential !== '') {",
+                  "    const body = {",
+                  "        credential,",
+                  "        formats: ['qr-png', 'qr-svg', 'pdf', 'json'],",
+                  "        customization: {",
+                  "            // Hex color for the certificate border + headings.",
+                  "            primaryColor: '#1a56db',",
+                  "            // Note: the field is `issuerDisplayName`, NOT `issuerName`.",
+                  "            // Anything else is silently dropped by Zod.",
+                  "            issuerDisplayName: 'OpenCred Bootcamp'",
+                  "            // Other knobs (uncomment to try):",
+                  "            //   secondaryColor: '#2d5986',",
+                  "            //   textColor:      '#1a202c',",
+                  "            //   labelColor:     '#718096',",
+                  "            //   backgroundColor:'#ffffff',",
+                  "            //   logoDataUri:    'data:image/png;base64,...',",
+                  "            //   sealDataUri:    'data:image/png;base64,...',",
+                  "            //   footerText:     ''   // empty string suppresses the footer line",
+                  "        }",
+                  "    };",
+                  "    pm.request.body.raw = JSON.stringify(body, null, 2);",
+                  "} else {",
+                  "    console.warn('lastCredential is empty — run an issue request first; falling back to the static example body so you can still inspect the response shape.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"credential\": {\n    \"@context\": [\"https://www.w3.org/ns/credentials/v2\"],\n    \"id\": \"urn:uuid:11111111-2222-3333-4444-555555555555\",\n    \"type\": [\"VerifiableCredential\", \"FunctionalIdentityCredential\"],\n    \"issuer\": \"{{issuerDid}}\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\",\n    \"credentialSubject\": {\n      \"name\": \"Jane Doe\",\n      \"role\": \"Bootcamp Attendee\",\n      \"validFrom\": \"2026-04-27T00:00:00Z\"\n    }\n  },\n  \"formats\": [\"qr-png\", \"qr-svg\", \"pdf\", \"json\"],\n  \"customization\": {\n    \"primaryColor\": \"#1a56db\",\n    \"issuerDisplayName\": \"OpenCred Bootcamp\",\n    \"footerText\": \"\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/package",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "package"]
+            },
+            "description": "Render packaged outputs for a signed credential.\n\n## What you get back\n\n`outputs[]` always has one entry per requested `format`. Each entry has:\n\n| Field | Description |\n|---|---|\n| `format` | `qr-png` / `qr-svg` / `pdf` / `json` |\n| `mimeType` | `image/png`, `image/svg+xml`, `application/pdf`, `application/json` |\n| `suggestedFileName` | Slugged from credential `type` + last 8 chars of `id` |\n| `encoding` | `base64` for PDF; `utf-8` for everything else |\n| `data` | The actual content (string) |\n\n**Decoding gotcha:** `qr-png` returns a `data:image/png;base64,<...>` URL string with `encoding: \"utf-8\"` (the base64 is *inside* the URL). The PDF returns pure base64 with `encoding: \"base64\"`. So:\n\n```bash\n# qr-png — strip the data-URL prefix first:\njq -r '.outputs[] | select(.format==\"qr-png\") | .data | sub(\"^data:image/png;base64,\"; \"\")' resp.json | base64 -d > qr.png\n\n# pdf — straight base64:\njq -r '.outputs[] | select(.format==\"pdf\")    | .data' resp.json | base64 -d > cert.pdf\n\n# qr-svg / json — already utf-8:\njq -r '.outputs[] | select(.format==\"qr-svg\") | .data' resp.json > qr.svg\njq -r '.outputs[] | select(.format==\"json\")   | .data' resp.json > credential.json\n```\n\n## Input — works with all three proof formats\n\n- `data-integrity` and `vc-jwt` → `credential` is a JSON-LD VC object (object literal in the body).\n- `sd-jwt-vc` → `credential` is a compact `~`-separated token string (just paste the string).\n\nFor compact-token input, the server decodes the JWT payload offline (no signature check — packaging is a rendering step) to drive the PDF certificate layout, and embeds the original token verbatim in the QR code so any verifier scanning it runs a real cryptographic check.\n\n## Customization\n\nAll fields under `customization` are optional. Common ones: `primaryColor` (hex), `issuerDisplayName` (NOT `issuerName` — that gets silently dropped), `secondaryColor`, `textColor`, `labelColor`, `backgroundColor`, `logoDataUri` (data: URI), `sealDataUri`, `footerText` (pass `\"\"` to suppress the verification disclaimer).\n\nA pre-request script reads `{{lastCredential}}` and sends it as either an object or a string depending on what the issue endpoint returned — no manual juggling. The static `raw` body shown here is the fallback for when you haven't run an issue request yet."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Batch issuance",
+      "item": [
+        {
+          "name": "POST /v1/credentials/batch (start)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.jobId) {",
+                  "    pm.collectionVariables.set('lastBatchJobId', body.jobId);",
+                  "    console.log('Saved lastBatchJobId =', body.jobId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"csvContent\": \"name,role,validFrom\\nAlice,Auditor,2026-04-27T00:00:00Z\\nBob,Inspector,2026-04-27T00:00:00Z\\nCarol,Operator,2026-04-27T00:00:00Z\",\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"vc-jwt\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "batch"]
+            },
+            "description": "Kick off a batch issuance from CSV content. The first row is the header; subsequent rows become credentials. Returns a `jobId` you poll with the next two requests.\n\nCapped by `OPENCRED_BATCH_ROW_LIMIT` (default 1000)."
+          }
+        },
+        {
+          "name": "GET /v1/credentials/batch/:jobId",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/batch/{{lastBatchJobId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "batch", "{{lastBatchJobId}}"]
+            },
+            "description": "Poll batch progress: `pending` / `running` / `completed` / `failed`, plus row counts."
+          }
+        },
+        {
+          "name": "GET /v1/credentials/batch/:jobId/results",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/batch/{{lastBatchJobId}}/results",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "batch", "{{lastBatchJobId}}", "results"]
+            },
+            "description": "Once the job is `completed`, fetch the per-row signed credentials and any errors."
+          }
+        }
+      ]
+    }
+  ]
+}

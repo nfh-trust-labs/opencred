@@ -1,0 +1,6 @@
+{
+  "repo": "nfh-trust-labs/opencred-vc-schemas",
+  "commit": "ed460795866ce51aebf92e9fccc5f30ff0482dcb",
+  "tarballSha256": null,
+  "comment": "Pinned to Stream A PR #8 HEAD. tarballSha256 can be pinned after Stream A merges; leaving null until then."
+}

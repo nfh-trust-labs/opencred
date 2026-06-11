@@ -1,0 +1,7 @@
+{
+  "name": "opencred-native-addons",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native N-API addons for OS certificate store signing",
+  "gypfile": true
+}

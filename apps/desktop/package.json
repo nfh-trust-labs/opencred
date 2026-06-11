@@ -1,0 +1,173 @@
+{
+  "name": "@opencred/desktop",
+  "version": "1.6.1",
+  "private": true,
+  "type": "module",
+  "description": "OpenCred Desktop — offline credential issuance and signing",
+  "author": {
+    "name": "NFH Trust Labs",
+    "email": "dev@nfh-trust-labs.org"
+  },
+  "homepage": "https://github.com/nfh-trust-labs/opencred",
+  "main": "dist/main/main/index.js",
+  "scripts": {
+    "dev": "concurrently -n vite,electron \"vite\" \"wait-on http://localhost:5174 && electron .\"",
+    "rebuild:native": "node scripts/rebuild-native.cjs",
+    "generate-icons": "node scripts/generate-icons.mjs",
+    "build": "vite build && node scripts/bundle-main.mjs",
+    "build:dist": "node scripts/build-dist.mjs",
+    "build:renderer": "vite build",
+    "build:main": "node scripts/bundle-main.mjs",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "typecheck:main": "tsc -p tsconfig.main.json --noEmit",
+    "typecheck:renderer": "tsc -p tsconfig.renderer.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist out"
+  },
+  "dependencies": {
+    "@mosip/pixelpass": "^0.6.0",
+    "@opencred/batch-core": "workspace:*",
+    "@opencred/crypto": "workspace:*",
+    "@opencred/dedi-client": "workspace:*",
+    "@opencred/did": "workspace:*",
+    "@opencred/packaging": "workspace:*",
+    "@opencred/schema-engine": "workspace:*",
+    "@opencred/shared": "workspace:*",
+    "@opencred/signing": "workspace:*",
+    "@opencred/templates": "workspace:*",
+    "@opencred/vc-core": "workspace:*",
+    "@opencred/verification": "workspace:*",
+    "archiver": "^7.0.1",
+    "conf": "^14.0.0",
+    "electron-log": "^5.2.0",
+    "electron-store": "^10.0.0",
+    "electron-updater": "^6.3.9",
+    "html5-qrcode": "^2.3.8",
+    "papaparse": "^5.4.1",
+    "pdfkit": "^0.15.0",
+    "pkcs11js": "^2.1.6",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@electron/notarize": "^2.5.0",
+    "@electron/rebuild": "^3.7.2",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/archiver": "^6.0.3",
+    "@types/papaparse": "^5.3.15",
+    "@types/pdfkit": "^0.13.5",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.28.0",
+    "happy-dom": "^20.8.9",
+    "node-gyp": "^12.2.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.5.0",
+    "vite": "^5.4.11",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "io.opencred.desktop",
+    "productName": "OpenCred",
+    "forceCodeSigning": false,
+    "directories": {
+      "output": "out",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "node_modules/pkcs11js/**/*",
+      "node_modules/node-addon-api/**/*",
+      "node_modules/node-gyp-build/**/*",
+      "!**/__tests__/**",
+      "!**/*.test.*",
+      "!**/*.spec.*"
+    ],
+    "asarUnpack": [
+      "dist/**/*.node",
+      "node_modules/**/*.node"
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "dmg": {
+      "title": "OpenCred ${version}",
+      "background": "build/dmg-background.png",
+      "window": {
+        "width": 660,
+        "height": 420
+      },
+      "iconSize": 100,
+      "iconTextSize": 12,
+      "contents": [
+        {
+          "x": 180,
+          "y": 218,
+          "type": "file"
+        },
+        {
+          "x": 480,
+          "y": 218,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "afterSign": "scripts/notarize.cjs",
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ],
+      "signingHashAlgorithms": [
+        "sha256"
+      ]
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "nfh-trust-labs",
+      "repo": "opencred-releases"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "executableName": "opencred"
+    },
+    "deb": {
+      "packageName": "opencred-desktop",
+      "artifactName": "${productName}-${version}-${arch}.deb"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
+    }
+  }
+}

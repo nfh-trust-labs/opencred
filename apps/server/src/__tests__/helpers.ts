@@ -1,0 +1,304 @@
+/**
+ * Shared test helpers for server tests.
+ */
+
+import { generateKeyPairSync, type KeyObject } from "node:crypto";
+import { writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { ZodError } from "zod";
+
+import { getConfig, loadConfig, resetConfig } from "../config.js";
+import { createLogger, resetLogger } from "../logger.js";
+import { resetDeDiClient } from "../dedi-singleton.js";
+import { setSchemaRegistry, resetSchemaRegistry } from "../schema-registry-singleton.js";
+import { setValidator, resetValidator } from "../validator-singleton.js";
+import { createRegistry, Validator } from "@opencred/schema-engine";
+import { authMiddleware } from "../middleware/auth.js";
+import { errorHandler } from "../middleware/error-handler.js";
+import { applyRateLimits } from "../middleware/rate-limit.js";
+import { readOnlyMiddleware } from "../middleware/read-only.js";
+import { health } from "../routes/health.js";
+import { schemas } from "../routes/schemas.js";
+import { credentials } from "../routes/credentials.js";
+import { batch } from "../routes/batch.js";
+import { revocation } from "../routes/revocation.js";
+import { packaging } from "../routes/packaging.js";
+import { keys } from "../routes/keys.js";
+import { dedi } from "../routes/dedi.js";
+import { metrics } from "../routes/metrics.js";
+import { metricsMiddleware } from "../middleware/metrics.js";
+import { tracingMiddleware } from "../middleware/tracing.js";
+import { computeFingerprint, deriveDidKeyIdFromPublicKey } from "@opencred/signing";
+import type { Signer, SignerMetadata } from "@opencred/signing";
+import { sign as ecSign } from "node:crypto";
+
+// ---------------------------------------------------------------------------
+// Test key generation
+// ---------------------------------------------------------------------------
+
+export interface TestKeyPair {
+  privateKey: KeyObject;
+  publicKey: KeyObject;
+  signer: Signer;
+  pemPath: string;
+}
+
+/**
+ * Generate a P-256 test key pair and write the private key to a temp PEM file.
+ * Returns a Signer that can be used with setActiveSigner().
+ */
+export function generateTestKey(): TestKeyPair {
+  const { privateKey, publicKey } = generateKeyPairSync("ec", {
+    namedCurve: "P-256",
+  });
+
+  const testDir = join(tmpdir(), "opencred-server-tests");
+  mkdirSync(testDir, { recursive: true });
+  const pemPath = join(testDir, `test-key-${Date.now()}.pem`);
+  const pem = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+  writeFileSync(pemPath, pem);
+
+  const fingerprint = computeFingerprint(publicKey);
+  const id = deriveDidKeyIdFromPublicKey(publicKey);
+
+  const metadata: SignerMetadata = {
+    id,
+    algorithm: "P-256",
+    type: "software",
+    fingerprint,
+    label: "test-key",
+  };
+
+  const signer: Signer = {
+    id,
+    algorithm: "P-256",
+    type: "software",
+    metadata,
+    async sign(data: Uint8Array): Promise<Uint8Array> {
+      const sig = ecSign(null, Buffer.from(data), {
+        key: privateKey,
+        dsaEncoding: "ieee-p1363",
+      });
+      return new Uint8Array(sig);
+    },
+  };
+
+  return { privateKey, publicKey, signer, pemPath };
+}
+
+// ---------------------------------------------------------------------------
+// App factory for testing
+// ---------------------------------------------------------------------------
+
+/** Default API key used by tests that do not care about the auth path. */
+export const DEFAULT_TEST_API_KEY = "test-api-key-default";
+
+/**
+ * Create a fresh Hono app with all routes and middleware,
+ * initializing config and logger from current env vars.
+ *
+ * The server now refuses to start without OPENCRED_API_KEY (or an explicit
+ * dev-mode opt-out), so this helper either sets an API key or enables the
+ * dev-mode flag — never both unset.
+ *
+ * Options:
+ *  - `apiKey`     — explicit API key string. Auth is enforced.
+ *  - `devModeNoAuth: true` — enable OPENCRED_DEV_MODE_NO_AUTH=true. Auth is bypassed.
+ *  - neither      — defaults to apiKey = DEFAULT_TEST_API_KEY.
+ */
+export function createTestApp(opts?: { apiKey?: string; devModeNoAuth?: boolean }): Hono {
+  // Reset singletons
+  resetConfig();
+  resetLogger();
+  resetDeDiClient();
+  resetSchemaRegistry();
+  resetValidator();
+
+  // Bootstrap the schema registry + validator the same way src/index.ts does,
+  // so tests exercise the post-P1-01 "fail loud if uninitialised" contract
+  // rather than the pre-fix silent lazy-create that caused five modules to
+  // bind to divergent registry snapshots.
+  const testRegistry = createRegistry();
+  setSchemaRegistry(testRegistry);
+  setValidator(new Validator(testRegistry));
+
+  // Wipe any prior auth-related env vars so previous tests don't bleed in.
+  delete process.env.OPENCRED_API_KEY;
+  delete process.env.OPENCRED_DEV_MODE_NO_AUTH;
+  // Tests run in NODE_ENV=test by default; force it so the dev-mode opt-out
+  // is permitted (it is refused when NODE_ENV=production).
+  if (process.env.NODE_ENV === "production") {
+    delete process.env.NODE_ENV;
+  }
+
+  if (opts?.devModeNoAuth) {
+    process.env.OPENCRED_DEV_MODE_NO_AUTH = "true";
+  } else if (opts?.apiKey !== undefined) {
+    process.env.OPENCRED_API_KEY = opts.apiKey;
+  } else {
+    // Default: an API key is set so auth is enforced. Tests that need
+    // unauthenticated behaviour pass devModeNoAuth: true explicitly.
+    process.env.OPENCRED_API_KEY = DEFAULT_TEST_API_KEY;
+  }
+
+  // Ensure basic config is set
+  if (!process.env.OPENCRED_PORT) {
+    process.env.OPENCRED_PORT = "3199";
+  }
+  process.env.OPENCRED_LOG_LEVEL = "fatal";
+
+  // Rate limiters are off by default in tests so existing endpoint tests
+  // that fire dozens of requests at /credentials/issue don't get 429'd.
+  // Tests that exercise the limiter must set OPENCRED_RATE_LIMIT_ENABLED=true
+  // before calling createTestApp() (see rate-limit.test.ts). The default
+  // must be set BEFORE loadConfig() so the Zod schema reads the override.
+  if (!process.env.OPENCRED_RATE_LIMIT_ENABLED) {
+    process.env.OPENCRED_RATE_LIMIT_ENABLED = "false";
+  }
+  // Read-only mode is off by default so existing endpoint tests still
+  // exercise the write surface. Tests that exercise read-only mode flip
+  // the env on before calling createTestApp() (see read-only.test.ts).
+  // We do NOT auto-clear it — explicit opt-out via the same env var.
+  if (process.env.OPENCRED_READ_ONLY === undefined) {
+    process.env.OPENCRED_READ_ONLY = "false";
+  }
+
+  loadConfig();
+  createLogger();
+
+  const app = new Hono();
+  const config = getConfig();
+
+  // Body size limits (MED-02) — mirrors index.ts so tests exercise the real
+  // middleware stack, including the batch/non-batch split.
+  const BATCH_PATHS = new Set(["/credentials/batch", "/v1/credentials/batch"]);
+  app.use(
+    "/credentials/batch",
+    bodyLimit({
+      maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
+      onError: (c) =>
+        c.json(
+          { error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } },
+          413,
+        ),
+    }),
+  );
+  app.use(
+    "/v1/credentials/batch",
+    bodyLimit({
+      maxSize: config.OPENCRED_MAX_BATCH_BODY_BYTES,
+      onError: (c) =>
+        c.json(
+          { error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } },
+          413,
+        ),
+    }),
+  );
+  app.use("*", async (c, next) => {
+    if (BATCH_PATHS.has(c.req.path)) return next();
+    return bodyLimit({
+      maxSize: config.OPENCRED_MAX_BODY_BYTES,
+      onError: (ctx) =>
+        ctx.json(
+          { error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds limit" } },
+          413,
+        ),
+    })(c, next);
+  });
+
+  // Global middleware — mirror src/index.ts order: tracing first, then metrics.
+  // Tests usually run with tracing disabled (`OPENCRED_OTEL_ENABLED` unset),
+  // in which case `tracingMiddleware` collapses to a single function call
+  // around `next()` via the no-op tracer.
+  app.use("*", tracingMiddleware);
+
+  app.use("*", metricsMiddleware);
+
+  // applyRateLimits reads OPENCRED_RATE_LIMIT_ENABLED; it is a no-op
+  // when the flag is false. Default for tests is false (set above), but
+  // rate-limit-specific tests flip the env var on before calling
+  // createTestApp().
+  applyRateLimits(app);
+
+  app.use("*", authMiddleware);
+
+  // Read-only middleware mirrors src/index.ts. No-op when
+  // OPENCRED_READ_ONLY is false (the default); active under the
+  // `read-only.test.ts` suite which flips the env on before calling
+  // createTestApp().
+  app.use("*", readOnlyMiddleware);
+
+  // Mount routes — both legacy ("/") and versioned ("/v1") paths.
+  // Mirrors src/index.ts so the smoke test exercises the full production
+  // surface (including the rejectKeyMaterial defense on every POST route).
+  app.route("/", health);
+  app.route("/", metrics);
+  app.route("/", schemas);
+  app.route("/", credentials);
+  app.route("/", batch);
+  app.route("/", revocation);
+  app.route("/", packaging);
+  app.route("/", keys);
+  app.route("/", dedi);
+
+  app.route("/v1", health);
+  app.route("/v1", metrics);
+  app.route("/v1", schemas);
+  app.route("/v1", credentials);
+  app.route("/v1", batch);
+  app.route("/v1", revocation);
+  app.route("/v1", packaging);
+  app.route("/v1", keys);
+  app.route("/v1", dedi);
+
+  // Global error handler (same as index.ts)
+  app.onError((err, c) => {
+    if (err instanceof ZodError) {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Request validation failed",
+            details: err.errors.map((e) => ({
+              path: e.path.join("."),
+              message: e.message,
+            })),
+          },
+        },
+        400,
+      );
+    }
+    return errorHandler(err, c);
+  });
+
+  app.notFound((c) => {
+    return c.json({ error: { code: "NOT_FOUND", message: "Endpoint not found" } }, 404);
+  });
+
+  return app;
+}
+
+// ---------------------------------------------------------------------------
+// Credential test data
+// ---------------------------------------------------------------------------
+
+export const FUNCTIONAL_IDENTITY_SUBJECT = {
+  name: "Jane Doe",
+  role: "Medical Practitioner",
+  validFrom: "2025-06-15T00:00:00Z",
+  affiliation: { name: "Acme Medical Council" },
+};
+
+/** Alias kept for tests written against the pre-catalogue "education" schema. */
+export const EDUCATION_SUBJECT = FUNCTIONAL_IDENTITY_SUBJECT;
+
+export const VALID_ISSUE_REQUEST = {
+  schemaId: "functional-identity/v1",
+  issuerDid: "did:key:test-issuer",
+  credentialSubject: FUNCTIONAL_IDENTITY_SUBJECT,
+  validFrom: "2025-06-15T00:00:00Z",
+  proofFormat: "vc-jwt",
+};

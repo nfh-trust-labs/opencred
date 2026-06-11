@@ -1,0 +1,554 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+ * Bundled brand fonts (vendored woff2, OFL — see assets/fonts/*-OFL.txt).
+ *
+ * These MUST be bundled: the production CSP is `font-src 'self'`, so remote
+ * font fetches are blocked. Vite fingerprints these relative URLs at build,
+ * which keeps them same-origin. Without this block the type system falls
+ * back to Georgia / system-sans and the editorial design does not render.
+ * --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/geist-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/geist-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./assets/fonts/geist-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/instrument-serif-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/ibm-plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/ibm-plex-mono-500.woff2") format("woff2");
+}
+
+/* ---------------------------------------------------------------------------
+ * OpenCred Design Tokens — Editorial Refined
+ *
+ * Adapted from opencred.global for desktop: 4px radius, blue card accents,
+ * sidebar layout, editorial typography.
+ * --------------------------------------------------------------------------- */
+
+:root {
+  /* Colors */
+  --oc-blue: #0057FF;
+  --oc-blue-hover: #004AD9;
+  --oc-blue-light: #EBF0FF;
+  --oc-bg: #fafaf9;
+  --oc-bg-warm: #f5f4f0;
+  --oc-surface: #ffffff;
+  --oc-text-primary: #1a1a1a;
+  --oc-text-secondary: #555555;
+  --oc-text-muted: #6b6b6b;
+  --oc-border: #e0e0e0;
+  --oc-border-light: #e8e6e1;
+
+  /* Typography */
+  --oc-font-display: "Instrument Serif", Georgia, serif;
+  --oc-font-body: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --oc-font-mono: "IBM Plex Mono", "SF Mono", "Fira Code", monospace;
+
+  /* Spacing */
+  --oc-card-padding: 2rem;
+  --oc-radius: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Base layer overrides
+ * --------------------------------------------------------------------------- */
+
+@layer base {
+  body {
+    font-family: var(--oc-font-body);
+    color: var(--oc-text-primary);
+    background-color: var(--oc-bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--oc-font-display);
+  }
+
+  code, pre, .font-mono {
+    font-family: var(--oc-font-mono);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Component layer — reusable patterns
+ * --------------------------------------------------------------------------- */
+
+@layer components {
+  /* Primary button */
+  .btn-primary {
+    @apply text-white font-semibold transition-colors;
+    background-color: var(--oc-blue);
+    padding: 10px 24px;
+    border-radius: var(--oc-radius);
+    font-size: 0.82rem;
+    font-family: var(--oc-font-body);
+  }
+  .btn-primary:hover {
+    background-color: var(--oc-blue-hover);
+    filter: drop-shadow(0 0 6px rgba(0, 87, 255, 0.3));
+  }
+  .btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    filter: none;
+  }
+
+  /* Secondary button */
+  .btn-secondary {
+    @apply font-semibold transition-colors;
+    background-color: transparent;
+    border: 1px solid var(--oc-border);
+    color: var(--oc-text-primary);
+    padding: 10px 24px;
+    border-radius: var(--oc-radius);
+    font-size: 0.82rem;
+    font-family: var(--oc-font-body);
+  }
+  .btn-secondary:hover {
+    background-color: var(--oc-bg-warm);
+    filter: drop-shadow(0 0 6px rgba(0, 87, 255, 0.3));
+  }
+  .btn-secondary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    filter: none;
+  }
+
+  /* Card — editorial style with blue left-border accent */
+  .oc-card {
+    background-color: var(--oc-surface);
+    border: 1px solid var(--oc-border);
+    border-left: 3px solid var(--oc-blue);
+    padding: var(--oc-card-padding);
+    border-radius: var(--oc-radius);
+  }
+
+  /* Card without blue accent (for neutral containers like tables) */
+  .oc-card-neutral {
+    background-color: var(--oc-surface);
+    border: 1px solid var(--oc-border);
+    padding: var(--oc-card-padding);
+    border-radius: var(--oc-radius);
+  }
+
+  /* Card label — blue monospace */
+  .oc-card-label {
+    font-family: var(--oc-font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--oc-blue);
+    margin-bottom: 6px;
+  }
+
+  /* Badge / Tag */
+  .oc-badge {
+    padding: 3px 8px;
+    border-radius: var(--oc-radius);
+    font-family: var(--oc-font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border: 1px solid rgba(0, 87, 255, 0.15);
+    background-color: var(--oc-blue-light);
+    color: var(--oc-blue);
+  }
+
+  /* Eyebrow / label text */
+  .oc-label {
+    font-family: var(--oc-font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--oc-text-muted);
+  }
+
+  /* Form inputs */
+  .oc-input {
+    @apply block w-full transition-colors;
+    border: 1px solid var(--oc-border);
+    border-radius: var(--oc-radius);
+    padding: 9px 12px;
+    font-size: 0.82rem;
+    font-family: var(--oc-font-body);
+    color: var(--oc-text-primary);
+    background-color: var(--oc-surface);
+  }
+  .oc-input:focus {
+    outline: none;
+    border-color: var(--oc-blue);
+    box-shadow: 0 0 0 1px var(--oc-blue);
+  }
+  .oc-input:disabled {
+    background-color: var(--oc-bg-warm);
+    color: var(--oc-text-muted);
+  }
+  .oc-input::placeholder {
+    color: var(--oc-text-muted);
+    opacity: 0.7;
+  }
+
+  /* Titlebar — minimal bar for onboarding screens */
+  .oc-titlebar {
+    background-color: var(--oc-bg-warm);
+    border-bottom: 1px solid var(--oc-border-light);
+    padding: 0 14px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    font-family: var(--oc-font-body);
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--oc-text-primary);
+    -webkit-app-region: drag;
+  }
+
+  /* TopBar — replaces both titlebar and sidebar */
+  .oc-topbar {
+    background-color: var(--oc-bg-warm);
+    border-bottom: 1px solid var(--oc-border-light);
+    padding: 0 14px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    -webkit-app-region: drag;
+  }
+
+  .oc-topbar-logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--oc-font-body);
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--oc-text-primary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: var(--oc-radius);
+    -webkit-app-region: no-drag;
+    transition: background-color 0.15s;
+    flex-shrink: 0;
+  }
+  .oc-topbar-logo:hover {
+    background-color: rgba(0, 87, 255, 0.05);
+  }
+  .oc-topbar-logo-icon {
+    flex-shrink: 0;
+  }
+
+  .oc-topbar-drag {
+    flex: 1;
+  }
+
+  .oc-topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    -webkit-app-region: no-drag;
+    flex-shrink: 0;
+  }
+
+  .oc-topbar-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    border-radius: 6px;
+    border: none;
+    background: none;
+    font-family: var(--oc-font-body);
+    font-size: 0.76rem;
+    font-weight: 500;
+    color: var(--oc-text-secondary);
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+    -webkit-app-region: no-drag;
+  }
+  .oc-topbar-nav-btn:hover {
+    background-color: rgba(0, 87, 255, 0.06);
+    color: var(--oc-text-primary);
+  }
+  .oc-topbar-nav-btn.active {
+    background-color: var(--oc-blue-light);
+    color: var(--oc-blue);
+  }
+
+  /* Template grid — Google Docs-style card grid */
+  .oc-template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 14px;
+  }
+
+  .oc-template-card {
+    --tc-border: var(--oc-blue);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 28px 16px 22px;
+    border: 1.5px solid var(--oc-border);
+    border-radius: 10px;
+    background-color: var(--oc-surface);
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+    min-height: 140px;
+  }
+  .oc-template-card:hover {
+    border-color: var(--tc-border);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 0 0 1px var(--tc-border);
+    transform: translateY(-2px);
+  }
+
+  .oc-template-card-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    transition: transform 0.2s;
+  }
+  .oc-template-card:hover .oc-template-card-icon {
+    transform: scale(1.08);
+  }
+
+  .oc-template-card-name {
+    font-family: var(--oc-font-body);
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--oc-text-primary);
+    text-align: center;
+    line-height: 1.35;
+  }
+
+  /* Segmented control — Single / Batch toggle */
+  .oc-segmented-control {
+    display: inline-flex;
+    border: 1px solid var(--oc-border);
+    border-radius: var(--oc-radius);
+    overflow: hidden;
+    background-color: var(--oc-bg-warm);
+  }
+
+  .oc-segmented-option {
+    padding: 7px 20px;
+    font-family: var(--oc-font-mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--oc-text-secondary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+  }
+  .oc-segmented-option:hover {
+    background-color: rgba(0, 87, 255, 0.04);
+  }
+  .oc-segmented-option.active {
+    background-color: var(--oc-surface);
+    color: var(--oc-blue);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+
+  /* Field builder row — blank credential editor */
+  .oc-field-builder-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* Status bar */
+  .oc-status-bar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 18px;
+    font-family: var(--oc-font-mono);
+    font-size: 0.62rem;
+    background-color: var(--oc-bg-warm);
+    border-top: 1px solid var(--oc-border-light);
+    color: var(--oc-text-muted);
+  }
+
+  /* Page header — editorial typography */
+  .oc-page-eyebrow {
+    font-family: var(--oc-font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--oc-text-muted);
+    margin-bottom: 4px;
+  }
+  .oc-page-title {
+    font-family: var(--oc-font-display);
+    font-size: 1.5rem;
+    font-weight: 400;
+    color: var(--oc-text-primary);
+    margin-bottom: 4px;
+  }
+  .oc-page-subtitle {
+    font-family: var(--oc-font-display);
+    font-size: 0.82rem;
+    font-style: italic;
+    color: var(--oc-text-secondary);
+    margin-bottom: 24px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Utility layer
+ * --------------------------------------------------------------------------- */
+
+@layer utilities {
+  .text-brand {
+    color: var(--oc-blue);
+  }
+  .bg-brand {
+    background-color: var(--oc-blue);
+  }
+  .bg-brand-light {
+    background-color: var(--oc-blue-light);
+  }
+  .border-brand {
+    border-color: var(--oc-blue);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * More Options — collapsible section trigger (Google-style)
+ * --------------------------------------------------------------------------- */
+
+.oc-more-options-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--oc-font-body);
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--oc-text-secondary);
+  padding: 8px 0;
+}
+.oc-more-options-trigger:hover {
+  color: var(--oc-blue);
+}
+.oc-more-options-chevron {
+  transition: transform 0.2s ease;
+}
+.oc-more-options-chevron.open {
+  transform: rotate(180deg);
+}
+
+/* ---------------------------------------------------------------------------
+ * macOS — hiddenInset title bar
+ *
+ * The native title bar is hidden in the main process; the top bar IS the
+ * title bar. Reserve room on the left for the overlaid traffic lights so the
+ * logo / nav don't sit underneath them. `.platform-darwin` is set on <html>
+ * in main.tsx. Other platforms keep the native frame and need no offset.
+ * --------------------------------------------------------------------------- */
+
+.platform-darwin .oc-topbar {
+  padding-left: 82px;
+}
+.platform-darwin .oc-titlebar {
+  padding-left: 82px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Interactive hover effects
+ * --------------------------------------------------------------------------- */
+
+.oc-hover-glow {
+  transition: filter 0.2s ease, color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+.oc-hover-glow:hover {
+  filter: drop-shadow(0 0 6px rgba(0, 87, 255, 0.3));
+}
+
+/* ---------------------------------------------------------------------------
+ * Responsive breakpoints
+ * --------------------------------------------------------------------------- */
+
+@media (max-width: 899px) {
+  .oc-card,
+  .oc-card-neutral {
+    padding: 1.25rem;
+  }
+}
+
+@media (max-width: 599px) {
+  .oc-card,
+  .oc-card-neutral {
+    padding: 1rem;
+  }
+
+  .oc-page-title {
+    font-size: 1.25rem;
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Reduced motion
+ * --------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

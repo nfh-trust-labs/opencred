@@ -1,0 +1,82 @@
+{
+  "name": "@opencred/signing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
+    "./software-signer": {
+      "types": "./dist/software-signer.d.ts",
+      "import": "./dist/software-signer.js"
+    },
+    "./pkcs11-signer": {
+      "types": "./dist/pkcs11-signer.d.ts",
+      "import": "./dist/pkcs11-signer.js"
+    },
+    "./pkcs11-session": {
+      "types": "./dist/pkcs11-session.d.ts",
+      "import": "./dist/pkcs11-session.js"
+    },
+    "./pkcs11-utils": {
+      "types": "./dist/pkcs11-utils.d.ts",
+      "import": "./dist/pkcs11-utils.js"
+    },
+    "./os-cert-types": {
+      "types": "./dist/os-cert-types.d.ts",
+      "import": "./dist/os-cert-types.js"
+    },
+    "./os-cert-signer": {
+      "types": "./dist/os-cert-signer.d.ts",
+      "import": "./dist/os-cert-signer.js"
+    },
+    "./macos-cert-provider": {
+      "types": "./dist/macos-cert-provider.d.ts",
+      "import": "./dist/macos-cert-provider.js"
+    },
+    "./windows-cert-provider": {
+      "types": "./dist/windows-cert-provider.d.ts",
+      "import": "./dist/windows-cert-provider.js"
+    },
+    "./p11-kit-discovery": {
+      "types": "./dist/p11-kit-discovery.d.ts",
+      "import": "./dist/p11-kit-discovery.js"
+    },
+    "./pkcs11-loader": {
+      "types": "./dist/pkcs11-loader.d.ts",
+      "import": "./dist/pkcs11-loader.js"
+    },
+    "./signer-did-cache": {
+      "types": "./dist/signer-did-cache.d.ts",
+      "import": "./dist/signer-did-cache.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc && npm run build:native",
+    "build:native": "cd native && node-gyp rebuild || true",
+    "verify:native": "node scripts/verify-native-addons.cjs",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist native/build"
+  },
+  "dependencies": {
+    "@opencred/crypto": "workspace:*",
+    "@opencred/did": "workspace:*",
+    "@opencred/shared": "workspace:*",
+    "node-addon-api": "^8.3.0",
+    "node-forge": "^1.4.0",
+    "pkcs11js": "^2.1.6"
+  },
+  "devDependencies": {
+    "@types/node-forge": "^1.3.14",
+    "node-gyp": "^10.3.1",
+    "typescript": "^5.5.0"
+  }
+}

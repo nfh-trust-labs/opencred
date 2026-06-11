@@ -1,0 +1,150 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "datasource", "uid": "grafana" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "OpenCred Server — critical-path latency from OpenTelemetry traces. Filters by `service.name = opencred-server`. Pair with Tempo or Jaeger as the trace data source. Source: nfh-trust-labs/opencred#581 (scale Tier 3 #10).",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "HTTP server p50/p95/p99",
+      "description": "Latency of every HTTP request, grouped by route pattern. Sourced from `http.server` spans emitted by tracingMiddleware. The route pattern (e.g. `POST /credentials/batch/:jobId/cancel`) is the canonical operator-facing name — never raw URLs.",
+      "type": "timeseries",
+      "datasource": { "type": "tempo", "uid": "${tempo}" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "{ resource.service.name=\"opencred-server\" && name =~ \"^(GET|POST|PUT|DELETE) /.*\" } | quantile_over_time(duration, .5) by (name)"
+        },
+        {
+          "refId": "B",
+          "query": "{ resource.service.name=\"opencred-server\" && name =~ \"^(GET|POST|PUT|DELETE) /.*\" } | quantile_over_time(duration, .95) by (name)"
+        },
+        {
+          "refId": "C",
+          "query": "{ resource.service.name=\"opencred-server\" && name =~ \"^(GET|POST|PUT|DELETE) /.*\" } | quantile_over_time(duration, .99) by (name)"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 }
+    },
+    {
+      "title": "batch.row.process duration distribution",
+      "description": "Per-row processing time. Grouped by `batch.proof_format` so vc-jwt / data-integrity / sd-jwt-vc costs are visible separately. Drill in by `batch.job_id` (opaque UUID) to chase a slow batch.",
+      "type": "heatmap",
+      "datasource": { "type": "tempo", "uid": "${tempo}" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "{ resource.service.name=\"opencred-server\" && name=\"batch.row.process\" } | histogram_over_time(duration) by (batch.proof_format)"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 }
+    },
+    {
+      "title": "signer.sign duration by algorithm + kind",
+      "description": "Time spent inside Signer.sign(). The `signer.kind` attribute distinguishes software / pkcs11 / os-cert / cloud-hsm-{aws,azure,gcp}. Signature buffers are NEVER recorded — only metadata.",
+      "type": "timeseries",
+      "datasource": { "type": "tempo", "uid": "${tempo}" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "{ resource.service.name=\"opencred-server\" && name=\"signer.sign\" } | avg_over_time(duration) by (signer.kind, signer.algorithm)"
+        },
+        {
+          "refId": "B",
+          "query": "{ resource.service.name=\"opencred-server\" && name=\"signer.sign\" } | quantile_over_time(duration, .99) by (signer.kind, signer.algorithm)"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 }
+    },
+    {
+      "title": "verify.credential outcomes",
+      "description": "Verification result codes (`verify.code`) over time. Spikes in INVALID / UNRESOLVABLE signal a verifier-side incident; spikes in REVOKED signal a real revocation event.",
+      "type": "timeseries",
+      "datasource": { "type": "tempo", "uid": "${tempo}" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "{ resource.service.name=\"opencred-server\" && name=\"verify.credential\" } | rate() by (verify.code)"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 }
+    },
+    {
+      "title": "verify.did_resolve latency by DID method",
+      "description": "Time spent resolving issuer DIDs. did:web is network-bound and will dominate p99; did:key is offline and should sit near the noise floor.",
+      "type": "timeseries",
+      "datasource": { "type": "tempo", "uid": "${tempo}" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "{ resource.service.name=\"opencred-server\" && name=\"verify.did_resolve\" } | quantile_over_time(duration, .95) by (did.method)"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 }
+    },
+    {
+      "title": "DeDi adapter latency",
+      "description": "DeDi lookup / publish / update durations, grouped by registry (`dedi.registry`). `dedi.host` is recorded but path is NOT (see CLAUDE.md — record names can carry credential identifiers).",
+      "type": "timeseries",
+      "datasource": { "type": "tempo", "uid": "${tempo}" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "{ resource.service.name=\"opencred-server\" && name =~ \"dedi\\\\..+\" } | quantile_over_time(duration, .95) by (name, dedi.registry)"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 24, "w": 24, "h": 8 }
+    },
+    {
+      "title": "Errors by span name",
+      "description": "Spans that closed with `status.code=ERROR`. A spike here means recordException fired somewhere in the critical path — pivot to the trace view to find the offender.",
+      "type": "timeseries",
+      "datasource": { "type": "tempo", "uid": "${tempo}" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "{ resource.service.name=\"opencred-server\" && status=error } | rate() by (name)"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 32, "w": 24, "h": 8 }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["opencred", "scale", "tier-3"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": true, "text": "Tempo", "value": "tempo" },
+        "label": "Tempo data source",
+        "name": "tempo",
+        "options": [],
+        "query": "tempo",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "OpenCred Server — Critical-Path Overview",
+  "uid": "opencred-overview",
+  "version": 1,
+  "weekStart": ""
+}

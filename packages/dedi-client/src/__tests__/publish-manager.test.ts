@@ -1,0 +1,266 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { DeDiPublishManager, createPublishManager } from "../publish-manager.js";
+import { DeDiClient } from "../adapter/client.js";
+import type { SchemaRecord, PublishResult, KeyRecord } from "../adapter/types.js";
+
+// Mock DeDiClient
+vi.mock("../adapter/client.js", () => {
+  const MockDeDiClient = vi.fn();
+  MockDeDiClient.prototype.publishSchema = vi.fn();
+  MockDeDiClient.prototype.publishKey = vi.fn();
+  MockDeDiClient.prototype.setKeyStatus = vi.fn();
+  MockDeDiClient.prototype.ensureRegistries = vi.fn();
+  MockDeDiClient.prototype.logger = { info() {}, debug() {}, warn() {}, error() {} };
+  return { DeDiClient: MockDeDiClient };
+});
+
+function createMockClient(): DeDiClient {
+  return new DeDiClient({
+    baseUrl: "https://dedi.example.com",
+    timeoutMs: 5000,
+    maxRetries: 0,
+    circuitBreakerThreshold: 5,
+    auth: { type: "api-key", apiKey: "dk_test" },
+  });
+}
+
+const testSchema: SchemaRecord = {
+  schemaId: "functional-identity/v1",
+  version: "1",
+  schema: { type: "object" },
+  checksum: "abc",
+  publishedAt: "2026-03-25T00:00:00Z",
+};
+
+const publishResult: PublishResult = {
+  published: true,
+  recordName: "functional-identity-v1",
+  namespace: "example.com",
+};
+
+describe("DeDiPublishManager", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe("ensureSchemaPublished", () => {
+    it("publishes schema on first call", async () => {
+      const client = createMockClient();
+      vi.mocked(client.publishSchema).mockResolvedValue(publishResult);
+
+      const manager = new DeDiPublishManager(client);
+      const result = await manager.ensureSchemaPublished(testSchema);
+
+      expect(result).toEqual(publishResult);
+      expect(client.publishSchema).toHaveBeenCalledTimes(1);
+    });
+
+    it("skips publish on second call (cached)", async () => {
+      const client = createMockClient();
+      vi.mocked(client.publishSchema).mockResolvedValue(publishResult);
+
+      const manager = new DeDiPublishManager(client);
+      await manager.ensureSchemaPublished(testSchema);
+      const result2 = await manager.ensureSchemaPublished(testSchema);
+
+      expect(result2).toBeNull();
+      expect(client.publishSchema).toHaveBeenCalledTimes(1);
+    });
+
+    it("skips if schema was in alreadyPublished list", async () => {
+      const client = createMockClient();
+
+      const manager = new DeDiPublishManager(client, ["functional-identity-v1"]);
+      const result = await manager.ensureSchemaPublished(testSchema);
+
+      expect(result).toBeNull();
+      expect(client.publishSchema).not.toHaveBeenCalled();
+    });
+
+    it("swallows errors (fire-and-forget)", async () => {
+      const client = createMockClient();
+      vi.mocked(client.publishSchema).mockRejectedValue(new Error("network error"));
+
+      const manager = new DeDiPublishManager(client);
+      const result = await manager.ensureSchemaPublished(testSchema);
+
+      expect(result).toBeNull();
+      // No error thrown
+    });
+  });
+
+  describe("publishKey", () => {
+    const keyRecord: KeyRecord = {
+      keyId: "did:web:example.com#key-0",
+      controllerDid: "did:web:example.com",
+      algorithm: "ES256",
+      publicKeyJwk: { kty: "EC", crv: "P-256", x: "abc", y: "def" },
+      purpose: ["assertionMethod"],
+      status: "active",
+    };
+
+    it("publishes a key and returns the adapter's PublishResult", async () => {
+      const client = createMockClient();
+      const keyResult: PublishResult = {
+        published: true,
+        recordName: "did-web-example.com-key-0",
+        namespace: "example.com",
+      };
+      vi.mocked(client.publishKey).mockResolvedValue(keyResult);
+
+      const manager = new DeDiPublishManager(client);
+      const result = await manager.publishKey(keyRecord, "example.com");
+
+      expect(result).toEqual(keyResult);
+      expect(client.publishKey).toHaveBeenCalledWith(keyRecord, "example.com");
+    });
+
+    it("swallows errors (fire-and-forget)", async () => {
+      const client = createMockClient();
+      vi.mocked(client.publishKey).mockRejectedValue(new Error("timeout"));
+
+      const manager = new DeDiPublishManager(client);
+      const result = await manager.publishKey(keyRecord);
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("setKeyStatus", () => {
+    // The publish-manager wraps the adapter's `setKeyStatus` so DeDi
+    // outages don't crash callers. Successful transitions surface the
+    // adapter's SetKeyStatusResult unchanged; failures collapse to `null`
+    // and the error is logged, mirroring the contract of every other
+    // method on this class.
+    const changedResult = {
+      changed: true as const,
+      keyId: "did:web:issuer.example.org#key-1",
+      from: "active" as const,
+      to: "revoked" as const,
+      namespace: "example.com",
+    };
+    const unchangedResult = {
+      changed: false as const,
+      keyId: "did:web:issuer.example.org#key-1",
+      status: "rotated" as const,
+      reason: "already-at-status" as const,
+      namespace: "example.com",
+    };
+
+    it("returns the adapter's SetKeyStatusResult on a changed transition", async () => {
+      const client = createMockClient();
+      vi.mocked(client.setKeyStatus).mockResolvedValue(changedResult);
+
+      const manager = new DeDiPublishManager(client);
+      const result = await manager.setKeyStatus(
+        "did:web:issuer.example.org#key-1",
+        "revoked",
+        "example.com",
+      );
+
+      expect(result).toEqual(changedResult);
+      expect(client.setKeyStatus).toHaveBeenCalledWith(
+        "did:web:issuer.example.org#key-1",
+        "revoked",
+        "example.com",
+      );
+    });
+
+    it("passes through the idempotent no-op (changed:false) shape", async () => {
+      const client = createMockClient();
+      vi.mocked(client.setKeyStatus).mockResolvedValue(unchangedResult);
+
+      const manager = new DeDiPublishManager(client);
+      const result = await manager.setKeyStatus("did:web:issuer.example.org#key-1", "rotated");
+
+      expect(result).toEqual(unchangedResult);
+    });
+
+    it("returns null on adapter failure (fire-and-forget logging)", async () => {
+      const client = createMockClient();
+      vi.mocked(client.setKeyStatus).mockRejectedValue(new Error("DeDi 502"));
+
+      const manager = new DeDiPublishManager(client);
+      const result = await manager.setKeyStatus("did:web:issuer.example.org#key-1", "revoked");
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("ensureRegistries", () => {
+    it("delegates to client and returns true on success", async () => {
+      const client = createMockClient();
+      vi.mocked(client.ensureRegistries).mockResolvedValue(undefined);
+
+      const manager = new DeDiPublishManager(client);
+      const result = await manager.ensureRegistries("example.com");
+
+      expect(result).toBe(true);
+      expect(client.ensureRegistries).toHaveBeenCalledWith("example.com");
+    });
+
+    it("returns false on error (fire-and-forget)", async () => {
+      const client = createMockClient();
+      vi.mocked(client.ensureRegistries).mockRejectedValue(new Error("fail"));
+
+      const manager = new DeDiPublishManager(client);
+      const result = await manager.ensureRegistries("example.com");
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe("getPublishedSchemaIds", () => {
+    it("returns IDs of published schemas", async () => {
+      const client = createMockClient();
+      vi.mocked(client.publishSchema).mockResolvedValue(publishResult);
+
+      const manager = new DeDiPublishManager(client);
+      await manager.ensureSchemaPublished(testSchema);
+
+      expect(manager.getPublishedSchemaIds()).toEqual(["functional-identity-v1"]);
+    });
+
+    it("includes pre-loaded IDs", () => {
+      const client = createMockClient();
+      const manager = new DeDiPublishManager(client, ["existing-v1"]);
+
+      expect(manager.getPublishedSchemaIds()).toContain("existing-v1");
+    });
+  });
+});
+
+describe("createPublishManager", () => {
+  it("returns null when config is null", () => {
+    const result = createPublishManager(null);
+    expect(result).toBeNull();
+  });
+
+  it("returns DeDiPublishManager when config and logger are provided", () => {
+    const testLogger = { info() {}, debug() {}, warn() {}, error() {} };
+    const result = createPublishManager(
+      {
+        baseUrl: "https://dedi.example.com",
+        timeoutMs: 5000,
+        maxRetries: 0,
+        circuitBreakerThreshold: 5,
+        auth: { type: "api-key", apiKey: "dk_test" },
+      },
+      undefined,
+      testLogger,
+    );
+    expect(result).toBeInstanceOf(DeDiPublishManager);
+  });
+
+  it("throws when config is provided but logger is missing", () => {
+    expect(() =>
+      createPublishManager({
+        baseUrl: "https://dedi.example.com",
+        timeoutMs: 5000,
+        maxRetries: 0,
+        circuitBreakerThreshold: 5,
+        auth: { type: "api-key", apiKey: "dk_test" },
+      }),
+    ).toThrow("requires a logger");
+  });
+});
