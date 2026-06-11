@@ -1572,6 +1572,112 @@ describe("DeDiClient (adapter)", () => {
         },
       );
     });
+
+    it("strips private JWK members from the document's verification methods (CLAUDE.md rule 1)", async () => {
+      // Defence-in-depth: the rotate call site already passes a stripped
+      // document, but a public client method must never be a path for key
+      // material to reach DeDi.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: recordName,
+          registry: OPENCRED_KEY_REGISTRY,
+          namespace: "example.com",
+          details: {
+            keyId: vm,
+            controllerDid: "did:web:acme.com",
+            algorithm: "ES256",
+            publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+            purpose: ["assertionMethod"],
+            status: "active",
+          },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+      vi.mocked(api.updateRecord).mockResolvedValue({} as never);
+
+      await client.setKeyDocument(vm, {
+        id: "did:web:acme.com",
+        verificationMethod: [
+          {
+            id: vm,
+            publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y", d: "PRIVATE-SCALAR" },
+          },
+        ],
+      });
+
+      const published = vi.mocked(api.updateRecord).mock.calls[0]![3] as {
+        document: { verificationMethod: Array<{ publicKeyJwk: Record<string, unknown> }> };
+      };
+      expect(published.document.verificationMethod[0]!.publicKeyJwk).toEqual({
+        kty: "EC",
+        crv: "P-256",
+        x: "x",
+        y: "y",
+      });
+      expect(published.document.verificationMethod[0]!.publicKeyJwk.d).toBeUndefined();
+    });
+
+    it("serialises with setKeyStatus on the same key (shared per-key write chain)", async () => {
+      // A document attach must not interleave with a status flip on the same
+      // key — it reads the whole record (incl. status) and writes it back, so
+      // an unserialised race would clobber a concurrent status change.
+      const client = createClient("example.com");
+      const api = mockApi();
+      const order: string[] = [];
+      let releaseFirstLookup!: () => void;
+      const firstLookupGate = new Promise<void>((r) => (releaseFirstLookup = r));
+
+      const record = (status: string) => ({
+        message: "ok",
+        data: {
+          record_name: recordName,
+          registry: OPENCRED_KEY_REGISTRY,
+          namespace: "example.com",
+          details: {
+            keyId: vm,
+            controllerDid: "did:web:acme.com",
+            algorithm: "ES256",
+            publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+            purpose: ["assertionMethod"],
+            status,
+          },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+
+      vi.mocked(api.lookupRecord)
+        .mockImplementationOnce(async () => {
+          order.push("read:doc");
+          await firstLookupGate; // hold the document write's read open
+          return record("active") as never;
+        })
+        .mockImplementationOnce(async () => {
+          order.push("read:status");
+          return record("active") as never;
+        });
+      vi.mocked(api.updateRecord).mockImplementation(async (_ns, _reg, _rec, details) => {
+        order.push((details as { document?: unknown }).document ? "write:doc" : "write:status");
+        return {} as never;
+      });
+
+      const docWrite = client.setKeyDocument(vm, newDoc);
+      const statusWrite = client.setKeyStatus(vm, "rotated");
+      releaseFirstLookup();
+      await Promise.all([docWrite, statusWrite]);
+
+      // The status operation must not START its read until the document
+      // operation's write completed — no interleaving.
+      expect(order).toEqual(["read:doc", "write:doc", "read:status", "write:status"]);
+    });
   });
 
   // ── publishSchema ────────────────────────────────────────────────

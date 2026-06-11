@@ -700,7 +700,7 @@ keys.post("/keys/rotate", async (c) => {
   // Retire the previous key (flip to `rotated`). It stays in the regenerated
   // did.json's relationships — a clean rotation does not invalidate the
   // credentials it signed. `setKeyStatus` carries that key's own (earlier)
-  // did.json snapshot forward unchanged; we never pass a document to it.
+  // did.json snapshot forward unchanged; we never pass a document to `setKeyStatus`.
   let retired: Awaited<ReturnType<DeDiClient["setKeyStatus"]>> | null = null;
   if (parsed.previousVerificationMethod) {
     retired = await dediClient.setKeyStatus(

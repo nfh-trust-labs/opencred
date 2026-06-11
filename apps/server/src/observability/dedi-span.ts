@@ -7,7 +7,7 @@
  *     resolveContext / queryRevocationHash
  *   - `dedi.publish_record` — publishKey / publishSchema /
  *     publishContext / publishRevocationHash / ensureRegistries
- *   - `dedi.update_record` — setKeyStatus (DeDi `update-record`)
+ *   - `dedi.update_record` — setKeyStatus / setKeyDocument (DeDi `update-record`)
  *
  * SECURITY (CLAUDE.md):
  *   - The DeDi base URL is decomposed: we record only the *host* in

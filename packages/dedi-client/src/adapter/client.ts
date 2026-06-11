@@ -241,6 +241,33 @@ function extractProof(envelopeData: unknown): DeDiProof | undefined {
   return result;
 }
 
+/** Private JWK members that must never reach DeDi (CLAUDE.md rule 1). */
+const PRIVATE_JWK_MEMBERS = ["d", "p", "q", "dp", "dq", "qi", "oth", "k"] as const;
+
+/**
+ * Return a copy of a did.json with private JWK members stripped from every
+ * `verificationMethod[*].publicKeyJwk`. Defence-in-depth for
+ * {@link DeDiClient.setKeyDocument}: well-behaved callers already pass
+ * documents built by `generateDidWebDocumentMultiKey` (which strips), but a
+ * public client method must not be a path for key material to leave the
+ * issuer's machine (see the #663 fix for the equivalent server-side gap).
+ */
+function stripPrivateJwkMembers(document: Record<string, unknown>): Record<string, unknown> {
+  const vms = document["verificationMethod"];
+  if (!Array.isArray(vms)) return document;
+  return {
+    ...document,
+    verificationMethod: vms.map((vm) => {
+      if (vm == null || typeof vm !== "object") return vm;
+      const jwk = (vm as Record<string, unknown>)["publicKeyJwk"];
+      if (jwk == null || typeof jwk !== "object") return vm;
+      const cleaned = { ...(jwk as Record<string, unknown>) };
+      for (const member of PRIVATE_JWK_MEMBERS) delete cleaned[member];
+      return { ...(vm as Record<string, unknown>), publicKeyJwk: cleaned };
+    }),
+  };
+}
+
 export class DeDiClient {
   private readonly api: DeDiApiClient;
   private readonly defaultNamespace?: string;
@@ -454,13 +481,21 @@ export class DeDiClient {
     status: KeyStatus,
     namespace?: string,
   ): Promise<SetKeyStatusResult> {
-    // Per-key promise-chain mutex (#677): chain onto the previous write for
-    // this verification method so concurrent read-modify-write cycles can't
-    // interleave. A failed predecessor must not poison the chain (`catch`).
+    return this.chainKeyWrite(verificationMethod, () =>
+      this.doSetKeyStatus(verificationMethod, status, namespace),
+    );
+  }
+
+  /**
+   * Per-key promise-chain mutex (#677): chain `fn` onto the previous write
+   * for this verification method so concurrent read-modify-write cycles
+   * (status flips AND document attachments — both read the whole record and
+   * write it back) can't interleave within this process. A failed
+   * predecessor must not poison the chain (`catch`).
+   */
+  private chainKeyWrite<T>(verificationMethod: string, fn: () => Promise<T>): Promise<T> {
     const prior = this.keyStatusWrites.get(verificationMethod) ?? Promise.resolve();
-    const run = prior
-      .catch(() => undefined)
-      .then(() => this.doSetKeyStatus(verificationMethod, status, namespace));
+    const run = prior.catch(() => undefined).then(fn);
     const tail = run.catch(() => undefined);
     this.keyStatusWrites.set(verificationMethod, tail);
     // Drop the map entry once the chain drains so the map can't grow unbounded.
@@ -591,32 +626,44 @@ export class DeDiClient {
    * the active key and the did:web → DeDi fallback resolver could not see the
    * new key. This update-records the document onto the existing record.
    *
-   * The `document` is a deterministic function of the rotation's key set, so
-   * concurrent rotates to the same index write the same value — it does not
-   * reintroduce the lost-update race the `setKeyStatus` concurrency note
-   * guards against (see #659).
+   * Concurrency: runs on the same per-key write chain as `setKeyStatus`
+   * (`chainKeyWrite`), so a document attach can't interleave with a status
+   * flip on the same key within this process and read-back-write a stale
+   * status. Cross-instance writers still race last-writer-wins until DeDi
+   * exposes a CAS on `update-record` (#659) — same residual window as
+   * `setKeyStatus`, and the rotate handler's document is only fully
+   * deterministic when the operator supplies `currentDidDocument`
+   * explicitly (otherwise it derives from a live registry snapshot).
+   *
+   * Defence-in-depth (CLAUDE.md rule 1, see also the #663 fix): private
+   * JWK members are stripped from every `verificationMethod[*].publicKeyJwk`
+   * before publishing, so a caller passing an unsanitised did.json cannot
+   * leak key material into DeDi. The rotate call site already passes a
+   * stripped document; this guards every other caller.
    */
   async setKeyDocument(
     verificationMethod: string,
     document: Record<string, unknown>,
     namespace?: string,
   ): Promise<void> {
-    const ns = this.resolveNamespace(namespace);
-    const recordName = verificationMethodToRecordName(verificationMethod);
-    const existing = await this.resolveKey(verificationMethod, ns);
-    const updated: Omit<KeyRecord, "proof"> = {
-      keyId: existing.keyId,
-      controllerDid: existing.controllerDid,
-      algorithm: existing.algorithm,
-      publicKeyJwk: existing.publicKeyJwk,
-      purpose: existing.purpose,
-      status: existing.status,
-      document,
-    };
-    await this.api.updateRecord(ns, OPENCRED_KEY_REGISTRY, recordName, updated);
-    this.logger.info("Attached did.json snapshot to existing key record", {
-      keyId: verificationMethod,
-      namespace: ns,
+    return this.chainKeyWrite(verificationMethod, async () => {
+      const ns = this.resolveNamespace(namespace);
+      const recordName = verificationMethodToRecordName(verificationMethod);
+      const existing = await this.resolveKey(verificationMethod, ns);
+      const updated: Omit<KeyRecord, "proof"> = {
+        keyId: existing.keyId,
+        controllerDid: existing.controllerDid,
+        algorithm: existing.algorithm,
+        publicKeyJwk: existing.publicKeyJwk,
+        purpose: existing.purpose,
+        status: existing.status,
+        document: stripPrivateJwkMembers(document),
+      };
+      await this.api.updateRecord(ns, OPENCRED_KEY_REGISTRY, recordName, updated);
+      this.logger.info("Attached did.json snapshot to existing key record", {
+        keyId: verificationMethod,
+        namespace: ns,
+      });
     });
   }
 
