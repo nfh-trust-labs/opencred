@@ -16,6 +16,8 @@
     "generate-icons": "node scripts/generate-icons.mjs",
     "build": "vite build && node scripts/bundle-main.mjs",
     "build:dist": "node scripts/build-dist.mjs",
+    "package:ci": "node scripts/build-dist.mjs --dir --publish never --config.npmRebuild=false",
+    "smoke:packaged": "node scripts/packaged-smoke.mjs",
     "build:renderer": "vite build",
     "build:main": "node scripts/bundle-main.mjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
