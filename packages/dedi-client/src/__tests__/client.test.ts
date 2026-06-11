@@ -1426,18 +1426,22 @@ describe("DeDiClient (adapter)", () => {
       api: InstanceType<typeof DeDiApiClient>,
       details: Record<string, unknown>[],
     ) {
+      // Mirror the live `/dedi/query` envelope: records nested under
+      // `data.records` inside registry metadata — NOT bare under `data`.
+      // (Mocking the bare-array shape is what let the resolution bug ship.)
+      const records = details.map((d) => ({
+        record_name: (d["keyId"] as string).replace(/[:#]/g, "-"),
+        registry: OPENCRED_KEY_REGISTRY,
+        namespace: "example.com",
+        details: d,
+        state: "live",
+        version: "1",
+        created_at: "",
+        updated_at: "",
+      }));
       vi.mocked(api.queryRecords).mockResolvedValue({
         message: "ok",
-        data: details.map((d) => ({
-          record_name: (d["keyId"] as string).replace(/[:#]/g, "-"),
-          registry: OPENCRED_KEY_REGISTRY,
-          namespace: "example.com",
-          details: d,
-          state: "live",
-          version: "1",
-          created_at: "",
-          updated_at: "",
-        })),
+        data: { registry_name: OPENCRED_KEY_REGISTRY, total_records: records.length, records },
       } as never);
     }
 
@@ -1493,9 +1497,80 @@ describe("DeDiClient (adapter)", () => {
     it("returns null when the registry query has no records", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.queryRecords).mockResolvedValue({ message: "ok", data: [] } as never);
+      vi.mocked(api.queryRecords).mockResolvedValue({
+        message: "ok",
+        data: { registry_name: OPENCRED_KEY_REGISTRY, total_records: 0, records: [] },
+      } as never);
       const doc = await client.resolveDidWebDocument(did);
       expect(doc).toBeNull();
+    });
+
+    it("returns null (not throw) when the envelope is malformed (no records array)", async () => {
+      // Defence-in-depth: an unexpected envelope shape must degrade to the
+      // canonical-HTTPS fallback, never crash resolution.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.queryRecords).mockResolvedValue({ message: "ok", data: {} } as never);
+      const doc = await client.resolveDidWebDocument(did);
+      expect(doc).toBeNull();
+    });
+  });
+
+  // ── setKeyDocument ────────────────────────────────────────────────
+
+  describe("setKeyDocument", () => {
+    const vm = "did:web:acme.com#key-1";
+    const recordName = "did-web-acme.com-key-1";
+    const newDoc = {
+      id: "did:web:acme.com",
+      verificationMethod: [{ id: vm }, { id: "did:web:acme.com#key-0" }],
+    };
+
+    it("update-records the document onto an existing (bare) key record, preserving status", async () => {
+      // Mirrors the rotate path: the new key was auto-published bare at boot;
+      // setKeyDocument attaches the regenerated multi-key did.json so the
+      // did:web → DeDi fallback can see it.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: recordName,
+          registry: OPENCRED_KEY_REGISTRY,
+          namespace: "example.com",
+          details: {
+            keyId: vm,
+            controllerDid: "did:web:acme.com",
+            algorithm: "ES256",
+            publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+            purpose: ["assertionMethod"],
+            status: "active",
+            // no `document` yet — the bare record
+          },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+      vi.mocked(api.updateRecord).mockResolvedValue({} as never);
+
+      await client.setKeyDocument(vm, newDoc);
+
+      expect(api.updateRecord).toHaveBeenCalledWith(
+        "example.com",
+        OPENCRED_KEY_REGISTRY,
+        recordName,
+        {
+          keyId: vm,
+          controllerDid: "did:web:acme.com",
+          algorithm: "ES256",
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+          purpose: ["assertionMethod"],
+          status: "active",
+          document: newDoc,
+        },
+      );
     });
   });
 

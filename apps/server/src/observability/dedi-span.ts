@@ -43,9 +43,16 @@ function safeHost(baseUrl: string): string {
 /**
  * Wrap a {@link DeDiClient} so its lookup/publish/update methods emit
  * spans. Returns a new object that delegates to the original — the
- * underlying client is not mutated. Only the methods OpenCred's
- * critical paths actually call are wrapped; unwrapped methods (e.g.
- * `apiClient` low-level access used by tests) pass through.
+ * underlying client is not mutated.
+ *
+ * IMPORTANT: every method OpenCred calls on the wrapped client MUST be
+ * explicitly assigned below. The wrapper is a bare object over the
+ * prototype; it does NOT carry the real client's private instance fields
+ * (`api`, `defaultNamespace`, …). A method left unwrapped runs on this
+ * bare object and throws (e.g. `resolveNamespace` can't find
+ * `defaultNamespace`). The explicit assignments delegate to `client`, which
+ * does have those fields. Only genuinely test-only accessors (`apiClient`,
+ * `logger`, copied via defineProperty) are exempt.
  */
 export function wrapDeDiClientWithTracing(client: DeDiClient, baseUrl: string): DeDiClient {
   const host = safeHost(baseUrl);
@@ -105,6 +112,13 @@ export function wrapDeDiClientWithTracing(client: DeDiClient, baseUrl: string): 
       "dedi.update_record",
       { "dedi.host": host, "dedi.registry": "opencred-key-registry" },
       () => client.setKeyStatus(verificationMethod, status, namespace),
+    );
+
+  wrapped.setKeyDocument = (verificationMethod, document, namespace) =>
+    runInSpan(
+      "dedi.update_record",
+      { "dedi.host": host, "dedi.registry": "opencred-key-registry" },
+      () => client.setKeyDocument(verificationMethod, document, namespace),
     );
 
   // did:web fallback resolution — projects the did.json from the per-key

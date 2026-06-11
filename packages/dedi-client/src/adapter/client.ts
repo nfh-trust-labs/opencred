@@ -581,6 +581,46 @@ export class DeDiClient {
   }
 
   /**
+   * Attach (or refresh) the embedded did.json `document` snapshot on an
+   * EXISTING key record, preserving every other field.
+   *
+   * Needed by `/v1/keys/rotate`: when the new key was already auto-published
+   * as a BARE record at startup (auto-publish only embeds a document at
+   * index 0 — index > 0 is "owned by rotate"), rotate's `publishKey` hits a
+   * 409 and skips, so the regenerated multi-key did.json would never land on
+   * the active key and the did:web → DeDi fallback resolver could not see the
+   * new key. This update-records the document onto the existing record.
+   *
+   * The `document` is a deterministic function of the rotation's key set, so
+   * concurrent rotates to the same index write the same value — it does not
+   * reintroduce the lost-update race the `setKeyStatus` concurrency note
+   * guards against (see #659).
+   */
+  async setKeyDocument(
+    verificationMethod: string,
+    document: Record<string, unknown>,
+    namespace?: string,
+  ): Promise<void> {
+    const ns = this.resolveNamespace(namespace);
+    const recordName = verificationMethodToRecordName(verificationMethod);
+    const existing = await this.resolveKey(verificationMethod, ns);
+    const updated: Omit<KeyRecord, "proof"> = {
+      keyId: existing.keyId,
+      controllerDid: existing.controllerDid,
+      algorithm: existing.algorithm,
+      publicKeyJwk: existing.publicKeyJwk,
+      purpose: existing.purpose,
+      status: existing.status,
+      document,
+    };
+    await this.api.updateRecord(ns, OPENCRED_KEY_REGISTRY, recordName, updated);
+    this.logger.info("Attached did.json snapshot to existing key record", {
+      keyId: verificationMethod,
+      namespace: ns,
+    });
+  }
+
+  /**
    * Resolve the current did.json for a `did:web` DID from the per-key
    * snapshots in `opencred-key-registry` (replaces the old `did-documents`
    * lookup). Backs {@link createDeDiDIDWebFallback}.
@@ -603,7 +643,11 @@ export class DeDiClient {
   ): Promise<Record<string, unknown> | null> {
     const ns = this.resolveNamespace(namespace);
     const response = await this.api.queryRecords<KeyRecord>(ns, OPENCRED_KEY_REGISTRY);
-    const records = response?.data;
+    // The live `/dedi/query` endpoint nests the record list under
+    // `data.records` (inside a registry-metadata envelope), NOT bare under
+    // `data`. Reading `data` directly always yielded a non-array → null,
+    // silently disabling did:web → DeDi resolution for every issuer.
+    const records = response?.data?.records;
     if (!Array.isArray(records)) return null;
 
     const candidates = records
