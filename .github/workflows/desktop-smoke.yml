@@ -1,0 +1,85 @@
+# Packaged-app boot smoke test (deferred item C5 from #681).
+#
+# CI elsewhere only ever exercises `electron .` (dev mode — IS_DEV is derived
+# from !app.isPackaged). This workflow proves the PACKAGED app boots: it builds
+# an unsigned `electron-builder --dir` output, launches the real binary under
+# xvfb and asserts — via the OPENCRED_SMOKE_TEST hook in
+# apps/desktop/src/main/index.ts — that the main window loaded the production
+# renderer (dist/renderer/index.html, not the Vite dev server) and that the
+# React app actually mounted (#root has children).
+#
+# Linux only, on purpose: macOS/Windows packaged-launch checks need signing
+# identities (Gatekeeper / SmartScreen) that are only configured in the
+# release workflow — out of scope here.
+name: Desktop Packaged Smoke
+
+on:
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "packages/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/desktop-smoke.yml"
+  schedule:
+    # Nightly, so renderer/main regressions surface even without desktop PRs.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Packaged app boot (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: pnpm
+
+      # Python is required by node-gyp for the native addon rebuild that
+      # build-dist.mjs performs before packaging.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace dependencies
+        run: pnpm --filter @opencred/desktop^... build
+
+      # Unsigned, unpacked --dir build (no installer, no codesign).
+      - name: Package app (electron-builder --dir)
+        working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: pnpm package:ci
+
+      # Ubuntu 24.04 restricts unprivileged user namespaces (AppArmor), so
+      # Chromium falls back to the SUID sandbox helper — which must be
+      # root-owned and setuid. This keeps the Chromium sandbox ENABLED for the
+      # smoke run instead of resorting to --no-sandbox.
+      - name: Configure Chromium SUID sandbox helper
+        run: |
+          sudo chown root:root apps/desktop/out/linux-unpacked/chrome-sandbox
+          sudo chmod 4755 apps/desktop/out/linux-unpacked/chrome-sandbox
+
+      - name: Run packaged boot smoke test
+        working-directory: apps/desktop
+        run: xvfb-run --auto-servernum pnpm smoke:packaged
