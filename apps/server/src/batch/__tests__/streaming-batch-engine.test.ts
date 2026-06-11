@@ -297,20 +297,32 @@ describe("createStreamingBatchEngine", () => {
     // generator (no full materialised array in memory) and assert
     // the peak in-flight gauge.
     //
-    // We use a microtask-only hook (no setTimeout) so the bottleneck
-    // is the engine's own pipeline cost (CredentialBuilder + JWS
-    // prepare) rather than added test latency — at 100k rows even a
+    // We use a microtask-dominated hook (no per-row setTimeout) so the
+    // bottleneck is the engine's own pipeline cost (CredentialBuilder +
+    // JWS prepare) rather than added test latency — at 100k rows even a
     // 1ms-per-row delay would blow the test timeout.
     installStubSchemaRegistry();
 
     const concurrency = 4;
     const { signer, concurrentMax } = makeStubSigner({
-      hook: async () => {
+      hook: async (rowIndex) => {
         // A `Promise.resolve()` is enough to force a microtask break
         // so multiple workers genuinely interleave. Without ANY await
         // a single worker could burn through every row synchronously
         // and `concurrentMax` would silently read `1`.
         await Promise.resolve();
+        // …but microtasks alone starve the event loop: 100k rows then
+        // run as ONE unbroken microtask chain during which no timer or
+        // I/O callback can fire. That made the timeout below silently
+        // unenforceable (CI runs were observed taking 269–281 s past a
+        // 120 s timeout and still "passing") and left the fork worker
+        // unable to service IPC for the full ~4.5 min the pipeline
+        // needs on a 2-core runner. A macrotask yield every 1000 rows
+        // (100 yields total, <10 ms added) keeps timers and IPC alive
+        // without changing what the test measures.
+        if (rowIndex % 1000 === 0) {
+          await new Promise((resolve) => setImmediate(resolve));
+        }
       },
     });
 
@@ -335,7 +347,12 @@ describe("createStreamingBatchEngine", () => {
     // worker set, so the bound is `concurrency + 1`.
     expect(concurrentMax.value).toBeLessThanOrEqual(concurrency + 1);
     expect(concurrentMax.value).toBeGreaterThanOrEqual(2);
-  }, 120_000);
+    // 100k rows take ~25-50 s on a developer laptop but ~4.5 min on a
+    // shared 2-core CI runner. Now that the event loop yields, this
+    // timeout is actually enforced — keep enough headroom that a slow
+    // runner doesn't flake, while still converting a genuine wedge into
+    // a loud failure instead of an unbounded hang.
+  }, 600_000);
 
   // ---------------------------------------------------------------------
   // onProgress hook (Tier 3 #8 of #446)
