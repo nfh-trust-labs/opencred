@@ -179,12 +179,25 @@ function attachDisclosures(
  * Header is the first dot-separated segment of a JWS / JWT.
  */
 function extractKidFromJwtHeader(token: string): string | undefined {
+  return extractStringFromJwtHeader(token, "kid");
+}
+
+/** Like {@link extractKidFromJwtHeader} but for the JWS `alg` (display only). */
+function extractAlgFromJwtHeader(token: string): string | undefined {
+  return extractStringFromJwtHeader(token, "alg");
+}
+
+function extractStringFromJwtHeader(token: string, claim: string): string | undefined {
   try {
     const headerSeg = token.split(".")[0] ?? "";
     if (!headerSeg) return undefined;
-    const decoded = JSON.parse(Buffer.from(headerSeg, "base64url").toString("utf-8"));
-    if (decoded && typeof decoded === "object" && typeof decoded.kid === "string") {
-      return decoded.kid;
+    const decoded: unknown = JSON.parse(Buffer.from(headerSeg, "base64url").toString("utf-8"));
+    if (
+      decoded &&
+      typeof decoded === "object" &&
+      typeof (decoded as Record<string, unknown>)[claim] === "string"
+    ) {
+      return (decoded as Record<string, unknown>)[claim] as string;
     }
     return undefined;
   } catch {
@@ -291,6 +304,8 @@ function buildVcShape(
     }
     const kid = extractKidFromJwtHeader(compactToken);
     if (kid) proofBlock["verificationMethod"] = kid;
+    const alg = extractAlgFromJwtHeader(compactToken);
+    if (alg) proofBlock["algorithm"] = alg;
     shape["proof"] = proofBlock;
   }
   return shape;
