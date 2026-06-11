@@ -107,6 +107,7 @@ describe("decodeCompactCredentialForDisplay — vc-jwt path", () => {
     // synthetic proof block reflects vc-jwt format and carries the kid
     const proof = shape["proof"] as Record<string, string>;
     expect(proof.type).toBe("JsonWebSignature2020");
+    expect(proof.algorithm).toBe("ES256");
     expect(proof.verificationMethod).toBe("did:web:example#key-1");
   });
 

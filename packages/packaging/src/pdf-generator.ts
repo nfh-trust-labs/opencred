@@ -132,6 +132,44 @@ function getIssuerDisplay(credential: PartialVerifiableCredential): string {
   return "(issuer not provided)";
 }
 
+/**
+ * Display-only decode of the compact JWT inside a vc-jwt envelope
+ * (`proof: { type: "JsonWebSignature2020", jwt }` — the canonical issuance
+ * output for `proofFormat: "vc-jwt"`). Extracts the signature metadata the
+ * "Digital Signature" section renders: JWS `alg`, header `kid`, payload
+ * `iat`. **No signature verification happens here** — the integrity
+ * guarantee comes from the token embedded verbatim in the QR / info dict;
+ * this only prevents the section rendering "(unknown)" for fields the
+ * token does carry (#693). Returns null when the proof isn't that envelope
+ * shape or the token doesn't decode.
+ */
+function decodeJwsEnvelopeForDisplay(
+  proof: Record<string, unknown>,
+): { alg?: string; kid?: string; issuedAt?: string } | null {
+  if (proof["type"] !== "JsonWebSignature2020" || typeof proof["jwt"] !== "string") return null;
+  const parts = proof["jwt"].split(".");
+  if (parts.length !== 3) return null;
+  const decodeSegment = (segment: string): Record<string, unknown> | null => {
+    try {
+      const parsed: unknown = JSON.parse(Buffer.from(segment, "base64url").toString("utf8"));
+      return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  const header = decodeSegment(parts[0]);
+  if (!header) return null;
+  const payload = decodeSegment(parts[1]);
+  const iat = payload?.["iat"];
+  return {
+    alg: typeof header["alg"] === "string" ? header["alg"] : undefined,
+    kid: typeof header["kid"] === "string" ? header["kid"] : undefined,
+    issuedAt: typeof iat === "number" ? new Date(iat * 1000).toISOString() : undefined,
+  };
+}
+
 const NOOP_LOGGER: PackagingLogger = { warn: () => {}, debug: () => {} };
 
 /**
@@ -433,15 +471,21 @@ export async function generatePdf(
       }
 
       // -- digital signature ---------------------------------------------
-      // Two shapes flow through: a real Data Integrity VC (proof fields
-      // mandatory — warn + "(unknown)" if missing) and a synthetic shape
-      // from a compact JWT/SD-JWT (caller set qrPayloadOverride — missing
-      // fields expected, skip silently).
+      // Three shapes flow through:
+      //   1. A real Data Integrity VC — proof fields mandatory; warn +
+      //      "(unknown)" if missing.
+      //   2. The vc-jwt envelope (proof.type "JsonWebSignature2020" with the
+      //      compact token at proof.jwt — the canonical issuance output).
+      //      The signature metadata lives INSIDE the token: render JWS alg,
+      //      header kid, payload iat via a display-only decode (#693).
+      //   3. A synthetic shape from a compact JWT/SD-JWT (caller set
+      //      qrPayloadOverride) — missing fields expected, skip silently.
       sectionHeading("Digital Signature");
       const isSyntheticProof = options?.qrPayloadOverride !== undefined;
       const proof =
         (credential.proof as Record<string, unknown> | undefined) ??
         ({} as Record<string, unknown>);
+      const jwsDisplay = decodeJwsEnvelopeForDisplay(proof);
       const asString = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
       const credentialId = typeof credential.id === "string" ? credential.id : undefined;
       const warnIfReal = (f: string) => {
@@ -461,23 +505,37 @@ export async function generatePdf(
         warnIfReal("type");
         sigField("Proof Type", "(unknown)");
       }
-      const proofCryptosuite = asString(proof["cryptosuite"]);
-      if (proofCryptosuite) sigField("Cryptosuite", proofCryptosuite);
-      else if (!isSyntheticProof) {
-        warnIfReal("cryptosuite");
-        sigField("Cryptosuite", "(unknown)");
-      }
-      const proofCreated = asString(proof["created"]);
-      if (proofCreated) sigField("Created", formatDate(proofCreated));
-      else if (!isSyntheticProof) {
-        warnIfReal("created");
-        sigField("Created", "(unknown)");
-      }
-      const proofVm = asString(proof["verificationMethod"]);
-      if (proofVm) sigField("Verification Method", proofVm);
-      else if (!isSyntheticProof) {
-        warnIfReal("verificationMethod");
-        sigField("Verification Method", "(unknown)");
+      if (jwsDisplay) {
+        // JWT proofs have no Data-Integrity cryptosuite/created/VM fields —
+        // the equivalents are the JWS algorithm, iat, and kid. Omit rows the
+        // token genuinely lacks rather than rendering "(unknown)".
+        if (jwsDisplay.alg) sigField("Algorithm", jwsDisplay.alg);
+        if (jwsDisplay.issuedAt) sigField("Created", formatDate(jwsDisplay.issuedAt));
+        if (jwsDisplay.kid) sigField("Verification Method", jwsDisplay.kid);
+      } else {
+        // Synthetic compact-token proofs carry the JWS `alg` (display-only,
+        // set by the apps' decode-for-display); Data Integrity proofs never
+        // have it, so the row simply doesn't render for them.
+        const proofAlg = asString(proof["algorithm"]);
+        if (proofAlg) sigField("Algorithm", proofAlg);
+        const proofCryptosuite = asString(proof["cryptosuite"]);
+        if (proofCryptosuite) sigField("Cryptosuite", proofCryptosuite);
+        else if (!isSyntheticProof) {
+          warnIfReal("cryptosuite");
+          sigField("Cryptosuite", "(unknown)");
+        }
+        const proofCreated = asString(proof["created"]);
+        if (proofCreated) sigField("Created", formatDate(proofCreated));
+        else if (!isSyntheticProof) {
+          warnIfReal("created");
+          sigField("Created", "(unknown)");
+        }
+        const proofVm = asString(proof["verificationMethod"]);
+        if (proofVm) sigField("Verification Method", proofVm);
+        else if (!isSyntheticProof) {
+          warnIfReal("verificationMethod");
+          sigField("Verification Method", "(unknown)");
+        }
       }
       if (Array.isArray(proof["x5c"]) && (proof["x5c"] as unknown[]).length > 0) {
         sigField(

@@ -77,4 +77,52 @@ describe("generatePdf", () => {
     const buf = await generatePdf(testCredential, { qrPayloadOverride: token });
     expect(await readEmbedded(buf)).toBe(token);
   });
+
+  describe("Digital Signature section — vc-jwt envelope (#693)", () => {
+    const b64u = (obj: unknown) => Buffer.from(JSON.stringify(obj)).toString("base64url");
+    const jwt = [
+      b64u({ alg: "ES256", typ: "JWT", kid: "did:web:issuer.example#key-0" }),
+      b64u({ iss: "did:web:issuer.example", iat: 1781164628, vc: {} }),
+      "c2lnbmF0dXJl",
+    ].join(".");
+    const envelopeCredential = {
+      ...(testCredential as unknown as Record<string, unknown>),
+      proof: { type: "JsonWebSignature2020", jwt },
+    } as unknown as VerifiableCredential;
+
+    it("derives alg/kid/iat from the embedded JWT — no missing-field warnings", async () => {
+      // Before #693 the envelope flowed through the Data-Integrity branch:
+      // cryptosuite/created/verificationMethod were absent → three warns and
+      // three "(unknown)" rows on the certificate.
+      const warns: unknown[] = [];
+      const buf = await generatePdf(envelopeCredential, {
+        logger: { warn: (...args: unknown[]) => warns.push(args), debug: () => {} },
+      });
+      expect(buf.toString("ascii", 0, 4)).toBe("%PDF");
+      expect(warns).toEqual([]);
+    });
+
+    it("falls back to the Data-Integrity branch (with warnings) when proof.jwt is malformed", async () => {
+      const warns: unknown[] = [];
+      const broken = {
+        ...(envelopeCredential as unknown as Record<string, unknown>),
+        proof: { type: "JsonWebSignature2020", jwt: "not-a-jwt" },
+      } as unknown as VerifiableCredential;
+      const buf = await generatePdf(broken, {
+        logger: { warn: (...args: unknown[]) => warns.push(args), debug: () => {} },
+      });
+      expect(buf.toString("ascii", 0, 4)).toBe("%PDF");
+      // cryptosuite + created + verificationMethod each warn once.
+      expect(warns).toHaveLength(3);
+    });
+
+    it("Data-Integrity credentials are unaffected (all fields present, no warnings)", async () => {
+      const warns: unknown[] = [];
+      const buf = await generatePdf(testCredential, {
+        logger: { warn: (...args: unknown[]) => warns.push(args), debug: () => {} },
+      });
+      expect(buf.toString("ascii", 0, 4)).toBe("%PDF");
+      expect(warns).toEqual([]);
+    });
+  });
 });
