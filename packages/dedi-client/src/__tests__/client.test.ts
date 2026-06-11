@@ -1426,18 +1426,22 @@ describe("DeDiClient (adapter)", () => {
       api: InstanceType<typeof DeDiApiClient>,
       details: Record<string, unknown>[],
     ) {
+      // Mirror the live `/dedi/query` envelope: records nested under
+      // `data.records` inside registry metadata — NOT bare under `data`.
+      // (Mocking the bare-array shape is what let the resolution bug ship.)
+      const records = details.map((d) => ({
+        record_name: (d["keyId"] as string).replace(/[:#]/g, "-"),
+        registry: OPENCRED_KEY_REGISTRY,
+        namespace: "example.com",
+        details: d,
+        state: "live",
+        version: "1",
+        created_at: "",
+        updated_at: "",
+      }));
       vi.mocked(api.queryRecords).mockResolvedValue({
         message: "ok",
-        data: details.map((d) => ({
-          record_name: (d["keyId"] as string).replace(/[:#]/g, "-"),
-          registry: OPENCRED_KEY_REGISTRY,
-          namespace: "example.com",
-          details: d,
-          state: "live",
-          version: "1",
-          created_at: "",
-          updated_at: "",
-        })),
+        data: { registry_name: OPENCRED_KEY_REGISTRY, total_records: records.length, records },
       } as never);
     }
 
@@ -1493,9 +1497,186 @@ describe("DeDiClient (adapter)", () => {
     it("returns null when the registry query has no records", async () => {
       const client = createClient("example.com");
       const api = mockApi();
-      vi.mocked(api.queryRecords).mockResolvedValue({ message: "ok", data: [] } as never);
+      vi.mocked(api.queryRecords).mockResolvedValue({
+        message: "ok",
+        data: { registry_name: OPENCRED_KEY_REGISTRY, total_records: 0, records: [] },
+      } as never);
       const doc = await client.resolveDidWebDocument(did);
       expect(doc).toBeNull();
+    });
+
+    it("returns null (not throw) when the envelope is malformed (no records array)", async () => {
+      // Defence-in-depth: an unexpected envelope shape must degrade to the
+      // canonical-HTTPS fallback, never crash resolution.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.queryRecords).mockResolvedValue({ message: "ok", data: {} } as never);
+      const doc = await client.resolveDidWebDocument(did);
+      expect(doc).toBeNull();
+    });
+  });
+
+  // ── setKeyDocument ────────────────────────────────────────────────
+
+  describe("setKeyDocument", () => {
+    const vm = "did:web:acme.com#key-1";
+    const recordName = "did-web-acme.com-key-1";
+    const newDoc = {
+      id: "did:web:acme.com",
+      verificationMethod: [{ id: vm }, { id: "did:web:acme.com#key-0" }],
+    };
+
+    it("update-records the document onto an existing (bare) key record, preserving status", async () => {
+      // Mirrors the rotate path: the new key was auto-published bare at boot;
+      // setKeyDocument attaches the regenerated multi-key did.json so the
+      // did:web → DeDi fallback can see it.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: recordName,
+          registry: OPENCRED_KEY_REGISTRY,
+          namespace: "example.com",
+          details: {
+            keyId: vm,
+            controllerDid: "did:web:acme.com",
+            algorithm: "ES256",
+            publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+            purpose: ["assertionMethod"],
+            status: "active",
+            // no `document` yet — the bare record
+          },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+      vi.mocked(api.updateRecord).mockResolvedValue({} as never);
+
+      await client.setKeyDocument(vm, newDoc);
+
+      expect(api.updateRecord).toHaveBeenCalledWith(
+        "example.com",
+        OPENCRED_KEY_REGISTRY,
+        recordName,
+        {
+          keyId: vm,
+          controllerDid: "did:web:acme.com",
+          algorithm: "ES256",
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+          purpose: ["assertionMethod"],
+          status: "active",
+          document: newDoc,
+        },
+      );
+    });
+
+    it("strips private JWK members from the document's verification methods (CLAUDE.md rule 1)", async () => {
+      // Defence-in-depth: the rotate call site already passes a stripped
+      // document, but a public client method must never be a path for key
+      // material to reach DeDi.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.lookupRecord).mockResolvedValue({
+        message: "ok",
+        data: {
+          record_name: recordName,
+          registry: OPENCRED_KEY_REGISTRY,
+          namespace: "example.com",
+          details: {
+            keyId: vm,
+            controllerDid: "did:web:acme.com",
+            algorithm: "ES256",
+            publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+            purpose: ["assertionMethod"],
+            status: "active",
+          },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+      vi.mocked(api.updateRecord).mockResolvedValue({} as never);
+
+      await client.setKeyDocument(vm, {
+        id: "did:web:acme.com",
+        verificationMethod: [
+          {
+            id: vm,
+            publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y", d: "PRIVATE-SCALAR" },
+          },
+        ],
+      });
+
+      const published = vi.mocked(api.updateRecord).mock.calls[0]![3] as {
+        document: { verificationMethod: Array<{ publicKeyJwk: Record<string, unknown> }> };
+      };
+      expect(published.document.verificationMethod[0]!.publicKeyJwk).toEqual({
+        kty: "EC",
+        crv: "P-256",
+        x: "x",
+        y: "y",
+      });
+      expect(published.document.verificationMethod[0]!.publicKeyJwk.d).toBeUndefined();
+    });
+
+    it("serialises with setKeyStatus on the same key (shared per-key write chain)", async () => {
+      // A document attach must not interleave with a status flip on the same
+      // key — it reads the whole record (incl. status) and writes it back, so
+      // an unserialised race would clobber a concurrent status change.
+      const client = createClient("example.com");
+      const api = mockApi();
+      const order: string[] = [];
+      let releaseFirstLookup!: () => void;
+      const firstLookupGate = new Promise<void>((r) => (releaseFirstLookup = r));
+
+      const record = (status: string) => ({
+        message: "ok",
+        data: {
+          record_name: recordName,
+          registry: OPENCRED_KEY_REGISTRY,
+          namespace: "example.com",
+          details: {
+            keyId: vm,
+            controllerDid: "did:web:acme.com",
+            algorithm: "ES256",
+            publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+            purpose: ["assertionMethod"],
+            status,
+          },
+          state: "live",
+          version: "1",
+          created_at: "",
+          updated_at: "",
+        },
+      });
+
+      vi.mocked(api.lookupRecord)
+        .mockImplementationOnce(async () => {
+          order.push("read:doc");
+          await firstLookupGate; // hold the document write's read open
+          return record("active") as never;
+        })
+        .mockImplementationOnce(async () => {
+          order.push("read:status");
+          return record("active") as never;
+        });
+      vi.mocked(api.updateRecord).mockImplementation(async (_ns, _reg, _rec, details) => {
+        order.push((details as { document?: unknown }).document ? "write:doc" : "write:status");
+        return {} as never;
+      });
+
+      const docWrite = client.setKeyDocument(vm, newDoc);
+      const statusWrite = client.setKeyStatus(vm, "rotated");
+      releaseFirstLookup();
+      await Promise.all([docWrite, statusWrite]);
+
+      // The status operation must not START its read until the document
+      // operation's write completed — no interleaving.
+      expect(order).toEqual(["read:doc", "write:doc", "read:status", "write:status"]);
     });
   });
 

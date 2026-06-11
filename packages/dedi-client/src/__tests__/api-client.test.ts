@@ -387,8 +387,17 @@ describe("DeDiApiClient", () => {
   // ── Query & Search ───────────────────────────────────────────────
 
   describe("query and search", () => {
+    // The live API wraps query/search record lists in a registry-metadata
+    // envelope at `data.records` — mirror that here so these mocks can't
+    // drift back to the bare-array shape that hid a production bug (the
+    // did:web → DeDi fallback returning null for every issuer).
+    const queryEnvelope = {
+      message: "ok",
+      data: { registry_name: "r", total_records: 0, records: [] },
+    };
+
     it("queryRecords GETs /dedi/query/{ns}/{reg} with params", async () => {
-      mockFetch.mockResolvedValue(jsonResponse({ message: "ok", data: [] }));
+      mockFetch.mockResolvedValue(jsonResponse(queryEnvelope));
       const client = new DeDiApiClient(createConfig());
       const result = await client.queryRecords("ns", "r", { page: 2, per_page: 10 });
 
@@ -396,11 +405,11 @@ describe("DeDiApiClient", () => {
       expect(url).toContain("/dedi/query/ns/r");
       expect(url).toContain("page=2");
       expect(url).toContain("per_page=10");
-      expect(result).toEqual({ message: "ok", data: [] });
+      expect(result).toEqual(queryEnvelope);
     });
 
     it("search GETs /dedi/search/{ns} with query params", async () => {
-      mockFetch.mockResolvedValue(jsonResponse({ message: "ok", data: [] }));
+      mockFetch.mockResolvedValue(jsonResponse(queryEnvelope));
       const client = new DeDiApiClient(createConfig());
       const result = await client.search("ns", {
         registry_name: "revocation_list",
@@ -411,7 +420,7 @@ describe("DeDiApiClient", () => {
       expect(url).toContain("/dedi/search/ns");
       expect(url).toContain("registry_name=revocation_list");
       expect(url).toContain("detail.hash=abc");
-      expect(result).toEqual({ message: "ok", data: [] });
+      expect(result).toEqual(queryEnvelope);
     });
   });
 

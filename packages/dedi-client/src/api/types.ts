@@ -160,13 +160,26 @@ export interface DeDiQueryParams {
 }
 
 /**
- * Query/search responses return their payload as a bare array under
- * `data` (i.e. `{ message, data: DeDiRecord<T>[] }`). Pagination, if
- * any, is communicated out-of-band; the response itself is the array.
+ * Query/search responses wrap their record list in a registry-metadata
+ * envelope under `data` — verified against the live API on 2026-06-11:
+ *
+ *   { message, data: { registry_id, registry_name, total_records, records: [...], ... } }
+ *
+ * The records themselves are NOT bare under `data`; they live at
+ * `data.records`. (A prior assumption that `data` was the array directly
+ * silently broke did:web → DeDi document resolution — see
+ * `resolveDidWebDocument`.) Only `records` and `total_records` are typed
+ * here; the rest of the registry metadata is passed through untyped.
  */
-export type DeDiQueryResult<T = unknown> = DeDiRecord<T>[];
+export interface DeDiQueryResult<T = unknown> {
+  records: DeDiRecord<T>[];
+  total_records?: number;
+}
 
-export type DeDiSearchResult<T = unknown> = DeDiRecord<T>[];
+export interface DeDiSearchResult<T = unknown> {
+  records: DeDiRecord<T>[];
+  total_records?: number;
+}
 
 // ── Domain verification ──────────────────────────────────────────────
 

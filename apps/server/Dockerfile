@@ -71,7 +71,7 @@
 # -----------------------------------------------------------------------------
 # Pin base image digest for reproducible builds.
 # Periodically update: docker pull node:20-alpine && docker inspect --format='{{index .RepoDigests 0}}' node:20-alpine
-FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS builder
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder
 
 # Upgrade Alpine base packages to pick up security fixes (e.g. libcrypto3,
 # libssl3, zlib). This keeps the pinned digest for reproducibility while still
@@ -148,7 +148,7 @@ RUN find /build/node_modules/.pnpm -maxdepth 1 -type d \( \
 # -----------------------------------------------------------------------------
 # Stage 2: runtime — minimal image with only production artifacts
 # -----------------------------------------------------------------------------
-FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS runtime
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS runtime
 
 # Upgrade Alpine base packages to pick up security fixes (e.g. libcrypto3,
 # libssl3, zlib). Must run before switching to the non-root node user.

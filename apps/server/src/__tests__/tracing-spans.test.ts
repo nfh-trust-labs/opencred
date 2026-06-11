@@ -280,6 +280,9 @@ describe("DeDi adapter spans", () => {
           namespace: "ns",
         };
       },
+      async setKeyDocument() {
+        /* no-op */
+      },
       async resolveDidWebDocument() {
         return { id: "did:web:x" };
       },
@@ -328,6 +331,10 @@ describe("DeDi adapter spans", () => {
       "ns",
     );
     await wrapped.setKeyStatus("did:web:x#key-0", "rotated", "ns");
+    // setKeyDocument MUST be wrapped (delegates to the real client) — an
+    // unwrapped method runs on the bare wrapper object and throws because it
+    // lacks the client's private `defaultNamespace`/`api` fields.
+    await wrapped.setKeyDocument("did:web:x#key-1", { id: "did:web:x" }, "ns");
 
     const spans = exporter.getFinishedSpans();
     const lookup = spans.find((s) => s.name === "dedi.lookup_record");

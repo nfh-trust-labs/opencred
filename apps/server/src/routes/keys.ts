@@ -669,16 +669,38 @@ keys.post("/keys/rotate", async (c) => {
     status: "active",
     ...(hostDidDoc ? { document: document as unknown as Record<string, unknown> } : {}),
   };
+  let didDocumentStored = hostDidDoc;
   try {
     await dediClient.publishKey(newKeyRecord, parsed.namespace);
   } catch (err) {
     if (!(err instanceof DeDiRecordExistsError)) throw err;
+    // The new key record already exists — typically because the rotate server
+    // auto-published it as a BARE record at startup (auto-publish embeds a
+    // document only at index 0). publishKey skipped, so the regenerated
+    // multi-key did.json hasn't landed yet. Attach it now via update-record,
+    // otherwise the did:web → DeDi fallback resolver can't see the new key and
+    // every credential signed by it fails to verify.
+    if (hostDidDoc) {
+      try {
+        await dediClient.setKeyDocument(
+          newVerificationMethod,
+          document as unknown as Record<string, unknown>,
+          parsed.namespace,
+        );
+      } catch (updErr) {
+        getLogger().warn(
+          { err: updErr, keyId: newVerificationMethod },
+          "Failed to attach did.json to the existing key record after rotation — re-run /v1/keys/rotate (idempotent)",
+        );
+        didDocumentStored = false;
+      }
+    }
   }
 
   // Retire the previous key (flip to `rotated`). It stays in the regenerated
   // did.json's relationships — a clean rotation does not invalidate the
   // credentials it signed. `setKeyStatus` carries that key's own (earlier)
-  // did.json snapshot forward unchanged; we never pass a document to it.
+  // did.json snapshot forward unchanged; we never pass a document to `setKeyStatus`.
   let retired: Awaited<ReturnType<DeDiClient["setKeyStatus"]>> | null = null;
   if (parsed.previousVerificationMethod) {
     retired = await dediClient.setKeyStatus(
@@ -695,7 +717,7 @@ keys.post("/keys/rotate", async (c) => {
     newKeyIndex: parsed.newKeyIndex,
     retired,
     didDocument: document,
-    didDocumentStored: hostDidDoc,
+    didDocumentStored,
   });
 });
 
