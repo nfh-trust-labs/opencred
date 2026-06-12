@@ -305,17 +305,20 @@ describe("IES schemas (bundled)", () => {
     }
   });
 
-  it("have IES source provenance", () => {
+  it("have IES source provenance pointing at the canonical publications", () => {
     for (const def of [
       iesElectricityCredentialV1_2Definition,
       iesMeterDataCredentialV0_6Definition,
     ]) {
       expect(def.source.kind).toBe("referenced");
       expect(def.source.upstreamOwner).toBe("India Energy Stack");
-      expect(def.source.upstreamUrl).toContain(
-        "raw.githubusercontent.com/India-Energy-Stack/ies-accelerator/",
-      );
     }
+    expect(iesElectricityCredentialV1_2Definition.source.upstreamUrl).toBe(
+      "https://schema.beckn.io/ElectricityCredential/1.2/schema.json",
+    );
+    expect(iesMeterDataCredentialV0_6Definition.source.upstreamUrl).toBe(
+      "https://india-energy-stack.github.io/ies-accelerator/schemas/MeterDataCredential/v0.6/schema.json",
+    );
   });
 
   it("contain no remote $refs — every $ref is a local JSON pointer", () => {

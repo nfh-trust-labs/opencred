@@ -1,8 +1,9 @@
 /**
  * IES ElectricityCredential Schema (v1.2) — bundled third-party schema.
  *
- * Upstream: India Energy Stack accelerator
- * https://raw.githubusercontent.com/India-Energy-Stack/ies-accelerator/main/schemas/ElectricityCredential/v1.2/schema.json
+ * Upstream (canonical publication): https://schema.beckn.io/ElectricityCredential/1.2/schema.json
+ * Source repo: https://raw.githubusercontent.com/India-Energy-Stack/ies-accelerator/main/schemas/ElectricityCredential/v1.2/schema.json
+ * (Verified byte-identical on 2026-06-13.)
  *
  * The upstream document is embedded verbatim EXCEPT for the changes below,
  * applied at embed time so Ajv compiles the schema fully offline (security
@@ -870,8 +871,7 @@ export const iesElectricityCredentialV1_2Definition: SchemaDefinition = {
   checksum: iesElectricityCredentialV1_2Checksum,
   source: {
     kind: "referenced",
-    upstreamUrl:
-      "https://raw.githubusercontent.com/India-Energy-Stack/ies-accelerator/main/schemas/ElectricityCredential/v1.2/schema.json",
+    upstreamUrl: "https://schema.beckn.io/ElectricityCredential/1.2/schema.json",
     upstreamOwner: "India Energy Stack",
     upstreamLicense: "MIT",
   },
