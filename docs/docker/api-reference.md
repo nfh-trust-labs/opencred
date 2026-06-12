@@ -821,7 +821,7 @@ The request is parsed by `issueRequestSchema` in `apps/server/src/routes/credent
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `schemaId` | `string` | Yes (unless `inlineSchema` set) | Built-in schema id (e.g. `functional-identity/v1`, `electricity/v1`, `open-badges/v3`, `traceability/commercial-invoice/v1`). Use `GET /v1/schemas` to list all available ids. The `credentialSubject` is validated against this schema. |
+| `schemaId` | `string` | Yes (unless `inlineSchema` set) | Built-in schema id (e.g. `functional-identity/v1`, `electricity/v1`, `ies/electricity-credential/v1.2`, `ies/meter-data-credential/v0.6`, `open-badges/v3`, `traceability/commercial-invoice/v1`). Use `GET /v1/schemas` to list all available ids. The `credentialSubject` is validated against this schema. |
 | `inlineSchema` | `object` | Yes (unless `schemaId` set) | A pasted JSON Schema document. The server compiles it ad-hoc and validates `credentialSubject` against it without registry lookup. Supports both subject-only and full W3C VC 2.0 envelope schemas (with `properties.credentialSubject`). The schema's `$schema` declaration is stripped before compilation so subject-only schemas declaring Draft 2020-12 still validate under Ajv 8 defaults. |
 | `inlineContext` | `object` | No | A JSON-LD context document attached to the credential when `proofFormat=data-integrity`. Required (or supply `credentialSchemaUrl` to a context) for inline-schema credentials with `data-integrity` — RDFC-1.0 safe mode rejects undefined terms. `vc-jwt` and `sd-jwt-vc` ignore this field. |
 | `issuerDid` | `string` | Yes | The issuer's DID. Must match the `id` of the active signer (the server uses the active signer regardless, but downstream verifiers will compare these). |
@@ -1100,6 +1100,8 @@ Lists the built-in credential schemas bundled with `@opencred/schema-engine`. Th
   "schemas": [
     { "id": "functional-identity/v1", "version": "1.0.0", "contextUrl": "...", "source": {...} },
     { "id": "electricity/v1",         "version": "1.0.0", "contextUrl": "...", "source": {...} },
+    { "id": "ies/electricity-credential/v1.2", "version": "1.2.0", "contextUrl": "...", "source": {...} },
+    { "id": "ies/meter-data-credential/v0.6",  "version": "0.6.0", "contextUrl": "...", "source": {...} },
     { "id": "salary-slip/v1",         "version": "1.0.0", "contextUrl": "...", "source": {...} },
     { "id": "immunization/v1",        "version": "1.0.0", "contextUrl": "...", "source": {...} },
     { "id": "open-badges/v3",         "version": "3.0.0", "contextUrl": "...", "source": {...} }
