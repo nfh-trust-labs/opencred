@@ -171,6 +171,25 @@ describe("POST /credentials/issue", () => {
     expect((body.credential as Record<string, unknown>).issuer).toBe("did:key:test-issuer");
   });
 
+  it("defaults proofFormat to vc-jwt when the field is omitted", async () => {
+    const request: Record<string, unknown> = { ...VALID_ISSUE_REQUEST };
+    delete request.proofFormat;
+
+    const res = await app.request("/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.proofFormat).toBe("vc-jwt");
+    const proof = (body.credential as Record<string, unknown>).proof as Record<string, unknown>;
+    expect(proof.type).toBe("JsonWebSignature2020");
+    expect(proof).toHaveProperty("jwt");
+  });
+
   it("returns 400 for invalid schema subject", async () => {
     const res = await app.request("/credentials/issue", {
       method: "POST",
@@ -1023,6 +1042,44 @@ describe("POST /credentials/batch", () => {
     expect(body.validCount).toBe(2);
     expect(body.totalCount).toBe(2);
     expect(body.headers).toEqual(["name", "role", "validFrom"]);
+  });
+
+  it("defaults proofFormat to vc-jwt when the field is omitted", async () => {
+    const csvContent = "name,role,validFrom\nAlice,Medical Practitioner,2025-06-01T00:00:00Z\n";
+
+    const startRes = await app.request("/credentials/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        csvContent,
+        schemaId: "functional-identity/v1",
+        issuerDid: testKey.signer.id.split("#")[0],
+        validFrom: "2025-06-01T00:00:00Z",
+      }),
+    });
+
+    expect(startRes.status).toBe(202);
+    const { jobId } = (await startRes.json()) as { jobId: string };
+
+    // Poll until completed (cap at ~2s so a slow CI doesn't hang).
+    for (let i = 0; i < 40; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const progressRes = await app.request(`/credentials/batch/${jobId}`);
+      const progress = (await progressRes.json()) as { status: string };
+      if (progress.status === "completed") break;
+    }
+
+    const resultsRes = await app.request(`/credentials/batch/${jobId}/results`);
+    expect(resultsRes.status).toBe(200);
+
+    const { results } = (await resultsRes.json()) as {
+      results: Array<{ status: string; credential?: Record<string, unknown> }>;
+    };
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe("success");
+    const proof = results[0].credential?.proof as Record<string, unknown>;
+    expect(proof.type).toBe("JsonWebSignature2020");
+    expect(proof).toHaveProperty("jwt");
   });
 
   it("returns batch progress", async () => {
