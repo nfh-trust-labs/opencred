@@ -23,6 +23,8 @@ export { generateSchemaFromFields } from "./schema-generator.js";
 import { SchemaRegistry } from "./schema-registry.js";
 import { createBuiltInRegistry } from "./generated-registry.js";
 import { educationV1Definition } from "./schemas/education-v1.js";
+import { iesElectricityCredentialV1_2Definition } from "./schemas/ies-electricity-credential-v1-2.js";
+import { iesMeterDataCredentialV0_6Definition } from "./schemas/ies-meter-data-credential-v0-6.js";
 import { getCategoryForSchema } from "./schema-categories.js";
 import { checkForUpdates, type SchemaUpdateConfig } from "./schema-updater.js";
 import type { SchemaManifest } from "./types.js";
@@ -39,6 +41,8 @@ export function createRegistry(): SchemaRegistry {
 
   // Register locally-defined schemas
   registry.register(educationV1Definition);
+  registry.register(iesElectricityCredentialV1_2Definition);
+  registry.register(iesMeterDataCredentialV0_6Definition);
 
   // Apply categories to all schemas (bundled schemas don't have categories
   // set by the code-generator, so we assign them here)
