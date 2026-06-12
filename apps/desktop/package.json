@@ -27,7 +27,31 @@
     "clean": "rm -rf dist out"
   },
   "dependencies": {
-    "pkcs11js": "^2.1.6"
+    "@mosip/pixelpass": "^0.6.0",
+    "@opencred/batch-core": "workspace:*",
+    "@opencred/crypto": "workspace:*",
+    "@opencred/dedi-client": "workspace:*",
+    "@opencred/did": "workspace:*",
+    "@opencred/packaging": "workspace:*",
+    "@opencred/schema-engine": "workspace:*",
+    "@opencred/shared": "workspace:*",
+    "@opencred/signing": "workspace:*",
+    "@opencred/templates": "workspace:*",
+    "@opencred/vc-core": "workspace:*",
+    "@opencred/verification": "workspace:*",
+    "archiver": "^7.0.1",
+    "conf": "^14.0.0",
+    "electron-log": "^5.2.0",
+    "electron-store": "^10.0.0",
+    "electron-updater": "^6.3.9",
+    "html5-qrcode": "^2.3.8",
+    "papaparse": "^5.4.1",
+    "pdfkit": "^0.15.0",
+    "pkcs11js": "^2.1.6",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@electron/notarize": "^2.5.0",
