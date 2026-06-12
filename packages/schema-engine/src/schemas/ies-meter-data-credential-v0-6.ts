@@ -1,8 +1,12 @@
 /**
  * IES MeterDataCredential Schema (v0.6) — bundled third-party schema.
  *
- * Upstream: India Energy Stack accelerator
- * https://raw.githubusercontent.com/India-Energy-Stack/ies-accelerator/main/schemas/MeterDataCredential/v0.6/schema.json
+ * Upstream (canonical publication, also the schema's declared `$id`):
+ * https://india-energy-stack.github.io/ies-accelerator/schemas/MeterDataCredential/v0.6/schema.json
+ * Source repo: https://raw.githubusercontent.com/India-Energy-Stack/ies-accelerator/main/schemas/MeterDataCredential/v0.6/schema.json
+ * (Verified byte-identical on 2026-06-13. Docs: https://india-energy-stack.gitbook.io/docs/schemas/meterdatacredential/v0.6 —
+ * the context.json/vocab.json files that page references are not yet published
+ * upstream (404), so no JSON-LD context is bundled for this credential yet.)
  *
  * The upstream document is embedded verbatim EXCEPT for the changes below,
  * applied at embed time so Ajv compiles the schema fully offline (security
@@ -1181,7 +1185,7 @@ export const iesMeterDataCredentialV0_6Definition: SchemaDefinition = {
   source: {
     kind: "referenced",
     upstreamUrl:
-      "https://raw.githubusercontent.com/India-Energy-Stack/ies-accelerator/main/schemas/MeterDataCredential/v0.6/schema.json",
+      "https://india-energy-stack.github.io/ies-accelerator/schemas/MeterDataCredential/v0.6/schema.json",
     upstreamOwner: "India Energy Stack",
     upstreamLicense: "MIT",
   },
