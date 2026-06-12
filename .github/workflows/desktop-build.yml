@@ -75,7 +75,13 @@ jobs:
       - name: Run tests
         run: pnpm --filter @opencred/desktop test
 
-      # Rebuild native addons for the Electron ABI before bundling
+      # Rebuild native addons for the Electron ABI before bundling. This
+      # compiles for the HOST arch (feeds verify-native-addons + bundling);
+      # the per-TARGET-arch rebuild happens inside electron-builder via the
+      # beforePack hook (apps/desktop/scripts/electron-builder-hooks.cjs),
+      # and the afterPack hook fails the build on any arch mismatch
+      # (#641/#642 — mac x64 builds on arm64 runners used to ship arm64
+      # .node files).
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
 

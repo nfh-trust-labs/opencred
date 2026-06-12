@@ -223,9 +223,21 @@ function runNodeGyp({ nodeGypBin, cwd, electronVersion, arch }) {
   }
 }
 
+function parseArchArg(argv) {
+  for (const a of argv) {
+    const m = /^--arch=(\w+)$/.exec(a);
+    if (m) return m[1];
+  }
+  return null;
+}
+
 function main() {
   const electronVersion = readElectronVersion();
-  const arch = process.env.npm_config_arch || process.arch;
+  // Target arch priority: explicit --arch=… flag (used by the electron-builder
+  // beforePack hook to compile per TARGET arch — #641/#642), then
+  // npm_config_arch, then the host arch. Defaulting to process.arch is only
+  // safe when the package target matches the host.
+  const arch = parseArchArg(process.argv.slice(2)) || process.env.npm_config_arch || process.arch;
   const nodeGypBin = resolveNodeGypBin();
 
   console.log(
