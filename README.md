@@ -7,7 +7,7 @@ Open-source toolkit for issuing and verifying W3C Verifiable Credentials.
 - **Desktop app** (Electron) for interactive credential issuance with local signing
 - **Docker image** for headless cloud deployment with an HTTP API
 - **W3C VC 2.0 compliant** -- supports vc-jwt, data-integrity, and sd-jwt-vc proof formats
-- **34+ bundled credential schemas** across 8 categories (identity, education, health, energy, finance, traceability, open badges, DIF)
+- **36 bundled credential schemas** across 8 categories (identity, education, health, energy, finance, traceability, open badges, DIF), including the India Energy Stack `ies/electricity-credential/v1.2` and `ies/meter-data-credential/v0.6`
 - **DeDi integration** for revocation and directory services
 - **did:web issuance and key rotation** -- self-host the DID Document at your domain or publish to DeDi's `public_key_registry`; rotate keys in-place via `POST /v1/keys/rotate` without changing the DID
 - **QR code generation** with PixelPass compression
@@ -106,7 +106,7 @@ OpenCred is a monorepo built with pnpm workspaces and Turborepo.
 | `packages/vc-core` | W3C VC 2.0 credential builder and JSON-LD context bundling |
 | `packages/did` | DID resolution for did:key, did:jwk, and did:web |
 | `packages/verification` | Composite credential verification engine |
-| `packages/schema-engine` | JSON Schema registry with 34+ bundled credential schemas |
+| `packages/schema-engine` | JSON Schema registry with 36 bundled credential schemas |
 | `packages/templates` | SVG credential templates and rendering |
 | `packages/signing` | Signing key providers -- software, PKCS#11, OS cert store |
 | `packages/shared` | Shared types, error hierarchy, and utilities |
