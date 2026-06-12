@@ -101,6 +101,8 @@
       "dist/**/*.node",
       "node_modules/**/*.node"
     ],
+    "beforePack": "scripts/electron-builder-hooks.cjs",
+    "afterPack": "scripts/electron-builder-hooks.cjs",
     "mac": {
       "icon": "build/icon.icns",
       "target": [

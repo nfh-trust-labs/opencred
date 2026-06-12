@@ -153,6 +153,14 @@ jobs:
   # produces a unified `latest-mac.yml` referencing both zip/dmg. Two
   # parallel Mac runners would race on that file and leave the auto-updater
   # manifest pointing at non-existent artefacts.
+  #
+  # Per-TARGET-arch native addon handling (#641/#642): electron-builder's
+  # beforePack hook (apps/desktop/scripts/electron-builder-hooks.cjs) reruns
+  # rebuild-native.cjs with --arch=<target> before each arch is packed, and
+  # the afterPack hook fails the build if any packaged .node binary doesn't
+  # match the target arch. The single "Rebuild native addons" step below only
+  # compiles for the HOST arch — it exists so verify-native-addons and the
+  # main-process bundling have binaries to work with.
   release:
     needs: [preflight, test]
     strategy:
@@ -270,11 +278,12 @@ jobs:
             export CSC_IDENTITY_AUTO_DISCOVERY=false
             echo "Building UNSIGNED Windows artefacts (no WIN_CSC_LINK)"
           fi
-          # --config.npmRebuild=false: native modules were already rebuilt
-          # in the explicit Rebuild step above (rebuild-native.cjs). Without
-          # this, electron-builder invokes its bundled @electron/rebuild
-          # AGAIN — which hangs 60+ min on Windows pnpm symlink trees (the
-          # same root cause as #501).
+          # --config.npmRebuild=false: electron-builder must not invoke its
+          # bundled @electron/rebuild — it hangs 60+ min on Windows pnpm
+          # symlink trees (the same root cause as #501). Native modules are
+          # rebuilt for each TARGET arch by the beforePack hook instead
+          # (scripts/electron-builder-hooks.cjs, #641/#642), which is not
+          # affected by npmRebuild=false.
           npx electron-builder $EB_ARGS --publish never --config.npmRebuild=false
 
       # Verify Mac artefacts are properly code-signed, Gatekeeper-approved
