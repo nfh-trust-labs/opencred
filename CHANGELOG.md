@@ -4,6 +4,20 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.7.1](https://github.com/nfh-trust-labs/opencred/compare/v1.7.0...v1.7.1) (2026-06-13)
+
+### Bug Fixes
+
+- **desktop:** restore package.json dependencies stripped by accident in [#703](https://github.com/nfh-trust-labs/opencred/issues/703) ([#704](https://github.com/nfh-trust-labs/opencred/issues/704)) ([d8c5c15](https://github.com/nfh-trust-labs/opencred/commit/d8c5c158)) — branch-only breakage, no released artifact was affected
+
+### Chores
+
+- **schema-engine:** point IES schema provenance at canonical published URLs (schema.beckn.io / india-energy-stack.github.io) — surfaced via `GET /v1/schemas` `source.upstreamUrl` ([#705](https://github.com/nfh-trust-labs/opencred/issues/705)) ([9c92c4d](https://github.com/nfh-trust-labs/opencred/commit/9c92c4d8))
+
+### Documentation
+
+- schema-library docs reflect the 36 bundled schemas incl. IES; `electricity/v1` category corrected to `utility`; per-arch native rebuild documented ([#701](https://github.com/nfh-trust-labs/opencred/issues/701), [#702](https://github.com/nfh-trust-labs/opencred/issues/702), [#703](https://github.com/nfh-trust-labs/opencred/issues/703))
+
 ## [1.7.0](https://github.com/nfh-trust-labs/opencred/compare/v1.6.1...v1.7.0) (2026-06-12)
 
 
