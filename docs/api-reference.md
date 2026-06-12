@@ -404,7 +404,19 @@ List available credential schemas. Supports optional `?category=` query paramete
       "version": "1.0.0",
       "contextUrl": "https://opencred.org/contexts/electricity/v1",
       "source": { "name": "opencred", "version": "1.0.0" },
-      "category": "energy"
+      "category": "utility"
+    },
+    {
+      "id": "ies/electricity-credential/v1.2",
+      "version": "1.2.0",
+      "source": { "kind": "referenced", "upstreamOwner": "India Energy Stack", "upstreamLicense": "MIT" },
+      "category": "utility"
+    },
+    {
+      "id": "ies/meter-data-credential/v0.6",
+      "version": "0.6.0",
+      "source": { "kind": "referenced", "upstreamOwner": "India Energy Stack", "upstreamLicense": "MIT" },
+      "category": "utility"
     }
   ]
 }
