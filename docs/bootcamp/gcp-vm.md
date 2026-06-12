@@ -400,7 +400,7 @@ re-verify. `valid: true` becomes `valid: false`.
 
 #### 6a. Issue against your own pasted schema
 
-The 34 bundled schemas cover common cases. To issue a credential shaped
+The 36 bundled schemas cover common cases. To issue a credential shaped
 like *your* domain (training certificate, role badge, equipment licence,
 …), pass `inlineSchema` in the request body — no fork or rebuild required.
 

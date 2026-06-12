@@ -378,7 +378,7 @@ also tamper-evident without phoning home to anyone.
 
 ### 6a. Issue a credential against your own pasted schema
 
-The 34 bundled schemas cover common cases, but most users want to issue something tailored to their own use case. The server accepts a custom JSON Schema directly in the request body — no need to fork the repo or publish to a registry first.
+The 36 bundled schemas cover common cases, but most users want to issue something tailored to their own use case. The server accepts a custom JSON Schema directly in the request body — no need to fork the repo or publish to a registry first.
 
 Use `inlineSchema` instead of (or alongside) `schemaId`:
 

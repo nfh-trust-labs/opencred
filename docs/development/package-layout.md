@@ -25,8 +25,8 @@ The Electron-based Desktop Client. Primary OpenCred product.
 | Preload | `src/main/preload.ts` | contextBridge that exposes the typed `window.opencred` API to the renderer |
 | Renderer | `src/renderer/` | React UI: `HomeScreen`, `OnboardingWizard`, `IssuePage`, `VerifyPage`, `SettingsPage`, etc. |
 | Shared types | `src/shared/` | TypeScript types used on both sides of the IPC boundary |
-| Build scripts | `scripts/` | `bundle-main.mjs` (esbuild), `prepare-native-deps.cjs`, `notarize.cjs` |
-| Native deps | (rebuilt at build time) | `pkcs11js` and the OS-cert addons (compiled against the Electron ABI by `electron-rebuild`) |
+| Build scripts | `scripts/` | `bundle-main.mjs` (esbuild), `prepare-native-deps.cjs`, `rebuild-native.cjs`, `electron-builder-hooks.cjs`, `verify-packaged-arch.cjs`, `notarize.cjs` |
+| Native deps | (rebuilt at build time) | `pkcs11js` and the OS-cert addons, compiled against the Electron ABI **per target architecture**: the `beforePack` hook reruns `rebuild-native.cjs --arch=<target>` for each packaged arch, and the `afterPack` hook fails the build if any packaged `.node` binary doesn't match (#641/#642) |
 
 Build pipeline: `vite build` for the renderer, `esbuild` for the main process, then `electron-builder` for the installer. See `apps/desktop/package.json` for `electron-builder` configuration (DMG/zip on macOS, NSIS on Windows, AppImage/deb on Linux).
 
@@ -170,7 +170,7 @@ Hardware token (PKCS#11) and OS certificate store backends. Native addons live u
 | `Pkcs11Signer`, `Pkcs11Session`, `Pkcs11Loader`, p11-kit discovery | Hardware tokens |
 | `OsCertSigner`, `MacOSCertProvider`, `WindowsCertProvider` | OS cert store signing |
 
-The native addons (`packages/signing/native/macos-keychain.mm`, `windows-cng.cpp`) are built via `node-gyp`. The Desktop build pipeline rebuilds them against the Electron ABI via `electron-rebuild`.
+The native addons (`packages/signing/native/macos-keychain.mm`, `windows-cng.cpp`) are built via `node-gyp`. The Desktop build pipeline rebuilds them against the Electron ABI per target architecture (`apps/desktop/scripts/rebuild-native.cjs --arch=<target>`, driven by the `beforePack` hook and arch-verified by `afterPack` — see #641/#642).
 
 ### `packages/ca-adapter` — `@opencred/ca-adapter`
 
