@@ -40,6 +40,44 @@ describe("encodeDidWeb", () => {
   it("should handle empty path array", () => {
     expect(encodeDidWeb("example.com", [])).toBe("did:web:example.com");
   });
+
+  // Single-arg form: the whole `OPENCRED_ISSUER_DOMAIN` is passed as one
+  // string. Path-separator colons must be preserved (regression for #708).
+  it("should preserve path-separator colons in a combined identifier", () => {
+    expect(encodeDidWeb("trade.clickpower.in:ies:publicfiles")).toBe(
+      "did:web:trade.clickpower.in:ies:publicfiles",
+    );
+  });
+
+  it("should not encode a non-numeric first path segment as a port", () => {
+    expect(encodeDidWeb("did.cord.network:76EU7h2qxfauoLdvRWqSi5jxci13MTTjQ3mTzCrC5QSCAzwWq78Rid")).toBe(
+      "did:web:did.cord.network:76EU7h2qxfauoLdvRWqSi5jxci13MTTjQ3mTzCrC5QSCAzwWq78Rid",
+    );
+  });
+
+  it("should encode a numeric port but keep trailing path segments in a combined identifier", () => {
+    expect(encodeDidWeb("example.com:8080:users:alice")).toBe(
+      "did:web:example.com%3A8080:users:alice",
+    );
+  });
+
+  it("should pass through an already percent-encoded port", () => {
+    expect(encodeDidWeb("example.com%3A3000:path")).toBe("did:web:example.com%3A3000:path");
+  });
+});
+
+// encodeDidWeb and didWebToUrl must be inverses: a DID built from a domain
+// must resolve back to the URL where that domain serves its did.json (#708).
+describe("encodeDidWeb <-> didWebToUrl round-trip", () => {
+  it.each([
+    ["example.com", "https://example.com/.well-known/did.json"],
+    ["trade.clickpower.in:ies:publicfiles", "https://trade.clickpower.in/ies/publicfiles/did.json"],
+    ["example.com:3000", "https://example.com:3000/.well-known/did.json"],
+    ["example.com:8080:users:alice", "https://example.com:8080/users/alice/did.json"],
+    ["example.com%3A3000:path", "https://example.com:3000/path/did.json"],
+  ])("round-trips %s", (domain, expectedUrl) => {
+    expect(didWebToUrl(encodeDidWeb(domain))).toBe(expectedUrl);
+  });
 });
 
 describe("didWebVerificationMethodId", () => {
