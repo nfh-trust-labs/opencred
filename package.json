@@ -1,6 +1,6 @@
 {
   "name": "opencred",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "private": true,
   "description": "W3C Verifiable Credential issuance and verification service",
   "scripts": {
