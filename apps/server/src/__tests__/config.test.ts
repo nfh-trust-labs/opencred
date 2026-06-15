@@ -308,6 +308,24 @@ describe("Config — DeDi cross-field validation", () => {
     const config = loadConfig();
     expect(config.OPENCRED_DEDI_TIMEOUT_MS).toBe(5000);
   });
+
+  it("defaults OPENCRED_DEDI_MAX_RETRIES to 2", () => {
+    const config = loadConfig();
+    expect(config.OPENCRED_DEDI_MAX_RETRIES).toBe(2);
+  });
+
+  it("accepts a custom OPENCRED_DEDI_MAX_RETRIES (including 0 to disable)", () => {
+    process.env.OPENCRED_DEDI_MAX_RETRIES = "0";
+    expect(loadConfig().OPENCRED_DEDI_MAX_RETRIES).toBe(0);
+    resetConfig();
+    process.env.OPENCRED_DEDI_MAX_RETRIES = "4";
+    expect(loadConfig().OPENCRED_DEDI_MAX_RETRIES).toBe(4);
+  });
+
+  it("rejects OPENCRED_DEDI_MAX_RETRIES above the cap of 5", () => {
+    process.env.OPENCRED_DEDI_MAX_RETRIES = "6";
+    expect(() => loadConfig()).toThrow();
+  });
 });
 
 describe("Config — issuer identity (DID method)", () => {

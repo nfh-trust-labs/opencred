@@ -182,7 +182,8 @@ See [Horizontal scale](#horizontal-scale) below for when and how to flip between
 | `OPENCRED_DEDI_EMAIL` | email | — | DeDi bearer email (required when auth type is `bearer`). |
 | `OPENCRED_DEDI_PASSWORD` | string | — | DeDi bearer password (required when auth type is `bearer`). |
 | `OPENCRED_DEDI_NAMESPACE` | string | — | Default DeDi namespace. Required when `OPENCRED_DEDI_BASE_URL` is set. |
-| `OPENCRED_DEDI_TIMEOUT_MS` | integer (ms) | `10000` | DeDi request timeout. Range: 1000-30000. |
+| `OPENCRED_DEDI_TIMEOUT_MS` | integer (ms) | `10000` | DeDi request timeout. Range: 1000-30000. Note: every DeDi request is hard-capped at 10s by the client (security invariant), so values above `10000` have no effect — raise `OPENCRED_DEDI_MAX_RETRIES` to survive a brief outage. |
+| `OPENCRED_DEDI_MAX_RETRIES` | integer | `2` | Retries for a failed *idempotent* DeDi request (e.g. key/DID resolution) before giving up; `2` means 3 attempts total. Range: 0-5 (`0` disables retries). Each attempt is bounded by `OPENCRED_DEDI_TIMEOUT_MS` with exponential backoff. |
 
 ### Issuer DID method (did:key vs did:web)
 

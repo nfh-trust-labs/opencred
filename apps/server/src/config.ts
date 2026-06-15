@@ -293,8 +293,25 @@ const configSchema = z.object({
   /** Default DeDi namespace. Required when OPENCRED_DEDI_BASE_URL is set. */
   OPENCRED_DEDI_NAMESPACE: z.string().optional(),
 
-  /** DeDi request timeout in milliseconds (default: 10000). */
+  /**
+   * DeDi request timeout in milliseconds (default: 10000).
+   *
+   * NOTE: the DeDi client enforces a hard 10s ceiling on every request
+   * (`MAX_REQUEST_TIMEOUT_MS`, CLAUDE.md security invariant #7), so values
+   * above 10000 are accepted but capped to 10000 in practice. To survive a
+   * brief DeDi outage, raise `OPENCRED_DEDI_MAX_RETRIES` rather than this.
+   */
   OPENCRED_DEDI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
+
+  /**
+   * How many times the DeDi client retries a failed *idempotent* request
+   * (GET resolves, etc.) before giving up. Default `2` (3 attempts total).
+   * Each attempt is bounded by `OPENCRED_DEDI_TIMEOUT_MS` (capped at 10s) with
+   * exponential backoff between tries, so raising this trades worst-case
+   * latency for resilience to a flaky DeDi link. `0` disables retries.
+   * Capped at `5` to bound the worst-case verification latency.
+   */
+  OPENCRED_DEDI_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
 
   // --- Rate limiting (per-IP / per-token, in-memory buckets) ---
 
