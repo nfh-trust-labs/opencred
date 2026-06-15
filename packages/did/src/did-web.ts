@@ -18,27 +18,63 @@ const FETCH_TIMEOUT_MS = 10_000;
 /**
  * Encode a domain (and optional path segments) as a did:web identifier.
  *
- * Follows the did:web spec encoding rules:
- * - Colons in the domain (e.g., port numbers) are percent-encoded as `%3A`
- * - Path segments are separated by colons
+ * Follows the did:web spec encoding rules — the inverse of {@link didWebToUrl}:
+ * - Only the colon between host and port is percent-encoded as `%3A`.
+ * - Colons that separate path segments are preserved verbatim.
+ *
+ * Two calling conventions are supported:
+ *
+ * 1. **Combined identifier (single arg)** — `domain` is the full
+ *    method-specific identifier `host[:port][:path1[:path2…]]`, exactly what
+ *    OpenCred's operators put in `OPENCRED_ISSUER_DOMAIN`. The first colon
+ *    segment is the authority; its colon is encoded ONLY when the next segment
+ *    is a numeric port. Every later colon is a path separator and is left
+ *    intact, so the DID round-trips through {@link didWebToUrl}. A port that is
+ *    already encoded (`host%3A3000`) passes through unchanged.
+ *
+ * 2. **Explicit segments (two args)** — `domain` is the authority only
+ *    (`host` or `host:port`) and `path` carries the path segments. The
+ *    authority's colon is treated as a port separator and encoded.
+ *
+ * Limitation (inherent to the colon-delimited form): when no `path` arg is
+ * given, a numeric *first* path segment is indistinguishable from a port —
+ * `encodeDidWeb("example.com:2024:report")` reads `2024` as a port. Real-world
+ * path segments are non-numeric, so this does not affect typical sub-paths.
  *
  * @example
  * encodeDidWeb("example.com") // "did:web:example.com"
  * encodeDidWeb("example.com:3000") // "did:web:example.com%3A3000"
+ * encodeDidWeb("acme.com:dept:hr") // "did:web:acme.com:dept:hr"
  * encodeDidWeb("example.com", ["path", "to"]) // "did:web:example.com:path:to"
  *
- * @param domain - The domain name, optionally including a port (e.g., "example.com:3000").
- * @param path - Optional path segments beneath the domain.
+ * @param domain - Either the full `host[:port][:path…]` identifier (single-arg
+ *   form) or the authority `host[:port]` (two-arg form).
+ * @param path - Optional explicit path segments. When provided, `domain` is the
+ *   authority only.
  * @returns The did:web DID string.
  */
 export function encodeDidWeb(domain: string, path?: string[]): string {
-  // Percent-encode colons in the domain (port separator)
-  const encodedDomain = domain.replace(/:/g, "%3A");
-
-  if (path && path.length > 0) {
-    return `did:web:${encodedDomain}:${path.join(":")}`;
+  // Two-arg form: `domain` is the authority only — encode its (port) colon and
+  // append the caller's explicit path segments verbatim.
+  if (path !== undefined) {
+    const encodedAuthority = domain.replace(/:/g, "%3A");
+    return path.length > 0
+      ? `did:web:${encodedAuthority}:${path.join(":")}`
+      : `did:web:${encodedAuthority}`;
   }
-  return `did:web:${encodedDomain}`;
+
+  // Single-arg form: `domain` is the full `host[:port][:path…]` identifier.
+  // Encode the host:port colon only when a numeric port follows the host; keep
+  // every path-separator colon intact so the DID round-trips to a valid URL.
+  const segments = domain.split(":");
+  const host = segments[0];
+  const hasPort = segments.length > 1 && /^\d+$/.test(segments[1]!);
+  const authority = hasPort ? `${host}%3A${segments[1]}` : host;
+  const pathSegments = hasPort ? segments.slice(2) : segments.slice(1);
+
+  return pathSegments.length > 0
+    ? `did:web:${authority}:${pathSegments.join(":")}`
+    : `did:web:${authority}`;
 }
 
 /**
