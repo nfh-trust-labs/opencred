@@ -303,13 +303,20 @@ export async function runVerify(opts: {
             type: "api-key" as const,
             apiKey: process.env.OPENCRED_DEDI_API_KEY ?? "",
           } as const);
+    // Mirror OPENCRED_DEDI_MAX_RETRIES (see config.ts) on the CLI verify path,
+    // which wires the DeDi client from process.env directly. Clamp to the same
+    // [0, 5] bound; fall back to the default of 2 for unset/invalid values.
+    const parsedRetries = Number.parseInt(process.env.OPENCRED_DEDI_MAX_RETRIES ?? "", 10);
+    const dediMaxRetries = Number.isInteger(parsedRetries)
+      ? Math.min(5, Math.max(0, parsedRetries))
+      : 2;
     const dediClient = new DeDiClient({
       baseUrl: dediBaseUrl,
       auth,
       defaultNamespace: process.env.OPENCRED_DEDI_NAMESPACE ?? "",
       timeoutMs: 10_000,
       circuitBreakerThreshold: 5,
-      maxRetries: 2,
+      maxRetries: dediMaxRetries,
     });
     didWebResolver = new DIDWebResolver(createDeDiDIDWebFallback(dediClient));
   } else {
