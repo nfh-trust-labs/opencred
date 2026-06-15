@@ -73,7 +73,7 @@ did:web:example.com:tenants:acme        → https://example.com/tenants/acme/did
 
 Operator workflow:
 
-1. Start the server with `OPENCRED_ISSUER_DID_METHOD=web` and `OPENCRED_ISSUER_DOMAIN=<your-domain>`. No DeDi config is required.
+1. Start the server with `OPENCRED_ISSUER_DID_METHOD=web` and `OPENCRED_ISSUER_DOMAIN=<your-domain>`. No DeDi config is required. `<your-domain>` may include colon-separated path segments to host the document at a sub-path — `acme.com:tenants:hr` becomes `did:web:acme.com:tenants:hr`, served at `https://acme.com/tenants/hr/did.json`.
 2. Generate the DID Document using the canonical shape from `generateDidWebDocument` (`packages/did/src/did-web.ts:59`): a `@context` array, the DID as `id`, one `verificationMethod` entry with `type: "JsonWebKey"` and the issuer's `publicKeyJwk`, and the verification-method ID listed under `assertionMethod`, `authentication`, `capabilityInvocation`, and `capabilityDelegation`.
 3. Serve that JSON at `https://<your-domain>/.well-known/did.json` (S3, GitHub Pages, nginx, Caddy — any static-JSON-over-HTTPS host works).
 4. Verify with `curl -fsSL https://<your-domain>/.well-known/did.json`. The document's `id` MUST equal the requested DID, or OpenCred's verifier (`packages/verification/src/did-web.ts`) will reject it.

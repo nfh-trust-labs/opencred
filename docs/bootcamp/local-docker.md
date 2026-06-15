@@ -715,7 +715,8 @@ If `dediConfigured` is `false`, you skipped §3a. Either:
 | `OPENCRED_DEDI_EMAIL` | when `AUTH_TYPE=bearer` | DeDi account email |
 | `OPENCRED_DEDI_PASSWORD` | when `AUTH_TYPE=bearer` | DeDi account password |
 | `OPENCRED_DEDI_NAMESPACE` | always | Default namespace for all DeDi calls |
-| `OPENCRED_DEDI_TIMEOUT_MS` | optional | Default `10000`, range 1000–30000 |
+| `OPENCRED_DEDI_TIMEOUT_MS` | optional | Default `10000`, range 1000–30000. Hard-capped at 10s per request |
+| `OPENCRED_DEDI_MAX_RETRIES` | optional | Default `2` (range 0–5, `0` disables). Retries for a failed idempotent DeDi lookup; raise this — not the timeout — to ride out a brief DeDi outage |
 
 > The server validates these at startup. If you set `OPENCRED_DEDI_BASE_URL`
 > but forget `OPENCRED_DEDI_AUTH_TYPE` or `OPENCRED_DEDI_NAMESPACE`, the

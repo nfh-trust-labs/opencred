@@ -75,6 +75,8 @@ const result = await verify(jwt);
 
 For bearer auth, use `auth: { type: "bearer", email, password }` instead.
 
+The `dedi` object also accepts the underlying `DeDiClient` resilience knobs: `timeoutMs` (per-request timeout, hard-capped at 10s) and `maxRetries` (retries for a failed idempotent lookup; default `2`, `0` disables). On a flaky DeDi link, raise `maxRetries` rather than `timeoutMs`. These mirror the server's `OPENCRED_DEDI_TIMEOUT_MS` / `OPENCRED_DEDI_MAX_RETRIES`.
+
 > **Warning — revocation requires DeDi.** If you issue credentials with `credentialStatus` but don't configure DeDi on the verifier, revocation cannot be checked — revoked credentials will still verify as `VALID` because the verifier has no way to query the registry. The skip is visible in the result: `result.checks` contains a `revocation` row whose `detail` says the check was **NOT** performed. Production verifiers should configure DeDi whenever the issuance flow uses revocation, and strict relying parties can treat that check row as a policy failure.
 
 ## Verifying PDF certificates
@@ -112,7 +114,7 @@ The recommended entry point. Builds a verifier with the given configuration; the
 
 | Field | Type | Purpose |
 |---|---|---|
-| `dedi` | `DeDiClientConfig` | DeDi connection details for revocation + did:web fallback |
+| `dedi` | `DeDiClientConfig` | DeDi connection details for revocation + did:web fallback. Also accepts `timeoutMs` (≤10s) and `maxRetries` (default `2`) for resilience tuning |
 | `trustAnchors` | `string[]` | PEM CSCA roots for DSC chain validation |
 | `didResolver` | `DIDResolver` | Override the default composite resolver (did:key + did:jwk + did:web) |
 | `logger` | `{ debug, info, warn, error }` | Sink for DeDi operational events |
