@@ -4,6 +4,20 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.8.0](https://github.com/nfh-trust-labs/opencred/compare/v1.7.1...v1.8.0) (2026-06-15)
+
+### Features
+
+- **server:** make the DeDi resolver's retry count configurable via `OPENCRED_DEDI_MAX_RETRIES` (0–5, default 2; wired into both the HTTP API and CLI verify paths). The per-request DeDi timeout stays hard-capped at 10s (security invariant) — raise retries, not the timeout, to ride out a brief DeDi outage ([#711](https://github.com/nfh-trust-labs/opencred/issues/711)) ([72bfaeb](https://github.com/nfh-trust-labs/opencred/commit/72bfaeb6))
+
+### Bug Fixes
+
+- **did:** preserve path-separator colons in `encodeDidWeb` so did:web issuers hosting their `did.json` at a sub-path verify correctly. Only a numeric host:port colon is percent-encoded now; path-segment colons are kept, restoring the inverse relationship with `didWebToUrl`. Fixes `UNRESOLVABLE` for `OPENCRED_ISSUER_DOMAIN` values like `host:path:segment` ([#709](https://github.com/nfh-trust-labs/opencred/issues/709)) ([af3451e](https://github.com/nfh-trust-labs/opencred/commit/af3451e7))
+
+### Documentation
+
+- document `OPENCRED_DEDI_MAX_RETRIES` and did:web sub-path support across the deployment guides and the `@opencred/verify` SDK README ([#713](https://github.com/nfh-trust-labs/opencred/issues/713)) ([12b1469](https://github.com/nfh-trust-labs/opencred/commit/12b14694))
+
 ## [1.7.1](https://github.com/nfh-trust-labs/opencred/compare/v1.7.0...v1.7.1) (2026-06-13)
 
 ### Bug Fixes
