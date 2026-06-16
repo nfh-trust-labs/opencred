@@ -531,10 +531,14 @@ export function SelfPublishedSetup({
         <Card className="space-y-5">
           <div className="space-y-2">
             <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-              Export DID Document
+              {directory
+                ? "Publish your identity to your DeDi account"
+                : "Publish your identity to your site"}
             </h2>
             <p className="text-body-sm text-txt-secondary">
-              Generate and save your DID document, then publish it to your website.
+              {directory
+                ? "Generate your identity document — you'll publish it to your own DeDi namespace in the final step."
+                : "Generate your identity file, then publish it on your own website so verifiers can find your key."}
             </p>
           </div>
 
@@ -548,7 +552,7 @@ export function SelfPublishedSetup({
               {exportError && <p className="text-sm text-state-danger">{exportError}</p>}
 
               <Button onClick={() => void handleExport()} disabled={exporting}>
-                {exporting ? "Generating..." : "Generate DID Document"}
+                {exporting ? "Generating..." : "Generate identity document"}
               </Button>
             </div>
           )}
@@ -558,18 +562,23 @@ export function SelfPublishedSetup({
               {/* Simplified summary */}
               <div className="rounded-oc border border-state-success-border bg-state-success-bg p-4 space-y-2">
                 <p className="text-body-xs font-medium text-state-success">
-                  Your verification file is ready to publish
+                  {directory
+                    ? "Your identity is ready to publish"
+                    : "Your identity file is ready to publish"}
                 </p>
                 <p className="text-body-2xs text-state-success">
-                  Domain: <span className="font-mono">{domain.trim()}</span>
+                  {directory ? "Namespace: " : "Domain: "}
+                  <span className="font-mono">{domain.trim()}</span>
                 </p>
               </div>
 
-              {/* Save button */}
-              <div className="flex gap-3 items-center">
-                <Button onClick={() => void handleSaveToFile()}>Save to File</Button>
-                {saved && <span className="text-body-xs text-state-success">Saved</span>}
-              </div>
+              {/* Save button — website only; DeDi hosts the file for the directory anchor */}
+              {!directory && (
+                <div className="flex gap-3 items-center">
+                  <Button onClick={() => void handleSaveToFile()}>Save to File</Button>
+                  {saved && <span className="text-body-xs text-state-success">Saved</span>}
+                </div>
+              )}
 
               {/* Collapsible: View DID Document (Advanced) */}
               <div>
@@ -698,7 +707,7 @@ export function SelfPublishedSetup({
         <Card className="space-y-5">
           <div className="space-y-2">
             <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-              Verify Publication
+              Check your site is serving it
             </h2>
             <p className="text-body-sm text-txt-secondary">
               Optionally verify that your DID document is accessible at the expected URL. You can
@@ -893,7 +902,7 @@ export function SelfPublishedSetup({
         <Card className="space-y-6">
           <div className="space-y-2">
             <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-              Self-Published Key Ready
+              Your issuer identity is ready
             </h2>
             <p className="text-body-sm text-txt-secondary">
               Your signing identity is set up. You can now issue and sign Verifiable Credentials.
@@ -928,7 +937,11 @@ export function SelfPublishedSetup({
               <div className="flex gap-2">
                 <dt className="font-medium w-24 flex-shrink-0">Source:</dt>
                 <dd>
-                  {method === "web" ? "Self-Published (did:web)" : "Self-Published (did:key)"}
+                  {directory
+                    ? "Public directory (DeDi)"
+                    : method === "web"
+                      ? "Your website"
+                      : "Self-contained key"}
                 </dd>
               </div>
             </dl>

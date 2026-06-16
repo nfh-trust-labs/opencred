@@ -666,6 +666,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               signerKeyId={importedKey.id}
               didDocument={selfPubDidDoc ?? undefined}
               domain={selfPubDomain ?? undefined}
+              // For the public-directory anchor, DeDi is THE publish step, not
+              // an optional mirror — surface it as such (and warn on "finish
+              // later"). Website / did:key / DSC keep it optional.
+              directoryAnchor={anchorMethod === "directory"}
               onBack={() =>
                 // Key the Back destination off which sub-flow actually
                 // produced `importedKey`, not off `selfPubFlowEntered`.

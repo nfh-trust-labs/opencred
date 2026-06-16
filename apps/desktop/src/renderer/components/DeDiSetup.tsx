@@ -37,6 +37,15 @@ interface DeDiSetupProps {
    * earlier decision. Issue #547.
    */
   onBack?: () => void;
+  /**
+   * True when the user picked the "public directory" identity anchor — for
+   * that path DeDi is THE publish step (their `did:web:<namespace>` only
+   * resolves once published here), not an optional add-on. Changes the framing
+   * and turns "Skip" into a "finish later — your identity won't resolve yet"
+   * warning. For the website / did:key / DSC paths this is false and DeDi
+   * stays a fully optional mirror/attribution.
+   */
+  directoryAnchor?: boolean;
 }
 
 const DEDI_BASE_URL = "https://api.dedi.global";
@@ -48,6 +57,7 @@ export function DeDiSetup({
   domain,
   onComplete,
   onBack,
+  directoryAnchor,
 }: DeDiSetupProps) {
   const [state, setState] = useState<DeDiSetupState>("choice");
   const [namespace, setNamespace] = useState(domain ?? "");
@@ -151,11 +161,12 @@ export function DeDiSetup({
         <Card variant="neutral" className="space-y-6">
           <div className="space-y-2">
             <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-              Public Directory
+              {directoryAnchor ? "Publish to your DeDi account" : "Public Directory"}
             </h2>
             <p className="text-body-sm text-txt-secondary">
-              DeDi is a public directory where you can publish your DID, schemas, and revocation
-              lists so verifiers can discover them.
+              {directoryAnchor
+                ? "Connect your own DeDi namespace to publish your identity so verifiers can resolve it. You bring the account; OpenCred sets up the registries."
+                : "DeDi is a public directory where you can publish your DID, schemas, and revocation lists so verifiers can discover them."}
             </p>
           </div>
 
@@ -189,9 +200,13 @@ export function DeDiSetup({
               onClick={onComplete}
               className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-border-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
             >
-              <span className="block text-body-sm font-semibold text-txt-primary">Skip</span>
+              <span className="block text-body-sm font-semibold text-txt-primary">
+                {directoryAnchor ? "Finish later" : "Skip"}
+              </span>
               <span className="block text-body-xs text-txt-muted mt-1">
-                You can configure DeDi later from Settings
+                {directoryAnchor
+                  ? "Your identity won't resolve until you publish — you can finish from Settings."
+                  : "You can configure DeDi later from Settings"}
               </span>
             </button>
           </div>
