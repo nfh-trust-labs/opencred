@@ -27,9 +27,10 @@ export const DISPLAY_STEPS = ["Welcome", "Identity", "Your key", "Publish", "Don
 /**
  * Self-pub sub-phases that belong to the "Publish" display step. The self-pub
  * sub-flow (SelfPublishedSetup) reports its phase to the wizard; the
- * key-creation phases stay under "Your key" while the host/verify/complete
- * phases advance to "Publish". did:key's confirm/backup phases stay under
- * "Your key" since did:key has nothing to host.
+ * key-creation phases stay under "Your key" while the publish phases below
+ * (domain/namespace entry, export, verify, complete) advance to "Publish".
+ * did:key's confirm/backup phases stay under "Your key" since did:key has
+ * nothing to host.
  */
 export const SELFPUB_PUBLISH_PHASES = new Set(["domain", "export", "verify", "complete"]);
 

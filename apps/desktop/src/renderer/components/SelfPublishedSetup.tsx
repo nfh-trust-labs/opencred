@@ -16,7 +16,8 @@
  *
  * Steps:
  *   1. Generate a fresh key pair
- *   2. Choose DID method (web vs key)
+ *   2. Choose DID method (web vs key) — skipped when `initialMethod` is preset
+ *      by the wizard's situation screen (web / key / directory)
  *   3a. (web) Enter the domain
  *   3b. (web) Export and publish the DID document
  *   3c. (web) Verify publication
@@ -951,7 +952,12 @@ export function SelfPublishedSetup({
             <Button onClick={() => void handleCompleteHandoff()}>Start Issuing Credentials</Button>
             <Button
               variant="secondary"
-              onClick={() => setStep(method === "web" ? "verify" : "did-key-backup")}
+              onClick={() =>
+                // Directory skips the .well-known verify step (DeDi hosts the
+                // doc), so Back from "complete" must return to "export", not to
+                // a verify screen the directory user never saw.
+                setStep(directory ? "export" : method === "web" ? "verify" : "did-key-backup")
+              }
             >
               Back
             </Button>

@@ -253,8 +253,15 @@ export function DeDiSetup({
             </p>
           </div>
 
+          {directoryAnchor && (
+            <p className="text-body-2xs text-state-warning">
+              You picked a public directory as your identity — until you publish here, your identity
+              won&apos;t resolve and the credentials you issue can&apos;t be verified.
+            </p>
+          )}
+
           <div className="pt-2 flex gap-3">
-            <Button onClick={onComplete}>Skip for now</Button>
+            <Button onClick={onComplete}>{directoryAnchor ? "Finish later" : "Skip for now"}</Button>
             <Button variant="secondary" onClick={() => setState("choice")}>
               Back
             </Button>
