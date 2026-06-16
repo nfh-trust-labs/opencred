@@ -1,10 +1,16 @@
 /**
  * OnboardingWizard — multi-step first-run setup for new users.
  *
- * Presents 3 onboarding paths:
- *   1. "I have a DSC" → choose source (Upload File, Hardware Token, OS Cert Store) → Profile
- *   2. "I want to get a DSC" → Coming Soon (connect to CAs)
- *   3. "Self-Published Keys" → Generate key, enter domain, export DID doc → Profile
+ * Step 2 ("where should your issuer identity live?") offers four anchors:
+ *   - "My organisation has a website" (did:web on the issuer's own domain)
+ *   - "Publish to a DeDi directory" (did:web hosted in a bring-your-own DeDi namespace)
+ *   - "I have an official certificate" → choose source
+ *     (Upload File, Hardware Token, OS Cert Store) → Profile
+ *   - "Just get started" (self-contained did:key)
+ *
+ * The website / directory / did:key anchors run through SelfPublishedSetup; the
+ * official-certificate anchor runs through the DSC sources. All paths converge
+ * on the optional DeDi publish step.
  *
  * On completion the wizard calls `onComplete` so the parent can
  * switch to the main sidebar interface.
@@ -567,38 +573,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               <div className="pt-2 flex gap-3">
                 <Button onClick={() => setStep("dedi-setup")}>Continue</Button>
                 <Button variant="secondary" onClick={() => setStep(dscSourceStep ?? "dsc-source")}>
-                  Back
-                </Button>
-              </div>
-            </Card>
-          )}
-
-          {/* ============================================================
-              Coming Soon: Get a DSC
-              ============================================================ */}
-          {step === "get-dsc-soon" && (
-            <Card variant="neutral" className="space-y-6">
-              <div className="space-y-2">
-                <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-                  Get a Digital Signature Certificate
-                </h2>
-                <p className="text-body-sm text-txt-secondary">
-                  OpenCred will connect you to trusted Certificate Authorities to obtain your own
-                  DSC. This feature is under development.
-                </p>
-              </div>
-
-              <div className="rounded-oc border border-state-warning-border bg-state-warning-bg p-4">
-                <p className="text-body-xs text-state-warning font-medium mb-1">Coming Soon</p>
-                <p className="text-body-xs text-state-warning">
-                  CA integration is being built as part of Phase 3. In the meantime, if you already
-                  have a DSC from a certificate authority, choose &ldquo;I have a DSC&rdquo; to
-                  import it.
-                </p>
-              </div>
-
-              <div className="pt-2">
-                <Button variant="secondary" onClick={() => setStep("choose-anchor")}>
                   Back
                 </Button>
               </div>

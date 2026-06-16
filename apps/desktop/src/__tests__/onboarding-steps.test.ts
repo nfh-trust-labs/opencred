@@ -9,7 +9,6 @@ describe("onboarding step model (#715)", () => {
   it("maps the static steps", () => {
     expect(getDisplayStepIndex("welcome")).toBe(0);
     expect(getDisplayStepIndex("choose-anchor")).toBe(1);
-    expect(getDisplayStepIndex("get-dsc-soon")).toBe(1);
     expect(getDisplayStepIndex("dsc-source")).toBe(2);
     expect(getDisplayStepIndex("dsc-upload")).toBe(2);
     expect(getDisplayStepIndex("dsc-hardware")).toBe(2);

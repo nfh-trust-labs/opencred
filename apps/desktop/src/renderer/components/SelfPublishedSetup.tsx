@@ -149,6 +149,23 @@ export function SelfPublishedSetup({
     onPhaseChange?.(step);
   }, [step, onPhaseChange]);
 
+  // Directory anchor: auto-generate the identity document the first time the
+  // export step is shown. For the website path the user clicks "Generate
+  // identity document" themselves, but for the directory anchor DeDi is the
+  // publish — there's nothing to save or upload here, so the manual Generate +
+  // Continue round-trip is pure friction. Guarded on the absence of a doc and
+  // not-already-exporting so it fires exactly once. The handler imports nothing
+  // a website user wouldn't already trigger by hand.
+  useEffect(() => {
+    if (step === "export" && directory && !exportedDoc && !exporting) {
+      void handleExport();
+    }
+    // handleExport reads `generatedKey`/`domain` from closure but is stable
+    // enough for our one-shot guard; intentionally not in the dep list to
+    // avoid re-firing on unrelated re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, directory, exportedDoc, exporting]);
+
   // ------------------------------------------------------------------
   // Step 1: Generate key
   // ------------------------------------------------------------------
@@ -491,6 +508,17 @@ export function SelfPublishedSetup({
                 onChange={(e) => {
                   setDomain(e.target.value);
                   setDomainError(null);
+                  // Editing the domain/namespace invalidates any document we
+                  // already generated for the old value. Clear it so the export
+                  // step regenerates (auto for directory; the manual Generate
+                  // button reappears for the website path) instead of leaving a
+                  // stale doc the user can't refresh.
+                  if (exportedDoc) {
+                    setExportedDoc(null);
+                    setExportedDid(null);
+                    setVerifyResult(null);
+                    setSaved(false);
+                  }
                 }}
                 placeholder={directory ? "acme" : "university.example"}
                 className="w-full rounded-oc border border-border px-3 py-2 text-body-sm text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue"

@@ -3,6 +3,10 @@
  *
  * Internal states: choice → configure → connecting → success
  *
+ * For the public-directory anchor (`directoryAnchor`) DeDi is THE publish
+ * step, not an optional add-on, so the flow starts straight on `configure`
+ * (the choice screen is skipped) and "Back" leaves via `onBack`.
+ *
  * On "Yes, I have a DeDi account":
  *   1. User enters namespace + API key
  *   2. Calls dediSetConfig() → stores config + creates 3 registries
@@ -59,10 +63,23 @@ export function DeDiSetup({
   onBack,
   directoryAnchor,
 }: DeDiSetupProps) {
-  const [state, setState] = useState<DeDiSetupState>("choice");
+  // For the directory anchor DeDi is THE publish step, so the 3-option
+  // "do you have an account?" choice screen is redundant — start straight on
+  // the configure form (namespace prefilled from `domain`). Every other path
+  // keeps DeDi optional and starts on the choice screen. Lazy initialiser so
+  // this only reads `directoryAnchor` once on mount.
+  const [state, setState] = useState<DeDiSetupState>(() =>
+    directoryAnchor ? "configure" : "choice",
+  );
   const [namespace, setNamespace] = useState(domain ?? "");
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Advanced: the DeDi instance to talk to. Defaults to the public instance;
+  // power users running their own DeDi can point OpenCred at it. See the
+  // "Advanced" disclosure on the configure form.
+  const [baseUrl, setBaseUrl] = useState(DEDI_BASE_URL);
+  const [baseUrlError, setBaseUrlError] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [didPublishFailed, setDidPublishFailed] = useState(false);
   const [registriesFailed, setRegistriesFailed] = useState(false);
   const [retryingRegistries, setRetryingRegistries] = useState(false);
@@ -73,7 +90,9 @@ export function DeDiSetup({
   // and explicitly retries with a different input. See issue #546.
   const [lastFailedKey, setLastFailedKey] = useState<string | null>(null);
 
-  const currentKey = `${namespace.trim()}::${apiKey}`;
+  // Trim the API key when building the dup-submit fingerprint so a trailing
+  // newline from a paste can't sneak past the "you already tried this" guard.
+  const currentKey = `${namespace.trim()}::${apiKey.trim()}`;
   const isResubmitOfFailedAttempt =
     lastFailedKey !== null && lastFailedKey === currentKey && error !== null;
 
@@ -86,15 +105,23 @@ export function DeDiSetup({
       setError("Please enter your API key.");
       return;
     }
+    // Advanced instance URL must be HTTPS — a plaintext endpoint would expose
+    // the API key in transit. Block the connect rather than silently downgrade.
+    if (!baseUrl.trim().startsWith("https://")) {
+      setBaseUrlError("DeDi instance URL must start with https://");
+      setShowAdvanced(true);
+      return;
+    }
 
     setError(null);
+    setBaseUrlError(null);
     setState("connecting");
 
     try {
       const result = await window.opencred.dediSetConfig({
-        baseUrl: DEDI_BASE_URL,
+        baseUrl: baseUrl.trim(),
         namespace: namespace.trim(),
-        credentials: { type: "api-key", apiKey },
+        credentials: { type: "api-key", apiKey: apiKey.trim() },
       });
 
       if (!result.success) {
@@ -161,12 +188,11 @@ export function DeDiSetup({
         <Card variant="neutral" className="space-y-6">
           <div className="space-y-2">
             <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-              {directoryAnchor ? "Publish to your DeDi account" : "Public Directory"}
+              Public Directory
             </h2>
             <p className="text-body-sm text-txt-secondary">
-              {directoryAnchor
-                ? "Connect your own DeDi namespace to publish your identity so verifiers can resolve it. You bring the account; OpenCred sets up the registries."
-                : "DeDi is a public directory where you can publish your DID, schemas, and revocation lists so verifiers can discover them."}
+              DeDi is a public directory where you can publish your DID, schemas, and revocation
+              lists so verifiers can discover them.
             </p>
           </div>
 
@@ -200,13 +226,9 @@ export function DeDiSetup({
               onClick={onComplete}
               className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-border-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
             >
-              <span className="block text-body-sm font-semibold text-txt-primary">
-                {directoryAnchor ? "Finish later" : "Skip"}
-              </span>
+              <span className="block text-body-sm font-semibold text-txt-primary">Skip</span>
               <span className="block text-body-xs text-txt-muted mt-1">
-                {directoryAnchor
-                  ? "Your identity won't resolve until you publish — you can finish from Settings."
-                  : "You can configure DeDi later from Settings"}
+                You can configure DeDi later from Settings
               </span>
             </button>
           </div>
@@ -253,15 +275,8 @@ export function DeDiSetup({
             </p>
           </div>
 
-          {directoryAnchor && (
-            <p className="text-body-2xs text-state-warning">
-              You picked a public directory as your identity — until you publish here, your identity
-              won&apos;t resolve and the credentials you issue can&apos;t be verified.
-            </p>
-          )}
-
           <div className="pt-2 flex gap-3">
-            <Button onClick={onComplete}>{directoryAnchor ? "Finish later" : "Skip for now"}</Button>
+            <Button onClick={onComplete}>Skip for now</Button>
             <Button variant="secondary" onClick={() => setState("choice")}>
               Back
             </Button>
@@ -283,6 +298,26 @@ export function DeDiSetup({
               automatically.
             </p>
           </div>
+
+          {/* For the directory anchor this IS the publish step and the choice
+              screen (which explained how to get an account) is skipped — surface
+              the "don't have one yet?" path inline so the user isn't stuck. */}
+          {directoryAnchor && (
+            <div className="rounded-oc border border-blue-200 bg-brand-light p-3">
+              <p className="text-body-2xs text-brand">
+                Don&apos;t have a DeDi account yet? Create your account and namespace at{" "}
+                <a
+                  href="https://publish.dedi.global"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline font-medium"
+                >
+                  publish.dedi.global
+                </a>
+                , then paste your API key below.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-3">
             <div>
@@ -318,6 +353,50 @@ export function DeDiSetup({
             </div>
           </div>
 
+          {/* Collapsible: Advanced — bring-your-own DeDi instance */}
+          <div>
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="text-body-xs text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                className={`transition-transform duration-200 ${showAdvanced ? "rotate-180" : ""}`}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+              Advanced
+            </button>
+            {showAdvanced && (
+              <div className="mt-2 rounded-oc border border-border bg-surface-warm p-3 space-y-1">
+                <label className="oc-label block mb-1">DeDi instance URL</label>
+                <input
+                  type="text"
+                  value={baseUrl}
+                  onChange={(e) => {
+                    setBaseUrl(e.target.value);
+                    setBaseUrlError(null);
+                  }}
+                  placeholder={DEDI_BASE_URL}
+                  disabled={state === "connecting"}
+                  className="w-full rounded-oc border border-border px-3 py-2 text-body-sm text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-50"
+                />
+                {baseUrlError ? (
+                  <p className="text-body-2xs text-state-danger">{baseUrlError}</p>
+                ) : (
+                  <p className="text-body-2xs text-txt-muted">
+                    Leave as-is unless you run your own DeDi instance.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
           {error && (
             <div className="space-y-1">
               <p className="text-sm text-state-danger">{error}</p>
@@ -340,8 +419,18 @@ export function DeDiSetup({
             <Button
               variant="secondary"
               onClick={() => {
-                setState("choice");
                 setError(null);
+                setBaseUrlError(null);
+                // The directory anchor starts on this form (the choice screen is
+                // skipped), so "Back" here must leave DeDiSetup entirely via the
+                // wizard's onBack — falling back to "choice" would dead-end the
+                // user on a screen they never saw. Every other path came from
+                // the choice screen, so Back returns there.
+                if (directoryAnchor) {
+                  onBack?.();
+                } else {
+                  setState("choice");
+                }
               }}
               disabled={state === "connecting"}
             >

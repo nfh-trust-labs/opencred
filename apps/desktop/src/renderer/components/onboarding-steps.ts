@@ -18,7 +18,6 @@ export type Step =
   | "dsc-hardware"
   | "dsc-os-cert"
   | "profile"
-  | "get-dsc-soon"
   | "self-pub-setup"
   | "dedi-setup";
 
@@ -43,7 +42,6 @@ export function getDisplayStepIndex(step: Step, selfPubPhase: string | null = nu
     case "welcome":
       return 0;
     case "choose-anchor":
-    case "get-dsc-soon":
       return 1;
     case "dsc-source":
     case "dsc-upload":
