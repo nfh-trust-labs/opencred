@@ -16,7 +16,8 @@
  *
  * Steps:
  *   1. Generate a fresh key pair
- *   2. Choose DID method (web vs key)
+ *   2. Choose DID method (web vs key) — skipped when `initialMethod` is preset
+ *      by the wizard's situation screen (web / key / directory)
  *   3a. (web) Enter the domain
  *   3b. (web) Export and publish the DID document
  *   3c. (web) Verify publication
@@ -29,7 +30,7 @@
  * never serialised over IPC.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { KeyMetadata } from "../../shared/ipc-types";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
@@ -66,7 +67,7 @@ interface SelfPublishedSetupProps {
   onComplete: (result?: SelfPubResult) => void;
   /**
    * Optional callback for the very first step's Back button — returns the
-   * user to the prior step in the parent wizard (e.g. choose-path) when
+   * user to the prior step in the parent wizard (e.g. choose-anchor) when
    * they realise they picked the wrong onboarding path. Issue #547.
    */
   onBack?: () => void;
@@ -79,10 +80,36 @@ interface SelfPublishedSetupProps {
    * document. Issue #547.
    */
   hidden?: boolean;
+  /**
+   * The identity anchor the user chose on the wizard's situation screen.
+   * When set, the in-flow "how will your key be published?" picker is
+   * skipped — the user already answered that question. `"directory"` is a
+   * did:web identity hosted in a public directory (DeDi) rather than on the
+   * issuer's own domain; the DID is still `did:web:<namespace>`.
+   */
+  initialMethod?: "web" | "key" | "directory";
+  /**
+   * Reports the current sub-step to the parent wizard so its progress
+   * indicator can place each phase under the right visible step ("Your key"
+   * vs "Publish"). Called whenever the internal step changes.
+   */
+  onPhaseChange?: (phase: SelfPubStep) => void;
 }
 
-export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublishedSetupProps) {
+export function SelfPublishedSetup({
+  onComplete,
+  onBack,
+  hidden,
+  initialMethod,
+  onPhaseChange,
+}: SelfPublishedSetupProps) {
   const [step, setStep] = useState<SelfPubStep>("generate");
+  // `directory` is the public-directory anchor: a did:web identity whose home
+  // is a shared directory (DeDi) instead of the issuer's own domain. It reuses
+  // the did:web machinery (the DID is `did:web:<namespace>`), so internally it
+  // runs as `method === "web"` with directory-specific copy and DeDi as the
+  // publish destination.
+  const directory = initialMethod === "directory";
   const [generatedKey, setGeneratedKey] = useState<KeyMetadata | null>(null);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
@@ -115,6 +142,32 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
   const [showInstructions, setShowInstructions] = useState(false);
   const [showNoWebsite, setShowNoWebsite] = useState(false);
 
+  // Keep the parent wizard's progress indicator in sync with our sub-step so
+  // it can place each phase under the right visible step ("Your key" vs
+  // "Publish"). Idempotent — re-emitting the same phase is a no-op upstream.
+  useEffect(() => {
+    onPhaseChange?.(step);
+  }, [step, onPhaseChange]);
+
+  // Directory anchor: auto-generate the identity document the first time the
+  // export step is shown. For the website path the user clicks "Generate
+  // identity document" themselves, but for the directory anchor DeDi is the
+  // publish — there's nothing to save or upload here, so the manual Generate +
+  // Continue round-trip is pure friction. The `!exportError` guard is load-
+  // bearing: on a failed export, `exporting` flips back to false and
+  // `exportedDoc` stays null, so without it the effect would re-fire forever.
+  // On failure we stop and surface the error + the manual "Generate" button so
+  // the user retries deliberately (clicking it clears exportError).
+  useEffect(() => {
+    if (step === "export" && directory && !exportedDoc && !exporting && !exportError) {
+      void handleExport();
+    }
+    // handleExport reads `generatedKey`/`domain` from closure but is stable
+    // enough for our one-shot guard; intentionally not in the dep list to
+    // avoid re-firing on unrelated re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, directory, exportedDoc, exporting, exportError]);
+
   // ------------------------------------------------------------------
   // Step 1: Generate key
   // ------------------------------------------------------------------
@@ -126,7 +179,17 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
       const result = await window.opencred.generateKey({});
       if (result.success && result.key) {
         setGeneratedKey(result.key);
-        setStep("choose-method");
+        // When an anchor was preset on the wizard's situation screen, skip the
+        // in-flow method picker and jump straight to that anchor's first step.
+        if (initialMethod === "key") {
+          setMethod("key");
+          setStep("did-key-confirm");
+        } else if (initialMethod === "web" || initialMethod === "directory") {
+          setMethod("web");
+          setStep("domain");
+        } else {
+          setStep("choose-method");
+        }
       } else {
         setGenError(result.error ?? "Key generation failed.");
       }
@@ -144,12 +207,22 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
   function handleDomainSubmit() {
     const trimmed = domain.trim();
     if (!trimmed) {
-      setDomainError("Please enter a domain.");
+      setDomainError(directory ? "Please enter a namespace." : "Please enter a domain.");
       return;
     }
-    // Basic domain format check (allow letters, digits, dots, hyphens, optional port)
-    if (!/^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?(:\d+)?$/.test(trimmed)) {
-      setDomainError("Invalid domain format. Example: university.example");
+    // Website: a hostname with an optional numeric port. Directory: a
+    // colon-delimited namespace whose segments become the did:web path
+    // (`did.cord.network:acme` -> `did:web:did.cord.network:acme`), so path
+    // colons are allowed.
+    const valid = directory
+      ? /^[a-zA-Z0-9.-]+(:[a-zA-Z0-9.-]+)*$/.test(trimmed)
+      : /^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?(:\d+)?$/.test(trimmed);
+    if (!valid) {
+      setDomainError(
+        directory
+          ? "Invalid namespace. Example: acme or did.cord.network:acme"
+          : "Invalid domain format. Example: university.example",
+      );
       return;
     }
     setDomainError(null);
@@ -223,7 +296,20 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
   // Render
   // ------------------------------------------------------------------
 
-  const didPreview = domain.trim() ? `did:web:${domain.trim().replace(/:/g, "%3A")}` : "";
+  // For the public-directory anchor the value is a colon-delimited namespace
+  // (e.g. `acme` or `did.cord.network:acme`) whose path colons must NOT be
+  // percent-encoded; only a website's host:port colon is. The authoritative
+  // DID still comes from the main process (`exportDidDocument`); this preview
+  // is cosmetic.
+  const didPreview = domain.trim()
+    ? directory
+      ? `did:web:${domain.trim()}`
+      : `did:web:${domain.trim().replace(/:/g, "%3A")}`
+    : "";
+  // With an anchor preset the in-flow method picker is skipped, so "Back" from
+  // the domain / did:key-confirm steps returns to key generation rather than
+  // the never-shown picker.
+  const backToMethodChoice = () => setStep(initialMethod ? "generate" : "choose-method");
   // For did:key, the signer's `id` field is already `did:key:z…#z…` (the
   // verification-method ref). Strip the fragment to get the DID itself,
   // which is what the credential's `issuer` field will use.
@@ -279,11 +365,14 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
         <Card className="space-y-5">
           <div className="space-y-2">
             <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-              Self-Published Keys
+              Create your signing key
             </h2>
             <p className="text-body-sm text-txt-secondary">
-              Generate a new key pair. Your public key will be published on your website as a DID
-              document. Your private key never leaves this machine.
+              {directory
+                ? "Create your signing key. You'll publish its public half to your own DeDi namespace so verifiers can find you. Your private key never leaves this machine."
+                : initialMethod === "key"
+                  ? "Create your signing key. Its public half becomes your identity — no hosting needed. Your private key never leaves this machine."
+                  : "Create your signing key. You'll publish its public half on your website so verifiers can find you. Your private key never leaves this machine."}
             </p>
           </div>
 
@@ -392,27 +481,48 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
         <Card className="space-y-5">
           <div className="space-y-2">
             <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-              Enter Your Domain
+              {directory ? "Enter your DeDi namespace" : "Enter your domain"}
             </h2>
-            <p className="text-body-sm text-txt-secondary">
-              Enter the domain where you will host your DID document. The document will be served at{" "}
-              <code className="text-body-2xs bg-surface-warm px-1 py-0.5 rounded">
-                https://your-domain/.well-known/did.json
-              </code>
-            </p>
+            {directory ? (
+              <p className="text-body-sm text-txt-secondary">
+                Your DeDi namespace becomes your issuer identity, and you publish your key to it in
+                the next step. Don&apos;t have one yet? You&apos;ll create a DeDi account and
+                namespace in the next step.
+              </p>
+            ) : (
+              <p className="text-body-sm text-txt-secondary">
+                Enter the domain where you will host your identity file. It will be served at{" "}
+                <code className="text-body-2xs bg-surface-warm px-1 py-0.5 rounded">
+                  https://your-domain/.well-known/did.json
+                </code>
+              </p>
+            )}
           </div>
 
           <div className="space-y-3">
             <div>
-              <label className="oc-label block mb-1">Domain</label>
+              <label className="oc-label block mb-1">
+                {directory ? "DeDi namespace" : "Domain"}
+              </label>
               <input
                 type="text"
                 value={domain}
                 onChange={(e) => {
                   setDomain(e.target.value);
                   setDomainError(null);
+                  // Editing the domain/namespace invalidates any document we
+                  // already generated for the old value. Clear it so the export
+                  // step regenerates (auto for directory; the manual Generate
+                  // button reappears for the website path) instead of leaving a
+                  // stale doc the user can't refresh.
+                  if (exportedDoc) {
+                    setExportedDoc(null);
+                    setExportedDid(null);
+                    setVerifyResult(null);
+                    setSaved(false);
+                  }
                 }}
-                placeholder="university.example"
+                placeholder={directory ? "acme" : "university.example"}
                 className="w-full rounded-oc border border-border px-3 py-2 text-body-sm text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue"
               />
               {domainError && <p className="text-body-2xs text-state-danger mt-1">{domainError}</p>}
@@ -438,7 +548,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
 
           <div className="pt-2 flex gap-3">
             <Button onClick={handleDomainSubmit}>Continue</Button>
-            <Button variant="secondary" onClick={() => setStep("choose-method")}>
+            <Button variant="secondary" onClick={backToMethodChoice}>
               Back
             </Button>
           </div>
@@ -446,16 +556,20 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
       )}
 
       {/* ================================================================
-          Step: Export DID Document
+          Step: Publish identity (host on your site / publish to your DeDi account)
           ================================================================ */}
       {step === "export" && (
         <Card className="space-y-5">
           <div className="space-y-2">
             <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-              Export DID Document
+              {directory
+                ? "Publish your identity to your DeDi account"
+                : "Publish your identity to your site"}
             </h2>
             <p className="text-body-sm text-txt-secondary">
-              Generate and save your DID document, then publish it to your website.
+              {directory
+                ? "Generate your identity document — you'll publish it to your own DeDi namespace in the final step."
+                : "Generate your identity file, then publish it on your own website so verifiers can find your key."}
             </p>
           </div>
 
@@ -469,7 +583,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
               {exportError && <p className="text-sm text-state-danger">{exportError}</p>}
 
               <Button onClick={() => void handleExport()} disabled={exporting}>
-                {exporting ? "Generating..." : "Generate DID Document"}
+                {exporting ? "Generating..." : "Generate identity document"}
               </Button>
             </div>
           )}
@@ -479,18 +593,23 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
               {/* Simplified summary */}
               <div className="rounded-oc border border-state-success-border bg-state-success-bg p-4 space-y-2">
                 <p className="text-body-xs font-medium text-state-success">
-                  Your verification file is ready to publish
+                  {directory
+                    ? "Your identity is ready to publish"
+                    : "Your identity file is ready to publish"}
                 </p>
                 <p className="text-body-2xs text-state-success">
-                  Domain: <span className="font-mono">{domain.trim()}</span>
+                  {directory ? "Namespace: " : "Domain: "}
+                  <span className="font-mono">{domain.trim()}</span>
                 </p>
               </div>
 
-              {/* Save button */}
-              <div className="flex gap-3 items-center">
-                <Button onClick={() => void handleSaveToFile()}>Save to File</Button>
-                {saved && <span className="text-body-xs text-state-success">Saved</span>}
-              </div>
+              {/* Save button — website only; DeDi hosts the file for the directory anchor */}
+              {!directory && (
+                <div className="flex gap-3 items-center">
+                  <Button onClick={() => void handleSaveToFile()}>Save to File</Button>
+                  {saved && <span className="text-body-xs text-state-success">Saved</span>}
+                </div>
+              )}
 
               {/* Collapsible: View DID Document (Advanced) */}
               <div>
@@ -520,8 +639,19 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
                 )}
               </div>
 
-              {/* Collapsible: Publishing Instructions */}
-              <div>
+              {directory && (
+                <div className="rounded-oc border border-blue-200 bg-brand-light p-3">
+                  <p className="text-body-2xs text-brand">
+                    DeDi hosts this file when you publish — no web server needed. You&apos;ll connect
+                    your DeDi namespace (or create one) in the next step.
+                  </p>
+                </div>
+              )}
+
+              {/* Collapsible: Publishing Instructions + no-website link (website only) */}
+              {!directory && (
+                <>
+                <div>
                 <button
                   onClick={() => setShowInstructions(!showInstructions)}
                   className="text-body-xs text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
@@ -585,11 +715,15 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
                   </div>
                 )}
               </div>
+                </>
+              )}
             </div>
           )}
 
           <div className="pt-2 flex gap-3">
-            {exportedDoc && <Button onClick={() => setStep("verify")}>Continue</Button>}
+            {exportedDoc && (
+              <Button onClick={() => setStep(directory ? "complete" : "verify")}>Continue</Button>
+            )}
             <Button variant="secondary" onClick={() => setStep("domain")}>
               Back
             </Button>
@@ -604,7 +738,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
         <Card className="space-y-5">
           <div className="space-y-2">
             <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-              Verify Publication
+              Check your site is serving it
             </h2>
             <p className="text-body-sm text-txt-secondary">
               Optionally verify that your DID document is accessible at the expected URL. You can
@@ -711,7 +845,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
 
           <div className="pt-2 flex gap-3">
             <Button onClick={() => setStep("did-key-backup")}>Continue</Button>
-            <Button variant="secondary" onClick={() => setStep("choose-method")}>
+            <Button variant="secondary" onClick={backToMethodChoice}>
               Back
             </Button>
           </div>
@@ -799,7 +933,7 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
         <Card className="space-y-6">
           <div className="space-y-2">
             <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-              Self-Published Key Ready
+              Your issuer identity is ready
             </h2>
             <p className="text-body-sm text-txt-secondary">
               Your signing identity is set up. You can now issue and sign Verifiable Credentials.
@@ -834,7 +968,11 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
               <div className="flex gap-2">
                 <dt className="font-medium w-24 flex-shrink-0">Source:</dt>
                 <dd>
-                  {method === "web" ? "Self-Published (did:web)" : "Self-Published (did:key)"}
+                  {directory
+                    ? "Public directory (DeDi)"
+                    : method === "web"
+                      ? "Your website"
+                      : "Self-contained key"}
                 </dd>
               </div>
             </dl>
@@ -844,7 +982,12 @@ export function SelfPublishedSetup({ onComplete, onBack, hidden }: SelfPublished
             <Button onClick={() => void handleCompleteHandoff()}>Start Issuing Credentials</Button>
             <Button
               variant="secondary"
-              onClick={() => setStep(method === "web" ? "verify" : "did-key-backup")}
+              onClick={() =>
+                // Directory skips the .well-known verify step (DeDi hosts the
+                // doc), so Back from "complete" must return to "export", not to
+                // a verify screen the directory user never saw.
+                setStep(directory ? "export" : method === "web" ? "verify" : "did-key-backup")
+              }
             >
               Back
             </Button>
