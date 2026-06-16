@@ -67,7 +67,7 @@ interface SelfPublishedSetupProps {
   onComplete: (result?: SelfPubResult) => void;
   /**
    * Optional callback for the very first step's Back button — returns the
-   * user to the prior step in the parent wizard (e.g. choose-path) when
+   * user to the prior step in the parent wizard (e.g. choose-anchor) when
    * they realise they picked the wrong onboarding path. Issue #547.
    */
   onBack?: () => void;
@@ -153,18 +153,20 @@ export function SelfPublishedSetup({
   // export step is shown. For the website path the user clicks "Generate
   // identity document" themselves, but for the directory anchor DeDi is the
   // publish — there's nothing to save or upload here, so the manual Generate +
-  // Continue round-trip is pure friction. Guarded on the absence of a doc and
-  // not-already-exporting so it fires exactly once. The handler imports nothing
-  // a website user wouldn't already trigger by hand.
+  // Continue round-trip is pure friction. The `!exportError` guard is load-
+  // bearing: on a failed export, `exporting` flips back to false and
+  // `exportedDoc` stays null, so without it the effect would re-fire forever.
+  // On failure we stop and surface the error + the manual "Generate" button so
+  // the user retries deliberately (clicking it clears exportError).
   useEffect(() => {
-    if (step === "export" && directory && !exportedDoc && !exporting) {
+    if (step === "export" && directory && !exportedDoc && !exporting && !exportError) {
       void handleExport();
     }
     // handleExport reads `generatedKey`/`domain` from closure but is stable
     // enough for our one-shot guard; intentionally not in the dep list to
     // avoid re-firing on unrelated re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, directory, exportedDoc, exporting]);
+  }, [step, directory, exportedDoc, exporting, exportError]);
 
   // ------------------------------------------------------------------
   // Step 1: Generate key
@@ -554,7 +556,7 @@ export function SelfPublishedSetup({
       )}
 
       {/* ================================================================
-          Step: Export DID Document
+          Step: Publish identity (host on your site / publish to your DeDi account)
           ================================================================ */}
       {step === "export" && (
         <Card className="space-y-5">

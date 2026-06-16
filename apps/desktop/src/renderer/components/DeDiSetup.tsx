@@ -1,7 +1,7 @@
 /**
  * DeDiSetup — optional onboarding step for configuring DeDi integration.
  *
- * Internal states: choice → configure → connecting → success
+ * Internal states: choice → (not-yet) → configure → connecting → success
  *
  * For the public-directory anchor (`directoryAnchor`) DeDi is THE publish
  * step, not an optional add-on, so the flow starts straight on `configure`
@@ -101,7 +101,7 @@ export function DeDiSetup({
       setError("Please enter a namespace.");
       return;
     }
-    if (!apiKey) {
+    if (!apiKey.trim()) {
       setError("Please enter your API key.");
       return;
     }
