@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenCred onboarding — simpler &amp; jargon-free (proposal)</title>
+<style>
+  :root{
+    --page:#f6f5f1; --card:#fff; --ink:#1b1b1a; --muted:#5c5b57; --faint:#8d8b85;
+    --brand:#2563eb; --brand-soft:#eef3fe; --brand-ink:#1d4ed8;
+    --line:#e7e4dd; --ok:#15803d; --ok-soft:#e9f5ec; --warn:#b45309; --warn-soft:#fbf0e2;
+    --serif:"Iowan Old Style",Georgia,"Times New Roman",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --r:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1120px;margin:0 auto;padding:48px 28px 80px}
+  header.top{max-width:760px}
+  h1{font-family:var(--serif);font-weight:600;font-size:34px;line-height:1.15;margin:0 0 12px}
+  .lede{font-size:18px;color:var(--muted);margin:0 0 6px}
+  .meta{font-size:13px;color:var(--faint);margin-top:14px}
+  h2{font-family:var(--serif);font-weight:600;font-size:24px;margin:56px 0 6px}
+  .sub{color:var(--muted);font-size:15px;margin:0 0 22px;max-width:720px}
+  h3{font-size:15px;font-weight:600;margin:0 0 6px;letter-spacing:.01em}
+
+  .principles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:8px}
+  .p{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
+  .p .n{font-family:var(--serif);font-size:15px;color:var(--brand-ink);font-weight:600;margin-bottom:4px}
+  .p p{margin:0;font-size:14px;color:var(--muted)}
+
+  .flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:16px;align-items:start}
+  .screen{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 18px 20px;display:flex;flex-direction:column;min-height:330px;position:relative}
+  .dots{display:flex;gap:5px;margin-bottom:16px}
+  .dot{height:5px;border-radius:99px;background:var(--line);flex:1}
+  .dot.on{background:var(--brand)}
+  .dot.done{background:var(--brand);opacity:.5}
+  .stitle{font-family:var(--serif);font-size:19px;font-weight:600;line-height:1.2;margin-bottom:8px}
+  .sbody{font-size:13.5px;color:var(--muted);margin-bottom:14px}
+  .opt{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13px}
+  .opt.sel{border-color:var(--brand);background:var(--brand-soft)}
+  .opt .ot{font-weight:600;color:var(--ink);display:flex;align-items:center;gap:6px}
+  .opt .od{color:var(--muted);font-size:12px;margin-top:2px}
+  .pill{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--brand-ink);background:#fff;border:1px solid var(--brand);border-radius:99px;padding:1px 7px}
+  .adv{font-size:12px;color:var(--brand-ink);margin-top:4px;display:flex;align-items:center;gap:5px}
+  .btnrow{margin-top:auto;display:flex;gap:8px;padding-top:14px}
+  .btn{font-family:var(--sans);font-size:13px;font-weight:600;border-radius:9px;padding:8px 14px;border:1px solid var(--brand);background:var(--brand);color:#fff}
+  .btn.sec{background:#fff;color:var(--ink);border-color:var(--line)}
+  .auto{display:flex;align-items:center;gap:8px;background:var(--ok-soft);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--ok);font-weight:600;margin-bottom:10px}
+  .check{width:42px;height:42px;border-radius:99px;background:var(--ok-soft);color:var(--ok);display:flex;align-items:center;justify-content:center;font-size:22px;margin:2px 0 12px}
+  .removed{margin-top:12px;font-size:11.5px;color:var(--faint)}
+  .removed b{color:var(--warn);font-weight:600}
+
+  .legend{font-size:13px;color:var(--muted);margin:10px 0 0}
+  .paths{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:18px}
+  .path{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .chip{font-size:12px;background:var(--page);border:1px solid var(--line);border-radius:99px;padding:3px 10px;color:var(--ink)}
+  .chip.muted{color:var(--faint);border-style:dashed}
+  .chip.brand{background:var(--brand-soft);border-color:var(--brand);color:var(--brand-ink)}
+  .arrow{color:var(--faint);font-size:12px;align-self:center}
+
+  .alts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:8px}
+  .alt{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;display:flex;flex-direction:column}
+  .alt.win{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+  .alt .tag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--brand-ink);margin-bottom:6px}
+  .alt h3{font-family:var(--serif);font-size:18px;font-weight:600;margin-bottom:6px}
+  .alt p{font-size:13.5px;color:var(--muted);margin:0 0 12px}
+  .pc{font-size:12.5px;margin:2px 0;display:flex;gap:7px}
+  .pc .i{flex:0 0 auto;width:15px;text-align:center}
+  .pro .i{color:var(--ok)} .con .i{color:var(--warn)}
+  .miniflow{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 14px}
+  .mf{font-size:11px;background:var(--page);border:1px solid var(--line);border-radius:7px;padding:3px 7px;color:var(--muted)}
+
+  table{border-collapse:collapse;width:100%;margin-top:10px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  th,td{text-align:left;padding:11px 16px;font-size:13.5px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--page);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  td.jargon{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--warn);white-space:nowrap}
+  td.plain{font-weight:600}
+  tr:last-child td{border-bottom:none}
+  .foot{margin-top:48px;font-size:13px;color:var(--faint);border-top:1px solid var(--line);padding-top:18px}
+  @media(max-width:560px){h1{font-size:27px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>Onboarding, in plain language</h1>
+  <p class="lede">A normal issuer doesn't know what <code>did:web</code>, <code>did.json</code>, or DeDi are — and shouldn't have to. The setup should ask about <em>their situation</em> and make the protocol choices for them.</p>
+  <p class="meta">Proposal &middot; OpenCred desktop &middot; mockup only, no code changed</p>
+</header>
+
+<h2>Four principles</h2>
+<div class="principles">
+  <div class="p"><div class="n">1 · Situation, not protocol</div><p>Ask “do you have a website?”, never “did:web or did:key?”. The technical term hides behind an optional “?”.</p></div>
+  <div class="p"><div class="n">2 · Safe default, advanced opt-in</div><p>The managed/hosted route is pre-selected. Self-hosting and bring-your-own DeDi live under “Advanced”.</p></div>
+  <div class="p"><div class="n">3 · Keys are invisible</div><p>No “keypair” talk. Just: “your key is ready, and it never leaves this device.”</p></div>
+  <div class="p"><div class="n">4 · Defer the hard parts</div><p>DeDi accounts, revocation, schemas → Settings or surfaced only when first needed, not in onboarding.</p></div>
+</div>
+
+<h2>Recommended flow — “pick your situation”</h2>
+<p class="sub">Five screens for the website issuer; just three for someone trying it out. Every protocol term is replaced with a plain question; the old jargon for each screen is noted in red underneath.</p>
+
+<div class="flow">
+
+  <div class="screen">
+    <div class="dots"><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+    <div class="stitle">Welcome to OpenCred</div>
+    <div class="sbody">Issue digital credentials that anyone can verify in seconds — certificates, licences, badges.</div>
+    <div class="btnrow"><span class="btn">Get started</span></div>
+    <div class="removed">Was: <b>Welcome</b> (unchanged)</div>
+  </div>
+
+  <div class="screen">
+    <div class="dots"><span class="dot done"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+    <div class="stitle">Where should your issuer identity live?</div>
+    <div class="opt sel"><div class="ot">My organisation has a website</div><div class="od">Your domain (e.g. acme.org) is your identity. You control it.</div></div>
+    <div class="opt"><div class="ot">List me in a public directory</div><div class="od">No website? Get a resolvable identity in a shared directory — lookup, rotation &amp; revocation.</div></div>
+    <div class="opt"><div class="ot">I have an official certificate</div><div class="od">A government-issued signing certificate. For regulated issuers.</div></div>
+    <div class="opt"><div class="ot">Just get started</div><div class="od">A self-contained key. Offline, simplest — but can't be rotated.</div></div>
+    <div class="removed">Was: <b>Choose Path</b> + <b>did:web / did:key / DSC</b>. Directory (DeDi) now sits beside “website” as a peer anchor.</div>
+  </div>
+
+  <div class="screen">
+    <div class="dots"><span class="dot done"></span><span class="dot done"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div>
+    <div class="check">&#10003;</div>
+    <div class="stitle">Your issuing key is ready</div>
+    <div class="auto">Created &amp; encrypted on this device</div>
+    <div class="sbody">Your private key never leaves this computer. We'll back it up for you in the next step.</div>
+    <div class="btnrow"><span class="btn">Continue</span></div>
+    <div class="removed">Was: <b>Set Up Key</b> — “generate keypair”, algorithms, fingerprints</div>
+  </div>
+
+  <div class="screen">
+    <div class="dots"><span class="dot done"></span><span class="dot done"></span><span class="dot done"></span><span class="dot on"></span><span class="dot"></span></div>
+    <div class="stitle">Publish your identity to your site</div>
+    <div class="sbody">You picked your website — download one file, upload it, and we'll confirm it's live.</div>
+    <div class="opt sel"><div class="ot">&#8595;&nbsp; Download identity file</div></div>
+    <div class="opt"><div class="ot">Upload to acme.org/.well-known/</div><div class="od">in your website hosting</div></div>
+    <div class="opt"><div class="ot">&#10003;&nbsp; Verify it's live</div><div class="od">resolved</div></div>
+    <div class="removed">Was: <b>Publish Identity</b> + <b>Public Directory</b>. The directory choice moved up to step 2; for the directory path this screen is “register in the directory” instead.</div>
+  </div>
+
+  <div class="screen">
+    <div class="dots"><span class="dot done"></span><span class="dot done"></span><span class="dot done"></span><span class="dot done"></span><span class="dot on"></span></div>
+    <div class="check">&#10003;</div>
+    <div class="stitle">You're all set</div>
+    <div class="sbody">You can now issue credentials people can verify anywhere.</div>
+    <div class="btnrow"><span class="btn">Issue your first credential</span><span class="btn sec">Dashboard</span></div>
+    <div class="removed">Was: <b>Done</b> (now ends on an action)</div>
+  </div>
+
+</div>
+
+<p class="legend"><strong>How the path length adapts</strong> — each situation only sees the steps it needs:</p>
+<div class="paths">
+  <div class="path">
+    <h3>My own website <span style="color:var(--faint);font-weight:400">(did:web · your domain)</span></h3>
+    <div class="chips"><span class="chip">Welcome</span><span class="arrow">&rarr;</span><span class="chip">Identity home</span><span class="arrow">&rarr;</span><span class="chip">Key ready</span><span class="arrow">&rarr;</span><span class="chip">Upload file to your site</span><span class="arrow">&rarr;</span><span class="chip brand">Done</span></div>
+  </div>
+  <div class="path">
+    <h3>Public directory <span style="color:var(--faint);font-weight:400">(did:web · DeDi namespace)</span></h3>
+    <div class="chips"><span class="chip">Welcome</span><span class="arrow">&rarr;</span><span class="chip">Identity home</span><span class="arrow">&rarr;</span><span class="chip">Key ready</span><span class="arrow">&rarr;</span><span class="chip">Register in directory</span><span class="arrow">&rarr;</span><span class="chip brand">Done</span></div>
+  </div>
+  <div class="path">
+    <h3>Official certificate <span style="color:var(--faint);font-weight:400">(DSC)</span></h3>
+    <div class="chips"><span class="chip">Welcome</span><span class="arrow">&rarr;</span><span class="chip">Identity home</span><span class="arrow">&rarr;</span><span class="chip">Import certificate</span><span class="arrow">&rarr;</span><span class="chip">Publish</span><span class="arrow">&rarr;</span><span class="chip brand">Done</span></div>
+  </div>
+  <div class="path">
+    <h3>Self-contained <span style="color:var(--faint);font-weight:400">(did:key)</span></h3>
+    <div class="chips"><span class="chip">Welcome</span><span class="arrow">&rarr;</span><span class="chip">Identity home</span><span class="arrow">&rarr;</span><span class="chip">Key ready + backup</span><span class="arrow">&rarr;</span><span class="chip brand">Done</span></div>
+    <div class="chips"><span class="chip muted">no publishing — nothing to host</span></div>
+  </div>
+</div>
+
+<h2>Three strategies to choose from</h2>
+<p class="sub">The flow above is strategy A. Two leaner alternatives, depending on how much you want to front-load.</p>
+<div class="alts">
+
+  <div class="alt win">
+    <div class="tag">Recommended</div>
+    <h3>A · Pick your situation</h3>
+    <div class="miniflow"><span class="mf">Welcome</span><span class="mf">Trust choice</span><span class="mf">Key</span><span class="mf">Find key</span><span class="mf">Done</span></div>
+    <p>One linear path; plain questions; jargon behind tooltips; managed publishing default.</p>
+    <div class="pc pro"><span class="i">&#10003;</span>Familiar shape, minimal rework of today's wizard</div>
+    <div class="pc pro"><span class="i">&#10003;</span>Each situation only sees relevant steps</div>
+    <div class="pc con"><span class="i">!</span>Still asks the trust question up front</div>
+  </div>
+
+  <div class="alt">
+    <div class="tag">Fastest</div>
+    <h3>B · Quick start vs Custom</h3>
+    <div class="miniflow"><span class="mf">Quick or Custom?</span><span class="mf">Name</span><span class="mf">Done</span></div>
+    <p>First screen splits beginners from power users. Quick = fully managed, 2 clicks. Custom = today's full control (domain, cert, self-host, own DeDi).</p>
+    <div class="pc pro"><span class="i">&#10003;</span>2-click start for non-technical users</div>
+    <div class="pc pro"><span class="i">&#10003;</span>Power users keep every knob</div>
+    <div class="pc con"><span class="i">!</span>Two flows to design &amp; maintain</div>
+  </div>
+
+  <div class="alt">
+    <div class="tag">Leanest</div>
+    <h3>C · Start now, upgrade later</h3>
+    <div class="miniflow"><span class="mf">Welcome</span><span class="mf">Done — issuing</span><span class="mf">&hellip;</span><span class="mf">upgrade trust when needed</span></div>
+    <p>Everyone starts issuing immediately with a self-contained key. “Use your domain”, “publish to directory”, “add an official certificate” appear contextually later, not in onboarding.</p>
+    <div class="pc pro"><span class="i">&#10003;</span>Time-to-first-credential is seconds</div>
+    <div class="pc con"><span class="i">!</span>Trust upgrades easy to overlook</div>
+    <div class="pc con"><span class="i">!</span>Biggest departure from today's build</div>
+  </div>
+
+</div>
+
+<h2>The translation layer</h2>
+<p class="sub">Every term on the left is invisible by default in the proposal — shown only inside an optional “?” or the Advanced drawer.</p>
+<table>
+  <thead><tr><th>Today's wording</th><th>Plain-language replacement</th><th>Shown to whom</th></tr></thead>
+  <tbody>
+    <tr><td class="jargon">did:web</td><td class="plain">“Use my organisation's website”</td><td>everyone (plain)</td></tr>
+    <tr><td class="jargon">did:web via a DeDi namespace</td><td class="plain">“List me in a public directory”</td><td>everyone (plain)</td></tr>
+    <tr><td class="jargon">did:key</td><td class="plain">“Just get started” — self-contained, offline, no rotation</td><td>everyone (plain)</td></tr>
+    <tr><td class="jargon">DSC / certificate chain</td><td class="plain">“Official signing certificate”</td><td>regulated issuers</td></tr>
+    <tr><td class="jargon">did.json at /.well-known/</td><td class="plain">“one identity file to upload to your site”</td><td>only the website path</td></tr>
+    <tr><td class="jargon">verified vs unverified namespace</td><td class="plain">“directory-listed” vs “domain-verified” badge</td><td>directory path</td></tr>
+    <tr><td class="jargon">namespace + API key</td><td class="plain">handled by connect — or hidden entirely</td><td>Advanced only</td></tr>
+    <tr><td class="jargon">key rotation</td><td class="plain">“you can replace your key later”</td><td>tooltip</td></tr>
+    <tr><td class="jargon">verification method, fingerprint, algorithm</td><td class="plain">not shown</td><td>nobody (in onboarding)</td></tr>
+  </tbody>
+</table>
+
+<div class="foot">
+  Mockup for discussion — visual proposal only, no application code changed. Once a strategy is chosen, the build would replace the protocol-named wizard steps with plain-language equivalents and move advanced controls (self-hosting, own-DeDi, revocation) into an Advanced drawer / Settings.
+</div>
+
+</div>
+</body>
+</html>
