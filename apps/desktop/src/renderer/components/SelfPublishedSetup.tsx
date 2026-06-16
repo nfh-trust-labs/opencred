@@ -349,7 +349,7 @@ export function SelfPublishedSetup({
             </h2>
             <p className="text-body-sm text-txt-secondary">
               {directory
-                ? "Create your signing key. You'll list its public half in a public directory so verifiers can find you. Your private key never leaves this machine."
+                ? "Create your signing key. You'll publish its public half to your own DeDi namespace so verifiers can find you. Your private key never leaves this machine."
                 : initialMethod === "key"
                   ? "Create your signing key. Its public half becomes your identity — no hosting needed. Your private key never leaves this machine."
                   : "Create your signing key. You'll publish its public half on your website so verifiers can find you. Your private key never leaves this machine."}
@@ -461,12 +461,13 @@ export function SelfPublishedSetup({
         <Card className="space-y-5">
           <div className="space-y-2">
             <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-              {directory ? "Choose your directory name" : "Enter your domain"}
+              {directory ? "Enter your DeDi namespace" : "Enter your domain"}
             </h2>
             {directory ? (
               <p className="text-body-sm text-txt-secondary">
-                Pick the name you&apos;ll be listed under in the public directory. This becomes your
-                issuer identity, and you publish it to the directory in the next step.
+                Your DeDi namespace becomes your issuer identity, and you publish your key to it in
+                the next step. Don&apos;t have one yet? You&apos;ll create a DeDi account and
+                namespace in the next step.
               </p>
             ) : (
               <p className="text-body-sm text-txt-secondary">
@@ -481,7 +482,7 @@ export function SelfPublishedSetup({
           <div className="space-y-3">
             <div>
               <label className="oc-label block mb-1">
-                {directory ? "Directory name" : "Domain"}
+                {directory ? "DeDi namespace" : "Domain"}
               </label>
               <input
                 type="text"
@@ -601,8 +602,8 @@ export function SelfPublishedSetup({
               {directory && (
                 <div className="rounded-oc border border-blue-200 bg-brand-light p-3">
                   <p className="text-body-2xs text-brand">
-                    The public directory hosts this file for you — no web server needed. You&apos;ll
-                    register it in the next step.
+                    DeDi hosts this file when you publish — no web server needed. You&apos;ll connect
+                    your DeDi namespace (or create one) in the next step.
                   </p>
                 </div>
               )}

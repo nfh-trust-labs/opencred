@@ -123,9 +123,11 @@ function PathGuidance() {
             can replace your key later if needed.
           </p>
           <p>
-            <span className="font-semibold text-txt-primary">List me in a public directory</span>: no
-            website? Get a resolvable identity in a shared directory so verifiers can look you up —
-            supports replacing your key and revoking credentials. Powered by DeDi.
+            <span className="font-semibold text-txt-primary">Publish to a DeDi directory</span>:
+            choose this if you use DeDi. It is not a managed service — you create your own DeDi
+            account and namespace; OpenCred then publishes your key there (with key replacement and
+            revocation) so verifiers can resolve it. We&apos;ll point you to DeDi if you don&apos;t
+            have a namespace yet.
           </p>
           <p>
             <span className="font-semibold text-txt-primary">I have an official certificate</span>:
@@ -313,11 +315,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   <div className="flex items-start justify-between">
                     <div>
                       <span className="block text-body-sm font-semibold text-txt-primary">
-                        List me in a public directory
+                        Publish to a DeDi directory
                       </span>
                       <span className="block text-body-xs text-txt-muted mt-1">
-                        No website? Get a resolvable identity in a shared directory — verifiers can
-                        look you up.
+                        Connect your own DeDi namespace so verifiers can resolve your key. You bring
+                        the DeDi account; we set up the registries.
                       </span>
                     </div>
                     <Badge variant="neutral" className="flex-shrink-0 ml-3 mt-0.5">

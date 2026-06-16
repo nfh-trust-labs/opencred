@@ -94,7 +94,7 @@
 <h2>Four principles</h2>
 <div class="principles">
   <div class="p"><div class="n">1 · Situation, not protocol</div><p>Ask “do you have a website?”, never “did:web or did:key?”. The technical term hides behind an optional “?”.</p></div>
-  <div class="p"><div class="n">2 · Safe default, advanced opt-in</div><p>The managed/hosted route is pre-selected. Self-hosting and bring-your-own DeDi live under “Advanced”.</p></div>
+  <div class="p"><div class="n">2 · Safe default, advanced opt-in</div><p>The simplest fitting option is pre-selected. Self-hosting and bring-your-own DeDi live under “Advanced”. There is no managed/shared directory — DeDi is the issuer's own.</p></div>
   <div class="p"><div class="n">3 · Keys are invisible</div><p>No “keypair” talk. Just: “your key is ready, and it never leaves this device.”</p></div>
   <div class="p"><div class="n">4 · Defer the hard parts</div><p>DeDi accounts, revocation, schemas → Settings or surfaced only when first needed, not in onboarding.</p></div>
 </div>
@@ -116,7 +116,7 @@
     <div class="dots"><span class="dot done"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
     <div class="stitle">Where should your issuer identity live?</div>
     <div class="opt sel"><div class="ot">My organisation has a website</div><div class="od">Your domain (e.g. acme.org) is your identity. You control it.</div></div>
-    <div class="opt"><div class="ot">List me in a public directory</div><div class="od">No website? Get a resolvable identity in a shared directory — lookup, rotation &amp; revocation.</div></div>
+    <div class="opt"><div class="ot">Publish to a DeDi directory</div><div class="od">Connect your own DeDi namespace — verifiers resolve your key from the directory. You bring the DeDi account; OpenCred sets up the registries. Not a managed service.</div></div>
     <div class="opt"><div class="ot">I have an official certificate</div><div class="od">A government-issued signing certificate. For regulated issuers.</div></div>
     <div class="opt"><div class="ot">Just get started</div><div class="od">A self-contained key. Offline, simplest — but can't be rotated.</div></div>
     <div class="removed">Was: <b>Choose Path</b> + <b>did:web / did:key / DSC</b>. Directory (DeDi) now sits beside “website” as a peer anchor.</div>
@@ -192,7 +192,7 @@
     <div class="tag">Fastest</div>
     <h3>B · Quick start vs Custom</h3>
     <div class="miniflow"><span class="mf">Quick or Custom?</span><span class="mf">Name</span><span class="mf">Done</span></div>
-    <p>First screen splits beginners from power users. Quick = fully managed, 2 clicks. Custom = today's full control (domain, cert, self-host, own DeDi).</p>
+    <p>First screen splits beginners from power users. Quick = a self-contained key (did:key), 2 clicks. Custom = today's full control (domain, cert, self-host, own DeDi).</p>
     <div class="pc pro"><span class="i">&#10003;</span>2-click start for non-technical users</div>
     <div class="pc pro"><span class="i">&#10003;</span>Power users keep every knob</div>
     <div class="pc con"><span class="i">!</span>Two flows to design &amp; maintain</div>
@@ -216,7 +216,7 @@
   <thead><tr><th>Today's wording</th><th>Plain-language replacement</th><th>Shown to whom</th></tr></thead>
   <tbody>
     <tr><td class="jargon">did:web</td><td class="plain">“Use my organisation's website”</td><td>everyone (plain)</td></tr>
-    <tr><td class="jargon">did:web via a DeDi namespace</td><td class="plain">“List me in a public directory”</td><td>everyone (plain)</td></tr>
+    <tr><td class="jargon">did:web via a DeDi namespace</td><td class="plain">“Publish to a DeDi directory” (you bring the namespace)</td><td>everyone (plain)</td></tr>
     <tr><td class="jargon">did:key</td><td class="plain">“Just get started” — self-contained, offline, no rotation</td><td>everyone (plain)</td></tr>
     <tr><td class="jargon">DSC / certificate chain</td><td class="plain">“Official signing certificate”</td><td>regulated issuers</td></tr>
     <tr><td class="jargon">did.json at /.well-known/</td><td class="plain">“one identity file to upload to your site”</td><td>only the website path</td></tr>
