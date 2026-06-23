@@ -4,6 +4,12 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.0](https://github.com/nfh-trust-labs/opencred/compare/v1.8.0...v1.9.0) (2026-06-23)
+
+### Features
+
+- **revocation:** asynchronous, self-healing credential revocation. DeDi anchors revocation records to CORD, where both write steps (`save-record-as-draft`, `publish-records`) can exceed the client's hard 10s per-request ceiling — so a synchronous `POST /v1/credentials/revoke` could 504 under load ([opencred-releases#11](https://github.com/nfh-trust-labs/opencred-releases/issues/11)). The endpoint now attempts the publish synchronously (`200`, or `409` if already revoked) and, on a CORD timeout, accepts the revoke (`202` `{"status":"pending"}`) and completes the idempotent, self-healing publish in the background until the record is LIVE; clients confirm via `POST /v1/credentials/revocation-status`. The dedi-client publish is self-healing (on a duplicate, it looks the record up and advances a stranded draft to LIVE). Backward-compatible: fast revokes still return `200`, already-revoked still `409`. Validated live against api.dedi.global ([#718](https://github.com/nfh-trust-labs/opencred/issues/718)) ([0d157c5](https://github.com/nfh-trust-labs/opencred/commit/0d157c5b))
+
 ## [1.8.0](https://github.com/nfh-trust-labs/opencred/compare/v1.7.1...v1.8.0) (2026-06-15)
 
 ### Features
