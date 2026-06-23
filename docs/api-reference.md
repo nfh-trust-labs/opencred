@@ -1172,7 +1172,7 @@ Or:
 | `hash` | string (64 hex chars) | One of `credential` or `hash` | Pre-computed revocation hash |
 | `namespace` | string | No | DeDi namespace (defaults to `OPENCRED_DEDI_NAMESPACE`) |
 
-**Response `200 OK`:**
+**Response `200 OK`** — revocation completed synchronously (the DeDi/CORD write finished within the request budget):
 
 ```json
 {
@@ -1181,6 +1181,19 @@ Or:
   "revokedAt": "2026-04-13T10:00:00.000Z"
 }
 ```
+
+**Response `202 Accepted`** — DeDi anchors revocation records to CORD, and the write can exceed the server's hard 10s per-request ceiling. When it does, the revoke is **accepted and completed in the background** (idempotent and self-healing) instead of failing. Poll `POST /v1/credentials/revocation-status` until it returns `{"revoked": true}` to confirm:
+
+```json
+{
+  "hash": "d6f4e2c9b7a8f1234567890abcdef1234567890abcdef1234567890abcde1f0",
+  "revoked": false,
+  "status": "pending",
+  "message": "Revocation accepted and is being published to DeDi..."
+}
+```
+
+**Error `409 DEDI_RECORD_EXISTS`** — the hash is already revoked; confirm with `revocation-status`.
 
 **Error `503 DEDI_NOT_CONFIGURED`:**
 
