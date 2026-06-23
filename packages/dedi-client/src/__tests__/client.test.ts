@@ -216,16 +216,89 @@ describe("DeDiClient (adapter)", () => {
       );
     });
 
-    it("passes through non-409 errors unchanged", async () => {
+    // ── Bounded retry on transient failure (issue #11) ───────────────
+    // The revocation publish is keyed by the VC hash, so it is idempotent
+    // and safe to retry. A DeDi write to CORD can exceed the client's hard
+    // 10s ceiling and 504; without retry that surfaces as an immediate
+    // revoke failure. We retry exactly ONCE (independent of the
+    // OPENCRED_DEDI_MAX_RETRIES knob, which tunes idempotent GETs).
+
+    it("retries a transient timeout once, then succeeds (recovered)", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord)
+        .mockRejectedValueOnce(
+          new DeDiClientError("DeDi API request timed out after 10000ms", 504),
+        )
+        .mockResolvedValueOnce({
+          message: "Record published",
+          data: {
+            record_name: "abc",
+            registry: REVOCATION_REGISTRY,
+            namespace: "example.com",
+            details: { revoked_id: "abc" },
+            state: "live",
+            version: "1",
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z",
+          },
+        });
+
+      const result = await client.publishRevocationHash("abc");
+
+      expect(api.publishRecord).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({ revoked: true, revokedAt: "2026-01-01T00:00:00Z" });
+    });
+
+    it("recovers a slow-but-succeeded write: timeout then duplicate ⇒ DeDiRecordExistsError", async () => {
+      // The dominant issue-#11 case: the first attempt's write landed on
+      // CORD but the response came back after the 10s ceiling (504). The
+      // retry collides on the hash-keyed record name and is surfaced as
+      // "already in the revocation registry" instead of a bare 504.
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord)
+        .mockRejectedValueOnce(
+          new DeDiClientError("DeDi API request timed out after 10000ms", 504),
+        )
+        .mockRejectedValueOnce(
+          new DeDiClientError("DeDi API error: 409", 409, { message: "duplicate record name" }),
+        );
+
+      await expect(client.publishRevocationHash("abc")).rejects.toBeInstanceOf(
+        DeDiRecordExistsError,
+      );
+      expect(api.publishRecord).toHaveBeenCalledTimes(2);
+    });
+
+    it("retries a transient 5xx once, then surfaces the DeDiClientError if it persists", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord).mockRejectedValue(
         new DeDiClientError("DeDi API error: 500", 500, "internal server error"),
       );
+
       await expect(client.publishRevocationHash("abc")).rejects.toBeInstanceOf(DeDiClientError);
       await expect(client.publishRevocationHash("abc")).rejects.not.toBeInstanceOf(
         DeDiRecordExistsError,
       );
+      // Two attempts per call (1 initial + 1 retry); two calls above ⇒ 4.
+      expect(api.publishRecord).toHaveBeenCalledTimes(4);
+    });
+
+    it("does NOT retry a duplicate (409) — surfaced immediately as already-revoked", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord).mockRejectedValue(
+        new DeDiClientError("DeDi API error: 409", 409, { message: "duplicate record name" }),
+      );
+
+      await expect(client.publishRevocationHash("abc")).rejects.toBeInstanceOf(
+        DeDiRecordExistsError,
+      );
+      // A duplicate is a definitive answer ("already revoked"), not a
+      // transient failure — it must not be retried.
+      expect(api.publishRecord).toHaveBeenCalledTimes(1);
     });
   });
 

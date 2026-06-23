@@ -3,6 +3,7 @@ import { DeDiApiClient } from "../api/api-client.js";
 import type { DeDiProof } from "../api/types.js";
 import type { DeDiLogger } from "../logger.js";
 import { noopLogger } from "../logger.js";
+import { withRetry } from "../retry.js";
 import type {
   DeDiClientConfig,
   RevocationHashRecord,
@@ -303,7 +304,24 @@ export class DeDiClient {
     if (reason !== undefined) detailsToPublish.reason = reason;
     let response;
     try {
-      response = await this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, detailsToPublish);
+      // Bounded retry (issue #11). The DeDi write anchors to CORD and can
+      // exceed the client's hard 10s per-request ceiling; a single 504 then
+      // surfaces as an un-retried revoke failure. Unlike createNamespace
+      // (#546), the revocation record is keyed by the VC hash, so this publish
+      // is idempotent: if a slow first attempt actually landed server-side,
+      // the retry collides on the record name and is recovered by the
+      // duplicate-detection path below (→ DeDiRecordExistsError, "already in
+      // the revocation registry"). One retry covers that dominant
+      // slow-but-succeeded case (and a single transient blip) while keeping
+      // the worst case ~2× the 10s ceiling — comfortably inside a typical
+      // synchronous client timeout. We deliberately do NOT honour
+      // OPENCRED_DEDI_MAX_RETRIES here: that knob tunes idempotent
+      // verification GETs (extra latency is cheap there); a waiting revoke
+      // caller needs a tight, predictable upper bound.
+      response = await withRetry(
+        () => this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, detailsToPublish),
+        { maxRetries: 1, baseDelayMs: 200, retryable: true, logger: this.logger },
+      );
     } catch (err) {
       // DeDi returns 409 "duplicate record name" when the hash is already
       // published. Surface this as a specific error so HTTP clients can
