@@ -953,6 +953,37 @@ describe("POST /credentials/revoke", () => {
     expect(body.error.statusCode).toBe(409);
     resetDeDiClient();
   });
+
+  it("returns 202 pending and drives in the background when the DeDi write times out", async () => {
+    // opencred-releases#11 / #718: a CORD-anchored write can exceed the hard 10s
+    // ceiling. Instead of 504, the revoke is accepted (202) and driven in the
+    // background; the client confirms via revocation-status.
+    const { DeDiClientError } = await import("@opencred/shared");
+    const mockClient = {
+      // Synchronous publish hits the 10s ceiling…
+      publishRevocationHash: async () => {
+        throw new DeDiClientError("DeDi API request timed out after 10000ms", 504);
+      },
+      // …but the record is (eventually) LIVE, so the background driver ends fast.
+      queryRevocationHash: async () => ({
+        revoked: true as const,
+        revokedAt: new Date().toISOString(),
+      }),
+    } as never;
+    setDeDiClient(mockClient);
+
+    const res = await app.request("/credentials/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hash: "c".repeat(64) }),
+    });
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { hash: string; revoked: boolean; status: string };
+    expect(body.revoked).toBe(false);
+    expect(body.status).toBe("pending");
+    expect(body.hash).toBe("c".repeat(64));
+    resetDeDiClient();
+  });
 });
 
 // ---------------------------------------------------------------------------

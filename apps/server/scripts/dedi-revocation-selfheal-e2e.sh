@@ -177,40 +177,31 @@ strand_draft "$H"
 ok "stranded a draft for H=$H (confirmed via 409 — landed on CORD but not published)"
 [[ "$(rev_status "$H")" == "false" ]] && ok "revocation-status(H) = false (stranded draft is not LIVE)" \
   || die "Part B: expected revocation-status false for a stranded draft"
-REVOKE_OUT="$(api POST /v1/credentials/revoke -d "$(jq -n --arg h "$H" '{hash:$h}')" || true)"
-if [[ "$(jq -r '.revoked' <<<"$REVOKE_OUT")" == "true" ]]; then
-  ok "OpenCred revoke(H) → revoked:true (self-heal completed within the 10s ceiling)"
-else
-  ok "OpenCred revoke(H) → $(jq -rc '.error // .' <<<"$REVOKE_OUT")"
-  ok "↑ the self-heal ran (save-draft 409 → lookup 404 → publish-records) but publish-records itself hit the"
-  ok "  10s CORD ceiling. The write still lands server-side, so the record becomes LIVE shortly (eventual consistency)."
-fi
-# Whether the revoke returned synchronously or 504'd at publish-records, the
-# self-heal advances the stranded draft to LIVE once CORD settles. This is the
-# core #718 guarantee: the credential ends up revoked.
-wait_status "$H" "true" "stranded draft eventually LIVE — self-heal achieved revocation (#718)" 40
+RCB="$(curl -sS -o "$TMPDIR/revB" -w '%{http_code}' -X POST "$BASE/v1/credentials/revoke" \
+  -H "$AUTH_H" -H 'Content-Type: application/json' -d "$(jq -n --arg h "$H" '{hash:$h}')")"
+ok "OpenCred revoke(H) → HTTP $RCB $(jq -rc '{revoked,status}' "$TMPDIR/revB" 2>/dev/null)"
+# 200 = self-heal completed synchronously; 202 = accepted + driven in the
+# background. Never a 504. Either way the stranded draft is advanced to LIVE —
+# the core #718 guarantee. publish-records can itself exceed 10s, so let CORD settle.
+[[ "$RCB" == "200" || "$RCB" == "202" ]] || die "Part B: revoke(H) returned HTTP $RCB (expected 200 or 202)"
+wait_status "$H" "true" "stranded draft LIVE — self-heal achieved revocation (#718)" 40
 
-# ── Part C: fresh revoke under live CORD load (characterize + recovery) ───────
-# A FRESH save-record-as-draft anchors to CORD and can take ~30s — over the
-# client's 10s ceiling — so a fresh revoke may 504 under load. That is the
-# residual case the async-revocation option (#718) addresses; the bounded retry
-# cannot fix it (the retry also hits a fresh, not-yet-anchored save-draft). When
-# it happens we demonstrate that the self-heal still recovers on a later call.
-log "Part C — fresh revoke under live CORD load"
+# ── Part C: fresh revoke under live CORD load (async accept, no 504) ──────────
+# A FRESH save-record-as-draft anchors to CORD and can take ~30s — over the 10s
+# ceiling. With async revocation (#718) the revoke returns 200 (squeaked under)
+# or 202 (accepted + driven in the background) — NEVER a 504 — and the background
+# driver settles the record to LIVE.
+log "Part C — fresh revoke under live CORD load (async accept, no 504)"
 H2="$(openssl rand -hex 32)"
-REVOKE2="$(api POST /v1/credentials/revoke -d "$(jq -n --arg h "$H2" '{hash:$h}')" || true)"
-if [[ "$(jq -r '.revoked // empty' <<<"$REVOKE2")" == "true" ]]; then
-  wait_status "$H2" "true" "fresh revoke(H2) → revoked:true (CORD save-draft was under the 10s ceiling)"
-else
-  ok "fresh revoke(H2) → $(jq -rc '.error // .' <<<"$REVOKE2")"
-  ok "↑ a fresh save-draft exceeded 10s (live #11). The bounded retry can't fix a write that's slow on every"
-  ok "  attempt; the draft eventually anchors, and Part B proved the self-heal advances such a stranded draft"
-  ok "  to LIVE on a later call. The single-call fix for this is async revocation (#718)."
-fi
+RCC="$(curl -sS -o "$TMPDIR/revC" -w '%{http_code}' -X POST "$BASE/v1/credentials/revoke" \
+  -H "$AUTH_H" -H 'Content-Type: application/json' -d "$(jq -n --arg h "$H2" '{hash:$h}')")"
+ok "fresh revoke(H2) → HTTP $RCC $(jq -rc '{revoked,status}' "$TMPDIR/revC" 2>/dev/null)"
+[[ "$RCC" == "200" || "$RCC" == "202" ]] \
+  || die "Part C: fresh revoke returned HTTP $RCC (expected 200/202 — a 504 means the async path didn't engage)"
+wait_status "$H2" "true" "fresh revoke eventually LIVE via the background driver (#718)" 40
 
-log "DONE — self-heal validated (mind the 10s CORD ceiling)"
+log "DONE — async revocation validated end to end"
 ok "Part A: publish-records advances a stranded draft to LIVE."
-ok "Part B: OpenCred revoke self-heals a stranded draft to LIVE (eventually consistent under CORD load)."
-ok "NOTE: a synchronous revoke can still 504 when save-draft/publish-records exceed 10s on CORD — the write"
-ok "      lands server-side and the record becomes LIVE shortly. The 504-free fix is async revocation (#718)."
+ok "Part B: OpenCred revoke self-heals a stranded draft to LIVE (200 sync, or 202 + background)."
+ok "Part C: a fresh CORD-anchored revoke returns 200/202 — NEVER 504 — and the background driver settles it to LIVE."
 echo "logs + artifacts in: $WORK"

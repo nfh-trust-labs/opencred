@@ -18,6 +18,9 @@ import { rejectKeyMaterial } from "./credentials.js";
 import { getDeDiClient } from "../dedi-singleton.js";
 import { revocationsPublishedTotal } from "../metrics.js";
 import { parseJsonBody } from "../middleware/parse-json.js";
+import { driveRevocationToLive } from "../revocation-worker.js";
+import { getLogger } from "../logger.js";
+import { DeDiClientError } from "@opencred/shared";
 
 const revocation = new Hono();
 
@@ -101,21 +104,48 @@ revocation.post("/credentials/revoke", async (c) => {
   }
 
   const hash = parsed.hash ?? resolveRevocationHash(parsed.credential!);
-  const result = await dediClient.publishRevocationHash(hash, parsed.namespace, parsed.reason);
 
-  revocationsPublishedTotal.inc();
-
-  // publishRevocationHash always returns a revoked=true record after a
-  // successful publish; surface `hash` (canonical) plus the DeDi-reported
-  // `revokedAt` and optional `reason`.
-  const revokedAt = result.revoked ? result.revokedAt : new Date().toISOString();
-  const responseReason = result.revoked ? result.reason : undefined;
-  return c.json({
-    hash,
-    revoked: true,
-    revokedAt,
-    ...(responseReason !== undefined ? { reason: responseReason } : {}),
-  });
+  try {
+    // Fast path: try to publish synchronously. On a non-congested namespace (or
+    // an already-stranded draft) this completes in well under the 10s ceiling
+    // and returns 200, preserving the synchronous revoke contract.
+    const result = await dediClient.publishRevocationHash(hash, parsed.namespace, parsed.reason);
+    revocationsPublishedTotal.inc();
+    const revokedAt = result.revoked ? result.revokedAt : new Date().toISOString();
+    const responseReason = result.revoked ? result.reason : undefined;
+    return c.json({
+      hash,
+      revoked: true,
+      revokedAt,
+      ...(responseReason !== undefined ? { reason: responseReason } : {}),
+    });
+  } catch (err) {
+    // DeDi's write anchors to CORD, and BOTH steps (save-record-as-draft,
+    // publish-records) can exceed the hard 10s ceiling, so a synchronous publish
+    // 504s under load (opencred-releases#11). The write is eventually consistent
+    // (a step that times out client-side still lands on CORD), so instead of
+    // failing we ACCEPT the revoke (202) and drive the idempotent, self-healing
+    // publish in the background until the record is LIVE. The client confirms
+    // with POST /v1/credentials/revocation-status (#718). Any non-timeout error
+    // (e.g. DeDiRecordExistsError → 409) propagates unchanged.
+    if (err instanceof DeDiClientError && err.statusCode === 504) {
+      void driveRevocationToLive(dediClient, hash, parsed.namespace, parsed.reason, getLogger());
+      revocationsPublishedTotal.inc();
+      return c.json(
+        {
+          hash,
+          revoked: false,
+          status: "pending",
+          message:
+            "Revocation accepted and is being published to DeDi (the CORD write exceeded the " +
+            "synchronous timeout). The credential becomes revoked once the write settles; confirm " +
+            "with POST /v1/credentials/revocation-status.",
+        },
+        202,
+      );
+    }
+    throw err;
+  }
 });
 
 // --- Revocation query endpoint (checks DeDi) ---
