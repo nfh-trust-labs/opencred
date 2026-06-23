@@ -3,6 +3,7 @@ import { DeDiApiClient } from "../api/api-client.js";
 import type { DeDiProof } from "../api/types.js";
 import type { DeDiLogger } from "../logger.js";
 import { noopLogger } from "../logger.js";
+import { withRetry } from "../retry.js";
 import type {
   DeDiClientConfig,
   RevocationHashRecord,
@@ -303,18 +304,48 @@ export class DeDiClient {
     if (reason !== undefined) detailsToPublish.reason = reason;
     let response;
     try {
-      response = await this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, detailsToPublish);
+      // Bounded retry (#11/#718). The DeDi write anchors to CORD and can
+      // exceed the client's hard 10s per-request ceiling; a single 504 then
+      // surfaces as an un-retried revoke failure. One retry on a transient
+      // failure — paired with the self-healing duplicate path below — recovers
+      // the dominant "the write landed server-side but the response was slow"
+      // case within a single revoke call. We deliberately do NOT honour
+      // OPENCRED_DEDI_MAX_RETRIES: that knob tunes idempotent verification
+      // GETs (extra latency is cheap there); a waiting revoke caller needs a
+      // tight, predictable upper bound (~2× the 10s ceiling).
+      response = await withRetry(
+        () => this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, detailsToPublish),
+        { maxRetries: 1, baseDelayMs: 200, retryable: true, logger: this.logger },
+      );
     } catch (err) {
-      // DeDi returns 409 "duplicate record name" when the hash is already
-      // published. Surface this as a specific error so HTTP clients can
-      // distinguish "already revoked" (success-after-prior-run) from
-      // generic DeDi failures. See {@link isDuplicateRecordBody}.
+      // The record name (the VC hash) already exists. Do NOT assume this means
+      // "already revoked" — `publishRecord` is a two-step publish
+      // (save-record-as-draft → publish-records), and the #11 timeout lands on
+      // the first step. If a prior attempt's draft landed but its
+      // publish-records never ran, the record exists as a STRANDED DRAFT that
+      // `lookup/` 404s (#610) — it is NOT actually revoked. Use `lookup` as the
+      // source of truth and self-heal (#718): advance a stranded draft to LIVE,
+      // and only report "already revoked" when the record is genuinely LIVE.
       if (isDuplicateRecordBody(err)) {
-        throw new DeDiRecordExistsError(
-          "This hash is already in the revocation registry",
-          "Use POST /v1/credentials/revocation-status to confirm the prior revoke landed",
-          (err as DeDiClientError).responseBody,
-        );
+        const existing = await this.queryRevocationHash(hash, ns);
+        if (existing.revoked) {
+          // Genuinely LIVE ⇒ already revoked. Preserve the existing signal so
+          // callers can distinguish it from a fresh revoke.
+          throw new DeDiRecordExistsError(
+            "This hash is already in the revocation registry",
+            "Use POST /v1/credentials/revocation-status to confirm the prior revoke landed",
+            (err as DeDiClientError).responseBody,
+          );
+        }
+        // Stranded draft ⇒ advance it to LIVE so the revocation takes effect.
+        // We only reach here after `lookup` confirmed the record is NOT live,
+        // so `publish-records` never runs against an already-LIVE record.
+        await this.api.publishDraftRecords(ns, REVOCATION_REGISTRY, [hash]);
+        return {
+          revoked: true,
+          revokedAt: new Date().toISOString(),
+          ...(reason !== undefined ? { reason } : {}),
+        };
       }
       throw err;
     }

@@ -160,6 +160,8 @@ DeDi provides revocation and directory services. All DeDi variables are optional
 | `OPENCRED_DEDI_TIMEOUT_MS` | integer (1000-30000) | `10000` | No | DeDi request timeout in milliseconds. Hard-capped at 10s per request, so values above `10000` have no effect |
 | `OPENCRED_DEDI_MAX_RETRIES` | integer (0-5) | `2` | No | Retries for a failed idempotent DeDi request (key/DID resolution); `2` means 3 attempts total, `0` disables. Raise this — not the timeout — to ride out a brief DeDi outage |
 
+> **Revocation publishing.** `POST /v1/credentials/revoke` writes to DeDi (which anchors to CORD) and can exceed the 10s per-request ceiling. The revoke write is retried **once** on a transient timeout/5xx (independent of `OPENCRED_DEDI_MAX_RETRIES`) and is **self-healing**: because the record is keyed by the credential hash, a write that landed server-side but timed out is detected on retry and advanced to LIVE via `lookup` + `publish-records` — so a slow-but-successful revoke is reported as revoked rather than 504ing or falsely reporting "already revoked." A genuinely already-revoked hash still returns a 409. A persistently slow (>10s every attempt) write still fails with a 504; the next revoke call self-heals the stranded record.
+
 ### Example .env File
 
 ```bash

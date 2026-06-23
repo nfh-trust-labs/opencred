@@ -230,14 +230,7 @@ export class DeDiApiClient {
     );
 
     const savedName = saveResponse?.data?.record_name ?? name;
-    await this.request<{ message: string; data: { count: number; record_ids: string[] } }>(
-      `/dedi/${enc(ns)}/${enc(reg)}/publish-records`,
-      {
-        method: "POST",
-        body: JSON.stringify({ records: [savedName] }),
-      },
-      { retryable: false },
-    );
+    await this.publishDraftRecords(ns, reg, [savedName]);
 
     // Synthesize the envelope so callers that read `data.record_name` /
     // `data.details` / `data.updated_at` keep working. The only field we
@@ -253,6 +246,28 @@ export class DeDiApiClient {
         details,
       },
     } as DeDiResponse<DeDiRecord<T>>;
+  }
+
+  /**
+   * Advance existing DRAFT records to LIVE — the second step of the two-step
+   * publish (see {@link publishRecord}). Exposed separately so a caller can
+   * re-drive `publish-records` against a draft that was created but never
+   * published — e.g. a `save-record-as-draft` that landed server-side but
+   * whose response exceeded the request timeout, stranding the record in
+   * DRAFT (#11/#718). Callers should only invoke this for a record they have
+   * confirmed is NOT already LIVE (via `lookupRecord`), so an already-LIVE
+   * record is never re-published. Non-idempotent at the DeDi layer, so retry
+   * stays disabled — same rationale as the rest of the publish path (#546).
+   */
+  async publishDraftRecords(ns: string, reg: string, recordNames: string[]): Promise<void> {
+    await this.request<{ message: string; data: { count: number; record_ids: string[] } }>(
+      `/dedi/${enc(ns)}/${enc(reg)}/publish-records`,
+      {
+        method: "POST",
+        body: JSON.stringify({ records: recordNames }),
+      },
+      { retryable: false },
+    );
   }
 
   async lookupRecord<T = unknown>(

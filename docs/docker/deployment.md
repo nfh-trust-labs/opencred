@@ -185,6 +185,8 @@ See [Horizontal scale](#horizontal-scale) below for when and how to flip between
 | `OPENCRED_DEDI_TIMEOUT_MS` | integer (ms) | `10000` | DeDi request timeout. Range: 1000-30000. Note: every DeDi request is hard-capped at 10s by the client (security invariant), so values above `10000` have no effect — raise `OPENCRED_DEDI_MAX_RETRIES` to survive a brief outage. |
 | `OPENCRED_DEDI_MAX_RETRIES` | integer | `2` | Retries for a failed *idempotent* DeDi request (e.g. key/DID resolution) before giving up; `2` means 3 attempts total. Range: 0-5 (`0` disables retries). Each attempt is bounded by `OPENCRED_DEDI_TIMEOUT_MS` with exponential backoff. |
 
+> **Revocation publishing.** `POST /v1/credentials/revoke` writes to DeDi (which anchors to CORD) and can exceed the 10s per-request ceiling. The revoke write is retried **once** on a transient timeout/5xx (independent of `OPENCRED_DEDI_MAX_RETRIES`) and is **self-healing**: the record is keyed by the credential hash, so a write that landed server-side but timed out is detected on retry and advanced to LIVE via `lookup` + `publish-records` — reported as revoked rather than 504ing or falsely reporting "already revoked." A genuinely already-revoked hash still returns 409; a persistently slow (>10s every attempt) write still 504s, and the next revoke call self-heals the stranded record.
+
 ### Issuer DID method (did:key vs did:web)
 
 The issuer's DID is derived at startup. `did:key` is the default and works fully offline. `did:web` requires a domain you control (and optionally DeDi-side hosting). For a full walkthrough, see [Concepts → DIDs → Publishing your did:web DID Document](../concepts/dids.md#publishing-your-didweb-did-document).

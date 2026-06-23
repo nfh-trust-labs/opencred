@@ -15,6 +15,7 @@ import {
 vi.mock("../api/api-client.js", () => {
   const MockDeDiApiClient = vi.fn();
   MockDeDiApiClient.prototype.publishRecord = vi.fn();
+  MockDeDiApiClient.prototype.publishDraftRecords = vi.fn();
   MockDeDiApiClient.prototype.lookupRecord = vi.fn();
   MockDeDiApiClient.prototype.updateRecord = vi.fn();
   MockDeDiApiClient.prototype.queryRecords = vi.fn();
@@ -40,6 +41,28 @@ function mockApi(): InstanceType<typeof DeDiApiClient> {
   // Get the most recent instance created by the mock constructor
   const instances = vi.mocked(DeDiApiClient).mock.instances;
   return instances[instances.length - 1]!;
+}
+
+/**
+ * A LIVE `lookupRecord` envelope for the revocation registry — i.e. the
+ * record exists and is visible to `lookup/` (already revoked). Used by the
+ * self-healing duplicate path, which looks the record up to distinguish a
+ * genuine prior revoke (LIVE) from a stranded draft (`lookup` 404s a draft).
+ */
+function liveRevocationLookup(hash: string, updatedAt = "2026-01-01T00:00:00Z") {
+  return {
+    message: "Record found",
+    data: {
+      record_name: hash,
+      registry: REVOCATION_REGISTRY,
+      namespace: "example.com",
+      details: { revoked_id: hash },
+      state: "live" as const,
+      version: "1",
+      created_at: updatedAt,
+      updated_at: updatedAt,
+    },
+  };
 }
 
 describe("DeDiClient (adapter)", () => {
@@ -137,14 +160,14 @@ describe("DeDiClient (adapter)", () => {
       });
     });
 
-    it("rewraps DeDi 409 duplicate-record as DeDiRecordExistsError with hint", async () => {
+    it("rewraps a duplicate of a LIVE record as DeDiRecordExistsError with hint", async () => {
       // Real DeDi 409 body shape observed on api.dedi.global:
       //   { message: "duplicate record name",
       //     data: "Record with the same name already exists in the registry - vc-revocation-registry" }
-      // The adapter must surface this as a specific error so HTTP clients
-      // can distinguish "already revoked" (success-after-prior-run) from
-      // generic DeDi failures. Regression guard for the bootcamp confusion
-      // documented in docs/bootcamp/post-bootcamp-followups.md §6.
+      // When `lookup` confirms the record is LIVE, this is a genuine prior
+      // revoke — surface it as a specific error so HTTP clients can
+      // distinguish "already revoked" from generic DeDi failures. Regression
+      // guard for the bootcamp confusion in docs/bootcamp/post-bootcamp-followups.md §6.
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord).mockRejectedValue(
@@ -153,6 +176,7 @@ describe("DeDiClient (adapter)", () => {
           data: "Record with the same name already exists in the registry - vc-revocation-registry",
         }),
       );
+      vi.mocked(api.lookupRecord).mockResolvedValue(liveRevocationLookup("abc"));
 
       await expect(client.publishRevocationHash("abc")).rejects.toBeInstanceOf(
         DeDiRecordExistsError,
@@ -170,9 +194,11 @@ describe("DeDiClient (adapter)", () => {
           message: "duplicate record name",
         });
       }
+      // A LIVE duplicate is already revoked — it must NOT be re-published.
+      expect(api.publishDraftRecords).not.toHaveBeenCalled();
     });
 
-    it("rewraps duplicate-record signal carried only on data field (no message)", async () => {
+    it("rewraps a LIVE duplicate signalled only on the data field (no message)", async () => {
       // Defensive: future DeDi wording may move the duplicate signal
       // entirely into `data`. Helper checks both fields.
       const client = createClient("example.com");
@@ -182,26 +208,87 @@ describe("DeDiClient (adapter)", () => {
           data: "Record with the same name already exists in the registry - vc-revocation-registry",
         }),
       );
+      vi.mocked(api.lookupRecord).mockResolvedValue(liveRevocationLookup("abc"));
       await expect(client.publishRevocationHash("abc")).rejects.toBeInstanceOf(
         DeDiRecordExistsError,
       );
     });
 
-    it("rewraps duplicate-record signal carried as a raw string body", async () => {
+    it("rewraps a LIVE duplicate signalled as a raw string body", async () => {
       // Some DeDi error responses may surface as bare text rather than JSON.
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord).mockRejectedValue(
         new DeDiClientError("DeDi API error: 409", 409, "duplicate record name"),
       );
+      vi.mocked(api.lookupRecord).mockResolvedValue(liveRevocationLookup("abc"));
       await expect(client.publishRevocationHash("abc")).rejects.toBeInstanceOf(
         DeDiRecordExistsError,
       );
     });
 
-    it("passes through non-duplicate 409s as the original DeDiClientError", async () => {
-      // Not every 409 is a duplicate. A future "concurrent rotation"
-      // conflict, for example, must NOT be silently reclassified.
+    // ── Self-healing on a stranded draft (#11/#718) ──────────────────
+    // The dominant #11 case: a first `save-record-as-draft` lands on CORD but
+    // its response exceeds the 10s ceiling (504), so `publish-records` never
+    // runs — the record is a stranded DRAFT that `lookup/` 404s. A naive
+    // "duplicate ⇒ already revoked" would falsely report success. Instead we
+    // look the record up; on a 404 we drive `publish-records` to advance it.
+
+    it("self-heals a stranded draft: timeout then duplicate + lookup 404 ⇒ publishes draft, reports revoked", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord)
+        .mockRejectedValueOnce(
+          new DeDiClientError("DeDi API request timed out after 10000ms", 504),
+        )
+        .mockRejectedValueOnce(
+          new DeDiClientError("DeDi API error: 409", 409, { message: "duplicate record name" }),
+        );
+      // The draft is NOT live ⇒ lookup 404s.
+      vi.mocked(api.lookupRecord).mockRejectedValue(new DeDiClientError("Record not found", 404));
+      vi.mocked(api.publishDraftRecords).mockResolvedValue(undefined);
+
+      const result = await client.publishRevocationHash("abc");
+
+      expect(api.publishRecord).toHaveBeenCalledTimes(2); // initial + 1 retry
+      // The stranded draft is advanced to LIVE via publish-records.
+      expect(api.publishDraftRecords).toHaveBeenCalledWith("example.com", REVOCATION_REGISTRY, [
+        "abc",
+      ]);
+      expect(result.revoked).toBe(true);
+    });
+
+    it("retries a transient timeout once, then succeeds without self-heal", async () => {
+      const client = createClient("example.com");
+      const api = mockApi();
+      vi.mocked(api.publishRecord)
+        .mockRejectedValueOnce(
+          new DeDiClientError("DeDi API request timed out after 10000ms", 504),
+        )
+        .mockResolvedValueOnce({
+          message: "Record published",
+          data: {
+            record_name: "abc",
+            registry: REVOCATION_REGISTRY,
+            namespace: "example.com",
+            details: { revoked_id: "abc" },
+            state: "live",
+            version: "1",
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z",
+          },
+        });
+
+      const result = await client.publishRevocationHash("abc");
+
+      expect(api.publishRecord).toHaveBeenCalledTimes(2);
+      expect(api.publishDraftRecords).not.toHaveBeenCalled();
+      expect(result).toEqual({ revoked: true, revokedAt: "2026-01-01T00:00:00Z" });
+    });
+
+    it("passes through non-duplicate 409s unchanged (no retry, no self-heal)", async () => {
+      // Not every 409 is a duplicate. A "version conflict" must NOT be
+      // reclassified as already-revoked nor trigger a draft publish.
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord).mockRejectedValue(
@@ -214,9 +301,10 @@ describe("DeDiClient (adapter)", () => {
       await expect(client.publishRevocationHash("abc")).rejects.not.toBeInstanceOf(
         DeDiRecordExistsError,
       );
+      expect(api.publishDraftRecords).not.toHaveBeenCalled();
     });
 
-    it("passes through non-409 errors unchanged", async () => {
+    it("retries a transient 5xx once, then surfaces the DeDiClientError if it persists", async () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord).mockRejectedValue(
@@ -226,6 +314,9 @@ describe("DeDiClient (adapter)", () => {
       await expect(client.publishRevocationHash("abc")).rejects.not.toBeInstanceOf(
         DeDiRecordExistsError,
       );
+      // Two attempts per call (1 initial + 1 retry); two calls above ⇒ 4.
+      expect(api.publishRecord).toHaveBeenCalledTimes(4);
+      expect(api.publishDraftRecords).not.toHaveBeenCalled();
     });
   });
 

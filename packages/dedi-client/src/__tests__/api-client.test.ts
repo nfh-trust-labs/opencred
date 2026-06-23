@@ -310,6 +310,25 @@ describe("DeDiApiClient", () => {
       expect(result.data.details).toEqual({ hash: "abc" });
     });
 
+    it("publishDraftRecords POSTs only the publish-records step for the given names", async () => {
+      // Exposed separately (#11/#718) so the revocation self-heal can advance
+      // a stranded draft to LIVE without re-running save-record-as-draft.
+      mockFetch.mockResolvedValue(
+        jsonResponse({
+          message: "Records are in publish queue",
+          data: { count: 2, record_ids: ["x", "y"] },
+        }),
+      );
+      const client = new DeDiApiClient(createConfig());
+      await client.publishDraftRecords("ns", "r", ["abc", "def"]);
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [url, init] = mockFetch.mock.calls[0]!;
+      expect(url).toBe("https://dedi.example.com/dedi/ns/r/publish-records");
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(init?.body as string)).toEqual({ records: ["abc", "def"] });
+    });
+
     it("lookupRecord GETs /dedi/lookup/{ns}/{reg}/{record}", async () => {
       mockFetch.mockResolvedValue(jsonResponse({}));
       const client = new DeDiApiClient(createConfig());
