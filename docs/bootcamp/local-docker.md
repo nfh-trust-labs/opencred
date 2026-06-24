@@ -794,7 +794,10 @@ curl -s http://localhost:3100/v1/credentials/revocation-status \
   -d "{\"hash\": \"$HASH\"}" | jq
 ```
 
-The credential is now revoked at the DeDi layer. Verifiers that consult the
+The credential is now revoked at the DeDi layer. (`revoke` returns **200** when the
+DeDi/CORD write completes in time, or **202** `{"status":"pending"}` when it exceeds
+the server's hard 10s ceiling and finishes in the background — poll
+`revocation-status` until `revoked:true` to confirm.) Verifiers that consult the
 registry will see it; verifiers that only check the signature will not (which
 is part of the point — revocation is a separate trust check, intentionally).
 

@@ -1352,7 +1352,7 @@ Either `credential` or `hash` must be provided. If `credential` is given, the ha
 
 `reason` is optional free-text per DeDi's canonical [`revoke.json`](https://dedi.global/revoke.json) schema — typical values are short descriptors like `"key-compromised"`, `"superseded"`, or `"holder-request"`. When supplied, the reason is stored alongside the hash on the DeDi record and surfaced by `POST /v1/credentials/revocation-status` lookups.
 
-**Response: `200 OK`**
+**Response: `200 OK`** — the revocation completed synchronously (the DeDi/CORD write finished within the request budget).
 
 ```json
 {
@@ -1366,9 +1366,22 @@ Either `credential` or `hash` must be provided. If `credential` is given, the ha
 | Field | Type | Description |
 |---|---|---|
 | `hash` | `string` | The 64-char hex hash that was published. Re-attached by the server for API compatibility — the underlying DeDi adapter's `RevocationHashRecord` no longer carries the hash in `details` because record existence already signifies revocation. |
-| `revoked` | `boolean` | Always `true` after a successful publish. |
-| `revokedAt` | `string` | ISO 8601 timestamp from the DeDi envelope's `updated_at`. |
+| `revoked` | `boolean` | `true` on a synchronous publish; `false` on a `202` (the publish is still settling in the background). |
+| `revokedAt` | `string` | ISO 8601 timestamp from the DeDi envelope's `updated_at` (present on `200`). |
 | `reason` | `string` _(optional)_ | Echoed only when the publish supplied a reason. Omitted otherwise (no empty-string placeholder). |
+
+**Response: `202 Accepted`** — DeDi anchors revocation records to CORD, and both write steps (`save-record-as-draft`, `publish-records`) can exceed the server's hard 10s per-request ceiling. When the synchronous publish hits that ceiling, the revoke is **accepted and completed in the background** (idempotent and self-healing) rather than failing with a 504. Poll `POST /v1/credentials/revocation-status` until it returns `{"revoked": true}` to confirm.
+
+```json
+{
+  "hash": "d6f4e2c9b7a8...e1f0",
+  "revoked": false,
+  "status": "pending",
+  "message": "Revocation accepted and is being published to DeDi..."
+}
+```
+
+> **Client guidance.** Treat `202` as *accepted, settling* — not a failure — and poll `revocation-status` until `revoked:true`. The background driver is in-process/best-effort; a server restart mid-publish leaves the record recoverable (re-POST `revoke`, or the next status poll, re-drives the stranded draft to LIVE). Fast/uncongested namespaces return `200` and never hit this path.
 
 **Error responses**
 
