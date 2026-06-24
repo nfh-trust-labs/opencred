@@ -124,6 +124,15 @@ If requirements change in the PRD:
 - **PR merge strategy**: Squash merge to keep `new-opencred-dev` history clean. The squashed commit message should follow conventional commits format.
 - **Delete branches after merge** — feature branches are ephemeral
 
+### Documentation — MANDATORY on every PR and release
+
+Documentation is part of the change, never an afterthought. Every PR that changes behavior — an endpoint, a response shape, a config variable, a contract, a default — and every release MUST **thoroughly** update the documentation that describes it.
+
+- **Sweep, don't guess.** Grep the whole repo for every doc that references what you changed, and update each hit. A change is not done until a repo-wide grep finds no stale references. There is almost always more than one doc: e.g. a `/v1/credentials/*` change touches BOTH `docs/api-reference.md` AND `docs/docker/api-reference.md`, the deployment guides, the bootcamp tutorial + `docs/bootcamp/postman-collection.json`, and any affected `docs/concepts/*` — not just the first file you find.
+- **Check on every change:** `docs/api-reference.md`, `docs/docker/api-reference.md`, `docs/deployment-guide.md`, `docs/docker/deployment.md`, the relevant `docs/concepts/*`, `docs/bootcamp/*` (including `postman-collection.json`), affected package/SDK READMEs (`packages/*/README.md`, `packages/verify-sdk/README.md`), and `CHANGELOG.md`.
+- **On every release:** before tagging, re-sweep for any doc still describing pre-release behavior, update `CHANGELOG.md` with the release entry, and confirm the API reference matches the shipped contract.
+- **"Docs updated" in a PR means you ran the sweep** — list the docs you touched in the PR description / test plan. Never wait to be asked. (Reinforced by `feedback_sync_docs_release_sdk` in Claude's memory.)
+
 ### Definition of Done
 
 An issue is only considered complete when ALL of the following are true:
@@ -135,6 +144,7 @@ An issue is only considered complete when ALL of the following are true:
 5. **PR is merged to `new-opencred-dev`**
 6. **Closing comment is posted** on the issue (see Working on Issues, step 8)
 7. **No regressions** — existing tests still pass
+8. **Documentation is thoroughly updated** — every doc that references the changed behavior, endpoint, response shape, config variable, or contract is updated (run a repo-wide grep sweep, not just the obvious file), plus `CHANGELOG.md`. See **Documentation — MANDATORY on every PR and release** above.
 
 If any of these are not met, the issue stays open.
 
