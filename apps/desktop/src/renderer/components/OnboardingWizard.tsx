@@ -125,8 +125,8 @@ function PathGuidance() {
         <div className="mt-3 rounded-oc border border-border-light bg-surface-warm p-4 space-y-3 text-body-xs text-txt-secondary">
           <p>
             <span className="font-semibold text-txt-primary">My organisation has a website</span>:
-            best if you control a domain (e.g. acme.org). Your website becomes your identity, and you
-            can replace your key later if needed.
+            best if you control a domain (e.g. acme.org). Your website becomes your identity, and
+            you can replace your key later if needed.
           </p>
           <p>
             <span className="font-semibold text-txt-primary">Publish to a DeDi directory</span>:

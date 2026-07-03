@@ -152,7 +152,15 @@ FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb836
 
 # Upgrade Alpine base packages to pick up security fixes (e.g. libcrypto3,
 # libssl3, zlib). Must run before switching to the non-root node user.
-RUN apk upgrade --no-cache
+#
+# Also delete the npm CLI that ships bundled in node:20-alpine. The runtime
+# entrypoint is `node apps/server/dist/index.js` — it never invokes npm — but
+# npm bundles its own vendored deps (e.g. `sigstore`) that Trivy flags as
+# HIGH/CRITICAL and that we cannot patch via our lockfile. Removing npm drops
+# those findings and shrinks the runtime attack surface. Must run as root,
+# before switching to the non-root node user.
+RUN apk upgrade --no-cache \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 # Run as the non-root `node` user that ships with the alpine image.
 USER node

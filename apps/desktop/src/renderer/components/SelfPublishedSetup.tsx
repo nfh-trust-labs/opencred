@@ -164,8 +164,10 @@ export function SelfPublishedSetup({
     }
     // handleExport reads `generatedKey`/`domain` from closure but is stable
     // enough for our one-shot guard; intentionally not in the dep list to
-    // avoid re-firing on unrelated re-renders.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // avoid re-firing on unrelated re-renders. (No eslint-disable directive
+    // here: the project's ESLint config doesn't load eslint-plugin-react-hooks,
+    // so referencing react-hooks/exhaustive-deps is a hard "rule not found"
+    // error — see #716 regression.)
   }, [step, directory, exportedDoc, exporting, exportError]);
 
   // ------------------------------------------------------------------
@@ -642,8 +644,8 @@ export function SelfPublishedSetup({
               {directory && (
                 <div className="rounded-oc border border-blue-200 bg-brand-light p-3">
                   <p className="text-body-2xs text-brand">
-                    DeDi hosts this file when you publish — no web server needed. You&apos;ll connect
-                    your DeDi namespace (or create one) in the next step.
+                    DeDi hosts this file when you publish — no web server needed. You&apos;ll
+                    connect your DeDi namespace (or create one) in the next step.
                   </p>
                 </div>
               )}
@@ -651,70 +653,70 @@ export function SelfPublishedSetup({
               {/* Collapsible: Publishing Instructions + no-website link (website only) */}
               {!directory && (
                 <>
-                <div>
-                <button
-                  onClick={() => setShowInstructions(!showInstructions)}
-                  className="text-body-xs text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    className={`transition-transform duration-200 ${showInstructions ? "rotate-180" : ""}`}
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                  Publishing Instructions
-                </button>
-                {showInstructions && (
-                  <div className="mt-2 rounded-oc border border-blue-200 bg-brand-light p-3 space-y-2">
-                    <p className="text-body-2xs text-brand italic">
-                      You will need access to your organization&apos;s website hosting. Your IT
-                      administrator or web developer can help with this step.
-                    </p>
-                    <ol className="text-body-2xs text-brand list-decimal list-inside space-y-0.5">
-                      <li>
-                        Save the DID document as{" "}
-                        <code className="bg-brand-light px-1 rounded">did.json</code>
-                      </li>
-                      <li>
-                        Upload it to{" "}
-                        <code className="bg-brand-light px-1 rounded">
-                          https://{domain.trim()}/.well-known/did.json
-                        </code>
-                      </li>
-                      <li>
-                        Ensure the file is served with{" "}
-                        <code className="bg-brand-light px-1 rounded">
-                          Content-Type: application/json
-                        </code>
-                      </li>
-                    </ol>
+                  <div>
+                    <button
+                      onClick={() => setShowInstructions(!showInstructions)}
+                      className="text-body-xs text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
+                    >
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        className={`transition-transform duration-200 ${showInstructions ? "rotate-180" : ""}`}
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                      Publishing Instructions
+                    </button>
+                    {showInstructions && (
+                      <div className="mt-2 rounded-oc border border-blue-200 bg-brand-light p-3 space-y-2">
+                        <p className="text-body-2xs text-brand italic">
+                          You will need access to your organization&apos;s website hosting. Your IT
+                          administrator or web developer can help with this step.
+                        </p>
+                        <ol className="text-body-2xs text-brand list-decimal list-inside space-y-0.5">
+                          <li>
+                            Save the DID document as{" "}
+                            <code className="bg-brand-light px-1 rounded">did.json</code>
+                          </li>
+                          <li>
+                            Upload it to{" "}
+                            <code className="bg-brand-light px-1 rounded">
+                              https://{domain.trim()}/.well-known/did.json
+                            </code>
+                          </li>
+                          <li>
+                            Ensure the file is served with{" "}
+                            <code className="bg-brand-light px-1 rounded">
+                              Content-Type: application/json
+                            </code>
+                          </li>
+                        </ol>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
-              {/* "I don't have a website" link */}
-              <div>
-                <button
-                  onClick={() => setShowNoWebsite(!showNoWebsite)}
-                  className="text-body-2xs text-txt-muted hover:text-txt-secondary hover:underline focus:outline-none"
-                >
-                  I don&apos;t have a website
-                </button>
-                {showNoWebsite && (
-                  <div className="mt-2 rounded-oc border border-border-light bg-surface-warm p-3">
-                    <p className="text-body-2xs text-txt-secondary">
-                      You can still issue credentials. Verifiers will need your public key shared
-                      directly. You can also set up DeDi later from Settings to publish your key to
-                      a public directory.
-                    </p>
+                  {/* "I don't have a website" link */}
+                  <div>
+                    <button
+                      onClick={() => setShowNoWebsite(!showNoWebsite)}
+                      className="text-body-2xs text-txt-muted hover:text-txt-secondary hover:underline focus:outline-none"
+                    >
+                      I don&apos;t have a website
+                    </button>
+                    {showNoWebsite && (
+                      <div className="mt-2 rounded-oc border border-border-light bg-surface-warm p-3">
+                        <p className="text-body-2xs text-txt-secondary">
+                          You can still issue credentials. Verifiers will need your public key
+                          shared directly. You can also set up DeDi later from Settings to publish
+                          your key to a public directory.
+                        </p>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
                 </>
               )}
             </div>
