@@ -50,9 +50,9 @@ describe("encodeDidWeb", () => {
   });
 
   it("should not encode a non-numeric first path segment as a port", () => {
-    expect(encodeDidWeb("did.cord.network:76EU7h2qxfauoLdvRWqSi5jxci13MTTjQ3mTzCrC5QSCAzwWq78Rid")).toBe(
-      "did:web:did.cord.network:76EU7h2qxfauoLdvRWqSi5jxci13MTTjQ3mTzCrC5QSCAzwWq78Rid",
-    );
+    expect(
+      encodeDidWeb("did.cord.network:76EU7h2qxfauoLdvRWqSi5jxci13MTTjQ3mTzCrC5QSCAzwWq78Rid"),
+    ).toBe("did:web:did.cord.network:76EU7h2qxfauoLdvRWqSi5jxci13MTTjQ3mTzCrC5QSCAzwWq78Rid");
   });
 
   it("should encode a numeric port but keep trailing path segments in a combined identifier", () => {

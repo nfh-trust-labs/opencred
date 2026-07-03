@@ -238,9 +238,7 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord)
-        .mockRejectedValueOnce(
-          new DeDiClientError("DeDi API request timed out after 10000ms", 504),
-        )
+        .mockRejectedValueOnce(new DeDiClientError("DeDi API request timed out after 10000ms", 504))
         .mockRejectedValueOnce(
           new DeDiClientError("DeDi API error: 409", 409, { message: "duplicate record name" }),
         );
@@ -262,9 +260,7 @@ describe("DeDiClient (adapter)", () => {
       const client = createClient("example.com");
       const api = mockApi();
       vi.mocked(api.publishRecord)
-        .mockRejectedValueOnce(
-          new DeDiClientError("DeDi API request timed out after 10000ms", 504),
-        )
+        .mockRejectedValueOnce(new DeDiClientError("DeDi API request timed out after 10000ms", 504))
         .mockResolvedValueOnce({
           message: "Record published",
           data: {
