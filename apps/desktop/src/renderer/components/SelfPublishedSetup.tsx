@@ -164,8 +164,10 @@ export function SelfPublishedSetup({
     }
     // handleExport reads `generatedKey`/`domain` from closure but is stable
     // enough for our one-shot guard; intentionally not in the dep list to
-    // avoid re-firing on unrelated re-renders.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // avoid re-firing on unrelated re-renders. (No eslint-disable directive
+    // here: the project's ESLint config doesn't load eslint-plugin-react-hooks,
+    // so referencing react-hooks/exhaustive-deps is a hard "rule not found"
+    // error — see #716 regression.)
   }, [step, directory, exportedDoc, exporting, exportError]);
 
   // ------------------------------------------------------------------
