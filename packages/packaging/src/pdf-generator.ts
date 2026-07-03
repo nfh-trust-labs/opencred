@@ -109,6 +109,80 @@ function formatLabel(key: string): string {
   return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
 }
 
+/**
+ * A single row in the "Credential Details" section, flattened out of the
+ * (arbitrarily nested) `credentialSubject`. `depth` drives indentation.
+ * A `value` of `""` marks a *group* row — an object or array-of-objects
+ * header whose contents follow as deeper rows (rendered with a "—").
+ */
+export interface DetailRow {
+  label: string;
+  value: string;
+  depth: number;
+}
+
+/**
+ * Flatten a `credentialSubject` into an ordered list of label/value rows for
+ * the certificate's "Credential Details" section.
+ *
+ * credentialSubject fields nest arbitrarily — objects within objects, arrays
+ * of objects (e.g. the APEPDCL electricity credential's
+ * `customerProfile.energyResources[]`). This walks the whole tree so nested
+ * values render as their own indented rows instead of collapsing to
+ * `[object Object]` (the pre-fix bug, which only recursed one level).
+ *
+ * Rules:
+ *  - primitive (string/number/boolean) → one value row
+ *  - `null`/`undefined`/empty object/empty array → an em-dash row
+ *  - array of only primitives → one comma-joined value row
+ *  - object, or array containing objects → a group header row (empty value)
+ *    followed by its contents one level deeper; array elements are labelled
+ *    `Item 1`, `Item 2`, …
+ *
+ * The `id` field is skipped — it's shown separately in the "Issued to" strip.
+ */
+export function flattenCredentialSubject(subject: Record<string, unknown>): DetailRow[] {
+  const rows: DetailRow[] = [];
+  const isPrimitive = (v: unknown) => v === null || typeof v !== "object";
+
+  const visit = (label: string, value: unknown, depth: number): void => {
+    if (value === null || value === undefined) {
+      rows.push({ label, value: "—", depth });
+      return;
+    }
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        rows.push({ label, value: "—", depth });
+        return;
+      }
+      if (value.every(isPrimitive)) {
+        rows.push({ label, value: value.map((v) => String(v ?? "")).join(", "), depth });
+        return;
+      }
+      rows.push({ label, value: "", depth });
+      value.forEach((item, i) => visit(`Item ${i + 1}`, item, depth + 1));
+      return;
+    }
+    if (typeof value === "object") {
+      const entries = Object.entries(value as Record<string, unknown>);
+      if (entries.length === 0) {
+        rows.push({ label, value: "—", depth });
+        return;
+      }
+      rows.push({ label, value: "", depth });
+      for (const [subKey, subValue] of entries) visit(formatLabel(subKey), subValue, depth + 1);
+      return;
+    }
+    rows.push({ label, value: String(value), depth });
+  };
+
+  for (const [key, value] of Object.entries(subject)) {
+    if (key === "id") continue;
+    visit(formatLabel(key), value, 0);
+  }
+  return rows;
+}
+
 function getCredentialTitle(credential: PartialVerifiableCredential): string {
   const types = Array.isArray(credential.type) ? credential.type : [String(credential.type)];
   const meaningful = types.filter((t) => t !== "VerifiableCredential");
@@ -331,7 +405,12 @@ export async function generatePdf(
           .fontSize(9.5)
           .fillColor(opts.valueColor ?? textColor)
           .text(value || "—", valueX, y, { width: valueW });
-        doc.y = Math.max(doc.y, y + 15);
+        // If the value auto-paginated, PDFKit dropped doc.y to the top of a
+        // fresh page (below the captured `y`) — trust it. Only enforce the
+        // minimum row advance when we're still on the same page; otherwise the
+        // stale `y + 15` would sit past the new page's bottom and make every
+        // following row trigger another page break (a runaway cascade).
+        doc.y = doc.y < y ? doc.y : Math.max(doc.y, y + 15);
       };
 
       // -- background + top brand rule -----------------------------------
@@ -455,17 +534,28 @@ export async function generatePdf(
       }
 
       // -- credential details --------------------------------------------
-      const subjectEntries = Object.entries(subject).filter(([key]) => key !== "id");
-      if (subjectEntries.length > 0) {
+      // Flatten the (arbitrarily nested) subject so deep objects/arrays render
+      // as indented rows instead of "[object Object]". Indent grows with depth;
+      // clamp it so deeply nested structures don't squeeze the value column off
+      // the page (recursion still descends past the clamp — only the offset stops).
+      const INDENT_STEP = 14;
+      const detailRows = flattenCredentialSubject(subject as Record<string, unknown>);
+      if (detailRows.length > 0) {
         sectionHeading("Credential Details");
-        for (const [key, value] of subjectEntries) {
-          if (typeof value === "object" && value !== null) {
-            field(formatLabel(key), "");
-            for (const [subKey, subValue] of Object.entries(value as Record<string, unknown>)) {
-              field(formatLabel(subKey), String(subValue ?? ""), { indent: 14, labelWidth: 136 });
-            }
+        for (const row of detailRows) {
+          // A subject can flatten to more rows than fit on one page. Break
+          // BEFORE drawing a row that would cross the bottom, so the field's
+          // label and value always land together on the same page (rather than
+          // letting field()'s value text auto-paginate and orphan its label).
+          if (doc.y > BOTTOM_LIMIT - 24) doc.addPage();
+          if (row.depth === 0) {
+            field(row.label, row.value);
           } else {
-            field(formatLabel(key), String(value ?? ""));
+            const clampedDepth = Math.min(row.depth, 5);
+            field(row.label, row.value, {
+              indent: clampedDepth * INDENT_STEP,
+              labelWidth: Math.max(150 - clampedDepth * INDENT_STEP, 80),
+            });
           }
         }
       }
