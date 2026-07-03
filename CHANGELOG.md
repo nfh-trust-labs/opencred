@@ -4,6 +4,16 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.1](https://github.com/nfh-trust-labs/opencred/compare/v1.9.0...v1.9.1) (2026-07-03)
+
+### Bug Fixes
+
+- **packaging:** render nested `credentialSubject` objects and arrays in the PDF certificate. The "Credential Details" section recursed only one level and stringified anything deeper, so fields two or more levels deep (e.g. a utility credential's `customerProfile.idRef` or `customerDetails.installationAddress.country`) rendered as `[object Object]`. It now flattens the whole subject tree into indented rows and paginates instead of overflowing the page. Shared generator, so both the Desktop app and the Docker server are fixed ([#725](https://github.com/nfh-trust-labs/opencred/pull/725)) ([306c826](https://github.com/nfh-trust-labs/opencred/commit/306c826b))
+
+### Build System
+
+- **schema-engine:** re-pin `opencred-vc-schemas` to pick up the additive OpenBadges v3 context update (`endorsementJwt`, `jti`) that upstream changed in place — it had been hard-failing the pinned-hash check and blocking every build. Keep `vc-core`'s bundled-context commit SHA in sync so data-integrity credentials for built-in schemas resolve their context, guarded by a new sync test ([#726](https://github.com/nfh-trust-labs/opencred/pull/726)) ([37186f1](https://github.com/nfh-trust-labs/opencred/commit/37186f12))
+
 ## [1.9.0](https://github.com/nfh-trust-labs/opencred/compare/v1.8.0...v1.9.0) (2026-06-23)
 
 ### Features
