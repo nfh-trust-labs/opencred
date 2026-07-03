@@ -44,7 +44,7 @@ export function createBuiltInRegistry(): SchemaRegistry {
   registry.register({
     id: "electricity/v1",
     schema: electricityV1,
-    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/electricity/v1/context.jsonld",
+    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/electricity/v1/context.jsonld",
     version: "1.0.0",
     lastUpdated: "2026-04-08T00:00:00Z",
     checksum: "366f042d00f8853dfa2c449ef9d820b0de8276ec719b2c3d4185f88410219b4e",
@@ -56,70 +56,70 @@ export function createBuiltInRegistry(): SchemaRegistry {
     version: "1.0.0",
     lastUpdated: "2026-04-08T00:00:00Z",
     checksum: "fb113aa7a2e49fa9abd5c87abfab30c89369ff12d2d8b0bf9857669a1b735fea",
-    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/salary-slip/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
+    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/salary-slip/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
   } satisfies SchemaDefinition);
   registry.register({
     id: "immunization/v1",
     schema: immunizationV1,
-    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/immunization/v1/context.jsonld",
+    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/immunization/v1/context.jsonld",
     version: "1.0.0",
     lastUpdated: "2026-04-08T00:00:00Z",
     checksum: "e88bb7c284020861325054e79a3ede3078eed8df8a2b413e0ee2508ed0356757",
-    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/immunization/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
+    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/immunization/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
   } satisfies SchemaDefinition);
   registry.register({
     id: "prescription/v1",
     schema: prescriptionV1,
-    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/prescription/v1/context.jsonld",
+    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/prescription/v1/context.jsonld",
     version: "1.0.0",
     lastUpdated: "2026-04-08T00:00:00Z",
     checksum: "43bc583f19f1f236cf3009e221791355a80583f02b0b28d0a3e17c68e6af1a97",
-    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/prescription/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
+    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/prescription/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
   } satisfies SchemaDefinition);
   registry.register({
     id: "test-result/v1",
     schema: testResultV1,
-    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/test-result/v1/context.jsonld",
+    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/test-result/v1/context.jsonld",
     version: "1.0.0",
     lastUpdated: "2026-04-08T00:00:00Z",
     checksum: "55f9caf38bf34608bd6fb6f4d7cbbeb996e91388050df4587be8b7a5a6174f8a",
-    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/test-result/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
+    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/test-result/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
   } satisfies SchemaDefinition);
   registry.register({
     id: "insurance-policy/v1",
     schema: insurancePolicyV1,
-    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/insurance-policy/v1/context.jsonld",
+    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/insurance-policy/v1/context.jsonld",
     version: "1.0.0",
     lastUpdated: "2026-04-08T00:00:00Z",
     checksum: "c30e6708a5de6d9ea05e4ae0a293769269ccb208a21d68e43252674f6c7f6905",
-    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/insurance-policy/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
+    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/insurance-policy/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
   } satisfies SchemaDefinition);
   registry.register({
     id: "functional-identity/v1",
     schema: functionalIdentityV1,
-    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/functional-identity/v1/context.jsonld",
+    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/functional-identity/v1/context.jsonld",
     version: "1.0.0",
     lastUpdated: "2026-04-08T00:00:00Z",
     checksum: "bf442dc05eacd32153138aa2f9bb924c1a5a7cbaa00f8b716defa0222bd7c234",
-    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/functional-identity/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
+    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/functional-identity/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
   } satisfies SchemaDefinition);
   registry.register({
     id: "employment-offer-letter/v1",
     schema: employmentOfferLetterV1,
-    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/employment-offer-letter/v1/context.jsonld",
+    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/employment-offer-letter/v1/context.jsonld",
     version: "1.0.0",
     lastUpdated: "2026-04-08T00:00:00Z",
     checksum: "3b7d754b056a67f964d3554ca675b5b31b881c3d2f04680876fd3bef46cb48b1",
-    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/employment-offer-letter/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
+    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/employment-offer-letter/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
   } satisfies SchemaDefinition);
   registry.register({
     id: "business-entity/v1",
     schema: businessEntityV1,
-    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/business-entity/v1/context.jsonld",
+    contextUrl: "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/business-entity/v1/context.jsonld",
     version: "1.0.0",
     lastUpdated: "2026-04-08T00:00:00Z",
     checksum: "879ac9707361edfd5d47d6fdd7712576d2602dd2a54a755ff596fd12e6395879",
-    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/ed460795866ce51aebf92e9fccc5f30ff0482dcb/schemas/business-entity/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
+    source: {"kind":"defined","upstreamUrl":"https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/cd80bff30417ef693f5d868362c78f209aadce6b/schemas/business-entity/v1/schema.json","upstreamOwner":"OpenCred","upstreamLicense":"MIT"},
   } satisfies SchemaDefinition);
   registry.register({
     id: "open-badges/v3",
