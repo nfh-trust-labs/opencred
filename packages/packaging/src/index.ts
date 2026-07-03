@@ -8,8 +8,8 @@
  * `packager.ts`; this package owns the rendering + QR encoding core.
  */
 
-export { generatePdf, PDF_CREDENTIAL_INFO_KEY } from "./pdf-generator.js";
-export type { PdfOptions } from "./pdf-generator.js";
+export { generatePdf, PDF_CREDENTIAL_INFO_KEY, flattenCredentialSubject } from "./pdf-generator.js";
+export type { PdfOptions, DetailRow } from "./pdf-generator.js";
 
 export {
   compressCredentialForQr,
