@@ -159,6 +159,34 @@ describe("generatePdf", () => {
       ]);
     });
 
+    it("paginates (does not cascade) when a nested subject overflows one page", async () => {
+      // A subject that flattens to ~160 rows. Before the page-break guard, the
+      // first row past the page bottom made field()'s stale `y` re-trigger a
+      // page break on every subsequent row — a runaway cascade (hundreds of
+      // near-empty pages). It must instead paginate to a small, bounded count.
+      const subject: Record<string, unknown> = { id: "did:example:overflow" };
+      for (let g = 0; g < 8; g++) {
+        const group: Record<string, unknown> = {};
+        for (let i = 0; i < 6; i++) group[`field_${i}`] = `value ${g}-${i}`;
+        group.items = [
+          { a: "a0", b: "b0", c: "c0" },
+          { a: "a1", b: "b1", c: "c1" },
+          { a: "a2", b: "b2", c: "c2" },
+        ];
+        subject[`group_${g}`] = group;
+      }
+      const big = {
+        ...(testCredential as unknown as Record<string, unknown>),
+        credentialSubject: subject,
+      } as unknown as VerifiableCredential;
+      const buf = await generatePdf(big);
+      const pdf = await PDFDocument.load(buf);
+      // ~160 rows at ~15pt spans a handful of pages; the cascade bug produced
+      // hundreds. Assert a sane upper bound well below any cascade.
+      expect(pdf.getPageCount()).toBeLessThanOrEqual(8);
+      expect(pdf.getPageCount()).toBeGreaterThan(1);
+    });
+
     it("generatePdf renders a deeply-nested subject without throwing", async () => {
       const deep = {
         ...(testCredential as unknown as Record<string, unknown>),

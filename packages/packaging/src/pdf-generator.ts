@@ -405,7 +405,12 @@ export async function generatePdf(
           .fontSize(9.5)
           .fillColor(opts.valueColor ?? textColor)
           .text(value || "—", valueX, y, { width: valueW });
-        doc.y = Math.max(doc.y, y + 15);
+        // If the value auto-paginated, PDFKit dropped doc.y to the top of a
+        // fresh page (below the captured `y`) — trust it. Only enforce the
+        // minimum row advance when we're still on the same page; otherwise the
+        // stale `y + 15` would sit past the new page's bottom and make every
+        // following row trigger another page break (a runaway cascade).
+        doc.y = doc.y < y ? doc.y : Math.max(doc.y, y + 15);
       };
 
       // -- background + top brand rule -----------------------------------
@@ -538,6 +543,11 @@ export async function generatePdf(
       if (detailRows.length > 0) {
         sectionHeading("Credential Details");
         for (const row of detailRows) {
+          // A subject can flatten to more rows than fit on one page. Break
+          // BEFORE drawing a row that would cross the bottom, so the field's
+          // label and value always land together on the same page (rather than
+          // letting field()'s value text auto-paginate and orphan its label).
+          if (doc.y > BOTTOM_LIMIT - 24) doc.addPage();
           if (row.depth === 0) {
             field(row.label, row.value);
           } else {
