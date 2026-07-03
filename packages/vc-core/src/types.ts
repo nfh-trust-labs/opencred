@@ -107,7 +107,7 @@ export const OPEN_BADGES_V3_CONTEXT = "https://purl.imsglobal.org/spec/ob/v3p0/c
  * pinned to. Must match `commit` in
  * `packages/schema-engine/scripts/schema-sources.json`.
  */
-const OPENCRED_SCHEMAS_SHA = "ed460795866ce51aebf92e9fccc5f30ff0482dcb";
+const OPENCRED_SCHEMAS_SHA = "cd80bff30417ef693f5d868362c78f209aadce6b";
 const OPENCRED_SCHEMAS_BASE = `https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/${OPENCRED_SCHEMAS_SHA}/schemas`;
 
 export const OPENCRED_ELECTRICITY_V1_CONTEXT = `${OPENCRED_SCHEMAS_BASE}/electricity/v1/context.jsonld`;
