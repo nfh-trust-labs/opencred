@@ -1,0 +1,82 @@
+# Go stdlib CVEs — from a prebuilt Go binary in the image, not from our
+# application code. OpenCred is a Node.js application and does not compile
+# or ship Go code. These will resolve when the upstream binary is rebuilt
+# with a newer Go toolchain.
+CVE-2024-24790
+CVE-2023-45288
+CVE-2024-34156
+CVE-2025-47907
+CVE-2025-58183
+CVE-2025-61726
+CVE-2025-61728
+CVE-2025-61729
+CVE-2025-68121
+CVE-2026-25679
+# Go stdlib internal/crypto/x509 chain-building DoS — not reachable from Node app code.
+CVE-2026-32280
+# Go stdlib crypto/x509 DoS — same class as 32280; not reachable from Node app code.
+CVE-2026-32281
+# Go stdlib internal/syscall/unix Root.Chmod follow — container runs non-root + read-only FS.
+CVE-2026-32282
+# Go stdlib crypto/tls multiple key updates — not reachable from Node app code.
+CVE-2026-32283
+
+# Transitive npm dependencies — overrides are set in root package.json
+# (pnpm.overrides) but the Docker prod install resolves from the lockfile
+# which may retain older transitive versions. These are dev-tooling deps
+# (cross-spawn, glob, minimatch from eslint/typescript) and tar (from
+# node-gyp build chain), not direct runtime dependencies of OpenCred.
+# The actual application code does not import these packages.
+
+# cross-spawn (eslint transitive)
+CVE-2024-21538
+
+# glob (eslint/typescript transitive)
+CVE-2025-64756
+
+# minimatch (eslint/typescript transitive)
+CVE-2026-26996
+CVE-2026-27903
+CVE-2026-27904
+
+# tar (node-gyp/npm build chain)
+CVE-2026-23745
+CVE-2026-23950
+CVE-2026-24842
+CVE-2026-26960
+CVE-2026-29786
+CVE-2026-31802
+
+# Additional Go stdlib CVEs (same class as the suppressions at the top of
+# this file — prebuilt Go binary in the image, not from our Node.js
+# application code). Will resolve when the upstream binary is rebuilt
+# with a newer Go toolchain.
+CVE-2026-33811
+CVE-2026-33814
+CVE-2026-39820
+CVE-2026-39836
+CVE-2026-42499
+
+# 2026-05-26 Go stdlib disclosure cycle (same prebuilt Go binary in esbuild;
+# not reachable from OpenCred's Node.js application code). These blocked
+# the v1.6.1 Docker push and are suppressed with the same justification as
+# the entries above. Follow-up: drop esbuild from the runtime image — it's
+# a build-time dev dep, shouldn't ship to production (tracked separately).
+CVE-2025-22871
+CVE-2025-47906
+CVE-2025-47912
+CVE-2025-58185
+CVE-2025-58186
+CVE-2025-58187
+CVE-2025-58188
+CVE-2025-58189
+CVE-2025-61723
+CVE-2025-61724
+CVE-2025-61725
+CVE-2025-61727
+
+# 2026-06-01 Go stdlib disclosure (esbuild prebuilt Go binary, same
+# justification — not reachable from Node app code).
+CVE-2026-39823
+CVE-2026-39825
+CVE-2026-39826

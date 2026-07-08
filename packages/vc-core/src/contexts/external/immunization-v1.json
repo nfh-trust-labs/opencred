@@ -1,0 +1,22 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "@protected": true,
+    "@vocab": "http://hl7.org/fhir/",
+    "fhir": "http://hl7.org/fhir/",
+    "snomed": "http://snomed.info/sct",
+    "cvx": "http://hl7.org/fhir/sid/cvx",
+    "ImmunizationCredential": "https://raw.githubusercontent.com/nfh-trust-labs/opencred-vc-schemas/main/schemas/immunization/v1#ImmunizationCredential",
+    "vaccineCode": "fhir:Immunization.vaccineCode",
+    "patient": "fhir:Immunization.patient",
+    "occurrenceDateTime": "fhir:Immunization.occurrenceDateTime",
+    "lotNumber": "fhir:Immunization.lotNumber",
+    "manufacturer": "fhir:Immunization.manufacturer",
+    "performer": "fhir:Immunization.performer",
+    "protocolApplied": "fhir:Immunization.protocolApplied",
+    "site": "fhir:Immunization.site",
+    "route": "fhir:Immunization.route",
+    "doseQuantity": "fhir:Immunization.doseQuantity",
+    "note": "fhir:Immunization.note"
+  }
+}

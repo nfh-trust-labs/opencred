@@ -1,0 +1,142 @@
+name: Desktop Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS — both architectures
+          - os: macos-latest
+            platform: mac
+            arch: x64
+            electron_builder_args: "--mac --x64"
+            artifact_suffix: mac-x64
+          - os: macos-latest
+            platform: mac
+            arch: arm64
+            electron_builder_args: "--mac --arm64"
+            artifact_suffix: mac-arm64
+          # Linux — x64 only (no GitHub-hosted arm64 runners)
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            electron_builder_args: "--linux --x64"
+            artifact_suffix: linux-x64
+          # Windows — x64 only (no GitHub-hosted arm64 runners)
+          - os: windows-2022
+            platform: win
+            arch: x64
+            electron_builder_args: "--win --x64"
+            artifact_suffix: win-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # Python is required by node-gyp for native addon compilation
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Linux needs additional packages for electron-builder (AppImage, deb)
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm libarchive-tools
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: pnpm --filter @opencred/desktop... build
+
+      - name: Run tests
+        run: pnpm --filter @opencred/desktop test
+
+      # Rebuild native addons for the Electron ABI before bundling. This
+      # compiles for the HOST arch (feeds verify-native-addons + bundling);
+      # the per-TARGET-arch rebuild happens inside electron-builder via the
+      # beforePack hook (apps/desktop/scripts/electron-builder-hooks.cjs),
+      # and the afterPack hook fails the build on any arch mismatch
+      # (#641/#642 — mac x64 builds on arm64 runners used to ship arm64
+      # .node files).
+      - name: Rebuild native addons for Electron
+        run: pnpm --filter @opencred/desktop rebuild:native
+
+      - name: Verify native addons
+        run: node scripts/verify-native-addons.cjs
+        working-directory: packages/signing
+
+      # Bundle main process + preload with esbuild (inlines all JS deps)
+      - name: Bundle main process
+        working-directory: apps/desktop
+        run: node scripts/bundle-main.mjs
+
+      # Set up minimal node_modules with only native addon packages
+      - name: Prepare native dependencies
+        working-directory: apps/desktop
+        run: node scripts/prepare-native-deps.cjs
+
+      - name: Prepare output directories
+        shell: bash
+        working-directory: apps/desktop
+        run: mkdir -p out/@opencred
+
+      - name: Build distributable
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          EB_ARGS: ${{ matrix.electron_builder_args }}
+        shell: bash
+        working-directory: apps/desktop
+        # Override forceCodeSigning for CI builds — package.json sets it to
+        # true so release builds (desktop-release.yml) enforce signing by
+        # default.  Non-release CI builds have no signing certs configured
+        # (CSC_IDENTITY_AUTO_DISCOVERY is false), so we must disable it here.
+        #
+        # --config.npmRebuild=false: native modules were already rebuilt
+        # in the explicit Rebuild step above (rebuild-native.cjs, upstream
+        # node-gyp). Without this, electron-builder invokes its bundled
+        # @electron/rebuild AGAIN — which hangs 60+ min on Windows pnpm
+        # symlink trees (same root cause as #501). Forced timeout cap so
+        # any future regression fails fast instead of burning the default
+        # 6-hour job budget.
+        timeout-minutes: 20
+        run: |
+          npx electron-builder $EB_ARGS --publish never --config.forceCodeSigning=false --config.npmRebuild=false
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencred-${{ matrix.artifact_suffix }}
+          path: |
+            apps/desktop/out/*.dmg
+            apps/desktop/out/*.zip
+            apps/desktop/out/*.exe
+            apps/desktop/out/*.msi
+            apps/desktop/out/*.AppImage
+            apps/desktop/out/*.deb
+            apps/desktop/out/*.rpm
+          if-no-files-found: warn
+          retention-days: 30

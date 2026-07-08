@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="420" viewBox="0 0 660 420">
+  <!-- OpenCred DMG installer background — Muesli-style drag-to-Applications.
+       NOTE: rendered by ImageMagick's MSVG delegate, which ignores gradients,
+       stroke-dasharray, and <tspan>. Use solid fills and filled shapes only. -->
+
+  <!-- Warm editorial background -->
+  <rect width="660" height="420" fill="#f4f2ee"/>
+  <rect x="0" y="0" width="660" height="118" fill="#efece6"/>
+
+  <!-- Top wordmark -->
+  <text x="330" y="60" text-anchor="middle"
+        font-family="Georgia, serif" font-size="32" fill="#1a1a1a">OpenCred</text>
+  <text x="330" y="88" text-anchor="middle"
+        font-family="Helvetica, sans-serif" font-size="13" fill="#6b6b6b">Offline credential issuance and signing</text>
+
+  <!-- Drop target hints (icons are placed on top by electron-builder) -->
+  <rect x="120" y="158" width="120" height="120" rx="26" fill="#ffffff"/>
+  <rect x="420" y="158" width="120" height="120" rx="26" fill="#eceae5"/>
+
+  <!-- Arrow app -> Applications (filled polygon, no strokes) -->
+  <polygon fill="#0057FF" points="276,210 372,210 372,202 392,218 372,234 372,226 276,226"/>
+
+  <!-- NOTE: electron-builder draws the real filenames ("OpenCred",
+       "Applications") under each icon, so no labels are added here. -->
+
+  <!-- Instruction (single text element, no tspan) -->
+  <text x="330" y="364" text-anchor="middle"
+        font-family="Helvetica, sans-serif" font-size="14" fill="#555555">Drag OpenCred onto the Applications folder to install</text>
+</svg>

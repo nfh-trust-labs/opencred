@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="4" fill="#0057FF"/>
+  <!-- paper -->
+  <path d="M28 22 H74 L92 40 V106 H28 Z" fill="#ffffff" stroke="#ffffff" stroke-width="2" stroke-linejoin="miter"/>
+  <path d="M74 22 V40 H92" fill="none" stroke="#0057FF" stroke-width="2"/>
+  <!-- lines -->
+  <line x1="36" y1="50" x2="68" y2="50" stroke="#0057FF" stroke-width="2"/>
+  <line x1="36" y1="58" x2="62" y2="58" stroke="#0057FF" stroke-width="2"/>
+  <!-- QR stamp -->
+  <rect x="36" y="68" width="48" height="32" fill="#0057FF"/>
+  <rect x="40" y="72" width="6" height="6" fill="#ffffff"/>
+  <rect x="74" y="72" width="6" height="6" fill="#ffffff"/>
+  <rect x="40" y="90" width="6" height="6" fill="#ffffff"/>
+  <rect x="52" y="78" width="4" height="4" fill="#ffffff"/>
+  <rect x="60" y="84" width="4" height="4" fill="#ffffff"/>
+  <rect x="68" y="80" width="4" height="4" fill="#ffffff"/>
+  <rect x="64" y="92" width="4" height="4" fill="#ffffff"/>
+  <rect x="74" y="90" width="4" height="4" fill="#ffffff"/>
+</svg>

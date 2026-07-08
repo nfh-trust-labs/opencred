@@ -1,0 +1,82 @@
+{
+  "name": "@opencred/verify",
+  "version": "0.1.0",
+  "description": "Verify W3C Verifiable Credentials issued by OpenCred. Supports vc-jwt, JSON-LD Data Integrity, sd-jwt-vc, bare PixelPass QR data (interoperable with the MOSIP/Inji verifier toolchain), and PDF certificates with embedded credentials. Works fully offline for did:key / did:jwk issuers.",
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://github.com/nfh-trust-labs/opencred-releases#verify-sdk",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nfh-trust-labs/opencred-releases.git",
+    "directory": "sdk/verify"
+  },
+  "bugs": {
+    "url": "https://github.com/nfh-trust-labs/opencred-releases/issues"
+  },
+  "keywords": [
+    "opencred",
+    "verifiable-credentials",
+    "vc",
+    "w3c",
+    "did",
+    "did-key",
+    "did-web",
+    "did-jwk",
+    "vc-jwt",
+    "sd-jwt-vc",
+    "verification",
+    "sdk"
+  ],
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@digitalbazaar/data-integrity": "^2.5.0",
+    "@digitalbazaar/ecdsa-multikey": "^1.7.0",
+    "@digitalbazaar/ecdsa-rdfc-2019-cryptosuite": "^1.1.0",
+    "@mosip/pixelpass": "^0.6.0",
+    "bs58": "^6.0.0",
+    "jose": "^5.10.0",
+    "json-canonicalize": "^1.0.6",
+    "jsonld": "^9.0.0",
+    "node-forge": "^1.4.0",
+    "pdf-lib": "^1.17.1",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@opencred/crypto": "workspace:*",
+    "@opencred/dedi-client": "workspace:*",
+    "@opencred/did": "workspace:*",
+    "@opencred/shared": "workspace:*",
+    "@opencred/vc-core": "workspace:*",
+    "@opencred/verification": "workspace:*",
+    "@types/node": "^20.0.0",
+    "@types/node-forge": "^1.3.14",
+    "tsup": "^8.3.5",
+    "typescript": "^5.5.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

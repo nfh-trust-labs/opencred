@@ -1,0 +1,62 @@
+# Dependencies (rebuilt inside container)
+node_modules/
+**/node_modules/
+
+# Build output (rebuilt inside container)
+dist/
+**/dist/
+
+# Desktop app (not containerized)
+apps/desktop/
+
+# Documentation and metadata
+docs/
+*.md
+!pnpm-workspace.yaml
+LICENSE
+
+# Git
+.git/
+.gitignore
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment and secrets (injected at runtime, never baked in)
+.env
+.env.*
+!.env.example
+
+# Test artifacts
+coverage/
+test-results/
+playwright-report/
+blob-report/
+**/__tests__/
+**/*.test.ts
+**/*.spec.ts
+vitest.workspace.ts
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# CI/CD configs (not needed in image)
+.github/
+
+# Misc
+*.log
+*.png
+*.tsbuildinfo
+.turbo/
+.claude/
+opencred-website/
+demos/
+scripts/
+demo-fixtures/
+scratchpad.md
+.pnpm-store/
+.playwright-mcp/

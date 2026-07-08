@@ -1,0 +1,11 @@
+# Build output
+dist/
+out/
+
+# Icon-generation scratch (see scripts/generate-icons.mjs)
+build/.icongen/
+.cache/
+build/_icon-test.png
+
+# Font vendoring scratch (see scripts notes)
+.fontpack/

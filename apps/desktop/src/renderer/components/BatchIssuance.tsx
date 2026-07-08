@@ -1,0 +1,990 @@
+/**
+ * BatchIssuance — full batch credential issuance from CSV files.
+ *
+ * Provides a complete workflow:
+ *   1. Import CSV file via native file dialog
+ *   2. Preview parsed data (first 5 rows)
+ *   3. Map CSV columns to schema fields
+ *   4. Select signing key, dates
+ *   5. Start batch processing with progress tracking
+ *   6. View per-row results (success/error)
+ *   7. Export all packaged credentials as ZIP
+ *
+ * Issuer DID is derived automatically from the selected signing key.
+ * All operations work entirely offline. Private keys never leave
+ * the main process.
+ */
+
+import { useState, useEffect, useCallback, useRef } from "react";
+import type { KeyMetadata, BatchRowStatus, UiProofFormat } from "../../shared/ipc-types";
+import { SchemaSelector } from "./SchemaSelector";
+import { MoreOptions } from "./MoreOptions";
+import { BATCH_ROW_LIMIT } from "../../shared/constants";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface SchemaField {
+  name: string;
+  type: string;
+  required: boolean;
+  format?: string;
+}
+
+interface RowResult {
+  rowIndex: number;
+  status: BatchRowStatus;
+  error?: string;
+}
+
+type BatchPhase = "upload" | "mapping" | "config" | "processing" | "complete";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Escape a CSV value by quoting it if it contains commas, quotes, or newlines. */
+function csvEscape(value: string): string {
+  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
+    return '"' + value.replace(/"/g, '""') + '"';
+  }
+  return value;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+interface BatchIssuanceProps {
+  /** Pre-selected schema ID from the credential builder page. */
+  preSelectedSchemaId?: string;
+  /** Pre-selected signing key ID from the credential builder page. */
+  preSelectedKeyId?: string;
+}
+
+export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIssuanceProps = {}) {
+  // Phase control
+  const [phase, setPhase] = useState<BatchPhase>("upload");
+
+  // CSV data
+  const [csvContent, setCsvContent] = useState<string | null>(null);
+  const [csvFileName, setCsvFileName] = useState<string>("");
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvPreview, setCsvPreview] = useState<string[][]>([]);
+  const [csvRowCount, setCsvRowCount] = useState(0);
+
+  // Schema & field mapping
+  const [schemaId, setSchemaId] = useState(preSelectedSchemaId ?? "");
+  const [schemaFields, setSchemaFields] = useState<SchemaField[]>([]);
+  const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
+
+  // Issuance config
+  const [validFrom, setValidFrom] = useState(new Date().toISOString().split("T")[0]);
+  const [validUntil, setValidUntil] = useState("");
+  const [selectedKeyId, setSelectedKeyId] = useState(preSelectedKeyId ?? "");
+  const [keys, setKeys] = useState<KeyMetadata[]>([]);
+  const [packageFormats, setPackageFormats] = useState<string[]>(["json-ld"]);
+
+  // More options
+  const [proofFormat, setProofFormat] = useState<UiProofFormat>("vc-jwt");
+  const [selectiveDisclosureClaims, setSelectiveDisclosureClaims] = useState<string[]>([]);
+  const [revocationUrl, setRevocationUrl] = useState("");
+  const [credentialSchemaUrl, setCredentialSchemaUrl] = useState("");
+
+  // Processing state
+  const [processing, setProcessing] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [completed, setCompleted] = useState(0);
+  const [successCount, setSuccessCount] = useState(0);
+  const [errorCount, setErrorCount] = useState(0);
+  const [skippedCount, setSkippedCount] = useState(0);
+  const [rowResults, setRowResults] = useState<RowResult[]>([]);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [parseErrors, setParseErrors] = useState<
+    Array<{ rowIndex: number; errors: Array<{ field: string; message: string }> }>
+  >([]);
+
+  // Export state
+  const [exporting, setExporting] = useState(false);
+  const [exportResult, setExportResult] = useState<string | null>(null);
+
+  // Poll interval ref
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Load keys on mount
+  const loadKeys = useCallback(async () => {
+    try {
+      const response = await window.opencred.listKeys();
+      setKeys(response.keys);
+      if (response.keys.length > 0 && !selectedKeyId) {
+        setSelectedKeyId(response.keys[0].id);
+      }
+    } catch {
+      // Keys may not be loaded yet
+    }
+  }, [selectedKeyId]);
+
+  useEffect(() => {
+    void loadKeys();
+  }, [loadKeys]);
+
+  // Auto-load schema fields if pre-selected (supports both built-in and custom schemas)
+  useEffect(() => {
+    if (preSelectedSchemaId) {
+      void (async () => {
+        try {
+          let schema: Record<string, unknown> | undefined;
+
+          if (preSelectedSchemaId.startsWith("custom:")) {
+            const customRes = await window.opencred.customSchemaList();
+            const match = customRes.schemas.find((s) => s.id === preSelectedSchemaId);
+            schema = match?.schema as Record<string, unknown> | undefined;
+          } else {
+            const response = await window.opencred.getSchema({ schemaId: preSelectedSchemaId });
+            schema = response.schema;
+          }
+
+          if (schema) {
+            const properties = schema["properties"] as
+              | Record<string, Record<string, unknown>>
+              | undefined;
+            const required = (schema["required"] as string[]) ?? [];
+            if (properties) {
+              const fields = Object.entries(properties).map(([name, prop]) => ({
+                name,
+                type: String(prop["type"] ?? "string"),
+                required: required.includes(name),
+                format: prop["format"] as string | undefined,
+              }));
+              setSchemaFields(fields);
+            }
+          }
+        } catch {
+          // Schema not available
+        }
+      })();
+    }
+  }, [preSelectedSchemaId]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+      }
+    };
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // CSV Import
+  // ---------------------------------------------------------------------------
+
+  async function handleImportCsv() {
+    try {
+      const result = await window.opencred.openFile({
+        title: "Select CSV File",
+        filters: [
+          { name: "CSV Files", extensions: ["csv", "tsv", "txt"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
+      });
+
+      if (!result.content || !result.filePath) return;
+
+      setCsvContent(result.content);
+      setCsvFileName(result.filePath.split("/").pop() ?? "file.csv");
+
+      // Parse preview (first 6 lines: 1 header + 5 data rows)
+      const lines = result.content.split(/\r?\n/).filter((l: string) => l.trim().length > 0);
+      if (lines.length > 0) {
+        // Simple preview parsing (just split by common delimiters)
+        const firstLine = lines[0];
+        const delimiter = firstLine.includes("\t") ? "\t" : firstLine.includes(";") ? ";" : ",";
+        const headers = firstLine
+          .split(delimiter)
+          .map((h: string) => h.trim().replace(/^"|"$/g, ""));
+        setCsvHeaders(headers);
+
+        // Count data rows (excluding header)
+        const dataRowCount = lines.length - 1;
+        setCsvRowCount(dataRowCount);
+
+        const previewRows = lines
+          .slice(1, 6)
+          .map((line: string) =>
+            line.split(delimiter).map((v: string) => v.trim().replace(/^"|"$/g, "")),
+          );
+        setCsvPreview(previewRows);
+
+        // Initialize column mapping (identity mapping by default)
+        const initialMapping: Record<string, string> = {};
+        for (const header of headers) {
+          initialMapping[header] = header;
+        }
+        setColumnMapping(initialMapping);
+
+        // Check row limit
+        if (dataRowCount > BATCH_ROW_LIMIT) {
+          setBatchError(
+            `CSV contains ${dataRowCount.toLocaleString()} rows, which exceeds the maximum of ${BATCH_ROW_LIMIT.toLocaleString()} rows. Please split your CSV into smaller files.`,
+          );
+        } else {
+          setBatchError(null);
+        }
+
+        setPhase("mapping");
+      }
+    } catch {
+      setBatchError("Failed to open CSV file.");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // CSV Template Download
+  // ---------------------------------------------------------------------------
+
+  async function handleDownloadTemplate() {
+    if (!schemaId) return;
+
+    try {
+      let schema: Record<string, unknown> | undefined;
+
+      if (schemaId.startsWith("custom:")) {
+        const customRes = await window.opencred.customSchemaList();
+        const match = customRes.schemas.find((s) => s.id === schemaId);
+        schema = match?.schema as Record<string, unknown> | undefined;
+      } else {
+        const response = await window.opencred.getSchema({ schemaId });
+        schema = response.schema;
+      }
+
+      if (!schema) {
+        setBatchError("Could not load schema for template generation.");
+        return;
+      }
+
+      const properties = schema["properties"] as
+        | Record<string, Record<string, unknown>>
+        | undefined;
+      if (!properties) {
+        setBatchError("Schema has no properties defined.");
+        return;
+      }
+
+      const fieldNames = Object.keys(properties);
+      const headerRow = fieldNames.map(csvEscape).join(",");
+
+      // Generate placeholder example rows based on field types
+      const exampleRows: string[] = [];
+      for (let rowNum = 1; rowNum <= 3; rowNum++) {
+        const row = fieldNames.map((name) => {
+          const prop = properties[name];
+          const type = String(prop["type"] ?? "string");
+          const format = prop["format"] as string | undefined;
+
+          if (format === "date") return `2025-0${rowNum}-15`;
+          if (format === "date-time") return `2025-0${rowNum}-15T09:00:00Z`;
+          if (format === "email") return `person${rowNum}@example.com`;
+          if (format === "uri") return `https://example.com/resource/${rowNum}`;
+          if (type === "number" || type === "integer") return String(rowNum * 100);
+          if (type === "boolean") return rowNum % 2 === 1 ? "true" : "false";
+          // Default: string placeholder based on field name
+          return `Example ${name} ${rowNum}`;
+        });
+        exampleRows.push(row.map(csvEscape).join(","));
+      }
+
+      const csvContent = [headerRow, ...exampleRows].join("\n");
+      const safeName = schemaId.replace(/[^a-zA-Z0-9-_]/g, "-");
+
+      await window.opencred.saveFile({
+        defaultName: `template-${safeName}.csv`,
+        content: csvContent,
+        filters: [{ name: "CSV", extensions: ["csv"] }],
+      });
+    } catch {
+      setBatchError("Failed to generate CSV template.");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Schema selection
+  // ---------------------------------------------------------------------------
+
+  function handleSchemaSelect(id: string, fields: SchemaField[]) {
+    setSchemaId(id);
+    setSchemaFields(fields);
+
+    // Auto-map columns that match schema field names
+    const newMapping: Record<string, string> = {};
+    for (const header of csvHeaders) {
+      const matchingField = fields.find((f) => f.name.toLowerCase() === header.toLowerCase());
+      if (matchingField) {
+        newMapping[header] = matchingField.name;
+      } else {
+        newMapping[header] = "";
+      }
+    }
+    setColumnMapping(newMapping);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Column mapping
+  // ---------------------------------------------------------------------------
+
+  function handleMappingChange(csvColumn: string, schemaField: string) {
+    setColumnMapping((prev) => ({ ...prev, [csvColumn]: schemaField }));
+  }
+
+  function handleMappingComplete() {
+    setPhase("config");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Batch processing
+  // ---------------------------------------------------------------------------
+
+  const isOverRowLimit = csvRowCount > BATCH_ROW_LIMIT;
+
+  // Derive issuer DID from the selected signing key (same as single issuance)
+  const selectedKey = keys.find((k) => k.id === selectedKeyId);
+  const issuerDid = selectedKey?.id ?? selectedKeyId;
+  const selectedKeyAlgorithm = selectedKey?.algorithm;
+
+  // Auto-revert proof format when key changes to RSA while "data-integrity" is selected
+  useEffect(() => {
+    if (proofFormat === "data-integrity" && selectedKeyAlgorithm?.startsWith("RSA")) {
+      setProofFormat("vc-jwt");
+    }
+  }, [selectedKeyId, selectedKeyAlgorithm, proofFormat]);
+
+  async function handleStartBatch() {
+    if (!csvContent || !schemaId || !selectedKeyId) {
+      setBatchError("Please complete all required fields.");
+      return;
+    }
+
+    if (isOverRowLimit) {
+      setBatchError(
+        `CSV contains ${csvRowCount.toLocaleString()} rows, which exceeds the maximum of ${BATCH_ROW_LIMIT.toLocaleString()} rows. Please split your CSV into smaller files.`,
+      );
+      return;
+    }
+
+    setBatchError(null);
+    setParseErrors([]);
+    setProcessing(true);
+    setPhase("processing");
+    setRowResults([]);
+    setCompleted(0);
+    setSuccessCount(0);
+    setErrorCount(0);
+    setSkippedCount(0);
+    setExportResult(null);
+
+    try {
+      // Build the effective column mapping (only include mapped columns)
+      const effectiveMapping: Record<string, string> = {};
+      for (const [csvCol, schemaField] of Object.entries(columnMapping)) {
+        if (schemaField) {
+          effectiveMapping[csvCol] = schemaField;
+        }
+      }
+
+      const response = await window.opencred.batchStart({
+        csvContent,
+        schemaId,
+        issuerDid,
+        validFrom: new Date(validFrom + "T00:00:00").toISOString(),
+        validUntil: validUntil ? new Date(validUntil + "T23:59:59").toISOString() : undefined,
+        revocationRegistryUrl: revocationUrl || undefined,
+        keyId: selectedKeyId,
+        columnMapping: Object.keys(effectiveMapping).length > 0 ? effectiveMapping : undefined,
+        packageFormats: proofFormat === "sd-jwt-vc" ? [] : packageFormats,
+        proofFormat,
+        selectiveDisclosureClaims:
+          proofFormat === "sd-jwt-vc" ? selectiveDisclosureClaims : undefined,
+        credentialSchemaUrl: credentialSchemaUrl || undefined,
+      });
+
+      if (!response.success) {
+        setBatchError(response.error ?? "Failed to start batch.");
+        setProcessing(false);
+        setPhase("config");
+        return;
+      }
+
+      setTotal(response.totalCount ?? 0);
+      if (response.parseErrors) {
+        setParseErrors(response.parseErrors);
+      }
+
+      // Start polling for progress
+      pollRef.current = setInterval(() => {
+        void pollProgress();
+      }, 500);
+    } catch (err) {
+      setBatchError(err instanceof Error ? err.message : "Failed to start batch.");
+      setProcessing(false);
+      setPhase("config");
+    }
+  }
+
+  async function pollProgress() {
+    try {
+      const status = await window.opencred.batchStatus();
+      setTotal(status.total);
+      setCompleted(status.completed);
+      setSuccessCount(status.successCount);
+      setErrorCount(status.errorCount);
+      setSkippedCount(status.skippedCount);
+      setRowResults(
+        status.rows.map((r) => ({
+          rowIndex: r.rowIndex,
+          status: r.status,
+          error: r.error,
+        })),
+      );
+
+      if (!status.running) {
+        // Batch is done
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+        setProcessing(false);
+        setPhase("complete");
+      }
+    } catch {
+      // Ignore poll errors
+    }
+  }
+
+  async function handleCancel() {
+    try {
+      await window.opencred.batchCancel();
+    } catch {
+      // Ignore
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Export
+  // ---------------------------------------------------------------------------
+
+  async function handleExport() {
+    setExporting(true);
+    setExportResult(null);
+
+    try {
+      // Use native save dialog to get path
+      const saveResult = await window.opencred.saveFile({
+        defaultName: `batch-credentials-${new Date().toISOString().split("T")[0]}.zip`,
+        content: "", // We just need the path
+        filters: [{ name: "ZIP Archive", extensions: ["zip"] }],
+      });
+
+      if (!saveResult.filePath) {
+        setExporting(false);
+        return;
+      }
+
+      const result = await window.opencred.batchExport({
+        outputPath: saveResult.filePath,
+      });
+
+      if (result.success) {
+        setExportResult(
+          `Exported ${result.credentialCount} credentials (${result.fileCount} files) to ${result.filePath}`,
+        );
+      } else {
+        setBatchError(result.error ?? "Export failed.");
+      }
+    } catch (err) {
+      setBatchError(err instanceof Error ? err.message : "Export failed.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reset
+  // ---------------------------------------------------------------------------
+
+  function handleReset() {
+    setCsvContent(null);
+    setCsvFileName("");
+    setCsvHeaders([]);
+    setCsvPreview([]);
+    setCsvRowCount(0);
+    setSchemaId("");
+    setSchemaFields([]);
+    setColumnMapping({});
+    setValidFrom(new Date().toISOString().split("T")[0]);
+    setValidUntil("");
+    setRevocationUrl("");
+    setProofFormat("vc-jwt");
+    setSelectiveDisclosureClaims([]);
+    setCredentialSchemaUrl("");
+    setTotal(0);
+    setCompleted(0);
+    setSuccessCount(0);
+    setErrorCount(0);
+    setSkippedCount(0);
+    setRowResults([]);
+    setBatchError(null);
+    setParseErrors([]);
+    setExportResult(null);
+    setPhase("upload");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Format toggle
+  // ---------------------------------------------------------------------------
+
+  function toggleFormat(format: string) {
+    setPackageFormats((prev) =>
+      prev.includes(format) ? prev.filter((f) => f !== format) : [...prev, format],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
+  const progressPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Phase: Upload CSV */}
+      {phase === "upload" && (
+        <div className="rounded-lg border border-border-light bg-white p-6 space-y-4">
+          <h2 className="text-sm font-medium text-txt-secondary">Batch Credential Issuance</h2>
+          <p className="text-sm text-txt-muted">
+            Issue multiple credentials at once from a CSV file. Maximum{" "}
+            {BATCH_ROW_LIMIT.toLocaleString()} rows per batch. All processing happens locally -- no
+            network required.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => void handleImportCsv()}
+              className="rounded-md bg-brand px-4 py-2 text-sm text-white hover:bg-brand"
+            >
+              Import CSV File
+            </button>
+            <button
+              onClick={() => void handleDownloadTemplate()}
+              disabled={!schemaId}
+              className="rounded-md border border-border bg-white px-4 py-2 text-sm text-txt-secondary hover:bg-surface-warm disabled:opacity-40 disabled:cursor-not-allowed"
+              title={
+                schemaId
+                  ? "Download a CSV template for the selected schema"
+                  : "Select a schema first"
+              }
+            >
+              Download Template CSV
+            </button>
+          </div>
+          {!schemaId && (
+            <p className="text-xs text-txt-muted">
+              Select a schema on the home screen to enable the CSV template download.
+            </p>
+          )}
+          {batchError && <p className="text-sm text-state-danger">{batchError}</p>}
+        </div>
+      )}
+
+      {/* Phase: Column Mapping */}
+      {phase === "mapping" && (
+        <div className="space-y-4">
+          {/* CSV Preview */}
+          <div className="rounded-lg border border-border-light bg-white p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-txt-secondary">CSV Preview: {csvFileName}</h2>
+              <button
+                onClick={handleReset}
+                className="text-xs text-txt-muted hover:text-txt-secondary"
+              >
+                Change File
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border-light">
+                    {csvHeaders.map((h, i) => (
+                      <th key={i} className="px-2 py-1 text-left font-medium text-txt-secondary">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {csvPreview.map((row, ri) => (
+                    <tr key={ri} className="border-b border-border-light">
+                      {row.map((val, ci) => (
+                        <td key={ci} className="px-2 py-1 text-txt-secondary">
+                          {val}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {csvPreview.length >= 5 && (
+              <p className="text-xs text-txt-muted">
+                Showing first 5 of {csvRowCount.toLocaleString()} rows...
+              </p>
+            )}
+
+            {/* Row limit warning */}
+            {isOverRowLimit && (
+              <div className="rounded-md bg-state-danger-bg border border-state-danger-border p-3">
+                <p className="text-sm text-state-danger">
+                  This CSV contains {csvRowCount.toLocaleString()} rows, which exceeds the maximum
+                  of {BATCH_ROW_LIMIT.toLocaleString()} rows per batch. Please split your CSV into
+                  smaller files before continuing.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Schema Selection */}
+          <SchemaSelector onSchemaSelect={handleSchemaSelect} selectedSchema={schemaId} />
+
+          {/* Column Mapping UI */}
+          {schemaId && schemaFields.length > 0 && (
+            <div className="rounded-lg border border-border-light bg-white p-4 space-y-3">
+              <h2 className="text-sm font-medium text-txt-secondary">Column Mapping</h2>
+              <p className="text-xs text-txt-muted">
+                Map each CSV column to a credential schema field.
+              </p>
+              <div className="space-y-2">
+                {csvHeaders.map((header) => (
+                  <div key={header} className="flex items-center gap-3">
+                    <span
+                      className="w-1/3 text-xs font-mono text-txt-secondary truncate"
+                      title={header}
+                    >
+                      {header}
+                    </span>
+                    <span className="text-txt-muted text-xs">-&gt;</span>
+                    <select
+                      value={columnMapping[header] ?? ""}
+                      onChange={(e) => handleMappingChange(header, e.target.value)}
+                      className="flex-1 rounded-md border border-border bg-white px-2 py-1 text-xs text-txt-secondary"
+                    >
+                      <option value="">(skip this column)</option>
+                      {schemaFields.map((field) => (
+                        <option key={field.name} value={field.name}>
+                          {field.name}
+                          {field.required ? " *" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={handleMappingComplete}
+                className="rounded-md bg-brand px-4 py-2 text-sm text-white hover:bg-brand"
+              >
+                Continue
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Phase: Issuance Configuration */}
+      {phase === "config" && (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-border-light bg-white p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-txt-secondary">Issuance Settings</h2>
+              <button
+                onClick={() => setPhase("mapping")}
+                className="text-xs text-txt-muted hover:text-txt-secondary"
+              >
+                Back to Mapping
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label
+                  htmlFor="batch-valid-from"
+                  className="block text-xs font-medium text-txt-secondary"
+                >
+                  Valid From <span className="text-state-danger">*</span>
+                </label>
+                <input
+                  id="batch-valid-from"
+                  type="date"
+                  value={validFrom}
+                  onChange={(e) => setValidFrom(e.target.value)}
+                  className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="batch-valid-until"
+                  className="block text-xs font-medium text-txt-secondary"
+                >
+                  Valid Until (optional)
+                </label>
+                <input
+                  id="batch-valid-until"
+                  type="date"
+                  value={validUntil}
+                  onChange={(e) => setValidUntil(e.target.value)}
+                  className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label
+                htmlFor="batch-signing-key"
+                className="block text-xs font-medium text-txt-secondary"
+              >
+                Signing Key <span className="text-state-danger">*</span>
+              </label>
+              {keys.length === 0 ? (
+                <p className="mt-1 text-xs text-txt-muted italic">
+                  No keys imported. Go to Key Management to import a key.
+                </p>
+              ) : (
+                <select
+                  id="batch-signing-key"
+                  value={selectedKeyId}
+                  onChange={(e) => setSelectedKeyId(e.target.value)}
+                  className="mt-1 block w-full rounded-md border border-border bg-white px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
+                >
+                  {keys.map((key) => (
+                    <option key={key.id} value={key.id}>
+                      {key.label ?? key.algorithm} -- {key.fingerprint.slice(0, 16)}...
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* Output format selection */}
+            <div>
+              <span className="block text-xs font-medium text-txt-secondary mb-1">
+                Output Formats
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {["json-ld", "qr-png", "pdf"].map((fmt) => (
+                  <label key={fmt} className="flex items-center gap-1 text-xs text-txt-secondary">
+                    <input
+                      type="checkbox"
+                      checked={packageFormats.includes(fmt)}
+                      onChange={() => toggleFormat(fmt)}
+                      className="rounded border-border"
+                    />
+                    {fmt === "json-ld" ? "JSON" : fmt === "qr-png" ? "QR Code" : "PDF"}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* More Options */}
+          <MoreOptions
+            keyAlgorithm={selectedKeyAlgorithm}
+            proofFormat={proofFormat}
+            onProofFormatChange={setProofFormat}
+            subjectFieldNames={schemaFields.map((f) => f.name)}
+            selectiveDisclosureClaims={selectiveDisclosureClaims}
+            onSelectiveDisclosureChange={setSelectiveDisclosureClaims}
+            revocationRegistryUrl={revocationUrl}
+            onRevocationRegistryUrlChange={setRevocationUrl}
+            credentialSchemaUrl={credentialSchemaUrl}
+            onCredentialSchemaUrlChange={setCredentialSchemaUrl}
+          />
+
+          {batchError && <p className="text-sm text-state-danger">{batchError}</p>}
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => void handleStartBatch()}
+              disabled={!schemaId || !selectedKeyId || isOverRowLimit}
+              className="rounded-md bg-brand px-4 py-2 text-sm text-white hover:bg-brand disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Start Batch Issuance
+            </button>
+            <button
+              onClick={handleReset}
+              className="rounded-md bg-surface-warm px-4 py-2 text-sm text-txt-secondary hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Phase: Processing */}
+      {phase === "processing" && (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-border-light bg-white p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-txt-secondary">Batch Processing</h2>
+              {processing && (
+                <button
+                  onClick={() => void handleCancel()}
+                  className="rounded-md bg-red-100 px-3 py-1 text-xs text-state-danger hover:bg-red-200"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+
+            {/* Progress bar */}
+            <div>
+              <div className="flex justify-between text-xs text-txt-muted mb-1">
+                <span>
+                  {completed} of {total} complete
+                </span>
+                <span>{progressPercent}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-brand h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Summary stats */}
+            <div className="flex gap-4 text-xs">
+              <span className="text-state-success">Success: {successCount}</span>
+              <span className="text-state-danger">Errors: {errorCount}</span>
+              <span className="text-txt-muted">Skipped: {skippedCount}</span>
+            </div>
+          </div>
+
+          {/* Per-row status */}
+          <div className="rounded-lg border border-border-light bg-white p-4">
+            <h3 className="text-xs font-medium text-txt-secondary mb-2">Row Status</h3>
+            <div className="max-h-60 overflow-auto space-y-1">
+              {rowResults.map((row) => (
+                <div
+                  key={row.rowIndex}
+                  className={`flex items-center gap-2 text-xs px-2 py-1 rounded ${
+                    row.status === "success"
+                      ? "bg-state-success-bg text-state-success"
+                      : row.status === "error"
+                        ? "bg-state-danger-bg text-state-danger"
+                        : row.status === "processing"
+                          ? "bg-brand-light text-brand"
+                          : row.status === "skipped"
+                            ? "bg-surface-warm text-txt-muted"
+                            : "bg-surface-warm text-txt-secondary"
+                  }`}
+                >
+                  <span className="font-mono w-8">#{row.rowIndex + 1}</span>
+                  <span className="flex-1">
+                    {row.status === "success" && "OK"}
+                    {row.status === "error" && (row.error ?? "Error")}
+                    {row.status === "processing" && "Processing..."}
+                    {row.status === "skipped" && (row.error ?? "Skipped")}
+                    {row.status === "pending" && "Pending"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase: Complete */}
+      {phase === "complete" && (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-state-success-border bg-state-success-bg p-4 space-y-3">
+            <h2 className="text-sm font-medium text-state-success">Batch Complete</h2>
+            <div className="flex gap-4 text-sm">
+              <span className="text-state-success">Success: {successCount}</span>
+              <span className="text-state-danger">Errors: {errorCount}</span>
+              <span className="text-txt-muted">Skipped: {skippedCount}</span>
+              <span className="text-txt-muted">Total: {total}</span>
+            </div>
+          </div>
+
+          {/* Parse errors */}
+          {parseErrors.length > 0 && (
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 space-y-2">
+              <h3 className="text-xs font-medium text-yellow-800">
+                Validation Errors (skipped rows)
+              </h3>
+              <div className="max-h-40 overflow-auto space-y-1">
+                {parseErrors.map((pe) => (
+                  <div key={pe.rowIndex} className="text-xs text-yellow-700">
+                    Row #{pe.rowIndex + 1}:{" "}
+                    {pe.errors.map((e) => `${e.field}: ${e.message}`).join("; ")}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Per-row results */}
+          <div className="rounded-lg border border-border-light bg-white p-4">
+            <h3 className="text-xs font-medium text-txt-secondary mb-2">Row Results</h3>
+            <div className="max-h-60 overflow-auto space-y-1">
+              {rowResults.map((row) => (
+                <div
+                  key={row.rowIndex}
+                  className={`flex items-center gap-2 text-xs px-2 py-1 rounded ${
+                    row.status === "success"
+                      ? "bg-state-success-bg text-state-success"
+                      : row.status === "error"
+                        ? "bg-state-danger-bg text-state-danger"
+                        : "bg-surface-warm text-txt-muted"
+                  }`}
+                >
+                  <span className="font-mono w-8">#{row.rowIndex + 1}</span>
+                  <span>
+                    {row.status === "success" && "OK"}
+                    {row.status === "error" && (row.error ?? "Error")}
+                    {row.status === "skipped" && (row.error ?? "Skipped (invalid)")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Export */}
+          {successCount > 0 && (
+            <div className="rounded-lg border border-border-light bg-white p-4 space-y-3">
+              <h3 className="text-sm font-medium text-txt-secondary">Export Results</h3>
+              <p className="text-xs text-txt-muted">
+                Export all {successCount} successfully issued credentials as a ZIP archive.
+              </p>
+              <button
+                onClick={() => void handleExport()}
+                disabled={exporting}
+                className="rounded-md bg-brand px-4 py-2 text-sm text-white hover:bg-brand disabled:opacity-40"
+              >
+                {exporting ? "Exporting..." : "Export as ZIP"}
+              </button>
+              {exportResult && <p className="text-xs text-state-success">{exportResult}</p>}
+            </div>
+          )}
+
+          {batchError && <p className="text-sm text-state-danger">{batchError}</p>}
+
+          <button
+            onClick={handleReset}
+            className="rounded-md bg-surface-warm px-4 py-2 text-sm text-txt-secondary hover:bg-gray-200"
+          >
+            Start New Batch
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

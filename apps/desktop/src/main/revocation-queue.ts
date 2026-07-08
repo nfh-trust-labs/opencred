@@ -1,0 +1,341 @@
+/**
+ * Revocation queue for offline-first credential revocation.
+ *
+ * When the user revokes a credential while offline, the revocation is queued
+ * and persisted to electron-store. When connectivity is restored, the queued
+ * revocations are published to the DeDi revocation registry.
+ *
+ * SECURITY INVARIANTS:
+ *  - No key material is stored in the queue.
+ *  - Only credential IDs and revocation metadata are persisted.
+ *  - Publication to DeDi happens only when connectivity is available.
+ */
+
+import * as crypto from "node:crypto";
+import { DeDiClient } from "@opencred/dedi-client";
+import { getStore } from "./store.js";
+import { createLogger } from "./logger.js";
+import type { DeDiCredentials } from "../shared/ipc-types.js";
+
+const logger = createLogger("revocation-queue");
+
+/**
+ * Status of a queued revocation item.
+ */
+export type RevocationStatus = "pending" | "publishing" | "published" | "failed";
+
+/**
+ * A single revocation queue item.
+ */
+export interface RevocationQueueItem {
+  /** Unique queue item ID. */
+  queueId: string;
+  /** The credential ID being revoked. */
+  credentialId: string;
+  /** The revocation registry URL. */
+  registryUrl: string;
+  /** The revocation hash (for DeDi). */
+  revocationHash?: string;
+  /** Current status. */
+  status: RevocationStatus;
+  /** When the revocation was queued (ISO 8601). */
+  queuedAt: string;
+  /** When the revocation was last attempted (ISO 8601). */
+  lastAttemptAt?: string;
+  /** Error message from the last failed attempt. */
+  lastError?: string;
+  /** Number of publish attempts. */
+  attemptCount: number;
+  /** Optional reason for revocation. */
+  reason?: string;
+}
+
+/** Store key for the revocation queue. */
+const QUEUE_STORE_KEY = "revocationQueue";
+
+/**
+ * Whether a load error has already been logged this session.
+ * Prevents flooding the log with repeated errors on every read.
+ */
+let loadErrorLogged = false;
+
+/** Cache of the last successfully loaded queue for resilience against read failures. */
+let lastKnownQueue: RevocationQueueItem[] = [];
+
+/**
+ * Load the revocation queue from persistent storage.
+ *
+ * On I/O failure the last successfully loaded queue is returned so that
+ * in-memory items are not silently dropped. If no successful load has
+ * occurred yet, an empty array is returned and the error is logged.
+ */
+function loadQueue(): RevocationQueueItem[] {
+  try {
+    const store = getStore();
+    const data = store.get(QUEUE_STORE_KEY as keyof typeof store.store) as
+      | RevocationQueueItem[]
+      | undefined;
+    const queue = Array.isArray(data) ? data : [];
+    loadErrorLogged = false;
+    lastKnownQueue = queue;
+    return queue;
+  } catch (error) {
+    if (!loadErrorLogged) {
+      logger.error("Failed to load revocation queue from store", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      loadErrorLogged = true;
+    }
+    return lastKnownQueue;
+  }
+}
+
+/**
+ * Save the revocation queue to persistent storage.
+ *
+ * @throws Error if the write fails — callers must handle this so that
+ *   queue mutations are not silently lost.
+ */
+function saveQueue(queue: RevocationQueueItem[]): void {
+  try {
+    const store = getStore();
+    store.set(QUEUE_STORE_KEY as keyof typeof store.store, queue);
+    lastKnownQueue = queue;
+  } catch (error) {
+    logger.error("Failed to save revocation queue to store", {
+      error: error instanceof Error ? error.message : String(error),
+      itemCount: queue.length,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Queue a credential revocation for later publication.
+ *
+ * @param credentialId - The credential ID to revoke.
+ * @param registryUrl - The revocation registry URL.
+ * @param options - Optional revocation details.
+ * @returns The created queue item.
+ */
+export function queueRevocation(
+  credentialId: string,
+  registryUrl: string,
+  options?: { revocationHash?: string; reason?: string },
+): RevocationQueueItem {
+  const queue = loadQueue();
+
+  const item: RevocationQueueItem = {
+    queueId: crypto.randomBytes(16).toString("hex"),
+    credentialId,
+    registryUrl,
+    revocationHash: options?.revocationHash,
+    status: "pending",
+    queuedAt: new Date().toISOString(),
+    attemptCount: 0,
+    reason: options?.reason,
+  };
+
+  queue.push(item);
+  saveQueue(queue);
+
+  return item;
+}
+
+/**
+ * Get all items in the revocation queue.
+ */
+export function getQueueItems(): RevocationQueueItem[] {
+  return loadQueue();
+}
+
+/**
+ * Get items by status.
+ */
+export function getQueueItemsByStatus(status: RevocationStatus): RevocationQueueItem[] {
+  return loadQueue().filter((item) => item.status === status);
+}
+
+/**
+ * Get a specific queue item by ID.
+ */
+export function getQueueItem(queueId: string): RevocationQueueItem | undefined {
+  return loadQueue().find((item) => item.queueId === queueId);
+}
+
+/**
+ * Update the status of a queue item.
+ */
+export function updateQueueItemStatus(
+  queueId: string,
+  status: RevocationStatus,
+  error?: string,
+): RevocationQueueItem | undefined {
+  const queue = loadQueue();
+  const item = queue.find((i) => i.queueId === queueId);
+
+  if (!item) {
+    return undefined;
+  }
+
+  item.status = status;
+  item.lastAttemptAt = new Date().toISOString();
+  item.attemptCount += 1;
+  if (error) {
+    item.lastError = error;
+  }
+
+  saveQueue(queue);
+  return item;
+}
+
+/**
+ * Remove published items from the queue.
+ */
+export function purgePublished(): number {
+  const queue = loadQueue();
+  const before = queue.length;
+  const remaining = queue.filter((item) => item.status !== "published");
+  saveQueue(remaining);
+  return before - remaining.length;
+}
+
+/** Maximum number of publish attempts before an item is permanently failed. */
+const MAX_PUBLISH_ATTEMPTS = 5;
+
+/**
+ * Extract the hostname from a DeDi base URL for use as a DNS connectivity
+ * probe. Returns `undefined` when the URL is malformed; callers should skip
+ * the probe in that case and let the real request surface the error.
+ */
+function extractDediHostname(dediBaseUrl: string): string | undefined {
+  try {
+    return new URL(dediBaseUrl).hostname;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Create a temporary DeDi client from issuer-provided credentials.
+ *
+ * The client is ephemeral — it is created for one publish cycle and then
+ * discarded. Credentials are never persisted or logged.
+ *
+ * @param dediBaseUrl - The DeDi API base URL.
+ * @param dediCredentials - The issuer's DeDi credentials.
+ * @param defaultNamespace - Default namespace for record operations.
+ */
+function createDeDiClient(
+  dediBaseUrl: string,
+  dediCredentials: DeDiCredentials,
+  defaultNamespace: string,
+): DeDiClient {
+  return new DeDiClient({
+    baseUrl: dediBaseUrl,
+    auth: dediCredentials,
+    defaultNamespace,
+    timeoutMs: 30_000,
+    circuitBreakerThreshold: 5,
+    maxRetries: 2,
+  });
+}
+
+/**
+ * Attempt to publish all pending revocations to the issuer's DeDi registry.
+ *
+ * The issuer provides their own DeDi credentials for each publish request.
+ * A temporary DeDi client is created, used to publish hashes, and then
+ * discarded — credentials are never persisted.
+ *
+ * Items that have reached the maximum retry count ({@link MAX_PUBLISH_ATTEMPTS})
+ * are skipped — they are considered permanently failed.
+ *
+ * @param dediCredentials - The issuer's DeDi authentication credentials.
+ * @param dediBaseUrl - The base URL of the DeDi revocation registry.
+ * @returns An array of results for each item that was attempted.
+ */
+export async function publishPendingRevocations(
+  dediCredentials: DeDiCredentials,
+  dediBaseUrl: string,
+): Promise<Array<{ queueId: string; success: boolean; error?: string }>> {
+  const pending = getQueueItemsByStatus("pending");
+  const failed = getQueueItemsByStatus("failed");
+  const toPublish = [...pending, ...failed].filter(
+    (item) => item.attemptCount < MAX_PUBLISH_ATTEMPTS,
+  );
+  const results: Array<{ queueId: string; success: boolean; error?: string }> = [];
+
+  if (toPublish.length === 0) {
+    return results;
+  }
+
+  // Resolve the DeDi namespace from stored config — this is the actual
+  // namespace name (e.g., "issuers.opencred.world"), NOT a URL.
+  const store = getStore();
+  const dediConfig = store.get("dediConfig");
+  const namespace = dediConfig?.namespace;
+  if (!namespace) {
+    for (const item of toPublish) {
+      results.push({
+        queueId: item.queueId,
+        success: false,
+        error: "DeDi namespace not configured — set up DeDi in Settings first",
+      });
+    }
+    return results;
+  }
+
+  // Check connectivity before creating the client. Probe the DeDi host
+  // itself rather than an external anchor (e.g. dns.google): enterprise
+  // environments often block third-party anchors but permit DeDi, and a
+  // failing probe against an unreachable anchor would otherwise mislead us
+  // into reporting "No network connectivity" when DeDi is actually reachable.
+  try {
+    const dns = await import("node:dns/promises");
+    const probeHost = extractDediHostname(dediBaseUrl);
+    if (probeHost) {
+      await dns.lookup(probeHost);
+    }
+    // If we cannot derive a probe host (e.g. malformed baseUrl), skip the
+    // connectivity pre-check and let the subsequent publish attempt surface
+    // the real error.
+  } catch {
+    // Offline — mark every item as failed but do not waste an attempt
+    for (const item of toPublish) {
+      results.push({
+        queueId: item.queueId,
+        success: false,
+        error: "No network connectivity",
+      });
+    }
+    return results;
+  }
+
+  // Create a single DeDi client for the publish cycle using the configured
+  // namespace. The client is ephemeral — discarded after this batch.
+  const client = createDeDiClient(dediBaseUrl, dediCredentials, namespace);
+
+  for (const item of toPublish) {
+    updateQueueItemStatus(item.queueId, "publishing");
+
+    try {
+      if (!item.revocationHash) {
+        throw new Error("Revocation hash is missing");
+      }
+
+      // `reason` plumbs through to DeDi's canonical revoke schema
+      // (https://dedi.global/revoke.json) when present. Surfacing reason
+      // capture in the desktop UI is tracked as a follow-up.
+      await client.publishRevocationHash(item.revocationHash, undefined, item.reason);
+      updateQueueItemStatus(item.queueId, "published");
+      results.push({ queueId: item.queueId, success: true });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "Publication failed";
+      updateQueueItemStatus(item.queueId, "failed", errorMsg);
+      results.push({ queueId: item.queueId, success: false, error: errorMsg });
+    }
+  }
+
+  return results;
+}

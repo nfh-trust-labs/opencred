@@ -1,0 +1,71 @@
+{
+  "name": "@opencred/server",
+  "version": "1.9.1",
+  "private": true,
+  "type": "module",
+  "description": "OpenCred Server — headless credential issuance and signing via HTTP API",
+  "author": {
+    "name": "NFH Trust Labs",
+    "email": "dev@nfh-trust-labs.org"
+  },
+  "homepage": "https://github.com/nfh-trust-labs/opencred",
+  "main": "dist/index.js",
+  "bin": {
+    "opencred": "./dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:scale": "tsx scripts/scale-test.ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@aws-sdk/client-kms": "^3.700.0",
+    "@azure/identity": "^4.5.0",
+    "@azure/keyvault-keys": "^4.9.0",
+    "@google-cloud/kms": "^4.5.0",
+    "@hono/node-server": "^1.19.13",
+    "@mosip/pixelpass": "^0.2.0",
+    "@opencred/batch-core": "workspace:*",
+    "@opencred/crypto": "workspace:*",
+    "@opencred/dedi-client": "workspace:*",
+    "@opencred/did": "workspace:*",
+    "@opencred/packaging": "workspace:*",
+    "@opencred/schema-engine": "workspace:*",
+    "@opencred/shared": "workspace:*",
+    "@opencred/signing": "workspace:*",
+    "@opencred/templates": "workspace:*",
+    "@opencred/vc-core": "workspace:*",
+    "@opencred/verification": "workspace:*",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
+    "@opentelemetry/resources": "^1.30.0",
+    "@opentelemetry/sdk-trace-base": "^1.30.0",
+    "@opentelemetry/sdk-trace-node": "^1.30.0",
+    "@opentelemetry/semantic-conventions": "^1.30.0",
+    "bullmq": "^5.34.0",
+    "commander": "^12.1.0",
+    "hono": "^4.12.12",
+    "hono-rate-limiter": "^0.5.3",
+    "ioredis": "^5.4.1",
+    "p-limit": "^7.3.0",
+    "p-map": "^7.0.4",
+    "pdfkit": "^0.15.0",
+    "pino": "^9.6.0",
+    "prom-client": "^15.1.0",
+    "qrcode": "^1.5.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/autocannon": "^7.12.7",
+    "@types/node-forge": "^1.3.0",
+    "@types/pdfkit": "^0.13.0",
+    "@types/qrcode": "^1.5.0",
+    "autocannon": "^8.0.0",
+    "node-forge": "^1.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
