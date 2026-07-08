@@ -148,6 +148,162 @@ export async function computeSigningInput(
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Batch optimization (#571 — scale Tier 1 #4): pre-compute the proof-config
+// canonical hash ONCE per batch, then reuse it for every row.
+//
+// Per the W3C ecdsa-rdfc-2019 spec, the signing input is
+//   hash(canonicalize(proofConfig)) || hash(canonicalize(document))
+// The first term is invariant across rows that share the same
+// `@context`, `verificationMethod`, `proofPurpose`, `cryptosuite`, AND
+// `created` timestamp. Building the proof config once for a batch (using a
+// single `created` timestamp shared by every row) means we canonicalize
+// and hash a small fixed object exactly once instead of N times.
+//
+// The proof config hash is NOT secret — it is the SHA-256 of a public,
+// signer-agnostic object whose contents end up in the issued credential's
+// `proof` block. Caching/passing it around does not violate the key-
+// management invariants in CLAUDE.md.
+// ---------------------------------------------------------------------------
+
+/**
+ * A pre-computed proof-config bundle suitable for reuse across many
+ * `data-integrity` signing calls in a single batch.
+ *
+ * Hold the original `proofConfig` (so the per-row `completeProof` call can
+ * stamp the same `created` / `verificationMethod` / `proofPurpose` onto
+ * each row) together with the cryptosuite-determined hash algorithm and
+ * the already-computed `proofConfigHash` bytes.
+ *
+ * Mutating any field invalidates the hash — callers MUST treat this as a
+ * value type, never a builder.
+ */
+export interface PrecomputedProofConfig {
+  /** The full proof config object — re-used verbatim by `completeProof`. */
+  proofConfig: ProofConfig;
+  /** SHA-256 / SHA-384 hash algorithm used for both halves of the signing input. */
+  hashAlgorithm: "sha256" | "sha384";
+  /** `hash(canonicalize(proofConfig))` — the static left half of every row's signing input. */
+  proofConfigHash: Uint8Array;
+}
+
+/**
+ * Pre-compute the proof-config bundle for a batch of `data-integrity`
+ * (ecdsa-rdfc-2019 / eddsa-rdfc-2022) credentials.
+ *
+ * Use this when issuing N credentials that share the same `@context`,
+ * `verificationMethod`, and `proofPurpose`. The returned bundle's
+ * `proofConfigHash` is the static left half of the signing input the
+ * spec mandates — the per-row work shrinks to "canonicalize the document,
+ * hash it, concat with the precomputed hash, sign".
+ *
+ * Caller responsibilities
+ * -----------------------
+ * - All rows in the batch MUST use the same `@context`. Mixing contexts
+ *   produces an incorrect proof-config hash and the resulting credentials
+ *   will fail verification.
+ * - The `created` timestamp is captured once here and stamped on every
+ *   row. This matches the operational meaning of "a batch issued at time
+ *   T" and is consistent with how the desktop bulk flow handles batch
+ *   timestamps.
+ * - The cryptosuite is `ecdsa-rdfc-2019` for P-256/P-384 and
+ *   `eddsa-rdfc-2022` for Ed25519; pass the matching algorithm.
+ *
+ * @param contextTemplate - A document with the `@context` field that every
+ *   row will use. Typically the first row's unsigned credential, or any
+ *   template carrying the same `@context` array.
+ * @param options - Proof options (verificationMethod, proofPurpose, etc).
+ * @param algorithm - The signing algorithm; determines hash + cryptosuite.
+ * @returns A bundle that can be passed to {@link prepareProofWithPrecomputedConfig}
+ *   for each row.
+ */
+export async function precomputeProofConfig(
+  contextTemplate: UnsignedCredential | Record<string, unknown>,
+  options: ProofOptions,
+  algorithm: SigningAlgorithm = "P-256",
+): Promise<PrecomputedProofConfig> {
+  if (!options.verificationMethod) {
+    throw new CryptoError("verificationMethod is required");
+  }
+  if (!options.proofPurpose) {
+    throw new CryptoError("proofPurpose is required");
+  }
+
+  // Cryptosuite is fully determined by the algorithm. Centralizing it here
+  // means the caller can't accidentally pair Ed25519 with ecdsa-rdfc-2019.
+  let cryptosuite: string;
+  let hashAlgorithm: "sha256" | "sha384";
+  if (algorithm === "Ed25519") {
+    cryptosuite = EDDSA_CRYPTOSUITE_FOR_BATCH;
+    hashAlgorithm = "sha256";
+  } else if (algorithm === "P-256") {
+    cryptosuite = CRYPTOSUITE;
+    hashAlgorithm = "sha256";
+  } else if (algorithm === "P-384") {
+    cryptosuite = CRYPTOSUITE;
+    hashAlgorithm = "sha384";
+  } else {
+    throw new CryptoError(
+      `precomputeProofConfig: algorithm ${algorithm} is not supported (data-integrity is EC/Ed25519 only)`,
+    );
+  }
+
+  const proofConfig = buildProofConfig(contextTemplate as UnsignedCredential, options, cryptosuite);
+  const hash = hashAlgorithm === "sha384" ? sha384 : sha256;
+  const canonicalProofConfig = await canonicalize(
+    proofConfig as unknown as Record<string, unknown>,
+    { strict: true },
+  );
+  const proofConfigHash = hash(canonicalProofConfig);
+  return { proofConfig, hashAlgorithm, proofConfigHash };
+}
+
+/**
+ * Prepare a Data Integrity proof using a pre-computed proof-config bundle.
+ *
+ * Faster equivalent of {@link prepareProof} for batch signing: the
+ * proof-config canonicalization-and-hash step is skipped because the
+ * caller has already computed it via {@link precomputeProofConfig}. The
+ * per-row work shrinks to "canonicalize the document, hash it, concat
+ * with the precomputed hash".
+ *
+ * The returned `proofConfig` is the SAME reference held by the
+ * precomputed bundle — `completeProof` reads its scalar fields
+ * (`created`, `verificationMethod`, `proofPurpose`, `cryptosuite`, etc.)
+ * to stamp the proof block, so sharing is safe as long as no caller
+ * mutates the bundle.
+ *
+ * @throws {CryptoError} if document canonicalization fails.
+ */
+export async function prepareProofWithPrecomputedConfig(
+  unsignedVC: UnsignedCredential,
+  precomputed: PrecomputedProofConfig,
+): Promise<PreparedProof> {
+  try {
+    const hash = precomputed.hashAlgorithm === "sha384" ? sha384 : sha256;
+    const document = unsignedVC as unknown as Record<string, unknown>;
+    const canonicalDocument = await canonicalize(document, { strict: true });
+    const documentHash = hash(canonicalDocument);
+
+    const dataToSign = new Uint8Array(precomputed.proofConfigHash.length + documentHash.length);
+    dataToSign.set(precomputed.proofConfigHash, 0);
+    dataToSign.set(documentHash, precomputed.proofConfigHash.length);
+
+    return { dataToSign, proofConfig: precomputed.proofConfig };
+  } catch (error) {
+    if (error instanceof CryptoError) throw error;
+    throw new CryptoError(
+      `Failed to prepare proof with precomputed config: ${error instanceof Error ? error.message : "unknown error"}`,
+    );
+  }
+}
+
+// Forward declaration of the Ed25519 cryptosuite string so the helper above
+// doesn't need to import from eddsa-data-integrity.ts (which would create a
+// circular dependency). Keep this in sync with `EDDSA_CRYPTOSUITE` in
+// eddsa-data-integrity.ts.
+const EDDSA_CRYPTOSUITE_FOR_BATCH = "eddsa-rdfc-2022" as const;
+
 /**
  * Encode bytes as multibase base58btc (prefix 'z').
  */

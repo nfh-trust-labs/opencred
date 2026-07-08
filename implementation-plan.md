@@ -441,3 +441,11 @@ After each phase, run the complete flow manually:
 | `docker-compose.yml` | Orchestrates server + optional reverse proxy for deployment |
 | `.github/workflows/docker.yml` | CI/CD: build images on PR, push to registry on merge, vulnerability scan |
 | `OpenCred_PRD.md` | Source of truth for all implementation decisions |
+
+---
+
+## 2026-06 — Production-readiness & credential-matrix workstream
+
+Post-phase-7 hardening driven by the 2026-06-10 production-readiness audit and the goal that **every valid credential permutation issues and verifies, with full DeDi key lifecycle, on both Desktop and Docker**. Plan of record: [`docs/plans/credential-matrix-dedi-plan.md`](docs/plans/credential-matrix-dedi-plan.md); the resulting contract: [`docs/concepts/support-matrix.md`](docs/concepts/support-matrix.md).
+
+Delivered (issues #675–#682): vc-jwt JSON-envelope verification with envelope-consistency cross-validation; verify-sdk structured-failure facade + first test suite + LICENSE; `publicKeyJwk` surfaced by every signer type (Cloud HSM, PKCS#11, OS cert store) unblocking DeDi key lifecycle for all key sources; PS256 added to vc-jwt/sd-jwt-vc verification allowlists (RSA credentials were unverifiable); RSA software keys can boot the server (did:jwk accepted as a self-describing issuer DID); expired vc-jwts classify as EXPIRED; per-key status writes serialised + Retry-After honoured on 429; nightly E2E matrix harness (`e2e/`) exercising every valid cell against the real Docker image, with env-gated DeDi staging lifecycle cells.

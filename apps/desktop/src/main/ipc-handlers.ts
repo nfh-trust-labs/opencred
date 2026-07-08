@@ -105,6 +105,8 @@ import {
   resolveDnsForSsrf,
   assertJwtSize,
   canonicalJsonSha256,
+  detectCredentialInputFormat,
+  decodePixelPass,
 } from "@opencred/shared";
 import { generateSchemaFromFields } from "@opencred/schema-engine";
 import { packageCredential as packageCredentialWithTemplates } from "./credential-export.js";
@@ -125,6 +127,7 @@ import {
   batchExportRequestSchema,
   fileOpenRequestSchema,
   fileSaveRequestSchema,
+  revocationQueueRequestSchema,
   parseIpcRequest,
 } from "../shared/ipc-schemas.js";
 
@@ -143,7 +146,7 @@ import {
   CONTEXT_REGISTRY,
   SCHEMA_REGISTRY,
 } from "@opencred/dedi-client";
-import type { ContextRecord } from "@opencred/dedi-client";
+import type { ContextRecord, KeyRecord } from "@opencred/dedi-client";
 import { generateInlineContext } from "@opencred/vc-core";
 
 // ---------------------------------------------------------------------------
@@ -399,6 +402,38 @@ async function handleKeyGenerate(
     loadedPublicKeyJwks.set(signer.id, publicKey.export({ format: "jwk" }));
 
     logger.info("Key generated", { keyId: signer.id, fingerprint: meta.fingerprint });
+
+    // If DeDi is configured and we've previously published one or more
+    // keys from this client, set their status to `"rotated"` so verifiers
+    // see `status: "rotated"` on credentials signed under the old keys.
+    // Conservative semantics:
+    //   - We rotate EVERY previously-published verification method — the
+    //     newly generated key has not been published yet, so it cannot be
+    //     in this list.
+    //   - Failures are swallowed and logged — a DeDi outage must NOT
+    //     break local key generation, since the new key is already in
+    //     memory and the user expects success.
+    //   - The list is append-only; we never auto-remove entries (an
+    //     issuer re-rotating an already-rotated key is a no-op /
+    //     monotone-refused on the DeDi side).
+    try {
+      const store = getStore();
+      if (store.get("dediConfig") != null) {
+        const previousKeys = store.get("dediPublishedKeys") ?? [];
+        if (previousKeys.length > 0) {
+          const mgr = getDeDiPublishManager();
+          if (mgr) {
+            // Fire-and-forget per key; the manager catches errors.
+            await Promise.all(previousKeys.map((vm) => mgr.setKeyStatus(vm, "rotated")));
+          }
+        }
+      }
+    } catch (rotationErr) {
+      logger.error("DeDi key-rotation hook failed (non-fatal — new key was still generated)", {
+        error: rotationErr instanceof Error ? rotationErr.message : String(rotationErr),
+      });
+    }
+
     return { success: true, key: meta };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Key generation failed.";
@@ -475,7 +510,8 @@ async function handleSignCredential(
     // For did:web issuers, use the did:web verification method ID.
     const issuer = unsignedCredential.issuer;
     const issuerDid = typeof issuer === "string" ? issuer : issuer?.id;
-    const verificationMethod = deriveVerificationMethod(issuerDid, signer.id);
+    const keyIndex = getStore().get("dediActiveKeyIndex") ?? 0;
+    const verificationMethod = deriveVerificationMethod(issuerDid, signer.id, keyIndex);
 
     const { dataToSign, proofConfig } = await prepareProof(unsignedCredential, {
       verificationMethod,
@@ -643,8 +679,13 @@ async function handleBuildAndSign(
       const vct = request.additionalTypes?.[0] ?? request.schemaId;
 
       // For did:web issuers, the verificationMethod must reference the
-      // did:web DID's key, not the signer's internal did:key-based ID.
-      const verificationMethod = deriveVerificationMethod(request.issuerDid, signer.id);
+      // did:web DID's key, not the signer's internal did:key-based ID. The
+      // active key index (set on publish/rotate) selects the #key-<n>.
+      const verificationMethod = deriveVerificationMethod(
+        request.issuerDid,
+        signer.id,
+        getStore().get("dediActiveKeyIndex") ?? 0,
+      );
 
       // Custom JSON-LD contexts are served by the shared document loader
       // from a per-URL cache. The cache write path (handleCustomSchemaSave)
@@ -676,6 +717,7 @@ async function handleBuildAndSign(
       const result = await buildAndSign(signer, {
         schemaId: request.schemaId,
         issuerDid: request.issuerDid,
+        keyIndex: getStore().get("dediActiveKeyIndex") ?? 0,
         credentialSubject: request.credentialSubject,
         validFrom: request.validFrom,
         validUntil: request.validUntil,
@@ -810,60 +852,125 @@ async function handleVerifyCredential(
   request: VerifyCredentialRequest,
 ): Promise<VerifyCredentialResponse> {
   try {
-    const trimmed = request.credential.trim();
-
-    // Format detection: determine the input format and parse accordingly.
-    let verificationInput: Record<string, unknown> | string;
-
-    if (trimmed.startsWith("OPENCRED1:")) {
-      const { decodeQrData } = await import("../packaging/qr-generator.js");
-      const decodedJson = decodeQrData(trimmed);
-      const parsed = JSON.parse(decodedJson);
-      verificationInput = parsed as Record<string, unknown>;
-    } else if (trimmed.startsWith("{")) {
-      const parsed = JSON.parse(trimmed);
-
-      // VC-JWT envelope detection: when the signed output is a JSON object with
-      // { proof: { type: "JsonWebSignature2020", jwt: "eyJ..." } }, extract the
-      // raw JWT string. The verification package expects the compact JWT, not
-      // the JSON envelope.
-      verificationInput = parsed as Record<string, unknown>;
-      if (
-        typeof parsed === "object" &&
-        parsed !== null &&
-        parsed.proof &&
-        typeof parsed.proof === "object" &&
-        typeof parsed.proof.jwt === "string"
-      ) {
-        verificationInput = parsed.proof.jwt;
-      }
-    } else if (trimmed.includes("~")) {
-      // SD-JWT format (contains disclosure separators)
-      assertJwtSize(trimmed);
-      verificationInput = trimmed;
-    } else if (trimmed.split(".").length === 3) {
-      // JWT compact serialization (header.payload.signature)
-      assertJwtSize(trimmed);
-      verificationInput = trimmed;
-    } else {
-      return {
-        success: false,
-        error: "Unrecognized credential format. Expected JSON, OPENCRED1: QR data, JWT, or SD-JWT.",
-      };
-    }
-
-    // Resolve using composite DID resolver    // Resolve using composite DID resolver (supports did:key, did:jwk, did:web)
+    // Eagerly load the dependencies common to both branches so error paths
+    // below have the same shape and so the dynamic-import cost is paid once.
     const { DIDKeyResolver, DIDJwkResolver, DIDWebResolver, CompositeDIDResolver } =
       await import("@opencred/did");
-    const { verifyCredential, loadCscaTrustStore } = await import("@opencred/verification");
+    const { verifyCredential, verifyPdf, loadCscaTrustStore } =
+      await import("@opencred/verification");
+
+    // When DeDi is configured, wire it in as the did:web fallback. The
+    // resolver tries canonical HTTPS resolution first; on failure (any
+    // non-SSRF error), it consults DeDi's public_key_registry for the
+    // input DID via `createDeDiDIDWebFallback`. This lets verifiers
+    // recover the issuer's DID document from DeDi when the canonical
+    // `.well-known/did.json` endpoint is unavailable. Reuses the
+    // publish-manager's underlying DeDi client so verify and publish
+    // share circuit breaker / retry state.
+    const verifyPublishManager = getDeDiPublishManager();
+    let didWebResolver: InstanceType<typeof DIDWebResolver>;
+    if (verifyPublishManager) {
+      const { createDeDiDIDWebFallback } = await import("@opencred/dedi-client");
+      didWebResolver = new DIDWebResolver(createDeDiDIDWebFallback(verifyPublishManager.rawClient));
+    } else {
+      didWebResolver = new DIDWebResolver();
+    }
 
     const compositeResolver = new CompositeDIDResolver(
       new Map([
         ["key", new DIDKeyResolver()],
         ["jwk", new DIDJwkResolver()],
-        ["web", new DIDWebResolver()],
+        ["web", didWebResolver],
       ]),
     );
+
+    // ----- PDF branch ---------------------------------------------------- //
+    // The renderer routes a `.pdf` file through this branch by setting
+    // `pdfBase64`. The handler reads the embedded `OpenCredCredential`
+    // info-dict key from the PDF and runs the standard verifier on the
+    // recovered credential. PDFs without this key (legacy / non-OpenCred)
+    // surface as a structured INVALID with a check pointing the user at
+    // the QR-scan path.
+    if (request.pdfBase64) {
+      const pdfBytes = Buffer.from(request.pdfBase64, "base64");
+      const verifyStorePdf = getStore();
+      const verifyPrefsPdf =
+        (verifyStorePdf.get("preferences" as keyof typeof verifyStorePdf.store) as
+          | Record<string, unknown>
+          | undefined) ?? {};
+      const cscaTrustStorePathPdf =
+        process.env.OPENCRED_CSCA_TRUST_STORE_PATH ??
+        (verifyPrefsPdf["cscaTrustStorePath"] as string | undefined);
+      const trustAnchorsPdf = cscaTrustStorePathPdf
+        ? await loadCscaTrustStore(cscaTrustStorePathPdf, {
+            onSkipped: ({ path: skippedPath, reason }) => {
+              logger.warn("CSCA trust store entry skipped", { path: skippedPath, reason });
+            },
+          })
+        : undefined;
+
+      const pdfResult = await verifyPdf(pdfBytes, {
+        didResolver: compositeResolver,
+        trustAnchors: trustAnchorsPdf,
+      });
+      logger.info("PDF credential verified", {
+        valid: pdfResult.verified,
+        code: pdfResult.code,
+      });
+      return {
+        success: true,
+        valid: pdfResult.verified,
+        message: pdfResult.verified
+          ? "Credential signature is valid."
+          : (pdfResult.checks.find((c) => !c.passed)?.detail ?? "Verification failed."),
+        checks: pdfResult.checks,
+      };
+    }
+
+    // ----- String branch (the original surface) -------------------------- //
+    if (typeof request.credential !== "string" || request.credential.length === 0) {
+      return {
+        success: false,
+        error: "Provide either `credential` (string) or `pdfBase64` (base64 PDF bytes).",
+      };
+    }
+    const trimmed = request.credential.trim();
+
+    // Format detection: determine the input format and parse accordingly.
+    // PixelPass is content-detected (successful decode is the discriminator),
+    // not prefix-detected — see `@opencred/shared/credential-format.ts`.
+    let verificationInput: Record<string, unknown> | string;
+    const format = detectCredentialInputFormat(trimmed);
+
+    switch (format) {
+      case "pixelpass": {
+        const decodedJson = decodePixelPass(trimmed);
+        verificationInput = JSON.parse(decodedJson) as Record<string, unknown>;
+        break;
+      }
+      case "json": {
+        // Pass JSON credentials through as-is — including the VC-JWT
+        // envelope shape ({ proof: { type: "JsonWebSignature2020", jwt } }).
+        // The verification engine unwraps the envelope itself AND
+        // cross-validates the outer JSON against the signed payload, so a
+        // tampered display copy fails verification. Extracting proof.jwt
+        // here would silently skip that consistency check.
+        verificationInput = JSON.parse(trimmed) as Record<string, unknown>;
+        break;
+      }
+      case "jwt-compact": {
+        assertJwtSize(trimmed);
+        verificationInput = trimmed;
+        break;
+      }
+      case "unknown": {
+        return {
+          success: false,
+          error:
+            "Unrecognized credential format. Expected JSON, PixelPass QR data, JWT, or SD-JWT.",
+        };
+      }
+    }
 
     // Custom JSON-LD contexts are served by the shared document loader
     // from a per-URL cache populated at schema-save time. Conflicts on the
@@ -1019,8 +1126,18 @@ async function handlePackageCredential(
 /** REVOCATION_QUEUE — queue a credential revocation. */
 async function handleRevocationQueue(
   _event: IpcMainInvokeEvent,
-  request: RevocationQueueRequest,
+  rawRequest: unknown,
 ): Promise<RevocationQueueResponse> {
+  // Validate the payload at the IPC boundary so a malformed renderer call
+  // (or one that exceeds bounded field lengths) is rejected before
+  // touching electron-store. `reason` is optional but length-bounded.
+  const parsed = parseIpcRequest(revocationQueueRequestSchema, rawRequest);
+  if (!parsed.ok) {
+    logger.warn("Rejected REVOCATION_QUEUE: invalid payload", { reason: parsed.error });
+    return { success: false, error: `Invalid revocation payload: ${parsed.error}` };
+  }
+  const request = parsed.value as RevocationQueueRequest;
+
   try {
     const item = queueRevocation(request.credentialId, request.registryUrl, {
       revocationHash: request.revocationHash,
@@ -1097,10 +1214,13 @@ async function handleFileOpen(
   }
 
   const filePath = result.filePaths[0];
-  const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"];
-  const isImage = IMAGE_EXTENSIONS.some((ext) => filePath.toLowerCase().endsWith(ext));
+  // Binary file types — return base64 so the renderer can decode the
+  // bytes losslessly. Text-y files (json, jsonld, txt) take the utf-8
+  // path so paste / drop / textarea callers don't have to base64-decode.
+  const BINARY_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".pdf"];
+  const isBinary = BINARY_EXTENSIONS.some((ext) => filePath.toLowerCase().endsWith(ext));
 
-  if (isImage) {
+  if (isBinary) {
     const content = (await fs.readFile(filePath)).toString("base64");
     return { content, filePath, encoding: "base64" };
   }
@@ -1226,6 +1346,7 @@ async function handleBatchStart(
     const engine = createBatchEngine(signer, parseResult.rows, {
       schemaId: request.schemaId,
       issuerDid: request.issuerDid,
+      keyIndex: getStore().get("dediActiveKeyIndex") ?? 0,
       validFrom: request.validFrom,
       validUntil: request.validUntil,
       revocationRegistryUrl: request.revocationRegistryUrl,
@@ -2382,21 +2503,32 @@ async function handleCustomSchemaSave(
       // by the time this updates the store. The renderer re-reads the
       // customSchemas list to pick up the new state on the next poll
       // (or the user's next visit to the schema-management screen).
-      Promise.allSettled(publishPromises).then((results) => {
-        const failures = results.filter((r) => r.status === "rejected");
-        updateCustomSchemaPublishState(
-          entry.id,
-          failures.length === 0 ? "published" : "failed",
-          failures.length === 0
-            ? undefined
-            : failures
-                .map((r) => {
-                  const reason = (r as PromiseRejectedResult).reason;
-                  return reason instanceof Error ? reason.message : String(reason);
-                })
-                .join("; "),
-        );
-      });
+      Promise.allSettled(publishPromises)
+        .then((results) => {
+          const failures = results.filter((r) => r.status === "rejected");
+          updateCustomSchemaPublishState(
+            entry.id,
+            failures.length === 0 ? "published" : "failed",
+            failures.length === 0
+              ? undefined
+              : failures
+                  .map((r) => {
+                    const reason = (r as PromiseRejectedResult).reason;
+                    return reason instanceof Error ? reason.message : String(reason);
+                  })
+                  .join("; "),
+          );
+        })
+        .catch((err: unknown) => {
+          // updateCustomSchemaPublishState can itself fail (schema deleted
+          // while the publish was in flight). The IPC response has already
+          // returned, so an unhandled rejection here would surface as a
+          // process-level error with no context.
+          logger.warn("Failed to record DeDi schema publish state", {
+            schemaId: entry.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
     }
   }
 
@@ -2491,16 +2623,27 @@ async function handleLogTail(
 // ---------------------------------------------------------------------------
 
 import { exportDidDocument } from "./did-web-export.js";
-import { DIDWebResolver, encodeDidWeb } from "@opencred/did";
+import { exportDidKeyDocument } from "./did-key-export.js";
+import {
+  DIDWebResolver,
+  encodeDidWeb,
+  generateDidWebDocumentMultiKey,
+  didWebVerificationMethodIdForIndex,
+  importDidWebDocument,
+} from "@opencred/did";
+import type { JWK, DidWebKeyInput } from "@opencred/did";
 import type {
   DidWebExportRequest,
   DidWebExportResponse,
   DidWebVerifyRequest,
   DidWebVerifyResponse,
+  DidKeyExportRequest,
+  DidKeyExportResponse,
   DeDiConfigSetRequest,
   DeDiConfigSetResponse,
   DeDiStatusResponse,
-  DeDiPublishDIDRequest,
+  DeDiPublishKeyRequest,
+  DeDiSetKeyStatusRequest,
   DeDiPublishSchemaRequest,
   DeDiPublishResponse,
   DeDiEnsureRegistriesResponse,
@@ -2520,6 +2663,49 @@ async function handleDidWebExport(
     return {
       success: false,
       error: ipcErrorMessage(err, "DID document export failed."),
+    };
+  }
+}
+
+/**
+ * Synthesise a DID document for the user's generated did:key.
+ *
+ * Used by the Self-Published Keys (did:key branch) wizard to produce the
+ * payload that DeDi accepts as an attribution record. The DID document is
+ * the same one a verifier would synthesise locally via {@link
+ * @opencred/did#DIDKeyResolver} — DeDi caching it just lets verifiers
+ * attach org metadata on lookup.
+ *
+ * Mirror to {@link handleDidWebExport}; takes only the keyId (no domain).
+ */
+async function handleDidKeyExport(
+  _event: IpcMainInvokeEvent,
+  request: DidKeyExportRequest,
+): Promise<DidKeyExportResponse> {
+  try {
+    const jwk = loadedPublicKeyJwks.get(request.keyId);
+    if (!jwk) return { success: false, error: "Key not found or not a generated key" };
+    // The Signer's `id` is the full verification method ref (did:key:z…#z…).
+    // Strip the fragment to get the DID itself, which is what credentials
+    // and DeDi records use as the identifier.
+    const signer = loadedSigners.get(request.keyId);
+    if (!signer || !signer.id.startsWith("did:key:")) {
+      return {
+        success: false,
+        error: "Cannot export did:key document: signer is not a did:key (RSA keys produce did:jwk)",
+      };
+    }
+    const did = signer.id.split("#")[0];
+    // Route through the Signer overload so repeated exports (e.g.
+    // re-publishing to DeDi after an outage, or multiple wizard re-tries)
+    // hit the process-wide signer-DID-document cache keyed on the
+    // public-key fingerprint. See #573 / #572.
+    const didDocument = await exportDidKeyDocument(signer);
+    return { success: true, did, didDocument };
+  } catch (err) {
+    return {
+      success: false,
+      error: ipcErrorMessage(err, "did:key document export failed."),
     };
   }
 }
@@ -2591,7 +2777,13 @@ function getDeDiCredentialFromKeychain(): string | null {
   if (!encrypted) return null;
   try {
     return safeStorage.decryptString(Buffer.from(encrypted, "base64"));
-  } catch {
+  } catch (err) {
+    // A stored-but-undecryptable credential (OS keychain reset, profile
+    // migration, corrupted blob) would otherwise present as "DeDi not
+    // configured" with no trail to debug from. Never log the blob itself.
+    logger.warn("Stored DeDi credential could not be decrypted — re-enter it in Settings", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }
@@ -2623,18 +2815,27 @@ async function handleDeDiSetConfig(
     const mgr = getDeDiPublishManager();
     if (!mgr) {
       logger.error("DeDi publish manager could not be created");
-      return { success: true, registriesReady: false };
+      return {
+        success: true,
+        registriesReady: false,
+        error: "DeDi client could not be created from the stored configuration",
+      };
     }
+    // Carry the failure reason to the UI so "registries not ready yet" is
+    // distinguishable from "registry creation failed" when debugging.
     let registriesReady = false;
+    let registriesError: string | undefined;
     try {
       registriesReady = await mgr.ensureRegistries(request.namespace);
+      if (!registriesReady) registriesError = "Registry creation failed — see logs";
     } catch (regErr) {
+      registriesError = ipcErrorMessage(regErr, "Registry creation failed");
       logger.error("DeDi ensureRegistries failed", {
         error: regErr instanceof Error ? regErr.message : String(regErr),
       });
     }
     store.set("dediRegistriesReady", registriesReady);
-    return { success: true, registriesReady };
+    return { success: true, registriesReady, error: registriesError };
   } catch (err) {
     return {
       success: false,
@@ -2654,16 +2855,237 @@ async function handleDeDiGetStatus(_event: IpcMainInvokeEvent): Promise<DeDiStat
   };
 }
 
-async function handleDeDiPublishDID(
+/**
+ * DEDI_PUBLISH_KEY — publish an issuer's public key (and optionally its
+ * did:web document) to DeDi's key registry.
+ *
+ * The IPC surface references the key by its local signer id only — the
+ * private key NEVER crosses the IPC boundary. The handler resolves the
+ * public JWK + algorithm from the in-memory signer registry.
+ *
+ * The published verification method:
+ *   - `did:web:domain` → `<did>#key-<keyIndex>` (the operator-chosen index,
+ *     default 0; the new key is published under this fragment);
+ *   - any other method (e.g. `did:key:...`) → the signer id itself.
+ *
+ * Security invariant (CLAUDE.md #2): the `publicKeyJwk` looked up from
+ * the signer registry is the **public** JWK — Node's
+ * `KeyObject.export({ format: "jwk" })` on a public KeyObject returns
+ * only `kty/crv/x/y` (EC) or `kty/n/e` (RSA), never `d/p/q`. We pass it
+ * through to the DeDi client unmodified; no logging of the JWK happens
+ * here.
+ */
+async function handleDeDiPublishKey(
   _event: IpcMainInvokeEvent,
-  request: DeDiPublishDIDRequest,
+  request: DeDiPublishKeyRequest,
 ): Promise<DeDiPublishResponse> {
   const mgr = getDeDiPublishManager();
   if (!mgr) return { success: false, error: "DeDi not configured" };
-  const result = await mgr.publishDIDDocument(request.did, request.document);
-  return result
-    ? { success: true, recordName: result.recordName }
-    : { success: false, error: "Failed to publish DID to DeDi" };
+
+  const signer = loadedSigners.get(request.signerKeyId);
+  const jwk = signer?.metadata.publicKeyJwk ?? loadedPublicKeyJwks.get(request.signerKeyId);
+  if (!jwk) {
+    return {
+      success: false,
+      error: `No public key available for signer ${request.signerKeyId}`,
+    };
+  }
+
+  const keyIndex = request.keyIndex ?? 0;
+  const verificationMethod = request.did.startsWith("did:web:")
+    ? didWebVerificationMethodIdForIndex(request.did, keyIndex)
+    : request.signerKeyId;
+
+  // When the operator supplies the current did.json, validate the chosen index
+  // is free before publishing — mirrors the server's 409 KEY_INDEX_TAKEN.
+  // Without this an in-use index would silently overwrite an existing key slot,
+  // breaking verification of credentials signed by the key it replaces.
+  if (request.did.startsWith("did:web:") && request.currentDidDocument) {
+    try {
+      const imported = importDidWebDocument(request.currentDidDocument);
+      if (imported.usedIndices.includes(keyIndex)) {
+        return {
+          success: false,
+          error: `#key-${keyIndex} is already present in the current did.json (next free index: ${imported.maxKeyIndex + 1}).`,
+        };
+      }
+    } catch {
+      // Malformed document — let the did.json assembly path surface the error.
+    }
+  }
+
+  const store = getStore();
+
+  // ── did.json snapshot (HOST_DID_DOC gate) ────────────────────────────────
+  // When the operator opted into DeDi-hosting (`request.hostDidDocument`), the
+  // immutable W3C did.json snapshot now lives ON this key's registry record —
+  // there is no separate `did-documents` registry anymore. Assemble it from the
+  // issuer's CURRENT key set BEFORE publishing the key, then embed it on the
+  // KeyRecord.
+  //   - New key = the one being published now (appended last).
+  //   - Existing keys = carried forward from the operator-supplied
+  //     `currentDidDocument` (imported as a whole) or, as a fallback, resolved
+  //     best-effort from DeDi. Each preserves its revoked status: a revoked
+  //     key STAYS in verificationMethod[] (so its signatures still resolve →
+  //     REVOKED) but is dropped from the relationships by
+  //     generateDidWebDocumentMultiKey (W3C DID Core §5.3).
+  //   - De-duplicated by verification method id.
+  // For the common one-key issuer this is a single-key doc. did:web only —
+  // other DID methods omit the snapshot entirely.
+  let documentToPublish: Record<string, unknown> | undefined;
+  if (request.hostDidDocument && request.did.startsWith("did:web:")) {
+    try {
+      const newKey: DidWebKeyInput = {
+        id: verificationMethod,
+        publicKeyJwk: jwk as JWK,
+      };
+      // Carry every existing key forward, preserving its revoked status. A
+      // revoked key stays in verificationMethod[] (so its signatures still
+      // resolve → REVOKED) but is dropped from the relationships by
+      // generateDidWebDocumentMultiKey.
+      let retained: DidWebKeyInput[] = [];
+      if (request.currentDidDocument) {
+        // Preferred: import the operator-supplied did.json as a whole.
+        const imported = importDidWebDocument(request.currentDidDocument);
+        retained = imported.keys.map((key) => ({
+          id: key.id,
+          publicKeyJwk: key.publicKeyJwk,
+          revoked: key.revoked,
+        }));
+      } else {
+        // Fallback: resolve each previously-published key from DeDi.
+        const previouslyPublished = store.get("dediPublishedKeys") ?? [];
+        for (const vm of previouslyPublished) {
+          if (vm === verificationMethod) continue;
+          try {
+            const record = await mgr.rawClient.resolveKey(vm);
+            retained.push({
+              id: record.keyId,
+              publicKeyJwk: record.publicKeyJwk as JWK,
+              revoked: record.status === "revoked",
+            });
+          } catch {
+            // 404 / outage / unresolvable — skip this key (best-effort).
+          }
+        }
+      }
+
+      const seen = new Set<string>();
+      const orderedKeys: DidWebKeyInput[] = [];
+      for (const key of [...retained, newKey]) {
+        if (seen.has(key.id)) continue;
+        seen.add(key.id);
+        orderedKeys.push(key);
+      }
+
+      documentToPublish = generateDidWebDocumentMultiKey(
+        request.did,
+        orderedKeys,
+      ) as unknown as Record<string, unknown>;
+    } catch (assembleErr) {
+      // Assembly failed entirely (e.g. unexpected JWK shape). Fall back to
+      // the single-key document the renderer supplied so publish never
+      // hard-fails on a hosting refresh.
+      logger.warn("did.json multi-key assembly failed; falling back to single-key document", {
+        error: assembleErr instanceof Error ? assembleErr.message : String(assembleErr),
+      });
+      documentToPublish = request.document as Record<string, unknown> | undefined;
+    }
+  }
+
+  const keyRecord: KeyRecord = {
+    keyId: verificationMethod,
+    controllerDid: request.did,
+    algorithm: signer ? String(signer.algorithm) : "unknown",
+    publicKeyJwk: jwk,
+    purpose: ["assertionMethod"],
+    status: "active",
+    // Embed the immutable did.json snapshot only when hosting (did:web). Omitted
+    // otherwise — did:key is self-describing and domain-hosted issuers serve
+    // their own `.well-known/did.json`.
+    ...(documentToPublish !== undefined ? { document: documentToPublish } : {}),
+  };
+
+  const result = await mgr.publishKey(keyRecord, request.namespace);
+  if (!result) {
+    return { success: false, error: "Failed to publish key to DeDi" };
+  }
+
+  // Rotation: when a previous key is named, retire it (flip to `rotated`). It
+  // stays valid — a clean rotation does not invalidate its credentials. Its own
+  // did.json snapshot is carried forward UNCHANGED by setKeyStatus (the new
+  // key's record above already carries the up-to-date snapshot).
+  if (request.previousVerificationMethod) {
+    await mgr.setKeyStatus(request.previousVerificationMethod, "rotated", request.namespace);
+  }
+
+  // `didDocumentStored` reflects whether a snapshot was embedded on the key
+  // record (the publishKey above persists it atomically with the key).
+  const didDocumentStored: boolean | undefined = documentToPublish !== undefined ? true : undefined;
+
+  // Track the published verification method locally so the next
+  // key-generation can flag it rotated without an extra round-trip to
+  // look it up. Idempotent — republishing the same key is a no-op on
+  // the local list.
+  const published = store.get("dediPublishedKeys") ?? [];
+  if (!published.includes(verificationMethod)) {
+    store.set("dediPublishedKeys", [...published, verificationMethod]);
+  }
+
+  // Record the active key's index so credential signing stamps the matching
+  // #key-<n>. did:web only — did:key carries its own fragment.
+  if (request.did.startsWith("did:web:")) {
+    store.set("dediActiveKeyIndex", keyIndex);
+  }
+
+  return {
+    success: true,
+    recordName: result.recordName,
+    keyId: verificationMethod,
+    didDocumentStored,
+  };
+}
+
+/**
+ * DEDI_SET_KEY_STATUS — change the status of a previously-published key
+ * in DeDi (e.g. `"rotated"` or `"revoked"`).
+ *
+ * DeDi enforces monotone status transitions; the returned
+ * `SetKeyStatusResult` tells the renderer whether the change actually
+ * took effect (`changed: true`) or was refused / already-applied
+ * (`changed: false`).
+ */
+async function handleDeDiSetKeyStatus(
+  _event: IpcMainInvokeEvent,
+  request: DeDiSetKeyStatusRequest,
+): Promise<DeDiPublishResponse> {
+  const mgr = getDeDiPublishManager();
+  if (!mgr) return { success: false, error: "DeDi not configured" };
+
+  // The revoke status flip on the per-key registry record IS authoritative:
+  // the verifier reads each key's `status` to decide accept/reject, and the
+  // live did.json is now projected from the per-key snapshots
+  // (`resolveDidWebDocument`) — a revoked key keeps its own immutable snapshot
+  // but is no longer chosen as the active document. No separate did.json
+  // regeneration is needed (there is no `did-documents` registry anymore), and
+  // `setKeyStatus` carries each record's snapshot forward UNCHANGED.
+  const result = await mgr.setKeyStatus(
+    request.verificationMethod,
+    request.status,
+    request.namespace,
+  );
+  if (!result) {
+    return { success: false, error: "Failed to set key status in DeDi" };
+  }
+
+  return {
+    success: true,
+    statusChange: {
+      changed: result.changed,
+      keyId: result.keyId,
+      status: request.status,
+    },
+  };
 }
 
 async function handleDeDiPublishSchema(
@@ -2727,6 +3149,10 @@ async function handleDeDiDisconnect(
   store.delete("dediConfig" as never);
   store.set("dediPublishedSchemas", []);
   store.delete("dediRegistriesReady" as never);
+  // Reset per-issuer key tracking so a reconnect under a different issuer/
+  // namespace doesn't sign with a stale #key-<n> or carry forward old keys.
+  store.set("dediPublishedKeys", []);
+  store.set("dediActiveKeyIndex", 0);
   const prefs = store.get("preferences");
   if (prefs && typeof prefs === "object" && "dediCredentialEncrypted" in prefs) {
     const rest = { ...(prefs as Record<string, unknown>) };
@@ -2848,11 +3274,13 @@ export function registerIpcHandlers(): void {
   // Self-Published Keys (did:web)
   ipcMain.handle(IPC_CHANNELS.DID_WEB_EXPORT, handleDidWebExport);
   ipcMain.handle(IPC_CHANNELS.DID_WEB_VERIFY, handleDidWebVerify);
+  ipcMain.handle(IPC_CHANNELS.DID_KEY_EXPORT, handleDidKeyExport);
 
   // DeDi integration
   ipcMain.handle(IPC_CHANNELS.DEDI_SET_CONFIG, handleDeDiSetConfig);
   ipcMain.handle(IPC_CHANNELS.DEDI_GET_STATUS, handleDeDiGetStatus);
-  ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_DID, handleDeDiPublishDID);
+  ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_KEY, handleDeDiPublishKey);
+  ipcMain.handle(IPC_CHANNELS.DEDI_SET_KEY_STATUS, handleDeDiSetKeyStatus);
   ipcMain.handle(IPC_CHANNELS.DEDI_PUBLISH_SCHEMA, handleDeDiPublishSchema);
   ipcMain.handle(IPC_CHANNELS.DEDI_ENSURE_REGISTRIES, handleDeDiEnsureRegistries);
   ipcMain.handle(IPC_CHANNELS.DEDI_DISCONNECT, handleDeDiDisconnect);

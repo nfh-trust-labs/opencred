@@ -4,6 +4,15 @@ on:
   push:
     tags: ['v*']
   workflow_call:
+    inputs:
+      tag:
+        # Optional in workflow_call so release-please can pass an empty
+        # string when release_created is false (the `if:` guard in the
+        # caller still gates execution, but GitHub validates inputs at
+        # parse time — declaring `tag` here is what makes that pass).
+        description: 'Tag to build and publish (e.g. v1.0.0). Must already exist.'
+        required: false
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -97,12 +106,8 @@ jobs:
             platform: mac
           - os: ubuntu-latest
             platform: linux
-          # Windows disabled — @electron/rebuild hangs for 20+ min on the
-          # pnpm symlinked dependency tree during "Searching dependency
-          # tree" on NTFS. Tracked in the Windows-rebuild-hang issue.
-          # Native compile via node-gyp itself works fine (windows-cng.node
-          # is produced in 48s during "Build workspace dependencies"); it's
-          # only the Electron-ABI rebuild step that hangs.
+          - os: windows-2022
+            platform: win
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -127,9 +132,15 @@ jobs:
       - name: Build workspace dependencies
         run: pnpm --filter @opencred/desktop... build
 
+      # rebuild-native.cjs rebuilds ONLY the known native modules
+      # (pkcs11js + opencred-native-addons) directly via node-gyp,
+      # skipping @electron/rebuild's dependency-tree walk that used
+      # to hang for 20+ min on Windows / NTFS / pnpm symlinks. See
+      # issue #501 for the root-cause analysis. 10 min is plenty —
+      # node-gyp itself takes ~3 min total on Windows for both modules.
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
-        timeout-minutes: 20
+        timeout-minutes: 10
 
       - name: Verify native addons
         run: node scripts/verify-native-addons.cjs
@@ -142,6 +153,14 @@ jobs:
   # produces a unified `latest-mac.yml` referencing both zip/dmg. Two
   # parallel Mac runners would race on that file and leave the auto-updater
   # manifest pointing at non-existent artefacts.
+  #
+  # Per-TARGET-arch native addon handling (#641/#642): electron-builder's
+  # beforePack hook (apps/desktop/scripts/electron-builder-hooks.cjs) reruns
+  # rebuild-native.cjs with --arch=<target> before each arch is packed, and
+  # the afterPack hook fails the build if any packaged .node binary doesn't
+  # match the target arch. The single "Rebuild native addons" step below only
+  # compiles for the HOST arch — it exists so verify-native-addons and the
+  # main-process bundling have binaries to work with.
   release:
     needs: [preflight, test]
     strategy:
@@ -156,7 +175,10 @@ jobs:
             platform: linux
             electron_builder_args: "--linux --x64"
             artifact_suffix: linux-x64
-          # Windows disabled — see note in `test` matrix above.
+          - os: windows-2022
+            platform: win
+            electron_builder_args: "--win --x64"
+            artifact_suffix: win-x64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -187,9 +209,11 @@ jobs:
       - name: Build workspace dependencies
         run: pnpm --filter @opencred/desktop... build
 
+      # See note in `test` matrix above — rebuild-native.cjs bypasses
+      # @electron/rebuild's dep-tree walk so Windows no longer hangs.
       - name: Rebuild native addons for Electron
         run: pnpm --filter @opencred/desktop rebuild:native
-        timeout-minutes: 20
+        timeout-minutes: 10
 
       # Fail the build if macos-keychain / windows-cng silently failed to
       # compile. Without this, the release ships without OS cert-store
@@ -254,7 +278,13 @@ jobs:
             export CSC_IDENTITY_AUTO_DISCOVERY=false
             echo "Building UNSIGNED Windows artefacts (no WIN_CSC_LINK)"
           fi
-          npx electron-builder $EB_ARGS --publish never
+          # --config.npmRebuild=false: electron-builder must not invoke its
+          # bundled @electron/rebuild — it hangs 60+ min on Windows pnpm
+          # symlink trees (the same root cause as #501). Native modules are
+          # rebuilt for each TARGET arch by the beforePack hook instead
+          # (scripts/electron-builder-hooks.cjs, #641/#642), which is not
+          # affected by npmRebuild=false.
+          npx electron-builder $EB_ARGS --publish never --config.npmRebuild=false
 
       # Verify Mac artefacts are properly code-signed, Gatekeeper-approved
       # and notarisation-stapled BEFORE publishing. Without this, a broken
@@ -400,3 +430,95 @@ jobs:
             apps/desktop/out/latest*.yml
           if-no-files-found: warn
           retention-days: 30
+
+  # ----------------------------------------------------------------------
+  # Mirror release artefacts to the public nfh-trust-labs/opencred-releases
+  # repo so end users can download .dmg / .AppImage / .deb / latest*.yml
+  # without authenticating to a private repo.
+  #
+  # Source of truth remains the private repo's GitHub Release. This job
+  # downloads the same verified artefacts that were just uploaded there
+  # and re-uploads them to the public mirror under the matching tag.
+  #
+  # Requires repo secret PUBLIC_RELEASES_TOKEN: a fine-grained PAT or
+  # GitHub App token with `contents: write` on
+  # nfh-trust-labs/opencred-releases. GITHUB_TOKEN cannot be used here
+  # because it is scoped to the source repo only.
+  # ----------------------------------------------------------------------
+  mirror-to-public:
+    name: Mirror to public releases repo
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download artefacts from private release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          SOURCE_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p mirror-artefacts
+          cd mirror-artefacts
+          # Pull every uploaded artefact. Blockmaps are mirrored too —
+          # electron-updater pulls them from the mirror to compute
+          # differential updates.
+          gh release download "$RELEASE_TAG" \
+            --repo "$SOURCE_REPO" \
+            --pattern '*.dmg' \
+            --pattern '*.zip' \
+            --pattern '*.exe' \
+            --pattern '*.msi' \
+            --pattern '*.AppImage' \
+            --pattern '*.deb' \
+            --pattern '*.blockmap' \
+            --pattern 'latest*.yml'
+          ls -la
+
+      - name: Generate SHA256SUMS
+        working-directory: mirror-artefacts
+        run: |
+          shopt -s nullglob
+          files=(*.dmg *.zip *.exe *.msi *.AppImage *.deb)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::warning::No user-facing artefacts to checksum"
+          else
+            sha256sum "${files[@]}" > SHA256SUMS
+            echo "Generated SHA256SUMS:"
+            cat SHA256SUMS
+          fi
+
+      - name: Publish to public mirror repo
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          MIRROR_REPO: nfh-trust-labs/opencred-releases
+        working-directory: mirror-artefacts
+        run: |
+          set -e
+          shopt -s nullglob
+          files=(*.dmg *.zip *.exe *.msi *.AppImage *.deb *.blockmap latest*.yml SHA256SUMS)
+          actual=()
+          for f in "${files[@]}"; do [ -f "$f" ] && actual+=("$f"); done
+          if [ ${#actual[@]} -eq 0 ]; then
+            echo "::error::No artefacts to mirror."
+            exit 1
+          fi
+          if ! gh release view "$RELEASE_TAG" --repo "$MIRROR_REPO" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$MIRROR_REPO" \
+              --title "$RELEASE_TAG" \
+              --notes "Public release artefacts for $RELEASE_TAG. Verify downloads with the included SHA256SUMS file. Bug reports and feature requests: https://github.com/nfh-trust-labs/opencred-releases/issues."
+          fi
+          gh release upload "$RELEASE_TAG" "${actual[@]}" --clobber --repo "$MIRROR_REPO"
+          echo "Mirrored ${#actual[@]} artefacts to $MIRROR_REPO release $RELEASE_TAG"

@@ -45,9 +45,15 @@ export function renderSvg(svgTemplate: string, options: RenderOptions): string {
   lookup.set("labelColor", escapeXml(customization?.labelColor ?? "#666666"));
   lookup.set("logoWidth", String(customization?.logoWidth ?? 50));
   lookup.set("logoHeight", String(customization?.logoHeight ?? 50));
+  // Default footer is intentionally a generic verification disclaimer
+  // — no "powered by" attribution. The PDF generator follows the same
+  // convention. To suppress the footer entirely, pass `footerText: ""`.
   lookup.set(
     "footerText",
-    escapeXml(customization?.footerText ?? "Verifiable Credential — powered by OpenCred"),
+    escapeXml(
+      customization?.footerText ??
+        "This credential is digitally signed and can be independently verified.",
+    ),
   );
 
   if (customization?.logoDataUri) {

@@ -244,8 +244,8 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
     <Card className="space-y-4">
       {/* Credential name */}
       <div>
-        <label htmlFor="blank-cred-name" className="block text-xs font-medium text-gray-600">
-          Credential Name <span className="text-red-500">*</span>
+        <label htmlFor="blank-cred-name" className="block text-xs font-medium text-txt-secondary">
+          Credential Name <span className="text-state-danger">*</span>
         </label>
         <input
           id="blank-cred-name"
@@ -253,20 +253,20 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
           value={credentialName}
           onChange={(e) => setCredentialName(e.target.value)}
           placeholder="e.g. Energy Prosumer Certificate"
-          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
         />
       </div>
 
       {/* Mode tabs */}
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex gap-1 border-b border-border-light">
         {TABS.map((tab) => (
           <button
             key={tab.mode}
             onClick={() => setActiveMode(tab.mode)}
             className={`px-3 py-1.5 text-xs font-medium transition-colors border-b-2 -mb-px ${
               activeMode === tab.mode
-                ? "border-blue-500 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                ? "border-brand text-brand"
+                : "border-transparent text-txt-muted hover:text-txt-secondary"
             }`}
           >
             {tab.label}
@@ -285,12 +285,12 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
                 value={field.name}
                 onChange={(e) => updateField(index, { name: e.target.value })}
                 placeholder="Field name"
-                className="flex-1 min-w-0 rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                className="flex-1 min-w-0 rounded-md border border-border px-2 py-1.5 text-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
               />
               <select
                 value={field.type}
                 onChange={(e) => updateField(index, { type: e.target.value as FieldType })}
-                className="w-24 rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                className="w-24 rounded-md border border-border bg-white px-2 py-1.5 text-xs focus:border-brand focus:ring-1 focus:ring-blue-500"
               >
                 {FIELD_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>
@@ -298,18 +298,18 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
                   </option>
                 ))}
               </select>
-              <label className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap">
+              <label className="flex items-center gap-1 text-xs text-txt-muted whitespace-nowrap">
                 <input
                   type="checkbox"
                   checked={field.required}
                   onChange={(e) => updateField(index, { required: e.target.checked })}
-                  className="rounded border-gray-300"
+                  className="rounded border-border"
                 />
                 Req
               </label>
               <button
                 onClick={() => removeField(index)}
-                className="p-1 text-gray-300 hover:text-red-500 transition-colors"
+                className="p-1 text-txt-muted hover:text-state-danger transition-colors"
                 aria-label="Remove field"
               >
                 <svg
@@ -329,7 +329,7 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
           <div className="flex items-center gap-3 pt-1">
             <button
               onClick={addField}
-              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
+              className="flex items-center gap-1 text-xs text-brand hover:text-brand transition-colors"
             >
               <svg
                 width="14"
@@ -343,12 +343,12 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
               </svg>
               Add field
             </button>
-            <label className="flex items-center gap-1.5 text-xs text-gray-500">
+            <label className="flex items-center gap-1.5 text-xs text-txt-muted">
               <input
                 type="checkbox"
                 checked={saveAsReusable}
                 onChange={(e) => setSaveAsReusable(e.target.checked)}
-                className="rounded border-gray-300"
+                className="rounded border-border"
               />
               Save as reusable schema
             </label>
@@ -364,7 +364,7 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
       {/* Mode 2: Import from URL */}
       {activeMode === "url" && (
         <div className="space-y-3">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-txt-muted">
             Enter the URL of a JSON Schema. The schema will be fetched and loaded into the visual
             builder for review.
           </p>
@@ -374,7 +374,7 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
               value={schemaUrl}
               onChange={(e) => setSchemaUrl(e.target.value)}
               placeholder="https://example.com/schema.json"
-              className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              className="flex-1 rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleFetchUrl();
               }}
@@ -383,14 +383,14 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
               {urlFetching ? "Fetching..." : "Fetch"}
             </Button>
           </div>
-          {urlError && <p className="text-xs text-red-600">{urlError}</p>}
+          {urlError && <p className="text-xs text-state-danger">{urlError}</p>}
         </div>
       )}
 
       {/* Mode 3: Paste / Upload */}
       {activeMode === "paste" && (
         <div className="space-y-3">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-txt-muted">
             Paste a JSON Schema or sample JSON object. The type is auto-detected: schemas are parsed
             directly, sample objects have their field types inferred.
           </p>
@@ -401,16 +401,16 @@ export function BlankCredentialBuilder({ onSchemaReady }: Props) {
               '{\n  "fullName": "Jane Doe",\n  "email": "jane@example.com",\n  "graduationDate": "2024-06-15"\n}'
             }
             rows={8}
-            className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            className="block w-full rounded-md border border-border px-3 py-2 text-sm font-mono shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
           />
-          {jsonError && <p className="text-xs text-red-600">{jsonError}</p>}
+          {jsonError && <p className="text-xs text-state-danger">{jsonError}</p>}
           <div className="flex items-center gap-3">
             <Button size="sm" onClick={handleJsonParse} disabled={!jsonText.trim()}>
               Infer Fields
             </Button>
             <button
               onClick={handleFileUpload}
-              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
+              className="flex items-center gap-1 text-xs text-brand hover:text-brand transition-colors"
             >
               <svg
                 width="14"

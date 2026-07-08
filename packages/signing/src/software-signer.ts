@@ -163,16 +163,35 @@ function createSignFn(
  *
  * Detects the algorithm, derives the appropriate DID identifier,
  * computes the fingerprint, and returns a ready-to-use Signer.
+ *
+ * `verificationMethodIdOverride` — optional. When set, replaces the
+ * derived `did:key:…` / `did:jwk:…` ID with the supplied verification
+ * method URL (typically `did:web:<domain>#key-0` produced by callers
+ * that have configured `OPENCRED_ISSUER_DID_METHOD=web`). The override
+ * is applied to BOTH `signer.id` and `signer.metadata.id` so every
+ * downstream consumer (`verificationMethod`, JWT `kid`, span attrs,
+ * batch engine, rotate gate) sees the same value. Caller responsible
+ * for ensuring the override actually identifies a key bound to this
+ * keypair — `buildSigner` does not validate. See issue #632.
  */
 export function buildSigner(
   privateKey: KeyObject,
   publicKey: KeyObject,
   label?: string,
   certificateChain?: string[],
+  verificationMethodIdOverride?: string,
 ): Signer {
   const algorithm = detectKeyAlgorithm(publicKey);
-  const id = deriveVerificationMethodId(publicKey, algorithm);
+  const derivedId = deriveVerificationMethodId(publicKey, algorithm);
+  const id = verificationMethodIdOverride ?? derivedId;
   const fingerprint = computeKeyFingerprint(publicKey);
+
+  // Export public key JWK once at signer-build time. Used by callers that
+  // need to assemble a DID Document (e.g. did:web auto-publish at startup).
+  // `KeyObject.export({ format: "jwk" })` returns ONLY public parameters for
+  // a public KeyObject (`kty`, `crv`, `x`, `y` for EC; `kty`, `n`, `e` for
+  // RSA) — never `d`/`p`/`q`. Safe to surface via SignerMetadata.
+  const publicKeyJwk = publicKey.export({ format: "jwk" }) as Record<string, unknown>;
 
   const metadata: SignerMetadata = {
     id,
@@ -180,6 +199,7 @@ export function buildSigner(
     type: "software",
     fingerprint,
     label,
+    publicKeyJwk,
   };
   if (certificateChain && certificateChain.length > 0) {
     metadata.certificateChain = certificateChain;
@@ -201,10 +221,24 @@ export function buildSigner(
  *
  * Parses the PFX, extracts material and certificate chain,
  * and returns a signer with the chain included in metadata.
+ *
+ * `verificationMethodIdOverride` is forwarded to `buildSigner` —
+ * see its docstring for semantics.
  */
-export function buildSignerFromPfx(buffer: Buffer, password: string, label?: string): Signer {
+export function buildSignerFromPfx(
+  buffer: Buffer,
+  password: string,
+  label?: string,
+  verificationMethodIdOverride?: string,
+): Signer {
   const pfx = parsePfx(buffer, password);
-  return buildSigner(pfx.privateKey, pfx.publicKey, label, pfx.certificateChain);
+  return buildSigner(
+    pfx.privateKey,
+    pfx.publicKey,
+    label,
+    pfx.certificateChain,
+    verificationMethodIdOverride,
+  );
 }
 
 /**
@@ -249,6 +283,7 @@ export function createSoftwareSigner(
   filePath: string,
   label?: string,
   password?: string,
+  verificationMethodIdOverride?: string,
 ): { signer: Signer; format: KeyFormat } {
   let content: Buffer;
   try {
@@ -263,13 +298,19 @@ export function createSoftwareSigner(
     if (!password) {
       throw new CryptoError("PFX import requires a password");
     }
-    const signer = buildSignerFromPfx(content, password, label);
+    const signer = buildSignerFromPfx(content, password, label, verificationMethodIdOverride);
     return { signer, format };
   }
 
   try {
     const { privateKey, publicKey } = loadKeyFromBuffer(content, format);
-    const signer = buildSigner(privateKey, publicKey, label);
+    const signer = buildSigner(
+      privateKey,
+      publicKey,
+      label,
+      undefined,
+      verificationMethodIdOverride,
+    );
     return { signer, format };
   } catch (error) {
     if (error instanceof CryptoError) throw error;
@@ -298,6 +339,7 @@ export function createSoftwareSignerFromBuffer(
   label?: string,
   password?: string,
   filenameHint?: string,
+  verificationMethodIdOverride?: string,
 ): { signer: Signer; format: KeyFormat } {
   const format = detectKeyFormat(content, filenameHint);
 
@@ -305,13 +347,19 @@ export function createSoftwareSignerFromBuffer(
     if (!password) {
       throw new CryptoError("PFX import requires a password");
     }
-    const signer = buildSignerFromPfx(content, password, label);
+    const signer = buildSignerFromPfx(content, password, label, verificationMethodIdOverride);
     return { signer, format };
   }
 
   try {
     const { privateKey, publicKey } = loadKeyFromBuffer(content, format);
-    const signer = buildSigner(privateKey, publicKey, label);
+    const signer = buildSigner(
+      privateKey,
+      publicKey,
+      label,
+      undefined,
+      verificationMethodIdOverride,
+    );
     return { signer, format };
   } catch (error) {
     if (error instanceof CryptoError) throw error;

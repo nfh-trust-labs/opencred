@@ -43,6 +43,15 @@ export function errorHandler(err: Error, c: Context): Response {
     return c.json(ocErr.toJSON(), ocErr.statusCode as 400);
   }
 
+  // Malformed JSON request bodies are now mapped to 400 INVALID_JSON at the
+  // route layer via `parseJsonBody` (apps/server/src/middleware/parse-json.ts),
+  // which throws a `MalformedJsonError`. That error flows through the
+  // `OpenCredError` branch above, so this handler no longer needs a
+  // SyntaxError-stack-frame heuristic. SyntaxErrors raised deeper inside
+  // route handlers (e.g. `JSON.parse` of an inline credential payload) keep
+  // the existing 500/INTERNAL_ERROR path — they are server-side or unexpected-
+  // input bugs, not malformed request bodies.
+
   // Unknown errors — log the full Error via Pino's default serializer so
   // the stack trace, name, and any custom props land in the structured
   // JSON stream. The previous `{ err: err.message }` shape threw away the

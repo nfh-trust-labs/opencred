@@ -58,9 +58,9 @@ export function createMockDediClient(revocationStore: Map<string, boolean>): DeD
     queryRevocationHash: vi.fn(async (hash: string) => {
       const revoked = revocationStore.get(hash) ?? false;
       if (revoked) {
-        return { hash, revoked: true as const, revokedAt: new Date().toISOString() };
+        return { revoked: true as const, revokedAt: new Date().toISOString() };
       }
-      return { hash, revoked: false as const };
+      return { revoked: false as const };
     }),
   } as unknown as DeDiClientLike;
 }

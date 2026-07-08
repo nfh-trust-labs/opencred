@@ -129,20 +129,25 @@ export async function listOsCertificates(
 function deriveEcIdentity(
   compressedPublicKey: Uint8Array,
   curve: "P-256" | "P-384",
-): { id: string; fingerprint: string } {
+): { id: string; fingerprint: string; publicKeyJwk: Record<string, unknown> } {
   const id = deriveDidKeyIdFromCompressedKey(compressedPublicKey, curve);
 
   // Build a KeyObject from the compressed key so we can compute a standard fingerprint
   const ecPublicKey = publicKeyFromEcBytes(compressedPublicKey);
   const fingerprint = computeKeyFingerprint(ecPublicKey);
+  const publicKeyJwk = ecPublicKey.export({ format: "jwk" }) as Record<string, unknown>;
 
-  return { id, fingerprint };
+  return { id, fingerprint, publicKeyJwk };
 }
 
 /**
  * Derive the DID identifier and fingerprint for an RSA key from SPKI DER bytes.
  */
-function deriveRsaIdentity(spkiDer: Uint8Array): { id: string; fingerprint: string } {
+function deriveRsaIdentity(spkiDer: Uint8Array): {
+  id: string;
+  fingerprint: string;
+  publicKeyJwk: Record<string, unknown>;
+} {
   const publicKey = createPublicKey({
     key: Buffer.from(spkiDer),
     format: "der",
@@ -154,7 +159,7 @@ function deriveRsaIdentity(spkiDer: Uint8Array): { id: string; fingerprint: stri
   const id = didJwkVerificationMethodId(did);
   const fingerprint = computeKeyFingerprint(publicKey);
 
-  return { id, fingerprint };
+  return { id, fingerprint, publicKeyJwk: jwk as unknown as Record<string, unknown> };
 }
 
 /**
@@ -208,17 +213,18 @@ export async function createOsCertSigner(
     throw new CryptoError("Failed to extract public key from OS certificate");
   }
 
-  // Derive DID and fingerprint based on algorithm
+  // Derive DID, fingerprint, and public JWK based on algorithm
   let id: string;
   let fingerprint: string;
+  let publicKeyJwk: Record<string, unknown>;
 
   if (algorithm.startsWith("RSA")) {
     // RSA: public key is SPKI DER → did:jwk
-    ({ id, fingerprint } = deriveRsaIdentity(publicKeyBytes));
+    ({ id, fingerprint, publicKeyJwk } = deriveRsaIdentity(publicKeyBytes));
   } else {
     // EC: public key is SEC1 compressed → did:key
     const curve = algorithm as "P-256" | "P-384";
-    ({ id, fingerprint } = deriveEcIdentity(publicKeyBytes, curve));
+    ({ id, fingerprint, publicKeyJwk } = deriveEcIdentity(publicKeyBytes, curve));
   }
 
   // Get certificate chain if the provider supports it
@@ -241,6 +247,10 @@ export async function createOsCertSigner(
     fingerprint,
     label: options.label,
     certificateChain,
+    // Public JWK only — the private key never leaves the OS key store.
+    // Needed for the DeDi key lifecycle (publish/rotate) and did:web
+    // document assembly.
+    publicKeyJwk,
   };
 
   const signer: Signer = {

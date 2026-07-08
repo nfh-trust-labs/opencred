@@ -4,6 +4,19 @@ OpenCred is a local-first platform for issuing and verifying W3C Verifiable Cred
 
 OpenCred is published by [NFH Trust Labs](https://github.com/nfh-trust-labs).
 
+> **🧪 Beta release.** OpenCred is in early-access beta. Functionality is feature-complete and the protocols are stable, but desktop installer polish is still in progress — on first launch macOS shows a one-time approval prompt (see the [installation guide](desktop/installation.md#macos-first-launch)). Windows installers will follow.
+>
+> **Support:** for bug reports, feature requests, or questions, [open an issue](https://github.com/nfh-trust-labs/opencred-releases/issues).
+
+## Get OpenCred
+
+| | Where | How |
+|---|---|---|
+| **Desktop** (macOS / Linux) | <https://github.com/nfh-trust-labs/opencred-releases/releases> | Download the `.dmg` / `.AppImage` / `.deb` for your platform |
+| **Docker server** | `ghcr.io/nfh-trust-labs/opencred/opencred-server:latest` | `docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest` |
+
+Both are public — no authentication required. The source code is private; bug reports and contact channels are listed in this documentation.
+
 ## Start Here
 
 Pick the path that matches your role.
@@ -11,10 +24,31 @@ Pick the path that matches your role.
 | You are... | Start here |
 |---|---|
 | New to verifiable credentials | [Concepts](concepts/README.md) — what VCs, DIDs, and trust chains are |
+| Running a workshop or evaluating end-to-end | [Bootcamp Guide](bootcamp/README.md) — guided 3-hour path through the Docker image |
 | Installing the desktop app | [Desktop User Guide](desktop/README.md) |
 | Deploying the Docker image | [Docker Operator Guide](docker/README.md) |
+| **Verifying a credential someone gave you** | [Verifying credentials](#verifying-a-credential) (below) |
 | Reviewing OpenCred's security posture | [Security Model](security/README.md) |
 | Contributing or building from source | [Developer Guide](development/README.md) |
+
+## Verifying a credential
+
+Anyone holding an OpenCred-issued credential has four supported ways to verify it. All four run the same `@opencred/verification` engine — pick the surface that matches your environment.
+
+| Path | Best for | Inputs accepted |
+|---|---|---|
+| **Desktop app — Verify tab** | Casual / one-off verification by humans | Pasted JSON · drag-dropped `.json` / `.jsonld` · QR-code image upload (PNG/JPG) · `.pdf` upload · live camera QR scan · pasted compact tokens (vc-jwt, sd-jwt-vc, bare PixelPass QR data) |
+| **Docker server — `POST /v1/credentials/verify`** | Programmatic / server-to-server / CI/CD | JSON body for text-shaped formats (auto-detected: JSON-LD VC, vc-jwt, sd-jwt-vc, PixelPass QR data) **or** raw PDF body with `Content-Type: application/pdf` |
+| **`opencred verify` CLI** | One-shot verification from a shell, no HTTP server needed | File path or stdin. Auto-detects JSON-LD, vc-jwt, sd-jwt-vc, PixelPass QR data, or PDF. `--json` flag for scripted consumers. Ships inside the public Docker image. |
+| **`@opencred/verification` library** | Embedding verification inside another Node.js app | Same formats as above, via `verifyCredential` and `verifyPdf` |
+
+In every case the result has the same shape: a top-level `valid: true|false`, an enum `code` (`VALID`, `REVOKED`, `EXPIRED`, `INVALID`, `UNRESOLVABLE`, `CONTEXT_MISSING`), and a per-check breakdown — signature, expiry, key resolution, x5c chain (where applicable), revocation, schema, context.
+
+**`did:key`-issued credentials verify fully offline.** `did:web` credentials need network access to fetch the issuer's DID document. DSC-backed credentials carrying an `x5c` chain need a CSCA trust store on disk — see [Trust chains](concepts/trust-chains.md) and [Docker → API reference → Verify](docker/api-reference.md#post-v1credentialsverify).
+
+**PDF certificates.** OpenCred packages credentials as printable PDFs with a scannable QR embedded **and** a copy of the credential payload tucked into the PDF's info dictionary. Either path works: drop the PDF into the desktop Verify tab, POST it to `/v1/credentials/verify`, or pipe it into `opencred verify --input -`. Older PDFs issued before the info-dict embedding shipped (no payload in metadata) surface as a clear "scan the QR or extract the embedded JSON" message rather than a generic failure.
+
+For full step-by-step, see [Desktop → Verifying credentials](desktop/verifying-credentials.md) or [Docker → API reference](docker/api-reference.md#post-v1credentialsverify).
 
 ## Documentation Sections
 
@@ -52,6 +86,14 @@ Headless deployment for cloud, on-prem, and CI/CD pipelines. The Docker image ru
 * [Observability](docker/observability.md) — logging, health checks, metrics
 * [OID4VCI](docker/oid4vci.md) — OpenID for Verifiable Credential Issuance (planned)
 
+### Bootcamp
+
+A guided, hands-on 3-hour path attendees follow at workshops or that you can use to evaluate the project end-to-end. Two parallel tracks: laptops only, or one shared cloud VM.
+
+* [Bootcamp overview](bootcamp/README.md)
+* [Local Docker track](bootcamp/local-docker.md) — every attendee runs the container on their own laptop
+* [GCP VM track](bootcamp/gcp-vm.md) — one shared GCP VM, IAP-tunnelled SSH, optional Cloud KMS
+
 ### Security Model
 
 How OpenCred handles keys, what it protects against, and where the guarantees are enforced.
@@ -81,4 +123,12 @@ Standalone reference documents for quick access:
 
 ## Source of Truth
 
-Requirements live in [`OpenCred_PRD.md`](../OpenCred_PRD.md). The implementation plan is in [`implementation-plan.md`](../implementation-plan.md). Per-issue work is tracked on [GitHub Issues](https://github.com/nfh-trust-labs/opencred/issues). The contributor protocol is in [`CLAUDE.md`](../CLAUDE.md).
+OpenCred's source code is maintained in a private repository at NFH Trust Labs. Distributed binaries (Desktop installers, the Docker image) are public; source, issues, and per-PR review history are not.
+
+For end users:
+
+* **Download a release**: <https://github.com/nfh-trust-labs/opencred-releases/releases>
+* **Pull the Docker image**: `docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest`
+* **Bug reports / feature requests**: <https://github.com/nfh-trust-labs/opencred-releases/issues>
+
+For internal contributors with source access: requirements live in `OpenCred_PRD.md`, the implementation plan in `implementation-plan.md`, per-issue work on the private repo's GitHub Issues, and the contributor protocol in `CLAUDE.md`.

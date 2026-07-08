@@ -67,6 +67,13 @@ Maximum 1,000 rows per CSV. Split larger datasets into multiple files.
 
 Export options appear on the credential result card and in the credential history detail modal.
 
+The PDF certificate's **Credential Details** section renders the full
+`credentialSubject` tree — nested objects and arrays of objects (e.g. a
+utility credential's `customerProfile.installationAddress.country`) are
+expanded into indented sub-rows, one leaf per row, rather than being
+collapsed to a single value. Arrays of plain values are shown comma-joined
+on one line.
+
 ## Credential History
 
 Issued credentials are saved locally (capped at 100 entries). View them from the Home screen under **Recent Credentials**. Each entry shows the schema name, subject summary, and issuance date. Click to view full details, re-export, or reissue.

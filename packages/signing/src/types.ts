@@ -32,6 +32,22 @@ export interface SignerMetadata {
   label?: string;
   /** PEM-encoded certificate chain (DSC, intermediates). Present when imported from PFX/token/OS store. */
   certificateChain?: string[];
+  /**
+   * Public key in JWK form. Optional: software and Cloud HSM signers
+   * (AWS KMS / Azure KV / GCP KMS — see #675) expose this for callers
+   * that need to assemble DID Documents (e.g. did:web auto-publish at
+   * startup — see `apps/server/src/index.ts` `OPENCRED_AUTO_PUBLISH_KEY`)
+   * or publish key records to DeDi. PKCS#11 and OS-cert signers do not
+   * currently expose it; callers must tolerate the missing field
+   * gracefully.
+   *
+   * The shape matches the W3C JWK structure: `{ kty, crv, x, y }` for EC
+   * keys, `{ kty, n, e }` for RSA. NEVER contains private parameters
+   * (`d`, `p`, `q`, etc.) — those would violate CLAUDE.md security
+   * invariant #2 ("never log key material") because metadata IS surfaced
+   * in `GET /v1/keys` responses.
+   */
+  publicKeyJwk?: Record<string, unknown>;
 }
 
 /**

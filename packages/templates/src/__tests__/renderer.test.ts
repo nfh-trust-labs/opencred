@@ -215,7 +215,13 @@ describe("renderSvg", () => {
   it("applies default footerText when no customization", () => {
     const result = renderSvg(SIMPLE_TEMPLATE, defaultOptions());
 
-    expect(result).toContain("Verifiable Credential — powered by OpenCred");
+    expect(result).toContain(
+      "This credential is digitally signed and can be independently verified.",
+    );
+    // The default footer must not advertise any OpenCred-flavoured
+    // attribution — the same generator runs in the Docker image where
+    // the issuer's brand fronts the certificate.
+    expect(result).not.toMatch(/OpenCred/);
   });
 
   it("applies custom footerText", () => {
@@ -225,7 +231,7 @@ describe("renderSvg", () => {
     const result = renderSvg(SIMPLE_TEMPLATE, options);
 
     expect(result).toContain("Custom footer message");
-    expect(result).not.toContain("Verifiable Credential — powered by OpenCred");
+    expect(result).not.toContain("This credential is digitally signed");
   });
 
   it("applies default logo dimensions", () => {

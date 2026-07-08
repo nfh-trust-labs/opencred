@@ -68,6 +68,8 @@ import type {
   DidWebExportResponse,
   DidWebVerifyRequest,
   DidWebVerifyResponse,
+  DidKeyExportRequest,
+  DidKeyExportResponse,
   CredentialHistoryListResponse,
   CredentialHistoryAddRequest,
   CredentialHistoryDeleteRequest,
@@ -84,7 +86,7 @@ import type {
   DeDiConfigSetRequest,
   DeDiConfigSetResponse,
   DeDiStatusResponse,
-  DeDiPublishDIDRequest,
+  DeDiPublishKeyRequest,
   DeDiPublishResponse,
   DeDiEnsureRegistriesResponse,
   DeDiDisconnectResponse,
@@ -210,6 +212,11 @@ const api: OpenCredDesktopAPI = {
   verifyDidWeb: (request: DidWebVerifyRequest): Promise<DidWebVerifyResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.DID_WEB_VERIFY, request),
 
+  // Self-Published Keys (did:key) — companion to exportDidDocument; produces
+  // an attribution-record DID document for DeDi publishing.
+  exportDidKeyDocument: (request: DidKeyExportRequest): Promise<DidKeyExportResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DID_KEY_EXPORT, request),
+
   // DeDi integration
   dediSetConfig: (request: DeDiConfigSetRequest): Promise<DeDiConfigSetResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.DEDI_SET_CONFIG, request),
@@ -217,8 +224,12 @@ const api: OpenCredDesktopAPI = {
   dediGetStatus: (): Promise<DeDiStatusResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.DEDI_GET_STATUS),
 
-  dediPublishDID: (request: DeDiPublishDIDRequest): Promise<DeDiPublishResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.DEDI_PUBLISH_DID, request),
+  dediPublishKey: (request: DeDiPublishKeyRequest): Promise<DeDiPublishResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEDI_PUBLISH_KEY, request),
+
+  dediSetKeyStatus: (
+    request: import("../shared/ipc-types.js").DeDiSetKeyStatusRequest,
+  ): Promise<DeDiPublishResponse> => ipcRenderer.invoke(IPC_CHANNELS.DEDI_SET_KEY_STATUS, request),
 
   dediPublishSchema: (
     request: import("../shared/ipc-types.js").DeDiPublishSchemaRequest,

@@ -14,12 +14,14 @@ opencred/
     vc-core/          W3C VC 2.0 credential builder
     did/              DID resolution
     verification/     Credential verification engine
+    verify-sdk/       Public verification SDK (@opencred/verify)
     schema-engine/    JSON Schema registry
     templates/        SVG credential templates
     signing/          Signing key providers
     shared/           Shared types and utilities
     dedi-client/      DeDi client library
     ca-adapter/       Certificate authority adapter
+    batch-core/       Streaming CSV parser shared by desktop + server batch engines
   deploy/             Nginx config, deployment scripts
   docs/               Documentation
 ```
@@ -42,7 +44,11 @@ A headless HTTP API server built on Hono, designed to run as a Docker container 
 - Stateless request/response design -- no persistent server-side sessions
 - Signing key loaded once at startup from a local file or Cloud HSM
 - Bearer token authentication (fail-closed by default)
-- Prometheus metrics and OpenTelemetry tracing
+- Prometheus metrics, OpenTelemetry critical-path spans (`batch.run`, `signer.sign`, `verify.credential`, `dedi.*`), per-route rate limiting
+- Pluggable batch job store: in-memory (single instance) or Redis-backed (horizontal scale across replicas)
+- BullMQ queue dispatch (`OPENCRED_BATCH_DISPATCH=queue`) for separate worker fleets and webhook delivery
+- Read-only verify-tier mode (`OPENCRED_READ_ONLY=true`) for scaling verification traffic without exposing signing keys
+- Streaming CSV ingestion via `@opencred/batch-core` keeps batch memory bounded regardless of input size
 - Supports software keys (PEM/JWK/PFX), PKCS#11 hardware tokens, and Cloud HSM (AWS KMS, Azure Key Vault, GCP Cloud KMS)
 
 ## Package Responsibilities
@@ -79,7 +85,7 @@ Returns a structured result with per-check pass/fail status and a top-level code
 
 ### `@opencred/schema-engine`
 
-JSON Schema registry with 34+ bundled credential schemas across 8 categories: identity, education, health, energy, finance, traceability, open badges, and DIF. Provides schema validation via AJV, schema listing and lookup, and schema generation from field examples. Supports optional remote schema updates from a manifest URL.
+JSON Schema registry with 36 bundled credential schemas across 8 categories: identity, education, health, energy, finance, traceability, open badges, and DIF — including the India Energy Stack schemas `ies/electricity-credential/v1.2` and `ies/meter-data-credential/v0.6` (bundled fully offline; remote `$ref`s inlined at embed time). Provides schema validation via AJV, schema listing and lookup, and schema generation from field examples. Supports optional remote schema updates from a manifest URL.
 
 ### `@opencred/templates`
 

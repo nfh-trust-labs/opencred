@@ -5,6 +5,9 @@ import type {
   SchemaRecord,
   ContextRecord,
   PublishResult,
+  KeyRecord,
+  KeyStatus,
+  SetKeyStatusResult,
 } from "./adapter/types.js";
 import type { DeDiLogger } from "./logger.js";
 
@@ -17,6 +20,20 @@ export class DeDiPublishManager {
     this.client = client;
     this.publishedSchemas = new Set(alreadyPublished);
     this.logger = client.logger;
+  }
+
+  /**
+   * The underlying DeDi client.
+   *
+   * Read-only access for consumers that need to perform DeDi operations
+   * outside the publish-manager's lazy-publish workflow — primarily
+   * verification paths that need `resolveDidWebDocument()` for did:web
+   * fallback (see `createDeDiDIDWebFallback`). Reusing the manager's client
+   * preserves the shared circuit breaker, retry state, and auth token
+   * cache rather than spinning up a parallel client.
+   */
+  get rawClient(): DeDiClient {
+    return this.client;
   }
 
   /**
@@ -73,24 +90,58 @@ export class DeDiPublishManager {
   }
 
   /**
-   * Publish a DID document to DeDi.
+   * Publish a signing key to the `opencred-key-registry`.
    * Fire-and-forget: errors are logged, never thrown.
+   *
+   * The manager only ever sees the public `publicKeyJwk` carried in the
+   * {@link KeyRecord}; private key material never reaches DeDi.
    */
-  async publishDIDDocument(
-    did: string,
-    document: unknown,
-    namespace?: string,
-  ): Promise<PublishResult | null> {
+  async publishKey(key: KeyRecord, namespace?: string): Promise<PublishResult | null> {
     try {
-      const result = await this.client.publishDID(did, document, namespace);
-      this.logger.debug("DID document published to DeDi", {
-        did,
+      const result = await this.client.publishKey(key, namespace);
+      this.logger.debug("Key published to DeDi", {
+        keyId: key.keyId,
         recordName: result.recordName,
       });
       return result;
     } catch (error) {
-      this.logger.error("Failed to publish DID document to DeDi (non-fatal)", {
-        did,
+      this.logger.error("Failed to publish key to DeDi (non-fatal)", {
+        keyId: key.keyId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Advance a key's lifecycle status (`active → rotated → revoked`) in the
+   * `opencred-key-registry`. Delegates to {@link DeDiClient.setKeyStatus} —
+   * see that method for the monotone-transition semantics.
+   *
+   * The publish-manager is the boundary where DeDi failures are downgraded
+   * from "throws" to "returns null / logged". A user-triggered
+   * rotate/revoke should be able to surface failure to the UI, so this
+   * returns the {@link SetKeyStatusResult} on success or `null` when DeDi
+   * was unreachable / the key was never published. Callers must treat
+   * `null` as "status not changed" — never as silent success.
+   */
+  async setKeyStatus(
+    verificationMethod: string,
+    status: KeyStatus,
+    namespace?: string,
+  ): Promise<SetKeyStatusResult | null> {
+    try {
+      const result = await this.client.setKeyStatus(verificationMethod, status, namespace);
+      this.logger.debug("Key status transition in DeDi", {
+        keyId: verificationMethod,
+        status,
+        changed: result.changed,
+      });
+      return result;
+    } catch (error) {
+      this.logger.error("Failed to set key status in DeDi (non-fatal)", {
+        keyId: verificationMethod,
+        status,
         error: error instanceof Error ? error.message : String(error),
       });
       return null;

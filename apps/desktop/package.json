@@ -1,6 +1,6 @@
 {
   "name": "@opencred/desktop",
-  "version": "1.0.2",
+  "version": "1.9.1",
   "private": true,
   "type": "module",
   "description": "OpenCred Desktop — offline credential issuance and signing",
@@ -12,9 +12,13 @@
   "main": "dist/main/main/index.js",
   "scripts": {
     "dev": "concurrently -n vite,electron \"vite\" \"wait-on http://localhost:5174 && electron .\"",
-    "rebuild:native": "electron-rebuild -f -m ../../packages/signing/native -o pkcs11js",
+    "rebuild:native": "node scripts/rebuild-native.cjs",
+    "generate-icons": "node scripts/generate-icons.mjs",
     "build": "vite build && node scripts/bundle-main.mjs",
-    "build:dist": "npm run rebuild:native && vite build && node scripts/bundle-main.mjs && node scripts/prepare-native-deps.cjs && electron-builder",
+    "build:dist": "node scripts/build-dist.mjs",
+    "package:ci": "node scripts/build-dist.mjs --dir --publish never --config.npmRebuild=false",
+    "smoke:packaged": "node scripts/packaged-smoke.mjs",
+    "test:e2e": "node e2e/onboarding.e2e.cjs",
     "build:renderer": "vite build",
     "build:main": "node scripts/bundle-main.mjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
@@ -29,6 +33,7 @@
     "@opencred/crypto": "workspace:*",
     "@opencred/dedi-client": "workspace:*",
     "@opencred/did": "workspace:*",
+    "@opencred/packaging": "workspace:*",
     "@opencred/schema-engine": "workspace:*",
     "@opencred/shared": "workspace:*",
     "@opencred/signing": "workspace:*",
@@ -36,22 +41,22 @@
     "@opencred/vc-core": "workspace:*",
     "@opencred/verification": "workspace:*",
     "archiver": "^7.0.1",
-    "electron-log": "^5.2.0",
     "conf": "^14.0.0",
+    "electron-log": "^5.2.0",
     "electron-store": "^10.0.0",
     "electron-updater": "^6.3.9",
+    "html5-qrcode": "^2.3.8",
     "papaparse": "^5.4.1",
     "pdfkit": "^0.15.0",
     "pkcs11js": "^2.1.6",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "html5-qrcode": "^2.3.8",
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@electron/rebuild": "^3.7.2",
     "@electron/notarize": "^2.5.0",
+    "@electron/rebuild": "^3.7.2",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
@@ -68,6 +73,8 @@
     "electron-builder": "^25.1.8",
     "esbuild": "^0.28.0",
     "happy-dom": "^20.8.9",
+    "node-gyp": "^12.2.0",
+    "playwright": "^1.54.2",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.5.0",
@@ -96,7 +103,10 @@
       "dist/**/*.node",
       "node_modules/**/*.node"
     ],
+    "beforePack": "scripts/electron-builder-hooks.cjs",
+    "afterPack": "scripts/electron-builder-hooks.cjs",
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         "dmg",
         "zip"
@@ -107,8 +117,32 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist"
     },
+    "dmg": {
+      "title": "OpenCred ${version}",
+      "background": "build/dmg-background.png",
+      "window": {
+        "width": 660,
+        "height": 420
+      },
+      "iconSize": 100,
+      "iconTextSize": 12,
+      "contents": [
+        {
+          "x": 180,
+          "y": 218,
+          "type": "file"
+        },
+        {
+          "x": 480,
+          "y": 218,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
     "afterSign": "scripts/notarize.cjs",
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis"
       ],
@@ -119,9 +153,10 @@
     "publish": {
       "provider": "github",
       "owner": "nfh-trust-labs",
-      "repo": "opencred"
+      "repo": "opencred-releases"
     },
     "linux": {
+      "icon": "build/icon.png",
       "target": [
         "AppImage",
         "deb"
@@ -130,11 +165,15 @@
       "executableName": "opencred"
     },
     "deb": {
-      "packageName": "opencred-desktop"
+      "packageName": "opencred-desktop",
+      "artifactName": "${productName}-${version}-${arch}.deb"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
     }
   }
 }

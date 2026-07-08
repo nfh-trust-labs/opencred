@@ -1,167 +1,93 @@
-import { DeDiClientError } from "@opencred/shared";
+import { DeDiClientError, DeDiRecordExistsError } from "@opencred/shared";
 import { DeDiApiClient } from "../api/api-client.js";
+import type { DeDiProof } from "../api/types.js";
 import type { DeDiLogger } from "../logger.js";
 import { noopLogger } from "../logger.js";
+import { withRetry } from "../retry.js";
 import type {
   DeDiClientConfig,
   RevocationHashRecord,
-  DelegationRecord,
-  DIDRecord,
+  KeyRecord,
+  KeyStatus,
   SchemaRecord,
   ContextRecord,
   PublishResult,
+  SetKeyStatusResult,
 } from "./types.js";
 import {
   REVOCATION_REGISTRY,
-  DELEGATION_REGISTRY,
-  PUBLIC_KEY_REGISTRY,
+  OPENCRED_KEY_REGISTRY,
   SCHEMA_REGISTRY,
   CONTEXT_REGISTRY,
   schemaToRecordName,
   contextToRecordName,
+  verificationMethodToRecordName,
 } from "./registry-names.js";
 
-const DELEGATION_DETAIL_KEYS = [
-  "id",
-  "issuerDid",
-  "delegateDid",
-  "scope",
-  "validFrom",
-  "validUntil",
-] as const;
+/**
+ * Monotone rank for {@link KeyStatus} transitions: `active(0) → rotated(1)
+ * → revoked(2)`. `setKeyStatus` only ever advances rank — it never moves a
+ * key backward (you can't un-revoke or un-rotate a key), which is what
+ * makes concurrent transitions race-safe against DeDi's lock-free
+ * `update-record`.
+ */
+const KEY_STATUS_RANK: Record<KeyStatus, number> = {
+  active: 0,
+  rotated: 1,
+  revoked: 2,
+};
 
-function validateDelegation(delegation: DelegationRecord): void {
-  if (delegation.scope.credentialTypes.length === 0 && delegation.scope.namespaces.length === 0) {
-    throw new DeDiClientError("Delegation scope must not be empty", 400);
-  }
-  const from = new Date(delegation.validFrom);
-  const until = new Date(delegation.validUntil);
-  if (isNaN(from.getTime())) {
-    throw new DeDiClientError("validFrom is not a valid date", 400);
-  }
-  if (isNaN(until.getTime())) {
-    throw new DeDiClientError("validUntil is not a valid date", 400);
-  }
-  if (from >= until) {
-    throw new DeDiClientError("validFrom must precede validUntil", 400);
-  }
-}
+const KEY_STATUSES: readonly KeyStatus[] = ["active", "rotated", "revoked"];
 
-function assertDelegationShape(detail: unknown): asserts detail is DelegationRecord {
+/**
+ * Validate an `opencred-key-registry` payload against the per-key schema:
+ * `{ keyId, controllerDid, algorithm, publicKeyJwk, purpose, status }`.
+ *
+ * `status` is a strict enum — anything outside {@link KEY_STATUSES} is a
+ * server-side bug (502) because the verifier's accept/reject decision keys
+ * off it. `publicKeyJwk` must be an object; `purpose` must be an array of
+ * strings.
+ */
+function assertKeyRecordShape(detail: unknown): asserts detail is KeyRecord {
   if (detail == null || typeof detail !== "object") {
-    throw new DeDiClientError("Delegation detail is missing or not an object", 502);
+    throw new DeDiClientError("Key record detail is missing or not an object", 502);
   }
   const rec = detail as Record<string, unknown>;
-  for (const key of DELEGATION_DETAIL_KEYS) {
-    if (!(key in rec)) {
-      throw new DeDiClientError(`Delegation detail missing required field: ${key}`, 502);
-    }
+  if (typeof rec["keyId"] !== "string") {
+    throw new DeDiClientError("Key record detail missing required field: keyId", 502);
   }
-  if (rec["scope"] == null || typeof rec["scope"] !== "object" || Array.isArray(rec["scope"])) {
-    throw new DeDiClientError(
-      "Delegation detail field 'scope' must be an object with credentialTypes and namespaces",
-      502,
-    );
+  if (typeof rec["controllerDid"] !== "string") {
+    throw new DeDiClientError("Key record detail missing required field: controllerDid", 502);
   }
-  const scope = rec["scope"] as Record<string, unknown>;
-  if (!Array.isArray(scope["credentialTypes"])) {
-    throw new DeDiClientError("Delegation scope field 'credentialTypes' must be an array", 502);
+  if (typeof rec["algorithm"] !== "string") {
+    throw new DeDiClientError("Key record detail missing required field: algorithm", 502);
   }
-  if (!scope["credentialTypes"].every((v: unknown) => typeof v === "string")) {
-    throw new DeDiClientError(
-      "Delegation scope field 'credentialTypes' must contain only strings",
-      502,
-    );
-  }
-  if (!Array.isArray(scope["namespaces"])) {
-    throw new DeDiClientError("Delegation scope field 'namespaces' must be an array", 502);
-  }
-  if (!scope["namespaces"].every((v: unknown) => typeof v === "string")) {
-    throw new DeDiClientError("Delegation scope field 'namespaces' must contain only strings", 502);
-  }
-
-  // Validate certificate field — must be a non-null object
-  if (!("certificate" in rec)) {
-    throw new DeDiClientError("Delegation detail missing required field: certificate", 502);
+  if (rec["publicKeyJwk"] == null || typeof rec["publicKeyJwk"] !== "object") {
+    throw new DeDiClientError("Key record detail field 'publicKeyJwk' must be an object", 502);
   }
   if (
-    rec["certificate"] == null ||
-    typeof rec["certificate"] !== "object" ||
-    Array.isArray(rec["certificate"])
+    !Array.isArray(rec["purpose"]) ||
+    !(rec["purpose"] as unknown[]).every((p) => typeof p === "string")
   ) {
+    throw new DeDiClientError("Key record detail field 'purpose' must be an array of strings", 502);
+  }
+  if (!KEY_STATUSES.includes(rec["status"] as KeyStatus)) {
     throw new DeDiClientError(
-      "Delegation detail field 'certificate' must be a non-null object",
+      "Key record detail field 'status' must be 'active', 'rotated', or 'revoked'",
       502,
     );
   }
-  const cert = rec["certificate"] as Record<string, unknown>;
-  // Validate the certificate type field — per W3C VC spec, type must be an
-  // array that includes "VerifiableCredential".
-  if ("type" in cert) {
-    const certType = cert["type"];
-    if (!Array.isArray(certType)) {
-      throw new DeDiClientError(
-        "Delegation certificate field 'type' must be an array (per W3C VC spec)",
-        502,
-      );
-    }
-    if (!certType.includes("VerifiableCredential")) {
-      throw new DeDiClientError(
-        "Delegation certificate type array must include 'VerifiableCredential'",
-        502,
-      );
-    }
-  }
-  // If the certificate has a proof field, validate its structure
-  if ("proof" in cert) {
-    if (
-      cert["proof"] == null ||
-      typeof cert["proof"] !== "object" ||
-      Array.isArray(cert["proof"])
-    ) {
-      throw new DeDiClientError("Delegation certificate field 'proof' must be an object", 502);
-    }
-    const proof = cert["proof"] as Record<string, unknown>;
-    if ("proofValue" in proof) {
-      if (typeof proof["proofValue"] !== "string" || proof["proofValue"].length === 0) {
-        throw new DeDiClientError(
-          "Delegation certificate field 'proof.proofValue' must be a non-empty string",
-          502,
-        );
-      }
-    }
-  }
-}
-
-function assertRevocationHashShape(detail: unknown): asserts detail is RevocationHashRecord {
-  if (detail == null || typeof detail !== "object") {
-    throw new DeDiClientError("Revocation hash detail is missing or not an object", 502);
-  }
-  const rec = detail as Record<string, unknown>;
-  if (typeof rec["hash"] !== "string") {
-    throw new DeDiClientError("Revocation hash detail missing required field: hash", 502);
-  }
-  if (typeof rec["revoked"] !== "boolean") {
-    throw new DeDiClientError("Revocation hash detail missing required field: revoked", 502);
-  }
-  if (rec["revoked"] === true && typeof rec["revokedAt"] !== "string") {
-    throw new DeDiClientError("Revocation hash detail missing required field: revokedAt", 502);
-  }
-}
-
-function assertDIDRecordShape(detail: unknown): asserts detail is DIDRecord {
-  if (detail == null || typeof detail !== "object") {
-    throw new DeDiClientError("DID record detail is missing or not an object", 502);
-  }
-  const rec = detail as Record<string, unknown>;
-  if (typeof rec["did"] !== "string") {
-    throw new DeDiClientError("DID record detail missing required field: did", 502);
-  }
-  if (!("document" in rec)) {
-    throw new DeDiClientError("DID record detail missing required field: document", 502);
-  }
-  if (typeof rec["resolvedAt"] !== "string") {
-    throw new DeDiClientError("DID record detail missing required field: resolvedAt", 502);
+  // `document` is optional (the embedded did.json snapshot, did:web only); when
+  // present it must be an object. The downstream verifier enforces the W3C
+  // DID-Document contract.
+  if (
+    rec["document"] !== undefined &&
+    (rec["document"] === null || typeof rec["document"] !== "object")
+  ) {
+    throw new DeDiClientError(
+      "Key record detail field 'document' must be an object when present",
+      502,
+    );
   }
 }
 
@@ -220,33 +146,137 @@ function assertContextRecordShape(detail: unknown): asserts detail is ContextRec
   }
 }
 
-function assertDeDiRecordShape(value: unknown, label: string): void {
+/**
+ * Validate that a single DeDi record (the inner payload, not the
+ * `{ message, data }` wrapper) has the required top-level fields.
+ * Reused by `assertDeDiRecordShape` for the envelope path and directly
+ * for search-result entries (which arrive as bare records inside
+ * `data: DeDiRecord[]`).
+ */
+function assertDeDiRecordPayload(
+  value: unknown,
+  label: string,
+): asserts value is { record_name: string; details: unknown } {
   if (value == null || typeof value !== "object") {
     throw new DeDiClientError(`DeDi API ${label} response is missing or not an object`, 502);
   }
   const rec = value as Record<string, unknown>;
-  if (typeof rec["name"] !== "string") {
-    throw new DeDiClientError(`DeDi API ${label} response missing required field: name`, 502);
+  if (typeof rec["record_name"] !== "string") {
+    throw new DeDiClientError(
+      `DeDi API ${label} response missing required field: record_name`,
+      502,
+    );
   }
-  if (!("detail" in rec)) {
-    throw new DeDiClientError(`DeDi API ${label} response missing required field: detail`, 502);
+  if (!("details" in rec)) {
+    throw new DeDiClientError(`DeDi API ${label} response missing required field: details`, 502);
   }
 }
 
-function assertSearchResultShape(value: unknown): void {
+/**
+ * Validate that a response from `publishRecord` / `lookupRecord` matches
+ * the real DeDi envelope shape — `{ message, data: { record_name,
+ * details, ... } }`. Verified against the `develop` Postman collection
+ * on 2026-05-19. Callers extract `response.data.details` to get the
+ * OpenCred payload after this check.
+ */
+function assertDeDiRecordShape(
+  value: unknown,
+  label: string,
+): asserts value is { message: string; data: { record_name: string; details: unknown } } {
   if (value == null || typeof value !== "object") {
-    throw new DeDiClientError("DeDi API search response is missing or not an object", 502);
+    throw new DeDiClientError(`DeDi API ${label} response is missing or not an object`, 502);
   }
-  const rec = value as Record<string, unknown>;
-  if (!Array.isArray(rec["records"])) {
-    throw new DeDiClientError("DeDi API search response field 'records' must be an array", 502);
+  const env = value as Record<string, unknown>;
+  if (!("data" in env)) {
+    throw new DeDiClientError(`DeDi API ${label} response missing required field: data`, 502);
   }
+  assertDeDiRecordPayload(env["data"], `${label} data`);
+}
+
+/**
+ * Extract the CORD-anchor `proof` block from a DeDi envelope's `data`
+ * payload. Returns `undefined` when the field is absent, malformed, or
+ * missing required string members. Verifier code treats absence as
+ * "no anchor info available" (advisory) rather than an error — DeDi
+ * historically returned envelopes without proof, and we don't want a
+ * non-conforming envelope to block verification of an otherwise valid
+ * credential.
+ *
+ * `network_genesis` is `string | null` on the wire (a record may not be
+ * anchored to a specific network) so we accept both. Any other unexpected
+ * shape is dropped silently.
+ */
+function extractProof(envelopeData: unknown): DeDiProof | undefined {
+  if (envelopeData == null || typeof envelopeData !== "object") return undefined;
+  const proof = (envelopeData as Record<string, unknown>)["proof"];
+  if (proof == null || typeof proof !== "object") return undefined;
+  const p = proof as Record<string, unknown>;
+  if (
+    typeof p["type"] !== "string" ||
+    typeof p["namespace_did"] !== "string" ||
+    typeof p["creator_did"] !== "string" ||
+    typeof p["digest"] !== "string"
+  ) {
+    return undefined;
+  }
+  if (
+    p["network_genesis"] !== null &&
+    p["network_genesis"] !== undefined &&
+    typeof p["network_genesis"] !== "string"
+  ) {
+    return undefined;
+  }
+  const result: DeDiProof = {
+    type: p["type"],
+    namespace_did: p["namespace_did"],
+    creator_did: p["creator_did"],
+    digest: p["digest"],
+    network_genesis: (p["network_genesis"] as string | null | undefined) ?? null,
+  };
+  if (typeof p["registry_identifier"] === "string") {
+    result.registry_identifier = p["registry_identifier"];
+  }
+  if (typeof p["record_identifier"] === "string") {
+    result.record_identifier = p["record_identifier"];
+  }
+  return result;
+}
+
+/** Private JWK members that must never reach DeDi (CLAUDE.md rule 1). */
+const PRIVATE_JWK_MEMBERS = ["d", "p", "q", "dp", "dq", "qi", "oth", "k"] as const;
+
+/**
+ * Return a copy of a did.json with private JWK members stripped from every
+ * `verificationMethod[*].publicKeyJwk`. Defence-in-depth for
+ * {@link DeDiClient.setKeyDocument}: well-behaved callers already pass
+ * documents built by `generateDidWebDocumentMultiKey` (which strips), but a
+ * public client method must not be a path for key material to leave the
+ * issuer's machine (see the #663 fix for the equivalent server-side gap).
+ */
+function stripPrivateJwkMembers(document: Record<string, unknown>): Record<string, unknown> {
+  const vms = document["verificationMethod"];
+  if (!Array.isArray(vms)) return document;
+  return {
+    ...document,
+    verificationMethod: vms.map((vm) => {
+      if (vm == null || typeof vm !== "object") return vm;
+      const jwk = (vm as Record<string, unknown>)["publicKeyJwk"];
+      if (jwk == null || typeof jwk !== "object") return vm;
+      const cleaned = { ...(jwk as Record<string, unknown>) };
+      for (const member of PRIVATE_JWK_MEMBERS) delete cleaned[member];
+      return { ...(vm as Record<string, unknown>), publicKeyJwk: cleaned };
+    }),
+  };
 }
 
 export class DeDiClient {
   private readonly api: DeDiApiClient;
   private readonly defaultNamespace?: string;
   readonly logger: DeDiLogger;
+  // Per-key write chains for `setKeyStatus` (#677): the tail promise of the
+  // last in-flight status write for each verification method. Entries are
+  // dropped once their chain drains.
+  private readonly keyStatusWrites = new Map<string, Promise<unknown>>();
 
   constructor(config: DeDiClientConfig) {
     this.api = new DeDiApiClient(config);
@@ -258,57 +288,470 @@ export class DeDiClient {
     return this.api;
   }
 
-  async publishRevocationHash(hash: string, namespace?: string): Promise<RevocationHashRecord> {
+  /**
+   * Publish a revocation entry to the `vc-revocation-registry` (DeDi
+   * canonical `revoke` tag). Payload matches https://dedi.global/revoke.json:
+   * `{ revoked_id, reason? }`. Record existence ⇒ revoked; there is no
+   * boolean flag inside `details`.
+   */
+  async publishRevocationHash(
+    hash: string,
+    namespace?: string,
+    reason?: string,
+  ): Promise<RevocationHashRecord> {
     const ns = this.resolveNamespace(namespace);
-    const revokedAt = new Date().toISOString();
-    const record = await this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, {
-      hash,
+    const detailsToPublish: { revoked_id: string; reason?: string } = { revoked_id: hash };
+    if (reason !== undefined) detailsToPublish.reason = reason;
+    let response;
+    try {
+      // Bounded retry (#11/#718). The DeDi write anchors to CORD and can
+      // exceed the client's hard 10s per-request ceiling; a single 504 then
+      // surfaces as an un-retried revoke failure. One retry on a transient
+      // failure — paired with the self-healing duplicate path below — recovers
+      // the dominant "the write landed server-side but the response was slow"
+      // case within a single revoke call. We deliberately do NOT honour
+      // OPENCRED_DEDI_MAX_RETRIES: that knob tunes idempotent verification
+      // GETs (extra latency is cheap there); a waiting revoke caller needs a
+      // tight, predictable upper bound (~2× the 10s ceiling).
+      response = await withRetry(
+        () => this.api.publishRecord(ns, REVOCATION_REGISTRY, hash, detailsToPublish),
+        { maxRetries: 1, baseDelayMs: 200, retryable: true, logger: this.logger },
+      );
+    } catch (err) {
+      // The record name (the VC hash) already exists. Do NOT assume this means
+      // "already revoked" — `publishRecord` is a two-step publish
+      // (save-record-as-draft → publish-records), and the #11 timeout lands on
+      // the first step. If a prior attempt's draft landed but its
+      // publish-records never ran, the record exists as a STRANDED DRAFT that
+      // `lookup/` 404s (#610) — it is NOT actually revoked. Use `lookup` as the
+      // source of truth and self-heal (#718): advance a stranded draft to LIVE,
+      // and only report "already revoked" when the record is genuinely LIVE.
+      if (isDuplicateRecordBody(err)) {
+        const existing = await this.queryRevocationHash(hash, ns);
+        if (existing.revoked) {
+          // Genuinely LIVE ⇒ already revoked. Preserve the existing signal so
+          // callers can distinguish it from a fresh revoke.
+          throw new DeDiRecordExistsError(
+            "This hash is already in the revocation registry",
+            "Use POST /v1/credentials/revocation-status to confirm the prior revoke landed",
+            (err as DeDiClientError).responseBody,
+          );
+        }
+        // Stranded draft ⇒ advance it to LIVE so the revocation takes effect.
+        // We only reach here after `lookup` confirmed the record is NOT live,
+        // so `publish-records` never runs against an already-LIVE record.
+        await this.api.publishDraftRecords(ns, REVOCATION_REGISTRY, [hash]);
+        return {
+          revoked: true,
+          revokedAt: new Date().toISOString(),
+          ...(reason !== undefined ? { reason } : {}),
+        };
+      }
+      throw err;
+    }
+    assertDeDiRecordShape(response, "publishRecord");
+    // Post-publish, the record exists ⇒ revoked. Use the envelope's
+    // `updated_at` as the revocation timestamp (DeDi's canonical answer
+    // to "when did this record reach its current state"). The assert
+    // narrows the envelope to a minimal `{ record_name, details }` shape
+    // for safety, but the real wire type carries `updated_at`; fall back
+    // to "now" if a non-conforming DeDi build omits it.
+    const data = response.data as { record_name: string; details: unknown; updated_at?: string };
+    return {
       revoked: true,
-      revokedAt,
-    });
-    assertDeDiRecordShape(record, "publishRecord");
-    assertRevocationHashShape(record.detail);
-    return record.detail;
+      revokedAt: data.updated_at ?? new Date().toISOString(),
+      ...(reason !== undefined ? { reason } : {}),
+    };
   }
 
+  /**
+   * Query the `vc-revocation-registry` for a record keyed by VC hash.
+   * Record existence ⇒ revoked (DeDi canonical "Revoke" tag semantics).
+   * Returns `{ revoked: false }` when no record is found.
+   *
+   * Uses direct `lookupRecord` because `publishRevocationHash` writes the
+   * hash as the record_name (so the hash is the primary key, not just a
+   * details field). The earlier `/dedi/search` path returned empty `data`
+   * for `details.revoked_id` filters on api.dedi.global — a separate
+   * issue, but moot since the direct lookup is both correct and faster.
+   */
   async queryRevocationHash(hash: string, namespace?: string): Promise<RevocationHashRecord> {
     const ns = this.resolveNamespace(namespace);
 
-    const result = await this.api.search(ns, {
-      registry_name: REVOCATION_REGISTRY,
-      "detail.hash": hash,
-    });
-    assertSearchResultShape(result);
-
-    if (result.records.length === 0) {
-      return { hash, revoked: false as const };
+    let response;
+    try {
+      response = await this.api.lookupRecord(ns, REVOCATION_REGISTRY, hash);
+    } catch (err) {
+      if (err instanceof DeDiClientError && err.statusCode === 404) {
+        return { revoked: false };
+      }
+      throw err;
     }
+    assertDeDiRecordShape(response, "lookupRecord");
 
-    assertDeDiRecordShape(result.records[0], "search record");
-    const detail = result.records[0]!.detail;
-    assertRevocationHashShape(detail);
-    return detail;
+    // The full record envelope carries `updated_at`; fall back to "" when
+    // a non-conforming DeDi build omits it.
+    const data = response.data as { record_name: string; details: unknown; updated_at?: string };
+    const details = data.details as Record<string, unknown> | null | undefined;
+    const reason =
+      details && typeof details["reason"] === "string" ? (details["reason"] as string) : undefined;
+    return {
+      revoked: true,
+      revokedAt: data.updated_at ?? "",
+      ...(reason !== undefined ? { reason } : {}),
+    };
   }
 
-  async publishDID(did: string, document: unknown, namespace?: string): Promise<PublishResult> {
+  /**
+   * Publish a signing key to the `opencred-key-registry`.
+   *
+   * One record per key (DeDi's canonical "one record per key" model),
+   * keyed by `verificationMethodToRecordName(key.keyId)`. The published
+   * payload is the full {@link KeyRecord} minus the server-set `proof`.
+   * Records are immutable except for `status` — a new key is always a new
+   * record, never an overwrite — so a duplicate record name means "this
+   * exact key was already published", which we surface as a
+   * {@link DeDiRecordExistsError} (callers treat it as benign).
+   *
+   * New keys should be published with `status: "active"`. The lifecycle
+   * (`active → rotated → revoked`) is advanced later via
+   * {@link setKeyStatus}.
+   *
+   * The caller owns key material; this method only ever sees the public
+   * `publicKeyJwk`. It never accepts, transmits, or stores a private key.
+   */
+  async publishKey(key: KeyRecord, namespace?: string): Promise<PublishResult> {
     const ns = this.resolveNamespace(namespace);
-    const recordName = didToRecordName(did);
-    const detail: DIDRecord = {
-      did,
-      document,
-      resolvedAt: new Date().toISOString(),
+    const recordName = verificationMethodToRecordName(key.keyId);
+
+    // Strip any server-set `proof` before publishing — `details` is the
+    // issuer-authored payload only. `document` (the immutable did.json
+    // snapshot) is included only when the caller set it (did:web +
+    // OPENCRED_DEDI_HOST_DID_DOC); did:key and domain-hosted issuers omit it.
+    const detail = {
+      keyId: key.keyId,
+      controllerDid: key.controllerDid,
+      algorithm: key.algorithm,
+      publicKeyJwk: key.publicKeyJwk,
+      purpose: key.purpose,
+      status: key.status,
+      ...(key.document !== undefined ? { document: key.document } : {}),
     };
-    await this.api.publishRecord(ns, PUBLIC_KEY_REGISTRY, recordName, detail);
+
+    try {
+      await this.api.publishRecord(ns, OPENCRED_KEY_REGISTRY, recordName, detail);
+    } catch (err) {
+      if (isDuplicateRecordBody(err)) {
+        throw new DeDiRecordExistsError(
+          "This key is already in the key registry",
+          "Use POST /v1/keys/resolve to fetch the existing record",
+          (err as DeDiClientError).responseBody,
+        );
+      }
+      throw err;
+    }
     return { published: true, recordName, namespace: ns };
   }
 
-  async resolveDID(did: string, namespace?: string): Promise<DIDRecord> {
+  /**
+   * Resolve a signing key's record from the `opencred-key-registry` by its
+   * verification method (the key's full `id`). This is the call a verifier
+   * makes to answer "is this key live?" — see {@link KeyStatus}.
+   */
+  async resolveKey(verificationMethod: string, namespace?: string): Promise<KeyRecord> {
     const ns = this.resolveNamespace(namespace);
-    const recordName = didToRecordName(did);
-    const record = await this.api.lookupRecord(ns, PUBLIC_KEY_REGISTRY, recordName);
-    assertDeDiRecordShape(record, "lookupRecord");
-    assertDIDRecordShape(record.detail);
-    return record.detail;
+    const recordName = verificationMethodToRecordName(verificationMethod);
+    const response = await this.api.lookupRecord(ns, OPENCRED_KEY_REGISTRY, recordName);
+    assertDeDiRecordShape(response, "lookupRecord");
+    const details = response.data.details;
+    assertKeyRecordShape(details);
+    // Surface the DeDi `version` envelope field (a string on the wire, e.g.
+    // "1") at debug. No behavior change today — but it positions
+    // `setKeyStatus` to adopt a conditional/CAS `update-record` keyed on
+    // `version` if DeDi ever exposes one (issue #659, Option A). Only the
+    // public verification-method id and status are logged — never key
+    // material (CLAUDE.md: "Log the key ID or fingerprint, never the key
+    // itself"). The narrowing `assert` drops `version` from the static type,
+    // so read it through a cast (the wire type carries it — `DeDiRecord`).
+    const version = (response.data as { version?: string }).version;
+    this.logger.debug("Resolved key record", {
+      keyId: verificationMethod,
+      status: details.status,
+      namespace: ns,
+      version: version ?? null,
+    });
+    const proof = extractProof(response.data);
+    return proof ? { ...details, proof } : details;
+  }
+
+  /**
+   * Advance a key's lifecycle status in the `opencred-key-registry`.
+   *
+   * The transition is **monotone**: `active → rotated → revoked`, and only
+   * ever forward. This is what makes it race-safe against DeDi's lock-free
+   * `update-record` — concurrent writers converge because no caller ever
+   * moves a key backward, and the only mutable field is `status`. A request
+   * to move backward (e.g. `revoked → rotated`) or to set the status it's
+   * already at is a no-op (`changed: false`), not an error.
+   *
+   * Concurrent calls for the same verification method within this process
+   * are serialised through a per-key promise chain (#677) so their
+   * read-modify-write cycles never interleave; multi-instance writers still
+   * race (a DeDi-side CAS is tracked with the DeDi team, #659).
+   *
+   * - `rotated`: clean retirement. Credentials signed by the key stay
+   *   valid (a clean rotation means the key was never compromised).
+   * - `revoked`: compromise / withdrawal. The verifier rejects every
+   *   credential signed by the key (top-level `REVOKED`).
+   *
+   * Throws (via `resolveKey`) if the key has no record yet — you can't
+   * change the status of a key you never published.
+   */
+  async setKeyStatus(
+    verificationMethod: string,
+    status: KeyStatus,
+    namespace?: string,
+  ): Promise<SetKeyStatusResult> {
+    return this.chainKeyWrite(verificationMethod, () =>
+      this.doSetKeyStatus(verificationMethod, status, namespace),
+    );
+  }
+
+  /**
+   * Per-key promise-chain mutex (#677): chain `fn` onto the previous write
+   * for this verification method so concurrent read-modify-write cycles
+   * (status flips AND document attachments — both read the whole record and
+   * write it back) can't interleave within this process. A failed
+   * predecessor must not poison the chain (`catch`).
+   */
+  private chainKeyWrite<T>(verificationMethod: string, fn: () => Promise<T>): Promise<T> {
+    const prior = this.keyStatusWrites.get(verificationMethod) ?? Promise.resolve();
+    const run = prior.catch(() => undefined).then(fn);
+    const tail = run.catch(() => undefined);
+    this.keyStatusWrites.set(verificationMethod, tail);
+    // Drop the map entry once the chain drains so the map can't grow unbounded.
+    void tail.then(() => {
+      if (this.keyStatusWrites.get(verificationMethod) === tail) {
+        this.keyStatusWrites.delete(verificationMethod);
+      }
+    });
+    return run;
+  }
+
+  /** `setKeyStatus` body — runs on the per-key chain; do not call directly. */
+  private async doSetKeyStatus(
+    verificationMethod: string,
+    status: KeyStatus,
+    namespace?: string,
+  ): Promise<SetKeyStatusResult> {
+    // Guard against an out-of-enum status reaching the monotone comparison —
+    // `KEY_STATUS_RANK[<garbage>]` is `undefined`, which fails both the
+    // equality and `<` checks and would otherwise fall through and write the
+    // bogus status to DeDi. Fail fast (400) instead.
+    if (!KEY_STATUSES.includes(status)) {
+      throw new DeDiClientError(
+        `setKeyStatus: invalid status '${String(status)}' (expected ${KEY_STATUSES.join(" | ")})`,
+        400,
+      );
+    }
+    const ns = this.resolveNamespace(namespace);
+    const recordName = verificationMethodToRecordName(verificationMethod);
+    const existing = await this.resolveKey(verificationMethod, ns);
+
+    const currentRank = KEY_STATUS_RANK[existing.status];
+    const targetRank = KEY_STATUS_RANK[status];
+
+    if (targetRank === currentRank) {
+      this.logger.info("Key already at requested status; skipping update-record", {
+        keyId: verificationMethod,
+        status,
+        namespace: ns,
+      });
+      return {
+        changed: false,
+        keyId: verificationMethod,
+        status: existing.status,
+        reason: "already-at-status",
+        namespace: ns,
+      };
+    }
+    if (targetRank < currentRank) {
+      this.logger.warn("Refusing to move key status backward (monotone invariant)", {
+        keyId: verificationMethod,
+        from: existing.status,
+        to: status,
+        namespace: ns,
+      });
+      return {
+        changed: false,
+        keyId: verificationMethod,
+        status: existing.status,
+        reason: "monotone-refused",
+        namespace: ns,
+      };
+    }
+
+    // ── Optimistic-concurrency note (issue #659) ─────────────────────────
+    // DeDi's `update-record` takes no conditional-update parameter (no
+    // If-Match / ETag / version CAS), so this is a *blind* last-writer-wins
+    // overwrite of the whole payload. `status` is the single mutable field and
+    // it advances monotonically (active → rotated → revoked); the rank guard
+    // above refuses any move backward from the state THIS caller observed.
+    // That makes `revoked` terminal once observed — no writer that has seen it
+    // will downgrade it.
+    //
+    // It does NOT make blind concurrent writes fully race-free: two writers
+    // that BOTH read the same pre-terminal state can each pass the guard and
+    // race their writes, so a stale lower-rank write could land last and drop
+    // a higher-rank update (a lost update). In practice per-key lifecycle ops
+    // are normally causally ordered (you revoke a key you already know about),
+    // so the window is small — but it is real, and closing it is exactly what
+    // an Option-A version/ETag CAS would do.
+    //
+    // The single-mutable-field property is load-bearing. Adding ANY other mutable field to
+    // `updatedDetails` (e.g. a `revokedAt` timestamp or a revocation
+    // `reason`) reintroduces the lost-update race: two writers that diverge
+    // on the new field would clobber each other under last-writer-wins.
+    // Do not add a new MUTABLE field here without first closing the race at
+    // the DeDi side. The immutable `document` snapshot is safe to carry forward
+    // (every writer writes the same value). A test in client.test.ts pins the
+    // update payload's keys to the immutable set + `status`.
+    // TODO(#659): adopt a `version`/ETag conditional update once DeDi
+    // supports one (Option A) — `resolveKey` already surfaces `version`.
+    const updatedDetails: Omit<KeyRecord, "proof"> = {
+      keyId: existing.keyId,
+      controllerDid: existing.controllerDid,
+      algorithm: existing.algorithm,
+      publicKeyJwk: existing.publicKeyJwk,
+      purpose: existing.purpose,
+      status,
+      // Immutable did.json snapshot — carried forward unchanged (never diverges
+      // between concurrent writers, so it doesn't reintroduce the lost-update
+      // race). Only `status` is ever mutated.
+      ...(existing.document !== undefined ? { document: existing.document } : {}),
+    };
+    await this.api.updateRecord(ns, OPENCRED_KEY_REGISTRY, recordName, updatedDetails);
+    this.logger.info("Key status advanced in DeDi", {
+      keyId: verificationMethod,
+      from: existing.status,
+      to: status,
+      namespace: ns,
+    });
+    return {
+      changed: true,
+      keyId: verificationMethod,
+      from: existing.status,
+      to: status,
+      namespace: ns,
+    };
+  }
+
+  /**
+   * Attach (or refresh) the embedded did.json `document` snapshot on an
+   * EXISTING key record, preserving every other field.
+   *
+   * Needed by `/v1/keys/rotate`: when the new key was already auto-published
+   * as a BARE record at startup (auto-publish only embeds a document at
+   * index 0 — index > 0 is "owned by rotate"), rotate's `publishKey` hits a
+   * 409 and skips, so the regenerated multi-key did.json would never land on
+   * the active key and the did:web → DeDi fallback resolver could not see the
+   * new key. This update-records the document onto the existing record.
+   *
+   * Concurrency: runs on the same per-key write chain as `setKeyStatus`
+   * (`chainKeyWrite`), so a document attach can't interleave with a status
+   * flip on the same key within this process and read-back-write a stale
+   * status. Cross-instance writers still race last-writer-wins until DeDi
+   * exposes a CAS on `update-record` (#659) — same residual window as
+   * `setKeyStatus`, and the rotate handler's document is only fully
+   * deterministic when the operator supplies `currentDidDocument`
+   * explicitly (otherwise it derives from a live registry snapshot).
+   *
+   * Defence-in-depth (CLAUDE.md rule 1, see also the #663 fix): private
+   * JWK members are stripped from every `verificationMethod[*].publicKeyJwk`
+   * before publishing, so a caller passing an unsanitised did.json cannot
+   * leak key material into DeDi. The rotate call site already passes a
+   * stripped document; this guards every other caller.
+   */
+  async setKeyDocument(
+    verificationMethod: string,
+    document: Record<string, unknown>,
+    namespace?: string,
+  ): Promise<void> {
+    return this.chainKeyWrite(verificationMethod, async () => {
+      const ns = this.resolveNamespace(namespace);
+      const recordName = verificationMethodToRecordName(verificationMethod);
+      const existing = await this.resolveKey(verificationMethod, ns);
+      const updated: Omit<KeyRecord, "proof"> = {
+        keyId: existing.keyId,
+        controllerDid: existing.controllerDid,
+        algorithm: existing.algorithm,
+        publicKeyJwk: existing.publicKeyJwk,
+        purpose: existing.purpose,
+        status: existing.status,
+        document: stripPrivateJwkMembers(document),
+      };
+      await this.api.updateRecord(ns, OPENCRED_KEY_REGISTRY, recordName, updated);
+      this.logger.info("Attached did.json snapshot to existing key record", {
+        keyId: verificationMethod,
+        namespace: ns,
+      });
+    });
+  }
+
+  /**
+   * Resolve the current did.json for a `did:web` DID from the per-key
+   * snapshots in `opencred-key-registry` (replaces the old `did-documents`
+   * lookup). Backs {@link createDeDiDIDWebFallback}.
+   *
+   * Lists the key registry, keeps records whose `controllerDid` matches and
+   * that carry a `document` snapshot, and returns the snapshot of the
+   * **highest-indexed active** key — or, when no key is active, the
+   * **highest-indexed** (`#key-N`) key overall, i.e. the most recent / most
+   * complete era. Selecting the highest index among active keys keeps the
+   * result stable through the brief rotation window where the newly-published
+   * key and the not-yet-`rotated` prior key are both `active`. Returns `null`
+   * when the DID has no key carrying a document: a did:key (self-describing),
+   * or a did:web issuer who hosts `.well-known/did.json` on their own domain
+   * (`OPENCRED_DEDI_HOST_DID_DOC` unset). On a `null`/failure the fallback
+   * re-raises the original HTTPS error.
+   */
+  async resolveDidWebDocument(
+    did: string,
+    namespace?: string,
+  ): Promise<Record<string, unknown> | null> {
+    const ns = this.resolveNamespace(namespace);
+    const response = await this.api.queryRecords<KeyRecord>(ns, OPENCRED_KEY_REGISTRY);
+    // The live `/dedi/query` endpoint nests the record list under
+    // `data.records` (inside a registry-metadata envelope), NOT bare under
+    // `data`. Reading `data` directly always yielded a non-array → null,
+    // silently disabling did:web → DeDi resolution for every issuer.
+    const records = response?.data?.records;
+    if (!Array.isArray(records)) return null;
+
+    const candidates = records
+      .map((r) => r?.details)
+      .filter(
+        (d): d is KeyRecord =>
+          d != null &&
+          typeof d === "object" &&
+          (d as KeyRecord).controllerDid === did &&
+          (d as KeyRecord).document != null &&
+          typeof (d as KeyRecord).document === "object",
+      );
+    if (candidates.length === 0) return null;
+
+    const keyIndex = (vm: string): number => {
+      const m = /#key-(\d+)$/.exec(vm);
+      return m ? Number(m[1]) : -1;
+    };
+    const highestIndex = (pool: KeyRecord[]): KeyRecord =>
+      pool.reduce((best, d) => (keyIndex(d.keyId) > keyIndex(best.keyId) ? d : best));
+    // Prefer the live (active) key's document — the highest-index active key
+    // when more than one is briefly active mid-rotation; otherwise the latest
+    // era (highest index overall).
+    const active = candidates.filter((d) => d.status === "active");
+    const chosen = active.length > 0 ? highestIndex(active) : highestIndex(candidates);
+    return chosen.document ?? null;
   }
 
   async publishSchema(schema: SchemaRecord, namespace?: string): Promise<PublishResult> {
@@ -325,10 +768,12 @@ export class DeDiClient {
   ): Promise<SchemaRecord> {
     const ns = this.resolveNamespace(namespace);
     const recordName = schemaToRecordName(schemaId, version);
-    const record = await this.api.lookupRecord(ns, SCHEMA_REGISTRY, recordName);
-    assertDeDiRecordShape(record, "lookupRecord");
-    assertSchemaRecordShape(record.detail);
-    return record.detail;
+    const response = await this.api.lookupRecord(ns, SCHEMA_REGISTRY, recordName);
+    assertDeDiRecordShape(response, "lookupRecord");
+    const details = response.data.details;
+    assertSchemaRecordShape(details);
+    const proof = extractProof(response.data);
+    return proof ? { ...details, proof } : details;
   }
 
   async publishContext(record: ContextRecord, namespace?: string): Promise<PublishResult> {
@@ -345,74 +790,99 @@ export class DeDiClient {
   ): Promise<ContextRecord> {
     const ns = this.resolveNamespace(namespace);
     const recordName = contextToRecordName(schemaId, version);
-    const record = await this.api.lookupRecord(ns, CONTEXT_REGISTRY, recordName);
-    assertDeDiRecordShape(record, "lookupRecord");
-    assertContextRecordShape(record.detail);
-    return record.detail;
-  }
-
-  async registerDelegation(
-    delegation: DelegationRecord,
-    namespace?: string,
-  ): Promise<DelegationRecord> {
-    validateDelegation(delegation);
-    const ns = this.resolveNamespace(namespace);
-    const record = await this.api.publishRecord(ns, DELEGATION_REGISTRY, delegation.id, delegation);
-    assertDeDiRecordShape(record, "publishRecord");
-    assertDelegationShape(record.detail);
-    return record.detail;
-  }
-
-  async resolveDelegation(delegationId: string, namespace?: string): Promise<DelegationRecord> {
-    const ns = this.resolveNamespace(namespace);
-    const record = await this.api.lookupRecord(ns, DELEGATION_REGISTRY, delegationId);
-    assertDeDiRecordShape(record, "lookupRecord");
-    assertDelegationShape(record.detail);
-    return record.detail;
+    const response = await this.api.lookupRecord(ns, CONTEXT_REGISTRY, recordName);
+    assertDeDiRecordShape(response, "lookupRecord");
+    const details = response.data.details;
+    assertContextRecordShape(details);
+    return details;
   }
 
   async ensureRegistries(namespace: string): Promise<void> {
+    // Lookup-first dedupe (see #546). createNamespace is non-idempotent and
+    // has no `Idempotency-Key` support on the DeDi server; if we naively
+    // POST every time we'd risk duplicating the row whenever the lookup
+    // path is unreliable (transient 5xx, partial response, etc.). Checking
+    // lookupNamespace first means a re-run of `ensureRegistries` against
+    // an existing namespace is a single idempotent GET, not a POST.
+    let namespaceExists = false;
     try {
-      const nsResult = await this.api.createNamespace(namespace, "OpenCred namespace");
-      this.logger.debug("Namespace created", {
-        namespace,
-        result: JSON.stringify(nsResult).slice(0, 200),
-      });
-    } catch (nsErr) {
-      const code = nsErr instanceof DeDiClientError ? nsErr.statusCode : 0;
-      this.logger.error("Namespace creation failed", {
-        namespace,
-        code,
-        error: nsErr instanceof Error ? nsErr.message : String(nsErr),
-      });
-      if (code !== 409) throw nsErr; // Only ignore "already exists"
+      await this.api.lookupNamespace(namespace);
+      namespaceExists = true;
+      this.logger.debug("Namespace already exists, skipping create", { namespace });
+    } catch (lookupErr) {
+      const code = lookupErr instanceof DeDiClientError ? lookupErr.statusCode : 0;
+      // 404 (not found) is the expected "needs create" path. Any other
+      // error is unexpected and should propagate — we don't want to fall
+      // back to create on a transient lookup failure because that's exactly
+      // how duplicates were getting created before.
+      if (code !== 404) {
+        this.logger.error("Namespace lookup failed unexpectedly", {
+          namespace,
+          code,
+          error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
+        });
+        throw lookupErr;
+      }
+    }
+
+    if (!namespaceExists) {
+      try {
+        const nsResult = await this.api.createNamespace(namespace, "OpenCred namespace");
+        this.logger.debug("Namespace created", {
+          namespace,
+          result: JSON.stringify(nsResult).slice(0, 200),
+        });
+      } catch (nsErr) {
+        const code = nsErr instanceof DeDiClientError ? nsErr.statusCode : 0;
+        // Belt-and-braces: even after lookup-first, a concurrent create from
+        // another client could race in. Accept both HTTP 409 and a body code
+        // matching "NAMESPACE_EXISTS" / "ALREADY_EXISTS" as "someone else
+        // got there first" — same outcome as if we'd seen the lookup hit.
+        if (code === 409 || isAlreadyExistsBody(nsErr)) {
+          this.logger.debug("Namespace already existed (race after lookup)", { namespace });
+        } else {
+          this.logger.error("Namespace creation failed", {
+            namespace,
+            code,
+            error: nsErr instanceof Error ? nsErr.message : String(nsErr),
+          });
+          throw nsErr;
+        }
+      }
     }
 
     await Promise.all([
+      // REVOCATION_REGISTRY uses DeDi's canonical "Revoke" tag (schema
+      // https://dedi.global/revoke.json). DeDi enforces the
+      // `{ revoked_id, reason? }` shape server-side via the tag, so we
+      // pass no custom schema body. Record existence ⇒ revoked. The tag
+      // string is case-sensitive: dedi.global/schemas exposes "Revoke"
+      // (capital R) — lowercase is rejected with 400 (see #609).
+      ignoreConflict(() => this.api.createRegistry(namespace, REVOCATION_REGISTRY, {}, "Revoke")),
+      // Per-key registry — one record per signing key, the source of truth
+      // for "is this key live?". See docs/decisions/dedi-key-registry-redesign.md.
       ignoreConflict(() =>
-        this.api.createRegistry(namespace, REVOCATION_REGISTRY, {
+        this.api.createRegistry(namespace, OPENCRED_KEY_REGISTRY, {
           $schema: "http://json-schema.org/draft-07/schema#",
           type: "object",
-          description: "OpenCred revocation list",
+          description: "OpenCred per-key registry (status + public key material)",
           properties: {
-            hash: { type: "string" },
-            revoked: { type: "boolean" },
-            revokedAt: { type: "string" },
+            keyId: { type: "string", pattern: "^did:" },
+            controllerDid: { type: "string", pattern: "^did:" },
+            algorithm: { type: "string" },
+            publicKeyJwk: { type: "object", description: "Public key material as a JWK." },
+            purpose: { type: "array", items: { type: "string" } },
+            status: { type: "string", enum: ["active", "rotated", "revoked"] },
+            // Optional immutable did.json snapshot (did:web + HOST_DID_DOC).
+            // Replaces the separate did-documents registry. `additionalProperties`
+            // is false, so it must be declared here for DeDi to accept it.
+            document: {
+              type: "object",
+              description: "Immutable W3C did.json snapshot as of this key's publish/rotate.",
+            },
           },
-          required: ["hash", "revoked"],
-        }),
-      ),
-      ignoreConflict(() =>
-        this.api.createRegistry(namespace, PUBLIC_KEY_REGISTRY, {
-          $schema: "http://json-schema.org/draft-07/schema#",
-          type: "object",
-          description: "OpenCred public key registry",
-          properties: {
-            did: { type: "string" },
-            document: { type: "object" },
-            resolvedAt: { type: "string" },
-          },
-          required: ["did", "document"],
+          required: ["keyId", "controllerDid", "algorithm", "publicKeyJwk", "purpose", "status"],
+          additionalProperties: false,
         }),
       ),
       ignoreConflict(() =>
@@ -430,9 +900,22 @@ export class DeDiClient {
           required: ["schemaId", "version", "schema"],
         }),
       ),
-      // CONTEXT_REGISTRY uses "custom" tag (no JSON schema) because JSON-LD
-      // context documents are dynamic and don't fit a fixed schema.
-      ignoreConflict(() => this.api.createRegistry(namespace, CONTEXT_REGISTRY, {}, "custom")),
+      // CONTEXT_REGISTRY stores JSON-LD context documents, which are dynamic
+      // and don't fit a fixed schema. DeDi has no no-schema "custom" tag
+      // (verified against api.dedi.global, #609), so we pass a permissive
+      // inline schema: only `@context` is required, anything else passes.
+      ignoreConflict(() =>
+        this.api.createRegistry(namespace, CONTEXT_REGISTRY, {
+          $schema: "http://json-schema.org/draft-07/schema#",
+          type: "object",
+          description: "OpenCred JSON-LD context registry",
+          properties: {
+            "@context": {},
+          },
+          required: ["@context"],
+          additionalProperties: true,
+        }),
+      ),
     ]);
   }
 
@@ -445,11 +928,6 @@ export class DeDiClient {
   }
 }
 
-function didToRecordName(did: string): string {
-  // Replace characters that aren't safe for DeDi record names
-  return did.replace(/:/g, "-");
-}
-
 async function ignoreConflict(fn: () => Promise<unknown>): Promise<void> {
   try {
     await fn();
@@ -457,6 +935,84 @@ async function ignoreConflict(fn: () => Promise<unknown>): Promise<void> {
     if (error instanceof DeDiClientError && error.statusCode === 409) {
       return; // Already exists — idempotent success
     }
+    if (isAlreadyExistsBody(error)) {
+      // DeDi sometimes returns 400 with a body code like `NAMESPACE_EXISTS`
+      // or `REGISTRY_EXISTS` rather than the more conventional 409. Treat
+      // those as benign "already exists" the same way. See #546.
+      return;
+    }
     throw error;
   }
+}
+
+const ALREADY_EXISTS_BODY_CODE_PATTERN = /^(.*_)?(ALREADY_EXISTS|EXISTS)$/i;
+
+/**
+ * Returns `true` if the error's response body advertises an "already exists"
+ * condition via a stable code field. Matches both top-level `code` and
+ * `error.code` patterns and the common substring forms (`NAMESPACE_EXISTS`,
+ * `REGISTRY_ALREADY_EXISTS`, `RESOURCE_EXISTS`, etc.).
+ */
+function isAlreadyExistsBody(error: unknown): boolean {
+  if (!(error instanceof DeDiClientError) || error.responseBody == null) {
+    return false;
+  }
+  const body = error.responseBody;
+  if (typeof body !== "object") return false;
+  const rec = body as Record<string, unknown>;
+  const candidates: unknown[] = [
+    rec["code"],
+    rec["error_code"],
+    rec["errorCode"],
+    (rec["error"] as { code?: unknown } | undefined)?.code,
+  ];
+  return candidates.some((c) => typeof c === "string" && ALREADY_EXISTS_BODY_CODE_PATTERN.test(c));
+}
+
+/**
+ * Matches the duplicate-record-name signal that DeDi's
+ * `save-record-as-draft` returns when a publish collides with an existing
+ * `record_name`. Observed wire shape on `api.dedi.global`:
+ *
+ *   {
+ *     "message": "duplicate record name",
+ *     "data": "Record with the same name already exists in the registry - vc-revocation-registry"
+ *   }
+ *
+ * Distinct from {@link isAlreadyExistsBody} (which keys off structured `code`
+ * fields used by namespace/registry creation). This helper inspects the
+ * human-readable `message`/`data` text — robust against minor wording drift
+ * by checking both fields and JSON-stringified fallback. Used by
+ * `publishRevocationHash` and `publishKey` to translate the bare 409 from
+ * `publishRecord` into a `DeDiRecordExistsError` with an actionable hint.
+ */
+const DUPLICATE_RECORD_TEXT_PATTERNS: readonly RegExp[] = [
+  /duplicate.*record/i,
+  /record.*already.*exists/i,
+];
+
+function isDuplicateRecordBody(error: unknown): boolean {
+  if (!(error instanceof DeDiClientError) || error.statusCode !== 409) {
+    return false;
+  }
+  const body = error.responseBody;
+  if (body == null) return false;
+  const candidates: string[] = [];
+  if (typeof body === "string") {
+    candidates.push(body);
+  } else if (typeof body === "object") {
+    const rec = body as Record<string, unknown>;
+    if (typeof rec["message"] === "string") candidates.push(rec["message"] as string);
+    if (typeof rec["data"] === "string") candidates.push(rec["data"] as string);
+    // Last-resort: stringify the whole body so unusual shapes still match.
+    try {
+      candidates.push(JSON.stringify(body));
+    } catch {
+      // Body has cycles / non-serializable members — the string fields above
+      // are the only signal we can trust.
+    }
+  }
+  return candidates.some((text) =>
+    DUPLICATE_RECORD_TEXT_PATTERNS.some((pattern) => pattern.test(text)),
+  );
 }

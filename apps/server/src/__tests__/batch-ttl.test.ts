@@ -1,170 +1,117 @@
 /**
- * Batch job TTL purge tests (HIGH-01).
+ * Batch job TTL tests.
  *
- * Exercises `purgeExpiredBatchJobs` directly with a mocked job store so
- * no real timers or batch engines are involved. See `batch.ts` — we seed
- * the private `jobs` Map via `__setJobsForTesting` and then drive the
- * sync helper with synthesized `now` values.
+ * Pre-Tier-2 these tests exercised the inline `purgeExpiredBatchJobs`
+ * helper on the in-process Map. After Tier 2 #5 (PR for nfh-trust-labs/opencred#446
+ * sub-issue) the equivalent behaviour lives on `MemoryJobStore` — the
+ * `set()`/`get()` contract MUST return null once the entry's TTL is
+ * past, and `purge()` is the bulk sweep used by the internal interval.
+ *
+ * The Redis path uses Redis-managed TTL (`SET ... EX`) and is exercised
+ * in `job-store/__tests__/redis.test.ts` against a `RedisLike` mock.
  */
 
-import { describe, it, expect, afterEach } from "vitest";
-import {
-  __setJobsForTesting,
-  purgeExpiredBatchJobs,
-  startBatchJobCleanup,
-  type BatchJobEntry,
-} from "../routes/batch.js";
+import { describe, it, expect } from "vitest";
+import { MemoryJobStore } from "../batch/job-store/memory.js";
+import type { JobRecord } from "../batch/job-store/types.js";
 
-function makeEntry(opts: { createdAt: string; completedAt?: string }): BatchJobEntry {
-  // The engine is never touched by the purge path — we cast through unknown
-  // to satisfy the type without pulling in real BatchEngine infrastructure.
+function makeRecord(jobId: string, status: JobRecord["status"] = "completed"): JobRecord {
   return {
-    engine: {} as unknown as BatchJobEntry["engine"],
+    jobId,
+    status,
     progress: null,
-    createdAt: opts.createdAt,
-    ...(opts.completedAt !== undefined ? { completedAt: opts.completedAt } : {}),
+    createdAt: new Date(0).toISOString(),
   };
 }
 
-describe("purgeExpiredBatchJobs", () => {
-  let restore: (() => void) | undefined;
-
-  afterEach(() => {
-    if (restore) {
-      restore();
-      restore = undefined;
-    }
+describe("MemoryJobStore TTL", () => {
+  it("returns the record while it is within ttl", async () => {
+    let now = 1_000_000;
+    const store = new MemoryJobStore({ now: () => now, purgeIntervalMs: 0 });
+    await store.set("job-1", makeRecord("job-1"), 60);
+    now += 30_000; // 30 s — still within 60 s TTL
+    expect(await store.get("job-1")).not.toBeNull();
   });
 
-  it("deletes a completed job whose completedAt + ttl is in the past", () => {
-    const now = Date.parse("2026-04-16T12:00:00Z");
-    const ttlMs = 60_000; // 1 minute
-    const seed = new Map<string, BatchJobEntry>([
-      [
-        "old-job",
-        makeEntry({
-          createdAt: "2026-04-16T10:00:00Z", // 2h ago
-          completedAt: "2026-04-16T11:00:00Z", // 1h ago — way beyond 1min TTL
-        }),
-      ],
-    ]);
-    restore = __setJobsForTesting(seed);
-
-    const deleted = purgeExpiredBatchJobs(ttlMs, now);
-
-    expect(deleted).toBe(1);
+  it("returns null once the entry's ttl elapses", async () => {
+    let now = 1_000_000;
+    const store = new MemoryJobStore({ now: () => now, purgeIntervalMs: 0 });
+    await store.set("job-1", makeRecord("job-1"), 60);
+    now += 60_001; // 60.001 s — past TTL
+    expect(await store.get("job-1")).toBeNull();
   });
 
-  it("keeps a completed job whose completedAt + ttl is in the future", () => {
-    const now = Date.parse("2026-04-16T12:00:00Z");
-    const ttlMs = 60 * 60 * 1000; // 1 hour
-    const seed = new Map<string, BatchJobEntry>([
-      [
-        "fresh-job",
-        makeEntry({
-          createdAt: "2026-04-16T11:30:00Z", // 30m ago
-          completedAt: "2026-04-16T11:45:00Z", // 15m ago — still within 1h TTL
-        }),
-      ],
-    ]);
-    restore = __setJobsForTesting(seed);
+  it("purge() evicts every expired entry and reports the count", async () => {
+    let now = 1_000_000;
+    const store = new MemoryJobStore({ now: () => now, purgeIntervalMs: 0 });
 
-    const deleted = purgeExpiredBatchJobs(ttlMs, now);
+    await store.set("expired-1", makeRecord("expired-1"), 10);
+    await store.set("expired-2", makeRecord("expired-2"), 10);
+    await store.set("fresh", makeRecord("fresh"), 600);
 
-    expect(deleted).toBe(0);
-  });
-
-  it("falls back to createdAt when completedAt is unset (orphan job)", () => {
-    const now = Date.parse("2026-04-16T12:00:00Z");
-    const ttlMs = 30 * 60 * 1000; // 30 minutes
-    const seed = new Map<string, BatchJobEntry>([
-      [
-        "stuck-job",
-        makeEntry({
-          // Created 1h ago, never completed — should purge at createdAt + 30m.
-          createdAt: "2026-04-16T11:00:00Z",
-        }),
-      ],
-    ]);
-    restore = __setJobsForTesting(seed);
-
-    const deleted = purgeExpiredBatchJobs(ttlMs, now);
-
-    expect(deleted).toBe(1);
-  });
-
-  it("keeps a still-running job whose createdAt is within TTL", () => {
-    const now = Date.parse("2026-04-16T12:00:00Z");
-    const ttlMs = 60 * 60 * 1000; // 1 hour
-    const seed = new Map<string, BatchJobEntry>([
-      [
-        "running-job",
-        makeEntry({
-          // Created 15m ago, not yet completed — well within 1h.
-          createdAt: "2026-04-16T11:45:00Z",
-        }),
-      ],
-    ]);
-    restore = __setJobsForTesting(seed);
-
-    const deleted = purgeExpiredBatchJobs(ttlMs, now);
-
-    expect(deleted).toBe(0);
-  });
-
-  it("mixed store: evicts expired, retains fresh, returns count", () => {
-    const now = Date.parse("2026-04-16T12:00:00Z");
-    const ttlMs = 10 * 60 * 1000; // 10 minutes
-    const seed = new Map<string, BatchJobEntry>([
-      [
-        "expired-1",
-        makeEntry({ createdAt: "2026-04-16T10:00:00Z", completedAt: "2026-04-16T11:00:00Z" }),
-      ],
-      ["expired-2", makeEntry({ createdAt: "2026-04-16T11:00:00Z" })], // orphan, 1h old
-      [
-        "fresh-1",
-        makeEntry({ createdAt: "2026-04-16T11:55:00Z", completedAt: "2026-04-16T11:57:00Z" }),
-      ],
-      ["fresh-2", makeEntry({ createdAt: "2026-04-16T11:58:00Z" })],
-    ]);
-    restore = __setJobsForTesting(seed);
-
-    const deleted = purgeExpiredBatchJobs(ttlMs, now);
+    now += 11_000; // 11 s — expired-* are past 10 s TTL, fresh is well within 600 s
+    const deleted = store.purge();
 
     expect(deleted).toBe(2);
+    expect(await store.get("expired-1")).toBeNull();
+    expect(await store.get("expired-2")).toBeNull();
+    expect(await store.get("fresh")).not.toBeNull();
   });
 
-  it("ignores entries with unparseable timestamps rather than throwing", () => {
-    const now = Date.parse("2026-04-16T12:00:00Z");
-    const ttlMs = 60_000;
-    const seed = new Map<string, BatchJobEntry>([
-      ["garbage-job", makeEntry({ createdAt: "not-a-date" })],
-    ]);
-    restore = __setJobsForTesting(seed);
+  it("update() re-arms the TTL on each successful write", async () => {
+    let now = 1_000_000;
+    const store = new MemoryJobStore({ now: () => now, purgeIntervalMs: 0 });
+    await store.set("job-1", makeRecord("job-1"), 60);
 
-    const deleted = purgeExpiredBatchJobs(ttlMs, now);
+    // Advance to just before TTL, then update → expect another full 60s.
+    now += 55_000;
+    const updated = await store.update("job-1", (cur) => ({ ...cur, status: "running" }), 60);
+    expect(updated).not.toBeNull();
+    expect(updated?.status).toBe("running");
 
-    // Unparseable → skip silently, job stays in the map for the operator
-    // to notice via other means.
-    expect(deleted).toBe(0);
+    // 55s after the update → still well within the renewed TTL.
+    now += 55_000;
+    expect(await store.get("job-1")).not.toBeNull();
   });
 
-  it("is a no-op on an empty store", () => {
-    restore = __setJobsForTesting(new Map());
-    expect(purgeExpiredBatchJobs(60_000, Date.now())).toBe(0);
+  it("update() on a missing record returns null and does not write", async () => {
+    const store = new MemoryJobStore({ purgeIntervalMs: 0 });
+    const out = await store.update("missing", (cur) => cur, 60);
+    expect(out).toBeNull();
   });
-});
 
-describe("startBatchJobCleanup", () => {
-  it("returns an unref'd timer that tests can cancel", () => {
-    const handle = startBatchJobCleanup(10_000, 60_000);
-    try {
-      expect(handle).toBeDefined();
-      // Node's Timeout has an `unref` method — not strictly required but
-      // signals the implementation called it.
-      expect(typeof (handle as unknown as { unref?: () => unknown }).unref).toBe("function");
-    } finally {
-      clearInterval(handle);
-    }
+  it("list() filters by status and skips expired entries", async () => {
+    let now = 1_000_000;
+    const store = new MemoryJobStore({ now: () => now, purgeIntervalMs: 0 });
+    await store.set("queued-1", makeRecord("queued-1", "queued"), 600);
+    await store.set("running-1", makeRecord("running-1", "running"), 600);
+    await store.set("expired", makeRecord("expired", "completed"), 5);
+
+    now += 6_000; // expired is past TTL
+    const queued = await store.list({ status: "queued" });
+    expect(queued.map((s) => s.jobId)).toEqual(["queued-1"]);
+
+    const all = await store.list();
+    expect(all.map((s) => s.jobId).sort()).toEqual(["queued-1", "running-1"]);
+  });
+
+  it("close() clears the internal timer and the in-memory map", async () => {
+    const store = new MemoryJobStore();
+    await store.set("job-1", makeRecord("job-1"), 60);
+    await store.close();
+    expect(await store.get("job-1")).toBeNull();
+  });
+
+  it("structural cloning prevents callers from mutating stored state", async () => {
+    const store = new MemoryJobStore({ purgeIntervalMs: 0 });
+    const record = makeRecord("job-1", "running");
+    await store.set("job-1", record, 60);
+    const fetched = await store.get("job-1");
+    expect(fetched).not.toBeNull();
+    if (!fetched) throw new Error("unreachable");
+    // Mutate the fetched copy — must not affect the stored entry.
+    fetched.status = "failed";
+    const refetched = await store.get("job-1");
+    expect(refetched?.status).toBe("running");
   });
 });

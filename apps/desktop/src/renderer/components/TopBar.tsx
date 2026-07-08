@@ -10,12 +10,11 @@ import logoSrc from "../assets/logo.svg";
 
 interface Props {
   activeView: View;
-  isOffline: boolean;
   rotationOverdue?: boolean;
   onNavigate: (view: View) => void;
 }
 
-export function TopBar({ activeView, isOffline, rotationOverdue, onNavigate }: Props) {
+export function TopBar({ activeView, rotationOverdue, onNavigate }: Props) {
   const showBack = activeView !== "home";
 
   return (
@@ -98,6 +97,28 @@ export function TopBar({ activeView, isOffline, rotationOverdue, onNavigate }: P
         </button>
 
         <button
+          onClick={() => onNavigate("revocation")}
+          className={`oc-topbar-nav-btn ${activeView === "revocation" ? "active" : ""}`}
+          aria-label="Credential revocation"
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+            />
+          </svg>
+          Revoke
+        </button>
+
+        <button
           onClick={() => onNavigate("verify")}
           className={`oc-topbar-nav-btn ${activeView === "verify" ? "active" : ""}`}
           aria-label="Verify credential"
@@ -160,15 +181,6 @@ export function TopBar({ activeView, isOffline, rotationOverdue, onNavigate }: P
             />
           )}
         </button>
-
-        {/* Status dot */}
-        <span
-          className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ml-1 ${
-            isOffline ? "bg-amber-500" : "bg-green-500"
-          }`}
-          title={isOffline ? "Offline" : "Connected"}
-          aria-hidden="true"
-        />
       </div>
     </div>
   );

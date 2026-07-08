@@ -1,0 +1,40 @@
+name: E2E Matrix
+
+# Nightly credential-matrix run: every valid {algorithm × proof format}
+# cell issued and verified against the real Docker image. DeDi lifecycle
+# cells run only when the staging secrets are configured — they skip
+# loudly otherwise (see e2e/README.md).
+on:
+  schedule:
+    - cron: "0 2 * * *" # 02:00 UTC nightly
+  workflow_dispatch:
+
+jobs:
+  matrix:
+    name: Credential matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Build server image
+        run: docker build -f apps/server/Dockerfile -t opencred-server:e2e .
+      - name: Run matrix
+        env:
+          OPENCRED_E2E_IMAGE: opencred-server:e2e
+          OPENCRED_E2E_DEDI_BASE_URL: ${{ secrets.E2E_DEDI_BASE_URL }}
+          OPENCRED_E2E_DEDI_NAMESPACE: ${{ secrets.E2E_DEDI_NAMESPACE }}
+          OPENCRED_E2E_DEDI_API_KEY: ${{ secrets.E2E_DEDI_API_KEY }}
+        run: pnpm --filter @opencred/e2e-matrix e2e 2>&1 | tee e2e-matrix-report.txt
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-matrix-report
+          path: e2e-matrix-report.txt

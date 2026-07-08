@@ -5,11 +5,22 @@ export interface RetryOptions {
   maxRetries: number;
   baseDelayMs: number;
   logger?: DeDiLogger;
+  /**
+   * When `false`, the retry loop is short-circuited: the underlying `fn`
+   * runs at most once and any error propagates immediately. Use this for
+   * non-idempotent operations (POST creates without an `Idempotency-Key`)
+   * where blind retry can produce duplicate rows on the server.
+   *
+   * Defaults to `true` to preserve historical behaviour for GETs and
+   * other idempotent calls.
+   */
+  retryable?: boolean;
 }
 
 const DEFAULT_OPTIONS: RetryOptions = {
   maxRetries: 3,
   baseDelayMs: 200,
+  retryable: true,
 };
 
 const TRANSIENT_NETWORK_CODES = new Set([
@@ -34,7 +45,10 @@ function hasTransientNetworkCode(error: unknown): boolean {
 
 function isTransientError(error: unknown): boolean {
   if (error instanceof DeDiClientError) {
-    return error.statusCode >= 500;
+    // 5xx upstream failures and 429 rate limits are transient. 429 delays
+    // honour the server's `Retry-After` when present — see the delay
+    // computation in `withRetry`.
+    return error.statusCode >= 500 || error.statusCode === 429;
   }
   if (error instanceof TypeError && error.message.includes("fetch")) {
     return true;
@@ -57,6 +71,15 @@ export async function withRetry<T>(
   options?: Partial<RetryOptions>,
 ): Promise<T> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
+
+  // Non-idempotent path — run once and surface the first error. Skipping
+  // the retry loop entirely is what protects POST creates without an
+  // `Idempotency-Key` from creating duplicate rows when a single user
+  // click sees a transient upstream blip.
+  if (opts.retryable === false) {
+    return fn();
+  }
+
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= opts.maxRetries; attempt++) {
@@ -71,7 +94,19 @@ export async function withRetry<T>(
         throw error;
       }
       opts.logger?.debug(`Retrying request, attempt ${attempt + 1} of ${opts.maxRetries}`);
-      const delay = opts.baseDelayMs * Math.pow(2, attempt);
+      // A server-provided `Retry-After` (429, issue #679) wins over the
+      // exponential formula — deterministic (no jitter; the server already
+      // picked the moment), capped at 10s so a hostile or buggy header
+      // can't stall the caller. Otherwise: exponential backoff with
+      // subtractive jitter (0.75–1.0×) to de-synchronise replicas retrying
+      // the same outage — never exceeds the deterministic
+      // baseDelayMs * 2^attempt upper bound per attempt.
+      const retryAfterMs =
+        error instanceof DeDiClientError && error.retryAfterMs !== undefined
+          ? Math.min(error.retryAfterMs, 10_000)
+          : undefined;
+      const jitter = 0.75 + Math.random() * 0.25;
+      const delay = retryAfterMs ?? Math.round(opts.baseDelayMs * Math.pow(2, attempt) * jitter);
       await sleep(delay);
     }
   }

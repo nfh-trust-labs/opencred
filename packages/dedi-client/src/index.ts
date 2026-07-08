@@ -1,20 +1,27 @@
 // Primary — consumer-facing
 export { DeDiClient } from "./adapter/client.js";
+export { createDeDiDIDWebFallback } from "./adapter/did-web-fallback.js";
+// Re-exported so callers (e.g. @opencred/verification) can branch on
+// `err instanceof DeDiClientError && err.statusCode === 404` without
+// reaching into @opencred/shared directly. The class itself is defined
+// in shared/errors.ts.
+export { DeDiClientError } from "@opencred/shared";
 export type {
   DeDiClientConfig,
   RevocationHashRecord,
-  DelegationRecord,
-  DIDRecord,
+  KeyRecord,
+  KeyStatus,
+  SetKeyStatusResult,
   SchemaRecord,
   ContextRecord,
   PublishResult,
 } from "./adapter/types.js";
 export {
   REVOCATION_REGISTRY,
-  DELEGATION_REGISTRY,
-  PUBLIC_KEY_REGISTRY,
+  OPENCRED_KEY_REGISTRY,
   SCHEMA_REGISTRY,
   CONTEXT_REGISTRY,
+  verificationMethodToRecordName,
 } from "./adapter/registry-names.js";
 
 // Publishing orchestrator
@@ -29,6 +36,8 @@ export type {
   DeDiNamespace,
   DeDiRegistry,
   DeDiRecord,
+  DeDiResponse,
+  DeDiProof,
   DeDiRegistrySummary,
   DeDiRecordSummary,
   DeDiQueryParams,

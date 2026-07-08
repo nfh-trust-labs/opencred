@@ -160,6 +160,41 @@ describe("DeDiApiClient", () => {
       });
     });
 
+    it("createNamespace does NOT retry on 5xx (issue #546)", async () => {
+      // Without retryable:false, maxRetries:3 would trigger 4 POSTs and
+      // create up to 4 duplicate namespaces on the user's DeDi account.
+      mockFetch.mockResolvedValue(new Response("upstream error", { status: 500, headers: {} }));
+
+      const client = new DeDiApiClient(createConfig({ maxRetries: 3 }));
+      await expect(client.createNamespace("example.com", "Test")).rejects.toThrow();
+
+      // Exactly one call — no retry loop on this non-idempotent POST.
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("createNamespace surfaces JSON body on error.responseBody", async () => {
+      // The adapter layer needs to read response body codes like
+      // NAMESPACE_EXISTS to dedupe across 4xx variants.
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify({ code: "NAMESPACE_EXISTS" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      const client = new DeDiApiClient(createConfig());
+      let caught: unknown;
+      try {
+        await client.createNamespace("example.com", "Test");
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(DeDiClientError);
+      expect((caught as DeDiClientError).statusCode).toBe(400);
+      expect((caught as DeDiClientError).responseBody).toEqual({ code: "NAMESPACE_EXISTS" });
+    });
+
     it("lookupNamespace GETs /dedi/lookup/{ns}", async () => {
       const ns = {
         name: "example.com",
@@ -186,7 +221,7 @@ describe("DeDiApiClient", () => {
         name: "revocation_list",
         namespace: "example.com",
         schema: {},
-        tag: "custom",
+        tag: "Revoke",
         state: "active",
         record_count: 0,
         created_at: "",
@@ -235,28 +270,63 @@ describe("DeDiApiClient", () => {
   // ── Record endpoints ─────────────────────────────────────────────
 
   describe("record endpoints", () => {
-    it("publishRecord POSTs to /dedi/{ns}/{reg}/save-record-as-draft?publish=true", async () => {
-      const record = {
-        name: "abc",
-        registry: "r",
-        namespace: "ns",
-        detail: {},
-        state: "live",
-        version: 1,
-        created_at: "",
-        updated_at: "",
+    it("publishRecord chains save-record-as-draft then publish-records (#610)", async () => {
+      // Regression guard: `?publish=true` returns 201 but leaves the record
+      // as a draft on api.dedi.global — the canonical publish flow is the
+      // two-call sequence. Verify both calls fire in order with the right
+      // shapes, and the synthesized envelope carries the OpenCred payload.
+      const saveResponse = {
+        message: "record saved as draft",
+        data: { record_name: "abc" },
       };
-      mockFetch.mockResolvedValue(jsonResponse(record));
+      const publishResponse = {
+        message: "Records are in publish queue",
+        data: { count: 1, record_ids: ["76EU7…"] },
+      };
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse(saveResponse))
+        .mockResolvedValueOnce(jsonResponse(publishResponse));
 
       const client = new DeDiApiClient(createConfig());
-      await client.publishRecord("ns", "r", "abc", { hash: "abc" });
+      const result = await client.publishRecord("ns", "r", "abc", { hash: "abc" });
 
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const [saveUrl, saveInit] = mockFetch.mock.calls[0]!;
+      expect(saveUrl).toBe("https://dedi.example.com/dedi/ns/r/save-record-as-draft");
+      expect(saveInit?.method).toBe("POST");
+      const saveBody = JSON.parse(saveInit?.body as string);
+      expect(saveBody.record_name).toBe("abc");
+      expect(saveBody.details).toEqual({ hash: "abc" });
+
+      const [publishUrl, publishInit] = mockFetch.mock.calls[1]!;
+      expect(publishUrl).toBe("https://dedi.example.com/dedi/ns/r/publish-records");
+      expect(publishInit?.method).toBe("POST");
+      const publishBody = JSON.parse(publishInit?.body as string);
+      expect(publishBody).toEqual({ records: ["abc"] });
+
+      // Synthesized envelope keeps the contract callers depend on
+      // (`data.record_name`, `data.details`).
+      expect(result.data.record_name).toBe("abc");
+      expect(result.data.details).toEqual({ hash: "abc" });
+    });
+
+    it("publishDraftRecords POSTs only the publish-records step for the given names", async () => {
+      // Exposed separately (#11/#718) so the revocation self-heal can advance
+      // a stranded draft to LIVE without re-running save-record-as-draft.
+      mockFetch.mockResolvedValue(
+        jsonResponse({
+          message: "Records are in publish queue",
+          data: { count: 2, record_ids: ["x", "y"] },
+        }),
+      );
+      const client = new DeDiApiClient(createConfig());
+      await client.publishDraftRecords("ns", "r", ["abc", "def"]);
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/ns/r/save-record-as-draft?publish=true");
+      expect(url).toBe("https://dedi.example.com/dedi/ns/r/publish-records");
       expect(init?.method).toBe("POST");
-      const body = JSON.parse(init?.body as string);
-      expect(body.record_name).toBe("abc");
-      expect(body.details).toEqual({ hash: "abc" });
+      expect(JSON.parse(init?.body as string)).toEqual({ records: ["abc", "def"] });
     });
 
     it("lookupRecord GETs /dedi/lookup/{ns}/{reg}/{record}", async () => {
@@ -267,50 +337,109 @@ describe("DeDiApiClient", () => {
       expect(mockFetch.mock.calls[0]![0]).toBe("https://dedi.example.com/dedi/lookup/ns/r/rec1");
     });
 
-    it("revokeRecord POSTs to /dedi/{ns}/{reg}/{rec}/revoke-record", async () => {
-      mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
+    it("updateRecord POSTs to /dedi/{ns}/{reg}/{record}/update-record", async () => {
+      // Mutating endpoint — body is `{ details, meta: {} }`, same as
+      // publishRecord. Retry is disabled at the request layer so a
+      // transient 5xx mid-write doesn't append two new versions.
+      const envelope = {
+        message: "Record updated",
+        data: {
+          record_name: "abc",
+          registry: "r",
+          namespace: "ns",
+          details: { did: "did:key:z6Mkold", keyStatus: "rotated" },
+          state: "live",
+          version: "2",
+          created_at: "",
+          updated_at: "",
+        },
+      };
+      mockFetch.mockResolvedValue(jsonResponse(envelope));
+
       const client = new DeDiApiClient(createConfig());
-      await client.revokeRecord("ns", "r", "rec1");
+      const result = await client.updateRecord("ns", "r", "abc", {
+        did: "did:key:z6Mkold",
+        keyStatus: "rotated",
+      });
 
       const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/ns/r/rec1/revoke-record");
+      expect(url).toBe("https://dedi.example.com/dedi/ns/r/abc/update-record");
       expect(init?.method).toBe("POST");
+      const body = JSON.parse(init?.body as string);
+      expect(body.details).toEqual({ did: "did:key:z6Mkold", keyStatus: "rotated" });
+      expect(body.meta).toEqual({});
+      expect(result).toEqual(envelope);
     });
 
-    it("changeRecordState POSTs to /dedi/{ns}/{reg}/{rec}/{action}", async () => {
-      mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
+    it("updateRecord encodes path segments containing reserved characters", async () => {
+      mockFetch.mockResolvedValue(jsonResponse({ message: "ok", data: {} }));
       const client = new DeDiApiClient(createConfig());
-      await client.changeRecordState("ns", "r", "rec1", "suspended");
+      await client.updateRecord("my ns", "reg name", "did:key:z6Mk/foo", {
+        did: "x",
+        keyStatus: "rotated",
+      });
 
-      const [url, init] = mockFetch.mock.calls[0]!;
-      expect(url).toBe("https://dedi.example.com/dedi/ns/r/rec1/suspend-record");
-      expect(init?.method).toBe("POST");
+      expect(mockFetch.mock.calls[0]![0]).toBe(
+        "https://dedi.example.com/dedi/my%20ns/reg%20name/did%3Akey%3Az6Mk%2Ffoo/update-record",
+      );
+    });
+
+    it("updateRecord does NOT retry on 5xx (mutating endpoint)", async () => {
+      // Same rationale as publishRecord — mutating + no Idempotency-Key
+      // means retry creates duplicate versions on the server. The retry
+      // helper respects `retryable: false` and surfaces the first error.
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify({ error: "boom" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new DeDiApiClient(createConfig({ maxRetries: 3 }));
+      await expect(
+        client.updateRecord("ns", "r", "abc", { did: "x", keyStatus: "rotated" }),
+      ).rejects.toThrow(/500/);
+      // Only one underlying fetch — the request layer skipped retry.
+      expect(mockFetch.mock.calls.length).toBe(1);
     });
   });
 
   // ── Query & Search ───────────────────────────────────────────────
 
   describe("query and search", () => {
+    // The live API wraps query/search record lists in a registry-metadata
+    // envelope at `data.records` — mirror that here so these mocks can't
+    // drift back to the bare-array shape that hid a production bug (the
+    // did:web → DeDi fallback returning null for every issuer).
+    const queryEnvelope = {
+      message: "ok",
+      data: { registry_name: "r", total_records: 0, records: [] },
+    };
+
     it("queryRecords GETs /dedi/query/{ns}/{reg} with params", async () => {
-      mockFetch.mockResolvedValue(jsonResponse({ records: [], total: 0, page: 1, per_page: 20 }));
+      mockFetch.mockResolvedValue(jsonResponse(queryEnvelope));
       const client = new DeDiApiClient(createConfig());
-      await client.queryRecords("ns", "r", { page: 2, per_page: 10 });
+      const result = await client.queryRecords("ns", "r", { page: 2, per_page: 10 });
 
       const url = mockFetch.mock.calls[0]![0] as string;
       expect(url).toContain("/dedi/query/ns/r");
       expect(url).toContain("page=2");
       expect(url).toContain("per_page=10");
+      expect(result).toEqual(queryEnvelope);
     });
 
     it("search GETs /dedi/search/{ns} with query params", async () => {
-      mockFetch.mockResolvedValue(jsonResponse({ records: [], total: 0 }));
+      mockFetch.mockResolvedValue(jsonResponse(queryEnvelope));
       const client = new DeDiApiClient(createConfig());
-      await client.search("ns", { registry_name: "revocation_list", "detail.hash": "abc" });
+      const result = await client.search("ns", {
+        registry_name: "revocation_list",
+        "detail.hash": "abc",
+      });
 
       const url = mockFetch.mock.calls[0]![0] as string;
       expect(url).toContain("/dedi/search/ns");
       expect(url).toContain("registry_name=revocation_list");
       expect(url).toContain("detail.hash=abc");
+      expect(result).toEqual(queryEnvelope);
     });
   });
 
@@ -398,6 +527,48 @@ describe("DeDiApiClient", () => {
       const err = await client.lookupNamespace("broken").catch((e: unknown) => e);
 
       expect((err as DeDiClientError).statusCode).toBe(502);
+    });
+  });
+
+  // ── Retry-After parsing (issue #679) ─────────────────────────────
+
+  describe("Retry-After parsing", () => {
+    it("surfaces an integer-seconds Retry-After on 429 as retryAfterMs", async () => {
+      mockFetch.mockResolvedValue(
+        new Response("rate limited", { status: 429, headers: { "Retry-After": "7" } }),
+      );
+
+      const client = new DeDiApiClient(createConfig());
+      const err = await client.lookupNamespace("busy").catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(DeDiClientError);
+      expect((err as DeDiClientError).statusCode).toBe(429);
+      expect((err as DeDiClientError).retryAfterMs).toBe(7000);
+    });
+
+    it("ignores the HTTP-date form of Retry-After", async () => {
+      mockFetch.mockResolvedValue(
+        new Response("rate limited", {
+          status: 429,
+          headers: { "Retry-After": "Wed, 10 Jun 2026 07:28:00 GMT" },
+        }),
+      );
+
+      const client = new DeDiApiClient(createConfig());
+      const err = await client.lookupNamespace("busy").catch((e: unknown) => e);
+
+      expect((err as DeDiClientError).retryAfterMs).toBeUndefined();
+    });
+
+    it("ignores Retry-After on non-429 responses", async () => {
+      mockFetch.mockResolvedValue(
+        new Response("error", { status: 503, headers: { "Retry-After": "7" } }),
+      );
+
+      const client = new DeDiApiClient(createConfig());
+      const err = await client.lookupNamespace("broken").catch((e: unknown) => e);
+
+      expect((err as DeDiClientError).retryAfterMs).toBeUndefined();
     });
   });
 
@@ -522,19 +693,51 @@ describe("DeDiApiClient", () => {
   // ── bulkUpload ─────────────────────────────────────────────────
 
   describe("bulkUpload", () => {
-    it("POSTs to /dedi/namespace/{ns}/registry/{reg}/bulk with auth header", async () => {
-      mockFetch.mockResolvedValue(jsonResponse({ job_id: "j1" }));
+    it("POSTs to /dedi/bulk-upload with auth header and required form fields", async () => {
+      mockFetch.mockResolvedValue(jsonResponse({ message: "Job queued", data: { jobId: "j1" } }));
 
       const client = new DeDiApiClient(createConfig());
       const file = new Blob(["col1,col2\na,b"], { type: "text/csv" });
       const result = await client.bulkUpload("ns", "r", file);
 
-      expect(result).toEqual({ job_id: "j1" });
+      // Response is unwrapped: `data.jobId` becomes `{ jobId }`.
+      expect(result).toEqual({ jobId: "j1" });
       const [url, init] = mockFetch.mock.calls[0]!;
       expect(url).toBe("https://dedi.example.com/dedi/bulk-upload");
       expect(init?.method).toBe("POST");
       expect((init?.headers as Record<string, string>)["Authorization"]).toBe("Bearer dk_test_key");
       expect(init?.body).toBeInstanceOf(FormData);
+      // The DeDi API requires `namespace` and `registry_name` alongside
+      // the `file` field — verified against the develop Postman
+      // collection, 2026-05-19.
+      const fd = init?.body as FormData;
+      expect(fd.get("namespace")).toBe("ns");
+      expect(fd.get("registry_name")).toBe("r");
+      // record_name_field is optional — not set in this call.
+      expect(fd.get("record_name_field")).toBeNull();
+    });
+
+    it("includes record_name_field when provided", async () => {
+      mockFetch.mockResolvedValue(jsonResponse({ message: "Job queued", data: { jobId: "j1" } }));
+
+      const client = new DeDiApiClient(createConfig());
+      await client.bulkUpload("ns", "r", new Blob(["a,b\n1,2"]), "col1");
+
+      const init = mockFetch.mock.calls[0]![1]!;
+      const fd = init.body as FormData;
+      expect(fd.get("record_name_field")).toBe("col1");
+    });
+
+    it("throws when bulk-upload response is missing data.jobId", async () => {
+      mockFetch.mockResolvedValue(jsonResponse({ message: "ok", data: {} }));
+
+      const client = new DeDiApiClient(createConfig());
+      const err = await client.bulkUpload("ns", "r", new Blob(["data"])).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(DeDiClientError);
+      expect((err as DeDiClientError).message).toBe(
+        "DeDi API bulk upload response missing required field: data.jobId",
+      );
     });
 
     it("throws DeDiClientError on 4xx/5xx", async () => {
@@ -583,7 +786,7 @@ describe("DeDiApiClient", () => {
       // First call fails, second succeeds
       mockFetch
         .mockRejectedValueOnce(new TypeError("transient failure"))
-        .mockResolvedValueOnce(jsonResponse({ job_id: "j2" }));
+        .mockResolvedValueOnce(jsonResponse({ message: "ok", data: { jobId: "j2" } }));
 
       const client = new DeDiApiClient(createConfig({ maxRetries: 1 }));
       const promise = client.bulkUpload("ns", "r", new Blob(["data"]));
@@ -592,7 +795,7 @@ describe("DeDiApiClient", () => {
       await vi.advanceTimersByTimeAsync(300);
 
       const result = await promise;
-      expect(result).toEqual({ job_id: "j2" });
+      expect(result).toEqual({ jobId: "j2" });
       expect(mockFetch).toHaveBeenCalledTimes(2);
       // Each call should have its own FormData instance
       const body1 = mockFetch.mock.calls[0]![1]?.body;

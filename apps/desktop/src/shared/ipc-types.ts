@@ -177,8 +177,24 @@ export interface BuildAndSignResponse {
 // ---------------------------------------------------------------------------
 
 export interface VerifyCredentialRequest {
-  /** JSON-serialised Verifiable Credential to verify. */
-  credential: string;
+  /**
+   * The credential to verify. Mutually exclusive with `pdfBase64`.
+   *
+   * Accepted forms (auto-detected by the IPC handler):
+   *   - JSON-serialised Verifiable Credential (object as JSON string)
+   *   - vc-jwt compact serialization (`eyJ...`)
+   *   - sd-jwt-vc compact serialization (with `~`-separated disclosures)
+   *   - PixelPass-compressed QR data (bare Base45 payload, no prefix)
+   */
+  credential?: string;
+  /**
+   * Base64-encoded bytes of an OpenCred-issued PDF certificate. Mutually
+   * exclusive with `credential`. The handler reads the embedded
+   * `OpenCredCredential` info-dictionary key from the PDF and verifies
+   * it. PDFs issued before the info-dict embedding shipped return a
+   * structured failure pointing the caller at the QR-scan path.
+   */
+  pdfBase64?: string;
 }
 
 export interface VerifyCredentialResponse {
@@ -654,6 +670,32 @@ export interface DidWebVerifyResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Self-Published Keys (did:key)
+// ---------------------------------------------------------------------------
+
+/**
+ * Request to export a DID document for a `did:key` identifier.
+ *
+ * Symmetric counterpart to {@link DidWebExportRequest}, but takes no
+ * `domain` — the DID is fully derived from the key. Used by the
+ * "Self-Published — did:key" branch of the onboarding wizard to produce
+ * an attribution record for DeDi.
+ */
+export interface DidKeyExportRequest {
+  /** The keyId returned by {@link KeyGenerateResponse}. */
+  keyId: string;
+}
+
+export interface DidKeyExportResponse {
+  success: boolean;
+  /** The full did:key identifier (without `#fragment`). */
+  did?: string;
+  /** Pretty-printed JSON of the synthesised DID document. */
+  didDocument?: string;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
 // DeDi integration
 // ---------------------------------------------------------------------------
 
@@ -697,11 +739,60 @@ export interface DeDiStatusResponse {
   publishedSchemas: string[];
 }
 
-export interface DeDiPublishDIDRequest {
-  /** The DID to publish. */
+export interface DeDiPublishKeyRequest {
+  /**
+   * The local in-memory signer id used to resolve the public JWK +
+   * algorithm. Private key material is NEVER transmitted across IPC —
+   * the handler looks the signer up in the main-process registry by id.
+   */
+  signerKeyId: string;
+  /** The controller DID to publish the key under (did:web:domain or did:key:...). */
   did: string;
-  /** The DID document (JSON). */
-  document: unknown;
+  /**
+   * The sequential index this key takes (did:web only). The operator states it
+   * explicitly: 0 for a first publish, N+1 for a rotation. Published at
+   * `<did>#key-<keyIndex>`. Default 0.
+   */
+  keyIndex?: number;
+  /**
+   * When rotating, the verification method of the key being retired. It is
+   * flipped to `rotated` (stays valid) and carried forward in the regenerated
+   * did.json. Omit for a first publish.
+   */
+  previousVerificationMethod?: string;
+  /**
+   * The issuer's CURRENT did.json, imported as a whole to carry every existing
+   * key forward and validate the chosen index is free (rejected if taken). When
+   * omitted, the key set is reconstructed best-effort by resolving each
+   * previously-published key from DeDi. did:web only.
+   */
+  currentDidDocument?: unknown;
+  /** Optional assembled did.json for did:web hosting (only used when hostDidDocument is set). */
+  document?: unknown;
+  /** Optional DeDi namespace override. */
+  namespace?: string;
+  /** When true, also store the did:web document in DeDi. */
+  hostDidDocument?: boolean;
+}
+
+export interface DeDiSetKeyStatusRequest {
+  /** The verification method (key id) whose status should change. */
+  verificationMethod: string;
+  /** The new key status. */
+  status: "rotated" | "revoked";
+  /**
+   * The issuer DID (did:web:...). When provided with `hostDidDocument` on a
+   * `revoked` transition, the did.json is regenerated so the revoked key stays
+   * in `verificationMethod[]` (its signatures still resolve → REVOKED) but is
+   * dropped from every verification relationship.
+   */
+  did?: string;
+  /** The issuer's current did.json, imported as a whole for the revoke regeneration. */
+  currentDidDocument?: unknown;
+  /** When true (and `did` is a did:web DID), regenerate + re-host the did.json. */
+  hostDidDocument?: boolean;
+  /** Optional DeDi namespace override. */
+  namespace?: string;
 }
 
 export interface DeDiPublishSchemaRequest {
@@ -712,6 +803,16 @@ export interface DeDiPublishSchemaRequest {
 export interface DeDiPublishResponse {
   success: boolean;
   recordName?: string;
+  /** The verification method (key id) that was published. Set by DEDI_PUBLISH_KEY. */
+  keyId?: string;
+  /** Whether the did:web document was also stored in DeDi. Set by DEDI_PUBLISH_KEY. */
+  didDocumentStored?: boolean;
+  /** Result of a key status change. Set by DEDI_SET_KEY_STATUS. */
+  statusChange?: {
+    changed: boolean;
+    keyId: string;
+    status: string;
+  };
   error?: string;
 }
 
@@ -977,10 +1078,14 @@ export interface OpenCredDesktopAPI {
   exportDidDocument: (request: DidWebExportRequest) => Promise<DidWebExportResponse>;
   verifyDidWeb: (request: DidWebVerifyRequest) => Promise<DidWebVerifyResponse>;
 
+  // Self-Published Keys (did:key)
+  exportDidKeyDocument: (request: DidKeyExportRequest) => Promise<DidKeyExportResponse>;
+
   // DeDi integration
   dediSetConfig: (request: DeDiConfigSetRequest) => Promise<DeDiConfigSetResponse>;
   dediGetStatus: () => Promise<DeDiStatusResponse>;
-  dediPublishDID: (request: DeDiPublishDIDRequest) => Promise<DeDiPublishResponse>;
+  dediPublishKey: (request: DeDiPublishKeyRequest) => Promise<DeDiPublishResponse>;
+  dediSetKeyStatus: (request: DeDiSetKeyStatusRequest) => Promise<DeDiPublishResponse>;
   dediPublishSchema: (request: DeDiPublishSchemaRequest) => Promise<DeDiPublishResponse>;
   dediEnsureRegistries: () => Promise<DeDiEnsureRegistriesResponse>;
   dediDisconnect: () => Promise<DeDiDisconnectResponse>;

@@ -65,6 +65,96 @@ let mainWindow: BrowserWindow | null = null;
 const IS_DEV = !app.isPackaged;
 const DEV_SERVER_URL = "http://localhost:5174";
 
+// ---------------------------------------------------------------------------
+// Packaged-app smoke test hook (CI only).
+//
+// When OPENCRED_SMOKE_TEST=1, the app boots normally, verifies that the main
+// window loaded the production renderer and that the React app actually
+// mounted (#root has children), prints a single parseable line to stdout and
+// exits. Driven by scripts/packaged-smoke.mjs — see that file for the CI side.
+//
+// SECURITY: this hook only ADDS observation (a read-only DOM query) and an
+// exit call. It never weakens hardening — contextIsolation, sandbox, the CSP
+// and the navigation guards above all stay exactly as in production.
+// ---------------------------------------------------------------------------
+
+const IS_SMOKE_TEST = process.env.OPENCRED_SMOKE_TEST === "1";
+
+// Redirect userData/logs to a throwaway directory provided by the smoke
+// runner so a smoke run never reads or pollutes a real OpenCred profile
+// (electron-store config, schema cache, logs). Must run before app ready —
+// initStore() resolves paths from userData.
+if (IS_SMOKE_TEST && process.env.OPENCRED_SMOKE_USER_DATA) {
+  app.setPath("userData", process.env.OPENCRED_SMOKE_USER_DATA);
+  app.setPath("logs", path.join(process.env.OPENCRED_SMOKE_USER_DATA, "logs"));
+}
+
+/**
+ * Install the smoke-test observers on the main window.
+ *
+ * Exported so tests can drive it with a fake window — the real GUI boot is
+ * exercised by scripts/packaged-smoke.mjs in CI (desktop-smoke.yml).
+ */
+export function installSmokeTestHook(win: BrowserWindow): void {
+  let settled = false;
+  const finish = (code: number, message: string): void => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    // Write directly to stdout (not the file logger) and flush before exit so
+    // the smoke runner can parse the line reliably.
+    process.stdout.write(`[smoke] ${message}\n`, () => app.exit(code));
+  };
+  const timer = setTimeout(() => {
+    finish(1, "FAIL: timed out after 30s waiting for renderer");
+  }, 30_000);
+
+  let shown = false;
+  let loaded = false;
+  const verifyRendered = (): void => {
+    if (!shown || !loaded || settled) return;
+    // did-finish-load fires before React 18's concurrent root commits, so
+    // poll inside the page (read-only DOM check) until #root has children.
+    void win.webContents
+      .executeJavaScript(
+        `new Promise((resolve) => {
+           const started = Date.now();
+           const check = () => {
+             if (document.getElementById("root")?.childElementCount) return resolve(true);
+             if (Date.now() - started > 15000) return resolve(false);
+             setTimeout(check, 100);
+           };
+           check();
+         })`,
+      )
+      .then((mounted: unknown) => {
+        if (mounted === true) {
+          finish(0, `renderer loaded ${win.webContents.getURL()}`);
+        } else {
+          finish(1, "FAIL: renderer loaded but #root is empty (app did not mount)");
+        }
+      })
+      .catch((err: unknown) => {
+        finish(1, `FAIL: executeJavaScript: ${err instanceof Error ? err.message : String(err)}`);
+      });
+  };
+
+  win.once("ready-to-show", () => {
+    shown = true;
+    verifyRendered();
+  });
+  win.webContents.once("did-finish-load", () => {
+    loaded = true;
+    verifyRendered();
+  });
+  win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    finish(1, `FAIL: did-fail-load ${errorCode} (${errorDescription}) ${validatedURL}`);
+  });
+  win.webContents.on("render-process-gone", (_event, details) => {
+    finish(1, `FAIL: render-process-gone (${details.reason})`);
+  });
+}
+
 function createWindow(): void {
   const preloadPath = path.join(__dirname, "..", "..", "preload", "main", "preload.cjs");
   logger.debug("Preload path resolved", { preloadPath });
@@ -74,6 +164,13 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     title: "OpenCred",
+    // On macOS, hide the native title bar and let the renderer's `.oc-topbar`
+    // act as the draggable title bar, with the traffic lights overlaid
+    // top-left. This removes the double-chrome of a native bar stacked over
+    // the custom one. Windows/Linux keep their standard frame.
+    ...(process.platform === "darwin"
+      ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 14, y: 15 } }
+      : {}),
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
@@ -155,6 +252,10 @@ function createWindow(): void {
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
   });
+
+  if (IS_SMOKE_TEST) {
+    installSmokeTestHook(mainWindow);
+  }
 
   if (IS_DEV) {
     void mainWindow.loadURL(DEV_SERVER_URL);
@@ -324,7 +425,8 @@ app.whenReady().then(async () => {
   logger.info("Window created");
 
   // Initialise auto-updater after the window is ready (checks GitHub Releases).
-  if (!IS_DEV) {
+  // Skipped during smoke tests — a boot check must not depend on network.
+  if (!IS_DEV && !IS_SMOKE_TEST) {
     initAutoUpdater();
   }
 

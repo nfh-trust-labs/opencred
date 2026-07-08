@@ -79,7 +79,8 @@ vi.mock("@opencred/dedi-client", async (importOriginal) => {
     ...actual,
     createPublishManager: vi.fn(() => ({
       ensureSchemaPublished: vi.fn(),
-      publishDIDDocument: vi.fn(),
+      publishKey: vi.fn(),
+      setKeyStatus: vi.fn(),
       ensureRegistries: vi.fn(),
       publishContext: vi.fn(),
       getPublishedSchemaIds: () => [],

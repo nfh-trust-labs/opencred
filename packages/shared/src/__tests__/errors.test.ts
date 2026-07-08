@@ -10,6 +10,7 @@ import {
   SchemaValidationError,
   DelegationError,
   DeDiClientError,
+  DeDiRecordExistsError,
   SessionExpiredError,
   VerificationError,
   RateLimitError,
@@ -93,6 +94,24 @@ describe("domain-specific errors", () => {
   it("DeDiClientError defaults to 502", () => {
     const err = new DeDiClientError("upstream failure");
     expect(err.statusCode).toBe(502);
+  });
+
+  it("DeDiRecordExistsError has 409 status and exposes hint via toJSON", () => {
+    const err = new DeDiRecordExistsError(
+      "This hash is already in the revocation registry",
+      "Use POST /v1/credentials/revocation-status to confirm the prior revoke landed",
+      { message: "duplicate record name" },
+    );
+    expect(err.statusCode).toBe(409);
+    expect(err.code).toBe("DEDI_RECORD_EXISTS");
+    expect(err.name).toBe("DeDiRecordExistsError");
+    expect(err).toBeInstanceOf(OpenCredError);
+    expect(err.hint).toContain("revocation-status");
+    expect(err.responseBody).toEqual({ message: "duplicate record name" });
+    const json = err.toJSON();
+    expect(json.error.code).toBe("DEDI_RECORD_EXISTS");
+    expect(json.error.hint).toContain("revocation-status");
+    expect(json.error.statusCode).toBe(409);
   });
 
   it("DelegationError has 400 status", () => {
@@ -345,6 +364,7 @@ describe("OpenCredError — kind discriminator + typed code enum (HIGH-19)", () 
       [new SchemaValidationError("x"), OpenCredErrorCode.SCHEMA_VALIDATION],
       [new DelegationError("x"), OpenCredErrorCode.DELEGATION],
       [new DeDiClientError("x"), OpenCredErrorCode.DEDI_CLIENT],
+      [new DeDiRecordExistsError("x", "y"), OpenCredErrorCode.DEDI_RECORD_EXISTS],
       [new SessionExpiredError(), OpenCredErrorCode.SESSION_EXPIRED],
       [new VerificationError("x"), OpenCredErrorCode.VERIFICATION],
       [new NotImplementedError(), OpenCredErrorCode.NOT_IMPLEMENTED],
@@ -358,6 +378,7 @@ describe("OpenCredError — kind discriminator + typed code enum (HIGH-19)", () 
     const classify = (err: AnyOpenCredError): string => {
       switch (err.kind) {
         case "ValidationError":
+        case "MalformedJsonError":
           return "4xx-validation";
         case "AuthenticationError":
         case "AuthorizationError":
@@ -365,6 +386,7 @@ describe("OpenCredError — kind discriminator + typed code enum (HIGH-19)", () 
         case "NotFoundError":
           return "4xx-notfound";
         case "ConflictError":
+        case "DeDiRecordExistsError":
           return "4xx-conflict";
         case "PayloadTooLargeError":
           return "4xx-payload";

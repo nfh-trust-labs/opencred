@@ -1,5 +1,7 @@
 # Getting Started with OpenCred Desktop
 
+> **🧪 Beta release.** OpenCred Desktop is in early-access beta. macOS users see a one-time security prompt on first launch — [Installation → macOS first launch](installation.md#macos-first-launch) has the steps. **Support:** [open an issue](https://github.com/nfh-trust-labs/opencred-releases/issues).
+
 ## System Requirements
 
 | Platform | Minimum Version |
@@ -14,11 +16,13 @@ No runtime dependencies are needed for release builds. For development: Node.js 
 
 ### From Release
 
-Download the latest installer for your platform from the GitHub Releases page.
+Download the latest installer for your platform from the **public release page**: <https://github.com/nfh-trust-labs/opencred-releases/releases>.
 
 - **macOS**: `.dmg` disk image
-- **Windows**: `.exe` installer
 - **Linux**: `.AppImage` or `.deb`
+- **Windows**: not currently shipped — see [Installation](installation.md) for status
+
+Each release includes a `SHA256SUMS` file. Verify integrity with `sha256sum -c SHA256SUMS --ignore-missing` (or `shasum -a 256 -c` on macOS) before running the installer.
 
 ### From Source
 

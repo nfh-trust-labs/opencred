@@ -69,6 +69,66 @@ curl -s http://localhost:3100/v1/keys \
 
 A missing or malformed header returns `401 AUTHENTICATION_ERROR`. See [Environment variables](#environment-variables) for the full list of related config values.
 
+## Rate limits
+
+The server applies per-route, in-memory rate limits to protect the signing path from tail-latency collapse and casual DoS. Limits are evaluated **before** authentication, so a hostile peer hammering `/v1/credentials/issue` with bogus tokens hits `429` before the auth check runs.
+
+### Default limits
+
+Buckets are evaluated over a 60-second rolling window per client identifier.
+
+| Endpoint group | Limit (per 60 s) | Tier |
+|---|---|---|
+| `POST /v1/credentials/issue`, `POST /v1/credentials/batch`, `GET /v1/credentials/batch/:jobId(/results)` | `60` | `issue` |
+| `POST /v1/credentials/verify` | `120` | `verify` |
+| `GET /v1/schemas`, `GET /v1/schemas/:id`, `GET /v1/health` | `600` | `read` |
+
+The unprefixed legacy paths (`/credentials/issue`, etc.) share the same buckets — moving between `/` and `/v1` does not give a caller a fresh quota.
+
+### Client identifier
+
+The bucket key is derived in this order:
+
+1. **Bearer token (preferred).** When `Authorization: Bearer <token>` is present, the token is hashed (SHA-256, truncated to 32 hex chars) and used as the bucket key. **The raw token never leaves the request handler and is never logged or stored.**
+2. **Trusted `X-Forwarded-For`.** When `OPENCRED_TRUST_PROXY=true`, the *first* IP in the comma-separated `X-Forwarded-For` chain is used. **The header is ignored entirely when `OPENCRED_TRUST_PROXY` is unset** — otherwise a hostile client could spoof a fresh "IP" per request and trivially bypass the limit.
+3. **TCP remote address.** Falls back to the connection's source IP.
+
+Two clients sharing the same bearer token share a bucket. Two clients on the same NAT share a bucket only when no token is present.
+
+### Response on bust
+
+When a bucket is exhausted the server returns:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 47
+RateLimit-Limit: 60
+RateLimit-Remaining: 0
+Content-Type: application/json
+
+{
+  "error": {
+    "code": "RATE_LIMIT_EXCEEDED",
+    "message": "Too many requests. Retry after the time indicated by Retry-After."
+  }
+}
+```
+
+The `RateLimit-*` headers follow [draft-7 of `draft-ietf-httpapi-ratelimit-headers`](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/). The response body deliberately omits the offending client identifier — leaking the IP or token hash back to the caller is not useful and is a small but unnecessary observability surface.
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENCRED_RATE_LIMIT_ENABLED` | `true` | Master switch. Set to `false` when an upstream gateway is already applying limits and you want to avoid double-counting. |
+| `OPENCRED_RATE_LIMIT_WINDOW_MS` | `60000` | Rolling-window size in milliseconds. |
+| `OPENCRED_RATE_LIMIT_ISSUE` | `60` | Cap for the issue/batch tier. |
+| `OPENCRED_RATE_LIMIT_VERIFY` | `120` | Cap for the verify tier. |
+| `OPENCRED_RATE_LIMIT_READ` | `600` | Cap for read-only routes (`/schemas`, `/health`). |
+| `OPENCRED_TRUST_PROXY` | `false` | When `true`, honour `X-Forwarded-For` for IP-based buckets. Required when the server runs behind a reverse proxy or load balancer. |
+
+> **In-memory only.** The current store is per-process. When running behind a load balancer across multiple replicas, configure per-instance limits proportional to the replica count (or apply limits at the load-balancer tier instead).
+
 ## Environment variables
 
 All configuration is loaded from environment variables at startup and parsed by Zod (`apps/server/src/config.ts`). Invalid values cause an immediate exit with a descriptive error. None of these values are ever logged.
@@ -91,6 +151,30 @@ All configuration is loaded from environment variables at startup and parsed by 
 | `OPENCRED_AZURE_KEY_VAULT_URL` | When `OPENCRED_KMS_PROVIDER=azure` | _(unset)_ | Azure Key Vault base URL. | `https://vault.vault.azure.net/` |
 | `OPENCRED_AZURE_KEY_NAME` | When `OPENCRED_KMS_PROVIDER=azure` | _(unset)_ | Azure Key Vault key name. | `opencred-issuer` |
 | `OPENCRED_GCP_KMS_KEY_NAME` | When `OPENCRED_KMS_PROVIDER=gcp` | _(unset)_ | GCP KMS key resource name including version. | `projects/p/locations/.../cryptoKeyVersions/1` |
+| `OPENCRED_BATCH_CONCURRENCY` | No | `min(4, cpus)` | Maximum number of rows the batch engine signs in parallel. See [batch engine — worker pool](#post-v1credentialsbatch). | `8` |
+| `OPENCRED_RATE_LIMIT_ENABLED` | No | `true` | Master switch for the per-route rate limiter. See [Rate limits](#rate-limits). | `true` |
+| `OPENCRED_RATE_LIMIT_WINDOW_MS` | No | `60000` | Rolling-window size in milliseconds for rate-limit buckets. | `60000` |
+| `OPENCRED_RATE_LIMIT_ISSUE` | No | `60` | Max requests per window for the `issue` / `batch` tier. | `60` |
+| `OPENCRED_RATE_LIMIT_VERIFY` | No | `120` | Max requests per window for the `verify` tier. | `120` |
+| `OPENCRED_RATE_LIMIT_READ` | No | `600` | Max requests per window for read-only routes (`/schemas`, `/health`). | `600` |
+| `OPENCRED_TRUST_PROXY` | No | `false` | When `true`, honour `X-Forwarded-For` for IP-based rate-limit buckets. **Set this only when running behind a trusted reverse proxy.** | `true` |
+| `OPENCRED_JOB_STORE` | No | `memory` | Batch job backing store. `memory` for single-instance, `redis` for horizontal scale. See [Horizontal scale](../docker/deployment.md#horizontal-scale). | `redis` |
+| `OPENCRED_REDIS_URL` | When `OPENCRED_JOB_STORE=redis` or `OPENCRED_BATCH_DISPATCH=queue` | _(unset)_ | Redis connection URL. Accepts `redis://` or `rediss://` (TLS). May embed credentials inline; the full URL is **never** logged — only the redacted `host:port` descriptor. | `rediss://default:pw@redis.prod:6380/0` |
+| `OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED` | No | `true` | Whether to verify the Redis server's TLS certificate when using `rediss://`. There is no silent fall-through via an empty string. | `false` |
+| `OPENCRED_HEARTBEAT_INTERVAL_SEC` | No | `5` | How often (seconds) a running replica refreshes its batch job's `lastSeenAt` timestamp. Observers treat a job as candidate-for-interruption when `lastSeenAt` is older than `2 ×` this value. Range: 1–60. See [Stale-replica detection](deployment.md#stale-replica-detection). | `5` |
+| `OPENCRED_BATCH_DISPATCH` | No | `inline` | `inline` (default) runs the batch engine in the API process. `queue` enqueues a `BatchJob` onto BullMQ and returns immediately; a separate worker process consumes the queue. Required for multi-replica scale beyond a single Redis-coordinated fleet. See [Queue dispatch](deployment.md#queue-dispatch-worker-fleet--opencred_batch_dispatchqueue). | `queue` |
+| `OPENCRED_WORKER_CONCURRENCY` | No | `min(4, cpus)` | BullMQ jobs each worker process picks up in parallel. Only consulted when `OPENCRED_BATCH_DISPATCH=queue`. Per-job parallelism is still bounded by `OPENCRED_BATCH_CONCURRENCY`, so effective concurrency is the product of the two. | `4` |
+| `OPENCRED_WEBHOOK_WORKER_CONCURRENCY` | No | `4` | Webhook deliveries per worker process. Webhook calls are I/O-bound (one HTTP POST + retries) so this can run hotter than the batch worker without saturating CPU. | `4` |
+| `OPENCRED_WEBHOOK_SECRET` | When a batch request supplies `webhookUrl` | _(unset)_ | HMAC-SHA256 secret used to sign batch-completion webhook deliveries. Minimum 32 chars. Kept distinct from `OPENCRED_API_KEY` so the two can be rotated independently. Requests that supply `webhookUrl` while this is unset are rejected at the route boundary with `400 WEBHOOK_SECRET_REQUIRED`. | `whsec_8WxR2K9...` |
+| `OPENCRED_MAX_BODY_BYTES` | No | `52428800` (50 MiB) | Maximum request body size for every route except `/v1/credentials/batch`. Enforced by `hono/body-limit`; oversize requests return `413 PAYLOAD_TOO_LARGE`. | `52428800` |
+| `OPENCRED_MAX_BATCH_BODY_BYTES` | No | `209715200` (200 MiB) | Batch-specific body limit (CSVs are legitimately larger than a single credential). | `209715200` |
+| `OPENCRED_BATCH_MAX_RECORD_BYTES` | No | `1048576` (1 MiB) | Per-CSV-record cap in the streaming parser. Defense-in-depth against pathological no-newline / unclosed-quote payloads that would otherwise pin the entire body budget on one record. Minimum 1 KiB. | `1048576` |
+| `OPENCRED_OTEL_ENABLED` | No | `false` | Master switch for OpenTelemetry critical-path tracing (`http.server.duration`, `batch.row.process`, `signer.sign`, `verify.*`, `dedi.*`). When enabled, standard `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_TRACES_SAMPLER*` env vars apply. See [Observability → Tracing](observability.md#tracing). | `true` |
+| `OPENCRED_ISSUER_DID_METHOD` | No | `key` | Which DID method the issuer identity uses. `key` derives `did:key:z…` from the signer's public key (offline-verifiable). `web` uses `did:web:<OPENCRED_ISSUER_DOMAIN>` and requires the operator to serve the DID document. | `web` |
+| `OPENCRED_ISSUER_DOMAIN` | When `OPENCRED_ISSUER_DID_METHOD=web` | _(unset)_ | Domain for `did:web`. The server does NOT host the DID document — operator serves it at `https://<domain>/.well-known/did.json` or via DeDi bundled hosting. | `issuer.example.com` |
+| `OPENCRED_DEDI_HOST_DID_DOC` | No | `false` | did:web only. When `true`, publishes the active signing key to `opencred-key-registry` AND embeds the assembled `did.json` snapshot **on that key record** (the per-key `document` field) at startup, so DeDi can serve the document and back the did:web fallback resolver. There is no separate `did-documents` registry. Ignored when `OPENCRED_ISSUER_DID_METHOD=key`. Rejected at startup if DeDi is not configured. | `true` |
+| `OPENCRED_AUTO_PUBLISH_KEY` | No | `false` | When `true`, publishes the active signing key to the DeDi `opencred-key-registry` at startup (status `active`). Works for both `did:key` and `did:web`. Idempotent: re-publishing an existing key is treated as success (logged as already-published, no error). Requires DeDi to be configured — rejected at startup otherwise. Surfaced on `/v1/health` as `didAutoPublished: true` once the publish succeeds. | `true` |
+| `OPENCRED_READ_ONLY` | No | `false` | When `true`, write endpoints (issue, batch, revoke, publish, schemas/generate, dedi/*) return `405 READ_ONLY_MODE`. Read surface (verify, key resolve, schemas, health, metrics) stays enabled. See [Read-tier deployment](deployment.md#read-tier-deployment). | `true` |
 
 [^1]: A signing key is required for `POST /v1/credentials/issue` to succeed. If neither `OPENCRED_KEY_PATH` nor a Cloud HSM provider is configured, the server still starts and `/v1/health` reports `signingKeyLoaded: false`, but every issue request returns `500 INTERNAL_ERROR` (the sanitized fallback for the unhandled `requireSigner()` throw — see [Observability → Health Checks](observability.md#health-checks)).
 [^2]: `OPENCRED_CSCA_TRUST_STORE_PATH` is only required to verify credentials that carry an `x5c` certificate chain (DSC-backed credentials). Verification of DID-keyed credentials does not need it. When unset, the verifier still functions but fails closed for any credential whose proof carries an `x5c` chain — see [`POST /v1/credentials/verify`](#post-v1credentialsverify) below.
@@ -118,6 +202,7 @@ Returns `200` when `signingKeyLoaded` is true and `503` when false.
   "ready": true,
   "signingKeyLoaded": true,
   "dediConfigured": false,
+  "didAutoPublished": false,
   "timestamp": "2026-04-08T10:00:00.000Z"
 }
 ```
@@ -128,6 +213,7 @@ Returns `200` when `signingKeyLoaded` is true and `503` when false.
 | `ready` | `boolean` | `true` when the signing key is loaded — the minimum requirement for issuing credentials. |
 | `signingKeyLoaded` | `boolean` | `true` if a signer was successfully loaded at startup. If `false`, issue endpoints return `500 INTERNAL_ERROR`. |
 | `dediConfigured` | `boolean` | `true` if a DeDi client is configured for revocation. |
+| `didAutoPublished` | `boolean` | `true` when the issuer DID was auto-published to DeDi at startup (`OPENCRED_AUTO_PUBLISH_KEY=true`, or `OPENCRED_DEDI_HOST_DID_DOC=true` for did:web). Reported `true` for both first-publish-success and the idempotent already-published path on re-boots. Stays `false` when the flag is off, when DeDi is not configured, or when the publish failed (warn-logged at startup; server continues). |
 | `timestamp` | `string` | Current ISO-8601 timestamp from the server clock. |
 
 **Example**
@@ -198,6 +284,506 @@ The response body is guaranteed by `apps/server/src/__tests__/v1-smoke.test.ts` 
 
 ---
 
+### `GET /v1/keys/did-document`
+
+Return the canonical DID Document JSON the operator should host at `https://<domain>/.well-known/did.json` for Path A (self-host) verifiers. See [Concepts → DIDs → Publishing your did:web DID Document](../concepts/dids.md#publishing-your-didweb-did-document).
+
+**Auth:** required.
+
+**Source preference**:
+
+1. If DeDi is configured AND the DID is already published there → return the DeDi-persisted document verbatim. That document carries rotation history (multi-key `verificationMethod[]` with `supersededAt` timestamps) that the locally-derived document doesn't have.
+2. Otherwise (no DeDi, DeDi misconfigured, or DID not yet published) → derive a fresh single-key document from the active signer's `publicKeyJwk`. Mirrors exactly what `OPENCRED_AUTO_PUBLISH_KEY=true` would push to DeDi at startup, so Path A operators can publish manually and stay in lockstep with what verifiers see via Path B.
+
+**Response: `200 OK`**
+
+```jsonc
+{
+  "did": "did:web:bootcamp.example.org",
+  "document": {
+    "@context": [
+      "https://www.w3.org/ns/did/v1",
+      "https://w3id.org/security/suites/jws-2020/v1"
+    ],
+    "id": "did:web:bootcamp.example.org",
+    "verificationMethod": [
+      {
+        "id": "did:web:bootcamp.example.org#key-0",
+        "type": "JsonWebKey",
+        "controller": "did:web:bootcamp.example.org",
+        "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." }
+      }
+    ],
+    "authentication": ["did:web:bootcamp.example.org#key-0"],
+    "assertionMethod": ["did:web:bootcamp.example.org#key-0"],
+    "capabilityInvocation": ["did:web:bootcamp.example.org#key-0"],
+    "capabilityDelegation": ["did:web:bootcamp.example.org#key-0"]
+  },
+  "source": "active-signer" // or "dedi"
+}
+```
+
+| Field | Description |
+|---|---|
+| `did` | The configured issuer DID — `did:web:<OPENCRED_ISSUER_DOMAIN>` when `OPENCRED_ISSUER_DID_METHOD=web`. |
+| `document` | The W3C DID Document. Upload this verbatim to `https://<domain>/.well-known/did.json`. After rotation, re-fetch from this endpoint — the `source: "dedi"` path returns the multi-key document (rotated keys retained, revoked keys removed); the `source: "active-signer"` path returns a single-key document for the current signer. |
+| `source` | `"dedi"` when projected from the per-key `did.json` snapshots in `opencred-key-registry` (rotation-aware, multi-key). `"active-signer"` when derived from the loaded signer's public JWK (single-key, no rotation history). |
+
+**One-liner to publish the JSON to disk**
+
+```sh
+curl -s http://localhost:3100/v1/keys/did-document \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  | jq .document > did.json
+# upload did.json to https://<your-domain>/.well-known/did.json
+```
+
+**After key rotation (Path A operators)**
+
+The endpoint always reflects the **current** state. After `POST /v1/keys/rotate`:
+
+- If DeDi is configured: re-fetch this endpoint; `source: "dedi"` returns the rotated multi-key document (projected from the per-key snapshots in `opencred-key-registry`, with every non-revoked key retained under its own sequential `#key-<n>` fragment). Re-upload to your `.well-known/did.json`.
+- If DeDi is **not** configured: this endpoint returns a fresh single-key doc with only your new key. **Old credentials signed under the previous key will no longer verify via Path A** unless you keep the previous key in a multi-key `did.json` on your domain. Because each rotation gets its own sequential `#key-<n>` fragment, those older credentials stay verifiable whenever the previous key is still present in `verificationMethod[]` — configuring DeDi alongside Path A keeps the full multi-key document available and avoids the old `#key-0` fragment collision ([#653](https://github.com/nfh-trust-labs/opencred/issues/653) is resolved).
+
+**Response: error codes**
+
+| HTTP | Code | Trigger |
+|---|---|---|
+| `400` | `UNSUPPORTED_DID_METHOD` | The active issuer DID is `did:key:...`. did:key DIDs are self-resolving — verifiers derive the DID Document from the DID string directly, no `.well-known/did.json` is needed. Response includes the active DID in `error.activeDid`. |
+| `400` | `VALIDATION_ERROR` | The active signer does not expose `publicKeyJwk` on its metadata (PKCS#11 signers — software and Cloud HSM signers surface it as of #675). Response includes the signer's `type` in `error.signerType`. |
+| `503` | `NO_SIGNER` | No signing key has been loaded. Set `OPENCRED_KEY_PATH` or a Cloud HSM provider. |
+
+---
+
+### Per-key registry (`opencred-key-registry`) endpoints
+
+These five endpoints implement the full lifecycle of signing keys in DeDi's `opencred-key-registry`: one record per key, one fixed registry per issuer namespace. See [Concepts → DIDs → Per-key registry](../concepts/dids.md#per-key-registry--the-opencred-key-registry-model) for the architecture and the Riverside University worked example.
+
+The model at a glance:
+
+```
+POST /v1/keys/publish   — add the active key (status: active)
+POST /v1/keys/rotate    — retire old key (rotated) + add new key (active)
+POST /v1/keys/revoke    — mark a compromised key (revoked)
+POST /v1/keys/resolve   — look up any key's record
+GET  /v1/keys/resolve   — same as POST, URL-param form (CDN-cacheable)
+```
+
+---
+
+### `POST /v1/keys/publish`
+
+Publish the active signer's public key to the DeDi `opencred-key-registry` with status `active`. This is the first step in the DeDi lifecycle — call it once after first boot (or use `OPENCRED_AUTO_PUBLISH_KEY=true` to automate it).
+
+The server publishes only its **own** active key derived from the configured signer. No key material is accepted from the request body — the public JWK is extracted from the loaded signer automatically.
+
+**Auth:** required.
+**Content-Type:** `application/json`.
+
+**Request body**
+
+```ts
+{
+  namespace?: string;        // DeDi namespace override; defaults to OPENCRED_DEDI_NAMESPACE
+  hostDidDocument?: boolean; // also embed the assembled did.json snapshot on the key record (did:web only)
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `namespace` | `string` | No | DeDi namespace override. When omitted, `OPENCRED_DEDI_NAMESPACE` is used. |
+| `hostDidDocument` | `boolean` | No | When `true` (and the issuer is `did:web`), also embeds the assembled W3C DID Document as an immutable snapshot **on the published key record** (the per-key `document` field) so DeDi-aware verifiers can resolve the `did.json` without hitting the issuer's domain. There is no separate `did-documents` registry. Defaults to the value of `OPENCRED_DEDI_HOST_DID_DOC`. |
+
+**Security.** The `rejectKeyMaterial()` guard runs over the body before anything reaches DeDi. A `privateKey` field anywhere in the body returns `400 VALIDATION_ERROR`.
+
+**Response: `200 OK`**
+
+```json
+{
+  "published": true,
+  "recordName": "did-web-issuer-example-org--key-0",
+  "namespace": "issuer.example.org",
+  "keyId": "did:web:issuer.example.org#key-0",
+  "didDocumentStored": false
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `published` | `boolean` | Always `true` on success. |
+| `recordName` | `string` | The slug DeDi assigned as the record name — `slug(verificationMethod)`. |
+| `namespace` | `string` | The DeDi namespace the record was published to. |
+| `keyId` | `string` | The verification method ID (the full `DID#fragment`). |
+| `didDocumentStored` | `boolean` | `true` if the assembled `did.json` snapshot was also embedded on the published key record (the per-key `document` field). |
+
+**Example**
+
+```bash
+curl -s -X POST http://localhost:3100/v1/keys/publish \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Error responses**
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Body failed Zod parsing, contained a forbidden key, or the active signer does not expose `publicKeyJwk` (PKCS#11 signers — software and Cloud HSM signers surface it as of #675). |
+| `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
+| `409` | `DEDI_RECORD_EXISTS` | This key is already in the registry from a prior publish. Re-publishing is idempotent from the caller's perspective — the existing record is unchanged. Response carries a `hint` field pointing at `GET /v1/keys/resolve`. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. Set `OPENCRED_DEDI_BASE_URL`, `OPENCRED_DEDI_AUTH_TYPE`, `OPENCRED_DEDI_NAMESPACE`, and the matching auth secret. |
+
+---
+
+### `POST /v1/keys/rotate`
+
+Clean key rotation for a `did:web` issuer. The operator first loads the new signing key (by updating `OPENCRED_KEY_PATH` and restarting, or equivalent), then calls this endpoint to:
+
+1. Publish the **new** key to `opencred-key-registry` (status `active`) at its own sequential `#key-<newKeyIndex>` fragment, embedding the regenerated multi-key `did.json` snapshot on that new key's record when DeDi-hosting is enabled.
+2. Flip the **previous** key (`previousVerificationMethod`) to `rotated` — a clean rotation is not a compromise. Credentials signed under the previous key **stay verifiable**: the previous key keeps its distinct `#key-<n>` fragment and remains in the regenerated `did.json`'s `verificationMethod[]` (and relationships), so a verifier resolving the credential's `kid` still finds the key. This holds for both did:web (distinct sequential fragments — [#653](https://github.com/nfh-trust-labs/opencred/issues/653) is resolved) and did:key (each key is its own DID).
+3. Return the regenerated `did.json` (active + rotated keys) for the operator to self-host, and embed it as the immutable snapshot on the **new** key's record when DeDi-hosting is enabled. There is no separate `did-documents` registry.
+
+`did:key` issuers should regenerate their key instead — each new did:key key produces a new DID, and the old DID record is marked `rotated` automatically.
+
+**Auth**: required.
+**Content-Type**: `application/json`.
+
+**Request body**
+
+```ts
+{
+  newKeyIndex: number;                 // sequential index of the NEW key, e.g. 1 → did:web:...#key-1
+  previousVerificationMethod?: string; // the key being retired, e.g. "did:web:issuer.example.org#key-0"
+  currentDidDocument?: Record<string, unknown>; // the issuer's CURRENT did.json (existing key set)
+  namespace?: string;                  // DeDi namespace override
+  hostDidDocument?: boolean;           // embed the regenerated did.json snapshot on the new key record (did:web only)
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `newKeyIndex` | `number` | Yes | The sequential index of the new key. The operator chooses it explicitly (OpenCred never guesses); it must not already be taken in the current `did.json`. The new key is published at `did:web:<domain>#key-<newKeyIndex>`. |
+| `previousVerificationMethod` | `string` | No | The verification method of the key being retired. When supplied, its `opencred-key-registry` status is flipped to `rotated` and it is kept in the regenerated `did.json` (so credentials it signed still resolve). Omit only when adding a key without retiring one. |
+| `currentDidDocument` | `object` | No | The issuer's current `did.json`, imported whole as the stateless source of truth for the existing key set and taken indices. When omitted, the server projects it from the per-key registry snapshots; if neither is available the request is rejected (`400 NO_CURRENT_DOCUMENT`) so older keys are never silently dropped. |
+| `namespace` | `string` | No | DeDi namespace override; defaults to `OPENCRED_DEDI_NAMESPACE`. |
+| `hostDidDocument` | `boolean` | No | When `true`, embed the regenerated multi-key `did.json` snapshot on the new key's record. Defaults to `OPENCRED_DEDI_HOST_DID_DOC`. |
+
+**Response: `200 OK`**
+
+```json
+{
+  "rotated": true,
+  "did": "did:web:issuer.example.org",
+  "currentKeyId": "did:web:issuer.example.org#key-1",
+  "newKeyIndex": 1,
+  "retired": {
+    "changed": true,
+    "keyId": "did:web:issuer.example.org#key-0",
+    "from": "active",
+    "to": "rotated",
+    "namespace": "issuer.example.org"
+  },
+  "didDocument": {
+    "@context": ["https://www.w3.org/ns/did/v1", "https://w3id.org/security/suites/jws-2020/v1"],
+    "id": "did:web:issuer.example.org",
+    "verificationMethod": [
+      { "id": "did:web:issuer.example.org#key-0", "type": "JsonWebKey", "controller": "did:web:issuer.example.org", "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." } },
+      { "id": "did:web:issuer.example.org#key-1", "type": "JsonWebKey", "controller": "did:web:issuer.example.org", "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." } }
+    ],
+    "assertionMethod": ["did:web:issuer.example.org#key-0", "did:web:issuer.example.org#key-1"]
+  },
+  "didDocumentStored": true
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `rotated` | `boolean` | `true` when the new key was published. |
+| `did` | `string` | The issuer's DID. |
+| `currentKeyId` | `string` | The verification method of the newly-active key (`did:web:<domain>#key-<newKeyIndex>`). |
+| `newKeyIndex` | `number` | The sequential index assigned to the new key. |
+| `retired` | `object \| null` | The `setKeyStatus` result for the retired key when `previousVerificationMethod` was supplied: `{ changed, keyId, from, to, namespace }` on a transition, or the idempotent `{ changed: false, keyId, status, reason, namespace }` shape when it was already `rotated`/`revoked`. `null` when no previous key was retired. |
+| `didDocument` | `object` | The regenerated multi-key `did.json` (every non-revoked key retained under its own `#key-<n>`). Self-host this at `.well-known/did.json`. |
+| `didDocumentStored` | `boolean` | `true` if the regenerated `did.json` snapshot was embedded on the new key's record. |
+
+**Example**
+
+```bash
+# Step 1: load the new key (update OPENCRED_KEY_PATH, restart the container)
+# Step 2: rotate
+curl -s -X POST http://localhost:3100/v1/keys/rotate \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "newKeyIndex": 1,
+    "previousVerificationMethod": "did:web:issuer.example.org#key-0",
+    "hostDidDocument": true
+  }'
+```
+
+**Error responses**
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | No active signer, or active signer does not expose `publicKeyJwk` (PKCS#11 signers — software and Cloud HSM signers surface it as of #675). |
+| `400` | `KEY_METHOD_MISMATCH` | Active signer DID is `did:key:` (not `did:web:`). Regenerate the key instead of calling rotate. |
+| `400` | `NO_CURRENT_DOCUMENT` | No `currentDidDocument` was supplied and none could be projected from the per-key registry snapshots — rotation needs the current `did.json` to carry existing keys forward. |
+| `400` | `DID_MISMATCH` | The supplied `currentDidDocument` is for a different DID than the active issuer. |
+| `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
+| `403` | `READ_ONLY_MODE` | Replica is `OPENCRED_READ_ONLY=true`. Call from a write replica. |
+| `409` | `KEY_INDEX_TAKEN` | `#key-<newKeyIndex>` is already present in the current `did.json`. Response includes `usedIndices` and a hint for the next free index. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
+
+---
+
+### `POST /v1/keys/revoke`
+
+Revoke a signing key — flips its `opencred-key-registry` status to `revoked`. **Use this only when a key is compromised.** Every credential the revoked key ever signed will be rejected by DeDi-aware verifiers with a top-level `REVOKED` outcome, regardless of when those credentials were issued. This is irreversible.
+
+Optionally regenerates the `did.json` for self-hosting — the revoked key is dropped from every verification relationship (`assertionMethod`, …) but **kept** in `verificationMethod[]` so a verifier can still resolve it and report a precise `REVOKED` (did:web only, when DeDi-hosting is enabled).
+
+**Auth:** required.
+**Content-Type:** `application/json`.
+
+**Request body**
+
+```ts
+{
+  verificationMethod: string;  // the key to revoke, e.g. "did:web:issuer.example.org#key-0"
+  currentDidDocument?: Record<string, unknown>; // the issuer's CURRENT did.json (existing key set)
+  namespace?: string;          // DeDi namespace override
+  hostDidDocument?: boolean;   // regenerate the did.json with the key de-authorized (did:web only)
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `verificationMethod` | `string` | Yes | The full verification method ID of the key being revoked. |
+| `currentDidDocument` | `object` | No | The issuer's current `did.json`, imported whole, used to regenerate the document. When omitted, the DeDi-projected document is used; if neither is available the registry status flip is still authoritative and the `did.json` refresh is skipped. |
+| `namespace` | `string` | No | DeDi namespace override; defaults to `OPENCRED_DEDI_NAMESPACE`. |
+| `hostDidDocument` | `boolean` | No | When `true` and the issuer is `did:web`, regenerates a `did.json` in which the revoked key is dropped from every verification relationship but kept in `verificationMethod[]`. Defaults to `OPENCRED_DEDI_HOST_DID_DOC`. |
+
+**Response: `200 OK`**
+
+```json
+{
+  "revoked": true,
+  "changed": true,
+  "keyId": "did:web:issuer.example.org#key-0",
+  "from": "active",
+  "to": "revoked",
+  "namespace": "issuer.example.org",
+  "didDocument": {
+    "@context": ["https://www.w3.org/ns/did/v1", "https://w3id.org/security/suites/jws-2020/v1"],
+    "id": "did:web:issuer.example.org",
+    "verificationMethod": [
+      { "id": "did:web:issuer.example.org#key-0", "type": "JsonWebKey", "controller": "did:web:issuer.example.org", "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." } },
+      { "id": "did:web:issuer.example.org#key-1", "type": "JsonWebKey", "controller": "did:web:issuer.example.org", "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." } }
+    ],
+    "assertionMethod": ["did:web:issuer.example.org#key-1"]
+  },
+  "didDocumentRegenerated": true
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `revoked` | `boolean` | Always `true` on success. |
+| `changed` / `keyId` / `from` / `to` / `namespace` | — | The spread `setKeyStatus` result: `{ changed: true, keyId, from, to, namespace }` on a transition, or the idempotent `{ changed: false, keyId, status, reason, namespace }` shape when the key was already `revoked`. |
+| `didDocument` | `object \| null` | The regenerated `did.json` (revoked key kept in `verificationMethod[]`, removed from relationships) for the operator to self-host. `null` when the document couldn't be obtained or revoking would leave no active key. |
+| `didDocumentRegenerated` | `boolean` | `true` if a refreshed `did.json` was produced for self-hosting. The `setKeyStatus("revoked")` registry write is always authoritative regardless of this flag. |
+
+**Example**
+
+```bash
+# Revoke a compromised key and regenerate the did.json
+curl -s -X POST http://localhost:3100/v1/keys/revoke \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "verificationMethod": "did:web:issuer.example.org#key-0",
+    "hostDidDocument": true
+  }'
+```
+
+**Verifier impact.** After a successful revoke, any credential whose `proof.verificationMethod` matches the revoked key will resolve to `REVOKED` when a DeDi-aware verifier looks it up. Standard W3C verifiers (those not querying DeDi) will also reject the credential because the key is no longer listed in the `did.json` assertionMethod. See [Concepts → Revocation → Key revocation vs per-credential revocation](../concepts/revocation.md#key-revocation-vs-per-credential-revocation).
+
+**Error responses**
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Body failed Zod parsing or `verificationMethod` is empty. |
+| `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
+| `403` | `READ_ONLY_MODE` | Replica is `OPENCRED_READ_ONLY=true`. Call from a write replica. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
+
+---
+
+### `POST /v1/keys/resolve` (per-key registry)
+
+Resolve a signing key's record from the DeDi `opencred-key-registry`. Returns the full `KeyRecord` for any key the issuer has ever published, including its current `status` (`active`, `rotated`, or `revoked`).
+
+> **Breaking change from prior releases.** The endpoint previously accepted `{ did }` and returned a DID-document record. It now accepts `{ verificationMethod }` and returns the per-key `KeyRecord`. `did.json` resolution is served separately via `GET /v1/keys/did-document`.
+
+**Auth:** required.
+**Content-Type:** `application/json`.
+
+**Request body**
+
+```ts
+{
+  verificationMethod: string;  // the key id, e.g. "did:web:issuer.example.org#key-0"
+  namespace?: string;          // DeDi namespace override
+}
+```
+
+POST (not GET) so verification methods containing colons (`did:web:host:path#key-0`) don't need URL-encoding. A `GET /v1/keys/resolve?verificationMethod=...&namespace=...` form also exists for CDN-cacheable read-tier scenarios.
+
+**Cache headers**
+
+Successful responses set `Cache-Control: private, max-age=60` and a weak `ETag`. A conditional request with a matching `If-None-Match` returns `304 Not Modified`. The GET surface sets `Cache-Control: public, max-age=300, stale-while-revalidate=60` (more aggressively cacheable because it carries no `Authorization` in the body).
+
+**Response: `200 OK`**
+
+```ts
+{
+  keyId: string;                      // the verification method ID (DID#fragment)
+  controllerDid: string;              // the DID this key belongs to
+  algorithm: string;                  // signing algorithm: "P-256" | "P-384" | "Ed25519" | ...
+  publicKeyJwk: Record<string, unknown>;  // the public key in JWK format
+  purpose: string[];                  // typically ["assertionMethod"]
+  status: "active" | "rotated" | "revoked";
+  document?: Record<string, unknown>; // immutable did.json snapshot for this key's era (did:web + DeDi-hosting)
+  proof?: {                           // CORD blockchain anchor, present when DeDi anchored the record
+    type: string;
+    namespace_did: string;
+    registry_identifier?: string;
+    record_identifier?: string;
+    creator_did: string;
+    digest: string;
+    network_genesis: string | null;
+  };
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `keyId` | `string` | The full verification method (`did:web:issuer.example.org#key-0`). |
+| `controllerDid` | `string` | The DID this key belongs to — useful when the issuer has multiple DIDs under the same namespace. |
+| `algorithm` | `string` | The key's signing algorithm. |
+| `publicKeyJwk` | `object` | The public key in JWK format. |
+| `purpose` | `string[]` | The key's declared purposes, e.g. `["assertionMethod"]`. |
+| `status` | `string` | `"active"` — key is current; `"rotated"` — cleanly retired. Credentials it signed **stay valid** for both did:key (each key is its own DID) and did:web (the key keeps its distinct `#key-<n>` fragment and remains in `verificationMethod[]` — [#653](https://github.com/nfh-trust-labs/opencred/issues/653) is resolved); `"revoked"` — compromised, all credentials it signed are rejected. |
+| `document` | `object` _(optional)_ | The immutable W3C `did.json` snapshot for this key's era (did:web only; present when the issuer opted into DeDi-hosting via `OPENCRED_DEDI_HOST_DID_DOC`). Absent for did:key and for issuers who self-host `.well-known/did.json`. |
+| `proof` | `object` _(optional)_ | CORD-blockchain anchor metadata attached by DeDi when the record was published on-chain. Absence is benign on DeDi instances that don't anchor. See [Concepts → DIDs → CORD anchoring](../concepts/dids.md#cord-anchoring-as-supplementary-provenance). |
+
+**Example — active key**
+
+```bash
+curl -s -X POST http://localhost:3100/v1/keys/resolve \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "verificationMethod": "did:web:issuer.example.org#key-0" }'
+```
+
+```json
+{
+  "keyId": "did:web:issuer.example.org#key-0",
+  "controllerDid": "did:web:issuer.example.org",
+  "algorithm": "P-256",
+  "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." },
+  "purpose": ["assertionMethod"],
+  "status": "active"
+}
+```
+
+**Example — rotated key (credentials it signed are still VALID — clean rotation, for both did:key and did:web; [#653](https://github.com/nfh-trust-labs/opencred/issues/653) resolved)**
+
+```json
+{
+  "keyId": "did:web:issuer.example.org#key-0",
+  "controllerDid": "did:web:issuer.example.org",
+  "algorithm": "P-256",
+  "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." },
+  "purpose": ["assertionMethod"],
+  "status": "rotated"
+}
+```
+
+**Example — revoked key (all credentials it signed are REVOKED)**
+
+```json
+{
+  "keyId": "did:web:issuer.example.org#key-0",
+  "controllerDid": "did:web:issuer.example.org",
+  "algorithm": "P-256",
+  "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." },
+  "purpose": ["assertionMethod"],
+  "status": "revoked"
+}
+```
+
+**Error responses**
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Body failed Zod parsing, `verificationMethod` is missing/empty, or body contained a forbidden key. |
+| `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
+
+---
+
+### `POST /v1/dedi/namespace/ensure`
+
+Idempotently bootstrap a DeDi namespace and the four registries OpenCred reads and writes (`vc-revocation-registry`, `opencred-key-registry`, `schema_registry`, `context_registry`). The assembled `did.json` lives as a snapshot on each `opencred-key-registry` record, so there is no separate `did-documents` registry to create. Wraps the same `dediClient.ensureRegistries(...)` helper that runs once at server startup, so operators can spin up additional namespaces at runtime without restarting the container.
+
+**Auth:** required.
+**Content-Type:** `application/json`.
+
+**Request body**
+
+```ts
+{
+  namespace: string;  // 1–200 characters
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `namespace` | `string` | Yes | The DeDi namespace to ensure. Created if missing; the four registries are then created (or left alone — `ensureRegistries` ignores 409 conflicts). |
+
+**Security.** `rejectKeyMaterial()` runs over the body first, so a payload that smuggles a `privateKey` field or a PEM private-key block returns `400 VALIDATION_ERROR` before any DeDi call is made.
+
+**Response: `200 OK`**
+
+```json
+{
+  "namespace": "bootcamp-2026-04-29",
+  "registries": [
+    "vc-revocation-registry",
+    "opencred-key-registry",
+    "schema_registry",
+    "context_registry"
+  ]
+}
+```
+
+The `registries` array lists the registry names that now exist on the namespace — whether they were freshly created or already present.
+
+**Error responses**
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Body failed Zod parsing, missing `namespace`, empty string, or contained a forbidden key / PEM string. |
+| `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
+| `502` | `DEDI_CLIENT_ERROR` | Underlying DeDi call failed (auth, network, malformed response). The original DeDi error is surfaced via the `OpenCredError` envelope — never re-wrapped to leak auth tokens or internal paths. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
+
+Source: `apps/server/src/routes/dedi.ts`. Wraps `DeDiClient.ensureRegistries()` in `packages/dedi-client/src/adapter/client.ts`.
+
+---
+
 ### `POST /v1/credentials/issue`
 
 Builds, validates, and signs a Verifiable Credential. The server holds the issuer's private key in memory (loaded once at startup); the request body provides only the public credential payload.
@@ -211,7 +797,9 @@ The request is parsed by `issueRequestSchema` in `apps/server/src/routes/credent
 
 ```ts
 {
-  schemaId: string;
+  schemaId?: string;                // optional when inlineSchema is set
+  inlineSchema?: Record<string, unknown>; // optional pasted JSON Schema
+  inlineContext?: Record<string, unknown>; // optional JSON-LD context for data-integrity
   issuerDid: string;
   credentialSubject: Record<string, unknown>;
   validFrom: string;
@@ -226,9 +814,16 @@ The request is parsed by `issueRequestSchema` in `apps/server/src/routes/credent
 }
 ```
 
+> **At least one of `schemaId` or `inlineSchema` must be present** —
+> enforced by a Zod `.refine()` guard that returns `400 VALIDATION_ERROR`
+> on a request that omits both. When both are supplied, the inline schema
+> wins for validation and for `credentialSchema.id`.
+
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `schemaId` | `string` | Yes | Built-in schema id (e.g. `functional-identity/v1`, `electricity/v1`, `open-badges/v3`, `traceability/commercial-invoice/v1`). Use `GET /v1/schemas` to list all available ids. The `credentialSubject` is validated against this schema. |
+| `schemaId` | `string` | Yes (unless `inlineSchema` set) | Built-in schema id (e.g. `functional-identity/v1`, `electricity/v1`, `ies/electricity-credential/v1.2`, `ies/meter-data-credential/v0.6`, `open-badges/v3`, `traceability/commercial-invoice/v1`). Use `GET /v1/schemas` to list all available ids. The `credentialSubject` is validated against this schema. |
+| `inlineSchema` | `object` | Yes (unless `schemaId` set) | A pasted JSON Schema document. The server compiles it ad-hoc and validates `credentialSubject` against it without registry lookup. Supports both subject-only and full W3C VC 2.0 envelope schemas (with `properties.credentialSubject`). The schema's `$schema` declaration is stripped before compilation so subject-only schemas declaring Draft 2020-12 still validate under Ajv 8 defaults. |
+| `inlineContext` | `object` | No | A JSON-LD context document attached to the credential when `proofFormat=data-integrity`. Required (or supply `credentialSchemaUrl` to a context) for inline-schema credentials with `data-integrity` — RDFC-1.0 safe mode rejects undefined terms. `vc-jwt` and `sd-jwt-vc` ignore this field. |
 | `issuerDid` | `string` | Yes | The issuer's DID. Must match the `id` of the active signer (the server uses the active signer regardless, but downstream verifiers will compare these). |
 | `credentialSubject` | `object` | Yes | The credential claims. Validated against the JSON Schema bound to `schemaId`. |
 | `validFrom` | `string` | Yes | ISO-8601 timestamp marking the start of the credential's validity. |
@@ -239,7 +834,7 @@ The request is parsed by `issueRequestSchema` in `apps/server/src/routes/credent
 | `selectiveDisclosureClaims` | `string[]` | No | JSON pointer-style paths into `credentialSubject` whose values become selectively disclosable when `proofFormat=sd-jwt-vc`. |
 | `revocationRegistryUrl` | `string` | No | URL of a DeDi status list. When set, the server generates a `urn:uuid:` credential id, computes a SHA-256 revocation hash from the UUID, and adds a `credentialStatus` block of type `dedi`. |
 | `credentialSchemaUrl` | `string` | No | URL of an external JSON Schema. When set, written to the credential's `credentialSchema` field with `type: "JsonSchema"`. |
-| `packageFormats` | `string[]` | No | Optional packaging formats to render alongside the signed credential. Only applies to JSON credentials, not compact tokens (SD-JWT VC). |
+| `packageFormats` | `string[]` | No | Optional packaging formats to render alongside the signed credential. Works with all three `proofFormat` values, including `sd-jwt-vc` — for compact tokens the QR embeds the raw token verbatim and the PDF layout is driven by the decoded JWT payload. |
 
 **Security: `rejectKeyMaterial()` defense-in-depth check**
 
@@ -360,24 +955,39 @@ Example `400 SCHEMA_VALIDATION_ERROR` body when required fields are missing:
 
 ### `POST /v1/credentials/verify`
 
-Verifies a signed Verifiable Credential. Accepts JSON-LD credentials (Data Integrity), compact JWTs (`vc-jwt`), and compact SD-JWT VC tokens — the format is auto-detected.
+Verifies a signed Verifiable Credential. Accepts JSON-LD credentials (Data Integrity), compact JWTs (`vc-jwt`), compact SD-JWT VC tokens, bare PixelPass-encoded QR data (no prefix — what `@mosip/pixelpass.decode()` consumes), and **OpenCred-issued PDF certificates** — the input format is selected by `Content-Type`, with auto-detection on the string-shaped formats inside the JSON branch.
 
 **Auth:** required.
-**Content-Type:** `application/json`.
+**Content-Type:** `application/json` _or_ `application/pdf` — see the two branches below.
 
-**Request body**
+**Branch 1 — JSON body (`Content-Type: application/json`)**
 
 ```ts
 {
-  credential: string;  // a JSON-stringified VC, a compact JWT, or a compact SD-JWT VC
+  credential: string;  // a JSON-stringified VC, compact JWT, compact SD-JWT VC, or bare PixelPass QR string
 }
 ```
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `credential` | `string` | Yes | The credential to verify. For Data Integrity credentials, JSON-stringify the credential object before sending. For compact tokens (`vc-jwt`, `sd-jwt-vc`), pass the token directly. |
+| `credential` | `string` | Yes | The credential to verify. For Data Integrity credentials, JSON-stringify the credential object before sending. For compact tokens (`vc-jwt`, `sd-jwt-vc`), pass the token directly. For PixelPass QR data, pass the bare Base45 payload (no prefix — what a QR scanner returns). |
 
-The same `rejectKeyMaterial()` defense-in-depth guard runs on this endpoint too. Even verify requests must not contain a private key field or PEM string.
+The same `rejectKeyMaterial()` defense-in-depth guard runs on this branch. Even verify requests must not contain a private key field or PEM string.
+
+**Branch 2 — PDF upload (`Content-Type: application/pdf`)**
+
+POST the raw PDF bytes as the request body. The server reads the embedded credential from the PDF's `OpenCredCredential` info-dictionary key (set at issuance time when the credential is packaged as a PDF) and runs the standard verifier on the recovered credential.
+
+```bash
+curl -s -X POST http://localhost:3100/v1/credentials/verify \
+  -H "Authorization: Bearer $OPENCRED_API_KEY" \
+  -H "Content-Type: application/pdf" \
+  --data-binary @certificate.pdf
+```
+
+The response shape is identical to Branch 1 — `valid`, `code`, `message`, `checks`. PDFs that don't carry the `OpenCredCredential` key (legacy / non-OpenCred PDFs) return a clean `200 OK` with `valid: false`, `code: "INVALID"`, and a single failed `pdf-embedded-credential` check whose detail points the user at the QR-scan path; the request never returns a 5xx.
+
+> **Backwards compatibility.** PDFs issued before the `OpenCredCredential` info-dict embedding (released alongside this Branch 2 surface) do not carry the embedded payload. To verify a legacy PDF, scan its printed QR code with the desktop app or extract the embedded JSON manually, then POST through Branch 1.
 
 **X.509 trust anchors**
 
@@ -402,6 +1012,13 @@ The response body is assembled by `buildVerifyResponseBody()` in `apps/server/sr
 ```
 
 A revocation check entry (`{ "name": "revocation", "passed": true }`) is appended when a `DeDiClient` is configured and the credential carries a `credentialStatus`. A Bitstring Status List check is appended when the credential's `credentialStatus.type` is `BitstringStatusListEntry`.
+
+**Advisory DeDi checks.** When a `DeDiClient` is configured and the credential is issued under a `did:key` DID, the verifier appends two additional **advisory** entries to `checks`:
+
+- `keyRotation` — implemented as `checkKeyStatus` in `packages/verification/src/checks.ts`. Calls `POST /v1/keys/resolve` and reads the `status` field on the per-key `opencred-key-registry` record for the credential's signing key. Fails (`passed: false`) when the per-key record reports `status: "rotated"`; a `status: "revoked"` record yields a top-level `REVOKED` outcome (not just an advisory). The server collapses the advisory detail to the literal `"Issuer key rotated"` so callers can render a "key rotated" badge. The headline `valid` boolean is **unchanged** by the `rotated` advisory — verifier policy can choose to reject anyway. Note: for did:web credentials, the signature itself may not verify after key rotation due to the `#key-0` fragment collision ([#653](https://github.com/nfh-trust-labs/opencred/issues/653)), in which case the headline `valid` will be `false` on the `signature` check before `keyRotation` is reached.
+- `registryAnchor` — surfaces the CORD-blockchain proof block DeDi attaches to record lookup responses. Passes silently when no proof is present (benign on DeDi instances that don't anchor). Fails advisorily when the proof's `creator_did` does not match the credential's issuer DID — DeDi is reporting the record was anchored by someone other than the issuer the credential is signed by, which is suspicious enough to surface but not fatal on its own. Like `keyRotation`, it does not flip the headline `valid` boolean. See [Concepts → DIDs → CORD anchoring](../concepts/dids.md#cord-anchoring-as-supplementary-provenance) for the trust-model rationale.
+
+Both advisory checks **degrade open** on DeDi outages — a DeDi outage must never block verification of a cryptographically valid credential. See `checkKeyRotation` and `checkRegistryAnchor` in `packages/verification/src/checks.ts`.
 
 For an invalid credential:
 
@@ -451,11 +1068,21 @@ curl -s http://localhost:3100/v1/credentials/verify \
 
 | Status | Code | When |
 |---|---|---|
+| `400` | `INVALID_JSON` | The request body itself is not valid JSON — e.g. an unescaped `"` inside a string value. Hono's `c.req.json()` raised a `SyntaxError`; the error handler maps that to a 400 instead of a 500 so a misformatted request is unambiguously a client problem. |
 | `400` | `VALIDATION_ERROR` | Missing `credential` field, request body contained a forbidden key, or contained a PEM string. |
 | `400` | `VERIFICATION_ERROR` | The verifier could not parse the credential at all (malformed JSON, invalid JWT structure, unsupported format). |
 | `401` | `AUTHENTICATION_ERROR` | Missing, malformed, or invalid `Authorization` header. |
 | `500` | `DID_RESOLUTION_ERROR` | A DID could not be resolved (e.g. `did:web` host unreachable, DNS-rebinding rejected, invalid DID document). |
 | `500` | `INTERNAL_ERROR` | Any unhandled error. |
+
+**Cache headers (Tier 3 #9 of [#446](https://github.com/nfh-trust-labs/opencred/issues/446))**
+
+Verify is POST-with-body, so a shared CDN cannot safely cache the response. To support client-side dedup of rapid re-verifications of the same credential, the response sets:
+
+  - `Cache-Control: private, max-age=60`
+  - `Vary: Content-Type, Authorization`
+
+A service-worker, in-process LRU, or any other client-side cache can use these to dedupe. A shared CDN MUST honour `private` and not cache the response.
 
 ---
 
@@ -473,6 +1100,8 @@ Lists the built-in credential schemas bundled with `@opencred/schema-engine`. Th
   "schemas": [
     { "id": "functional-identity/v1", "version": "1.0.0", "contextUrl": "...", "source": {...} },
     { "id": "electricity/v1",         "version": "1.0.0", "contextUrl": "...", "source": {...} },
+    { "id": "ies/electricity-credential/v1.2", "version": "1.2.0", "contextUrl": "...", "source": {...} },
+    { "id": "ies/meter-data-credential/v0.6",  "version": "0.6.0", "contextUrl": "...", "source": {...} },
     { "id": "salary-slip/v1",         "version": "1.0.0", "contextUrl": "...", "source": {...} },
     { "id": "immunization/v1",        "version": "1.0.0", "contextUrl": "...", "source": {...} },
     { "id": "open-badges/v3",         "version": "3.0.0", "contextUrl": "...", "source": {...} }
@@ -495,6 +1124,16 @@ Each entry includes `id`, `version`, `contextUrl` (the JSON-LD context URL), and
 ```
 
 Returns `404 NOT_FOUND` if the id is not in the registry. Source: `apps/server/src/routes/schemas.ts`.
+
+**Cache headers (Tier 3 #9 of [#446](https://github.com/nfh-trust-labs/opencred/issues/446))**
+
+Both endpoints set:
+
+  - `Cache-Control: public, max-age=3600, stale-while-revalidate=300`
+  - `ETag: W/"<sha256-hex>"` — deterministic
+  - `Vary: category` on the list endpoint
+
+Conditional requests with a matching `If-None-Match` return `304 Not Modified`.
 
 ---
 
@@ -521,10 +1160,17 @@ Starts a batch-issuance job from a CSV payload. Returns a `jobId` immediately an
   selectiveDisclosureClaims?: string[];
   columnMapping?: Record<string, string>;
   delimiter?: "," | ";" | "\t";
+  webhookUrl?: string;             // HTTPS only
 }
 ```
 
-The CSV row count is capped at `OPENCRED_BATCH_ROW_LIMIT` (default `1000`); exceeding it returns `400 VALIDATION_ERROR`. `rejectKeyMaterial()` runs on the full request body.
+The CSV row count is capped at `OPENCRED_BATCH_ROW_LIMIT` (default `1000`); exceeding it returns `400 VALIDATION_ERROR`. Per-record byte size is capped at `OPENCRED_BATCH_MAX_RECORD_BYTES` (default 1 MiB). `rejectKeyMaterial()` runs on the full request body.
+
+> **Webhook delivery.** When `webhookUrl` is set, the batch worker POSTs a signed completion payload to that URL after the job finishes. The URL must be HTTPS and `OPENCRED_WEBHOOK_SECRET` (min 32 chars) must be configured — otherwise the request is rejected with `400 WEBHOOK_SECRET_REQUIRED` at the route boundary. Deliveries are HMAC-SHA256 signed and retried with exponential backoff up to 5× (2s, 4s, 8s, 16s, 32s) before landing in the BullMQ failed-set DLQ. The batch outcome itself is unaffected by webhook delivery failures.
+
+> **Worker pool.** Rows are signed in parallel up to `OPENCRED_BATCH_CONCURRENCY` (default `min(4, cpus)`). Per-row error semantics are unchanged from the pre-pool serial loop: a row that fails signing produces `status: "error"` in the results array and does **not** abort the batch. The results array is always ordered by input row index regardless of completion order.
+
+> **Job store.** Batch jobs live in a pluggable backing store — `OPENCRED_JOB_STORE=memory` (default, single-instance) or `OPENCRED_JOB_STORE=redis` (horizontal scale). When Redis is configured, every replica can answer `GET /v1/credentials/batch/:jobId` regardless of which replica accepted the original POST. See [Horizontal scale](../docker/deployment.md#horizontal-scale) for the deployment story. The actual signing work stays pinned to the replica that received the POST — there is no cross-replica work stealing.
 
 **Response: `202 Accepted`**
 
@@ -567,7 +1213,9 @@ Returns live progress for a batch job. Safe to poll.
 }
 ```
 
-Returns `404 NOT_FOUND` if the `jobId` is unknown.
+Returns `404 NOT_FOUND` if the `jobId` is unknown — either it never existed, or it was purged by TTL (`OPENCRED_SESSION_TTL`, default 4h).
+
+The `status` field is the canonical PRD §5.4.2 enum: `queued`, `running`, `completed`, `cancelled`, `failed`, or `interrupted`. The `running`/`cancelled` booleans are legacy aliases retained for one release. **`interrupted`** is new in v1.5.x and signals that the server received SIGTERM/SIGINT while this job was in flight — the replica that was driving it shut down before the job could settle. Clients that observe `interrupted` should treat the partial results in `/results` as best-effort and may choose to re-submit the batch.
 
 `GET /v1/credentials/batch/:jobId/results` returns the per-row outcomes as `{ jobId, results: [{ rowIndex, status, error?, credential?, isCompactToken? }] }`. If the job is still running, it returns `409 JOB_RUNNING` — poll the progress endpoint until it reports `running: false`. Source: `apps/server/src/routes/batch.ts`.
 
@@ -626,7 +1274,7 @@ Entries are returned in input order. `rejectKeyMaterial()` runs on the request b
 
 ### `POST /v1/credentials/package`
 
-Packages an already-signed credential into one or more delivery formats (PDF, QR PNG, QR SVG, JSON-LD, compact JSON).
+Packages an already-signed credential into one or more delivery formats (PDF, QR PNG, QR SVG, JSON, compact JSON).
 
 **Auth:** required.
 **Content-Type:** `application/json`.
@@ -635,10 +1283,17 @@ Packages an already-signed credential into one or more delivery formats (PDF, QR
 
 ```ts
 {
-  credential: Record<string, unknown>;
+  credential: Record<string, unknown> | string;  // VC object OR compact JWT/SD-JWT token
   formats?: Array<"qr-png" | "qr-svg" | "pdf" | "json" | "json-compact">;  // default ["json"]
 }
 ```
+
+`credential` accepts either form returned by `/v1/credentials/issue`:
+
+- **A JSON object** — JSON-LD VerifiableCredential. Returned by `proofFormat: "data-integrity"` and `proofFormat: "vc-jwt"` (the latter wraps the JWT in `proof.jwt`).
+- **A compact token string** — `vc-jwt` (`header.payload.signature`) or `sd-jwt-vc` (`<issuer-jwt>~<disclosure>~...`). Returned by `proofFormat: "sd-jwt-vc"`.
+
+For compact-token input, the server decodes the JWT payload offline (no signature verification — packaging is a rendering operation) to drive the PDF certificate layout, and embeds the original token verbatim into the QR code. The integrity guarantee lives in the original token and any verifier scanning the QR runs a real cryptographic check against the issuer's public key. The JSON output wraps the token as `{"format": "vc-jwt"|"sd-jwt-vc", "credential": "<token>"}` so the file is still valid `application/json`.
 
 **Response: `200 OK`**
 
@@ -657,7 +1312,21 @@ Packages an already-signed credential into one or more delivery formats (PDF, QR
 }
 ```
 
-Binary formats (`pdf`, `qr-png`) are base64-encoded with `encoding: "base64"`. Text formats (`qr-svg`, `json`, `json-compact`) are returned inline with `encoding: "utf-8"`. Any per-format packaging failures are reported in `errors` without failing the whole request. `rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/packaging.ts`.
+**Per-format encoding:**
+
+| `format` | `encoding` | `data` shape |
+|---|---|---|
+| `pdf` | `base64` | Pure base64 — decode with `base64 -d` |
+| `qr-png` | `utf-8` ⚠️ | `data:image/png;base64,<...>` data URL — strip the `data:image/png;base64,` prefix before `base64 -d` |
+| `qr-svg` | `utf-8` | Inline SVG XML |
+| `json` | `utf-8` | Pretty-printed VC for object input; `{ "format": "vc-jwt"\|"sd-jwt-vc", "credential": "<token>" }` envelope for compact-token input |
+| `json-compact` | `utf-8` | Same content as `json`, no whitespace |
+
+`suggestedFileName` uses `.json` (not `.jsonld`) regardless of input — the mime type is still `application/json`, the extension change is surface-only so attendees can double-click the file.
+
+**Customization** — every field under `customization` is optional. Hex colors: `primaryColor`, `secondaryColor`, `textColor`, `labelColor`, `backgroundColor`. Strings: `issuerDisplayName` (≤200; replaces the issuer DID under "ISSUED BY"), `footerText` (≤500; pass `""` to suppress the disclaimer footer entirely). Data URIs: `logoDataUri`, `sealDataUri`, both must start with `data:image/`. Numbers: `logoWidth`, `logoHeight` (10–200, in PDF points). Unknown fields are silently dropped by Zod, so e.g. `issuerName` instead of `issuerDisplayName` will appear to "succeed" but won't do anything.
+
+Any per-format packaging failures are reported in `errors` without failing the whole request. `rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/packaging.ts`.
 
 ---
 
@@ -675,22 +1344,55 @@ Publishes a revocation hash to DeDi. Requires a configured DeDi client (`OPENCRE
   credential?: Record<string, unknown>;  // compute hash from credential
   hash?: string;                         // or provide the hash directly (64-char hex)
   namespace?: string;                    // DeDi namespace override
+  reason?: string;                       // optional free-text reason, preserved on the DeDi record
 }
 ```
 
 Either `credential` or `hash` must be provided. If `credential` is given, the hash is computed via JCS canonicalization + SHA-256.
 
-**Response: `200 OK`**
+`reason` is optional free-text per DeDi's canonical [`revoke.json`](https://dedi.global/revoke.json) schema — typical values are short descriptors like `"key-compromised"`, `"superseded"`, or `"holder-request"`. When supplied, the reason is stored alongside the hash on the DeDi record and surfaced by `POST /v1/credentials/revocation-status` lookups.
+
+**Response: `200 OK`** — the revocation completed synchronously (the DeDi/CORD write finished within the request budget).
 
 ```json
 {
   "hash": "d6f4e2c9b7a8...e1f0",
   "revoked": true,
-  "revokedAt": "2026-04-08T10:00:00.000Z"
+  "revokedAt": "2026-04-08T10:00:00.000Z",
+  "reason": "key-compromised"
 }
 ```
 
-Returns `503 DEDI_NOT_CONFIGURED` if DeDi is not set up. `rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/revocation.ts`.
+| Field | Type | Description |
+|---|---|---|
+| `hash` | `string` | The 64-char hex hash that was published. Re-attached by the server for API compatibility — the underlying DeDi adapter's `RevocationHashRecord` no longer carries the hash in `details` because record existence already signifies revocation. |
+| `revoked` | `boolean` | `true` on a synchronous publish; `false` on a `202` (the publish is still settling in the background). |
+| `revokedAt` | `string` | ISO 8601 timestamp from the DeDi envelope's `updated_at` (present on `200`). |
+| `reason` | `string` _(optional)_ | Echoed only when the publish supplied a reason. Omitted otherwise (no empty-string placeholder). |
+
+**Response: `202 Accepted`** — DeDi anchors revocation records to CORD, and both write steps (`save-record-as-draft`, `publish-records`) can exceed the server's hard 10s per-request ceiling. When the synchronous publish hits that ceiling, the revoke is **accepted and completed in the background** (idempotent and self-healing) rather than failing with a 504. Poll `POST /v1/credentials/revocation-status` until it returns `{"revoked": true}` to confirm.
+
+```json
+{
+  "hash": "d6f4e2c9b7a8...e1f0",
+  "revoked": false,
+  "status": "pending",
+  "message": "Revocation accepted and is being published to DeDi..."
+}
+```
+
+> **Client guidance.** Treat `202` as *accepted, settling* — not a failure — and poll `revocation-status` until `revoked:true`. The background driver is in-process/best-effort; a server restart mid-publish leaves the record recoverable (re-POST `revoke`, or the next status poll, re-drives the stranded draft to LIVE). Fast/uncongested namespaces return `200` and never hit this path.
+
+**Error responses**
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Neither `credential` nor `hash` was supplied, or the body failed Zod parsing. |
+| `401` | `AUTHENTICATION_ERROR` | Missing or invalid `Authorization` header. |
+| `409` | `DEDI_RECORD_EXISTS` | This hash is already in the revocation registry from a prior call (idempotent failure mode — the previous revoke landed). Response carries a `hint` field pointing at `POST /v1/credentials/revocation-status`. |
+| `503` | `DEDI_NOT_CONFIGURED` | DeDi env vars not set. |
+
+`rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/revocation.ts`.
 
 ---
 
@@ -712,7 +1414,16 @@ Queries DeDi for the revocation status of a credential hash. Requires a configur
 
 **Response: `200 OK`**
 
-Returns the DeDi revocation record for the hash. Returns `503 DEDI_NOT_CONFIGURED` if DeDi is not set up. `rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/revocation.ts`.
+```ts
+{
+  hash: string;          // echoed from the request
+  revoked: boolean;      // true if a record exists on DeDi for this hash
+  revokedAt?: string;    // present when revoked === true
+  reason?: string;       // present when revoked === true and a reason was supplied at publish time
+}
+```
+
+`reason` is surfaced exactly as published — see `POST /v1/credentials/revoke` above. Returns `503 DEDI_NOT_CONFIGURED` if DeDi is not set up. `rejectKeyMaterial()` runs on the request body. Source: `apps/server/src/routes/revocation.ts`.
 
 ---
 
@@ -793,6 +1504,7 @@ Zod parse failures from request body validation use the same envelope and add a 
 
 | Code | HTTP status | Source class | Meaning |
 |---|---|---|---|
+| `INVALID_JSON` | 400 | error-handler `SyntaxError` branch | Request body itself is not valid JSON. Hono's `c.req.json()` raised a `SyntaxError`; the handler maps that to a 400 instead of leaking it as a 500. The original `SyntaxError.message` (e.g. `Expected ',' or '}' after property value in JSON at position 21`) is included so the caller can locate the malformed character. |
 | `VALIDATION_ERROR` | 400 | `ValidationError`, Zod handler | Request body failed schema parsing or hit the `rejectKeyMaterial` guard. |
 | `SCHEMA_VALIDATION_ERROR` | 400 | `SchemaValidationError` | `credentialSubject` did not satisfy the JSON Schema. |
 | `VERIFICATION_ERROR` | 400 | `VerificationError` | Verifier could not parse the credential. |
@@ -802,15 +1514,18 @@ Zod parse failures from request body validation use the same envelope and add a 
 | `NOT_FOUND` | 404 | `NotFoundError`, `notFound()` handler | Endpoint or resource not found. |
 | `CONFLICT` | 409 | `ConflictError` | Generic resource state conflict. |
 | `JOB_RUNNING` | 409 | batch route handler | Returned by `GET /v1/credentials/batch/:jobId/results` when the batch job is still running. Poll `GET /v1/credentials/batch/:jobId` for progress until it reports `running: false`. |
+| `WEBHOOK_SECRET_REQUIRED` | 400 | batch route handler | Request supplied `webhookUrl` but `OPENCRED_WEBHOOK_SECRET` is unset. Configure the secret (min 32 chars) before requesting webhook delivery. |
+| `READ_ONLY_MODE` | 405 | read-only middleware | `OPENCRED_READ_ONLY=true` is set and the request targets a write endpoint (issue, batch, revoke, publish, schemas/generate, dedi/*). Direct the call to a write-tier replica or unset the flag. |
 | `SESSION_EXPIRED` | 410 | `SessionExpiredError` | Ephemeral session payload expired (TTL elapsed). |
 | `PAYLOAD_TOO_LARGE` | 413 | `PayloadTooLargeError` | Request body exceeded the configured limit. |
 | `RATE_LIMIT_EXCEEDED` | 429 | `RateLimitError` | Client hit a rate limit. |
 | `CRYPTO_ERROR` | 500 | `CryptoError` | Signing or proof construction failed (e.g. RSA + `data-integrity`). |
 | `DID_RESOLUTION_ERROR` | 500 | `DIDResolutionError` | A DID could not be resolved. |
 | `DEDI_CLIENT_ERROR` | 502 | `DeDiClientError` | DeDi registry call failed. |
+| `DEDI_RECORD_EXISTS` | 409 | `DeDiRecordExistsError` | The record being published is already in DeDi (idempotent failure mode — a prior call succeeded). Response carries a `hint` field pointing at the read endpoint that confirms the prior state. Returned by `POST /v1/credentials/revoke` (hint → `/v1/credentials/revocation-status`) and `POST /v1/keys/publish` (hint → `/v1/keys/resolve`). |
 | `INTERNAL_ERROR` | 500 | unhandled fallback | Any error not in the `OpenCredError` hierarchy. The original error is logged but not echoed. |
 | `NOT_IMPLEMENTED` | 501 | `NotImplementedError` | Endpoint stubbed out (e.g. Cloud HSM provider not yet wired). |
-| `DEDI_NOT_CONFIGURED` | 503 | inline (revocation routes) | DeDi client not configured. Returned by `POST /v1/credentials/revoke` and `POST /v1/credentials/revocation-status` when `OPENCRED_DEDI_BASE_URL` is not set. |
+| `DEDI_NOT_CONFIGURED` | 503 | inline (DeDi-backed routes) | DeDi client not configured. Returned by `POST /v1/credentials/revoke`, `POST /v1/credentials/revocation-status`, `POST /v1/keys/publish`, `POST /v1/keys/resolve`, and `POST /v1/dedi/namespace/ensure` when `OPENCRED_DEDI_BASE_URL` is not set. |
 | `CONFIG_ERROR` | 500 | `ConfigError` | Surfaced at startup, not from a request. The server exits before serving traffic. |
 
 Unknown errors fall through to a `500 INTERNAL_ERROR` response with the generic message `"An internal error occurred"`. The original `err.message` is logged via pino at `error` level for operators, but never returned to the client. This is enforced by `apps/server/src/middleware/error-handler.ts`.
@@ -834,6 +1549,3 @@ For the full model, see [`docs/security/README.md`](../security/README.md).
 * [Security invariants](../security/invariants.md) — the seven mandatory rules and where each is enforced in code
 * [Concepts: Verifiable Credentials](../concepts/verifiable-credentials.md)
 * [Concepts: Trust chains](../concepts/trust-chains.md) — CSCA / DSC trust path that backs `OPENCRED_CSCA_TRUST_STORE_PATH`
-* [Issue #301](https://github.com/nfh-trust-labs/opencred/issues/301) — Phase 6 + 7 Docker server work
-* [Issue #312](https://github.com/nfh-trust-labs/opencred/issues/312) — auth fail-closed (CRITICAL-2)
-* [Issue #316](https://github.com/nfh-trust-labs/opencred/issues/316) — verification trust path for DSC-backed credentials

@@ -6,24 +6,50 @@
  */
 
 import type { VerifiableCredential } from "@opencred/vc-core";
+import type { PartialVerifiableCredential } from "./types.js";
 
 /**
- * Export a VerifiableCredential as a formatted JSON-LD string.
+ * Wrap a compact `vc-jwt` / `sd-jwt-vc` token in a small JSON envelope
+ * so the export file is still valid JSON (so it round-trips through
+ * tooling that expects `application/json`) while preserving the original
+ * token verbatim. The integrity guarantee lives in `credential` — re-wrap
+ * is allowed because nothing inside `credential` is touched.
+ */
+function wrapCompactToken(token: string): { format: "vc-jwt" | "sd-jwt-vc"; credential: string } {
+  return {
+    format: token.includes("~") ? "sd-jwt-vc" : "vc-jwt",
+    credential: token,
+  };
+}
+
+/**
+ * Export a credential as a formatted JSON string.
  *
- * @param credential - The signed VerifiableCredential.
+ * For a JSON-LD `VerifiableCredential` (object input — accepted as the
+ * narrower `PartialVerifiableCredential` here, since the synthetic
+ * shape from `decode-for-display.ts` is also valid for serialization)
+ * this returns the pretty-printed VC. For a compact-token credential
+ * (string input — `vc-jwt` or `sd-jwt-vc`) it returns a
+ * `{ format, credential }` envelope so the output is still valid JSON.
+ *
  * @returns A pretty-printed JSON string.
  */
-export function exportAsJson(credential: VerifiableCredential): string {
+export function exportAsJson(credential: PartialVerifiableCredential | string): string {
+  if (typeof credential === "string") {
+    return JSON.stringify(wrapCompactToken(credential), null, 2);
+  }
   return JSON.stringify(credential, null, 2);
 }
 
 /**
- * Export a VerifiableCredential as a compact JSON string (no whitespace).
+ * Export a credential as a compact JSON string (no whitespace).
  *
- * @param credential - The signed VerifiableCredential.
- * @returns A compact JSON string.
+ * Same envelope rules as `exportAsJson`.
  */
-export function exportAsCompactJson(credential: VerifiableCredential): string {
+export function exportAsCompactJson(credential: PartialVerifiableCredential | string): string {
+  if (typeof credential === "string") {
+    return JSON.stringify(wrapCompactToken(credential));
+  }
   return JSON.stringify(credential);
 }
 

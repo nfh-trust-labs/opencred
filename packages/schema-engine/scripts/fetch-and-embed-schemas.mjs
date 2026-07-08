@@ -9,9 +9,17 @@
  *    and it does so against a pinned commit + hash-verified content.
  *  - HTTPS only, no redirects, 30s timeout on every network call.
  *  - Referenced schema URLs must be on the host allowlist below.
- *  - Any failure (hash mismatch, missing file, network error, schema not on
- *    allowlist, duplicate id) hard-fails the build with a clear error.
- *  - One retry on 429/503 with a 1s delay; otherwise no retries.
+ *  - Any failure (hash mismatch, missing file, schema not on allowlist,
+ *    duplicate id) hard-fails the build with a clear error.
+ *  - Transient failures retry: up to 3 attempts per URL with 1s/3s backoff,
+ *    on HTTP 429/503 and on network-level fetch errors (DNS failure, refused
+ *    connection, timeout). All other HTTP errors fail immediately.
+ *  - If the network is still unreachable after retries, local rebuilds fall
+ *    back to the previously generated embedded output in src/ with a loud
+ *    staleness warning, so offline rebuilds don't hard-fail. The fallback is
+ *    DISABLED in CI (process.env.CI) and when no prior generated output
+ *    exists — there a network failure still hard-fails the build, so stale
+ *    schemas can never read as fresh.
  */
 
 import { readFile, writeFile, mkdir, rm, mkdtemp } from "node:fs/promises";
@@ -33,6 +41,39 @@ const HOST_ALLOWLIST = [
 ];
 
 const NETWORK_TIMEOUT_MS = 30_000;
+
+/** Backoff between fetch attempts: 3 attempts total, 1s then 3s. */
+const RETRY_DELAYS_MS = [1000, 3000];
+
+/**
+ * Per-schema `$id` overrides. Applied AFTER manifest hash verification, the
+ * override rewrites two fields on the in-memory record before output is
+ * generated:
+ *
+ *   1. The schema object's `$id` field (lands in `schema-data.ts`)
+ *   2. The registry entry's `source.upstreamUrl` (lands in
+ *      `generated-registry.ts`)
+ *
+ * Use this when a schema's canonical reference URL differs from the upstream
+ * source we fetched it from — e.g. the schema originated in
+ * `opencred-vc-schemas` but is now canonically published at a different URL.
+ * Schema CONTENT (properties, required, etc.) is NEVER modified by this map.
+ *
+ * Hash semantics:
+ *   - The MANIFEST hash check runs against the upstream bytes — unchanged,
+ *     BEFORE any override. Supply-chain integrity is preserved.
+ *   - The CHECKSUM written to the registry is recomputed AFTER the override
+ *     so verifiers comparing the published `$id` against the embedded schema
+ *     get a self-consistent record. The recompute is deterministic: same
+ *     override → same checksum on every rebuild.
+ */
+const ID_OVERRIDES = {
+  // Beckn publishes the canonical schema at schema.beckn.io even though our
+  // build pipeline fetches it from the opencred-vc-schemas mirror. Point
+  // `credentialSchema.id` in issued VCs at the canonical Beckn URL so
+  // third-party verifiers dereferencing it land on the authoritative copy.
+  "electricity/v1": "https://schema.beckn.io/ElectricityCredential/1.0/schema.json",
+};
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
@@ -68,7 +109,18 @@ export function idToFilename(id) {
   return id.replace(/\//g, "-");
 }
 
-async function fetchWithTimeoutAndRetry(url, fetchImpl) {
+/**
+ * Network-level fetch failure (DNS failure, refused connection, timeout) that
+ * persisted through all retries — the only error class eligible for the
+ * stale-embed fallback in run().
+ */
+class NetworkError extends Error {}
+
+async function fetchWithTimeoutAndRetry(
+  url,
+  fetchImpl,
+  { retryDelaysMs = RETRY_DELAYS_MS, warn } = {},
+) {
   const attempt = async () => {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), NETWORK_TIMEOUT_MS);
@@ -82,32 +134,45 @@ async function fetchWithTimeoutAndRetry(url, fetchImpl) {
       clearTimeout(t);
     }
   };
-  let res;
-  try {
-    res = await attempt();
-  } catch (err) {
-    throw new Error(`network error fetching ${url}: ${err.message ?? err}`);
+  const maxAttempts = retryDelaysMs.length + 1;
+  let lastError;
+  for (let i = 0; i < maxAttempts; i++) {
+    if (i > 0) {
+      const delay = retryDelaysMs[i - 1];
+      warn?.(
+        `[fetch-and-embed-schemas] ${lastError.message} — retrying in ${delay}ms (attempt ${i + 1}/${maxAttempts})`,
+      );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+    let res;
+    try {
+      res = await attempt();
+    } catch (err) {
+      lastError = new NetworkError(`network error fetching ${url}: ${err.message ?? err}`);
+      continue;
+    }
+    if (res.status === 429 || res.status === 503) {
+      lastError = new Error(`fetch ${url} failed: HTTP ${res.status}`);
+      continue;
+    }
+    if (!res.ok) {
+      throw new Error(`fetch ${url} failed: HTTP ${res.status}`);
+    }
+    return res;
   }
-  if (res.status === 429 || res.status === 503) {
-    await new Promise((r) => setTimeout(r, 1000));
-    res = await attempt();
-  }
-  if (!res.ok) {
-    throw new Error(`fetch ${url} failed: HTTP ${res.status}`);
-  }
-  return res;
+  throw lastError;
 }
 
 /* ------------------------------------------------------------------ */
 /* Tarball                                                            */
 /* ------------------------------------------------------------------ */
 
-async function obtainTarball({ sources, fetchImpl, localTarballPath }) {
+async function obtainTarball({ sources, fetchImpl, localTarballPath, fetchOpts }) {
   if (localTarballPath) {
     return await readFile(localTarballPath);
   }
   const url = `https://codeload.github.com/${sources.repo}/tar.gz/${sources.commit}`;
-  const res = await fetchWithTimeoutAndRetry(url, fetchImpl);
+  const res = await fetchWithTimeoutAndRetry(url, fetchImpl, fetchOpts);
   return Buffer.from(await res.arrayBuffer());
 }
 
@@ -193,6 +258,19 @@ function renderGeneratedRegistryModule(records) {
 /* Main                                                               */
 /* ------------------------------------------------------------------ */
 
+/** Marker present in every generated output file; used to recognize a prior embed. */
+const GENERATED_MARKER = "AUTO-GENERATED by scripts/fetch-and-embed-schemas.mjs";
+
+async function hasPriorEmbed(packageRoot) {
+  for (const name of ["schema-data.ts", "generated-registry.ts"]) {
+    const p = join(packageRoot, "src", name);
+    if (!existsSync(p)) return false;
+    const head = (await readFile(p, "utf8")).slice(0, 200);
+    if (!head.includes(GENERATED_MARKER)) return false;
+  }
+  return true;
+}
+
 /**
  * Run the fetch-and-embed pipeline. Exposed as a function so tests can drive
  * it without forking a subprocess.
@@ -203,12 +281,44 @@ function renderGeneratedRegistryModule(records) {
  * @param {string} [opts.sourcesPath]   — override path to schema-sources.json
  * @param {string} [opts.localTarballPath] — use a local tarball instead of fetching
  * @param {Function} [opts.fetchImpl]   — fetch implementation (for tests)
+ * @param {number[]} [opts.retryDelaysMs] — backoff delays between fetch attempts (for tests)
+ * @param {boolean} [opts.allowStaleFallback] — permit falling back to the
+ *   previously generated embed on persistent network failure. Defaults to
+ *   true locally and false when process.env.CI is set.
  * @param {object} [opts.logger]        — { log, error }
  */
 export async function run(opts) {
+  try {
+    return await runOnline(opts);
+  } catch (e) {
+    if (!(e instanceof NetworkError)) throw e;
+    const allowStaleFallback = opts.allowStaleFallback ?? !process.env.CI;
+    if (!allowStaleFallback || !(await hasPriorEmbed(opts.packageRoot))) throw e;
+    const err = opts.logger?.error ?? ((...a) => console.error(...a));
+    err(
+      [
+        "",
+        "############################################################################",
+        "# WARNING: network unavailable while fetching schemas:",
+        `#   ${e.message}`,
+        "# Falling back to the PREVIOUSLY GENERATED embedded schemas already in",
+        "# src/schema-data.ts and src/generated-registry.ts. They may be STALE",
+        "# relative to scripts/schema-sources.json. Re-run",
+        "#   pnpm --filter @opencred/schema-engine build",
+        "# with network access to refresh. CI builds never use this fallback.",
+        "############################################################################",
+        "",
+      ].join("\n"),
+    );
+    return { records: null, externalContexts: null, usedPriorEmbed: true };
+  }
+}
+
+async function runOnline(opts) {
   const log = opts.logger?.log ?? ((...a) => console.log(...a));
   const err = opts.logger?.error ?? ((...a) => console.error(...a));
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
+  const fetchOpts = { retryDelaysMs: opts.retryDelaysMs, warn: err };
 
   const sourcesPath = opts.sourcesPath ?? join(opts.packageRoot, "scripts", "schema-sources.json");
   const sourcesRaw = await readFile(sourcesPath, "utf8");
@@ -217,7 +327,12 @@ export async function run(opts) {
     throw new Error(`schema-sources.json missing required fields: ${sourcesPath}`);
   }
 
-  const tarballBuf = await obtainTarball({ sources, fetchImpl, localTarballPath: opts.localTarballPath });
+  const tarballBuf = await obtainTarball({
+    sources,
+    fetchImpl,
+    localTarballPath: opts.localTarballPath,
+    fetchOpts,
+  });
 
   if (sources.tarballSha256) {
     const actual = sha256Bytes(tarballBuf);
@@ -267,11 +382,17 @@ export async function run(opts) {
       let actualHash;
 
       // Format detection: `format: "yaml"` in the manifest, or a .yml/.yaml
-      // URL, means the authoritative bytes are YAML and the manifest hash is
-      // over the raw UTF-8 bytes (not canonicalized JSON). Otherwise JSON.
+      // URL or path, means the authoritative bytes are YAML and the manifest
+      // hash is over the raw UTF-8 bytes (not canonicalized JSON). Otherwise
+      // JSON.
       const urlLower = (cred.schema.url ?? "").toLowerCase();
+      const pathLower = (cred.schema.path ?? "").toLowerCase();
       const isYaml =
-        cred.schema.format === "yaml" || urlLower.endsWith(".yml") || urlLower.endsWith(".yaml");
+        cred.schema.format === "yaml" ||
+        urlLower.endsWith(".yml") ||
+        urlLower.endsWith(".yaml") ||
+        pathLower.endsWith(".yml") ||
+        pathLower.endsWith(".yaml");
 
       if (sourceKind === "defined") {
         if (!cred.schema.path) {
@@ -281,12 +402,37 @@ export async function run(opts) {
         if (!existsSync(localPath)) {
           throw new Error(`credential ${cred.id}: schema file missing in tarball: ${cred.schema.path}`);
         }
-        const text = await readFile(localPath, "utf8");
-        schemaObj = JSON.parse(text);
         schemaUpstreamUrl =
           cred.schema.upstreamUrl ??
           `https://raw.githubusercontent.com/${sources.repo}/${sources.commit}/${cred.schema.path}`;
-        actualHash = canonicalJsonSha256(schemaObj);
+        if (isYaml) {
+          // YAML path: hash the raw bytes, then parse to JS for bundling.
+          // Raw-bytes hashing (rather than canonicalJsonSha256 of the parsed
+          // result) matches the referenced-YAML convention and preserves
+          // fidelity — YAML features like comments and anchors do not survive
+          // a parse→canonical-JSON round trip, so the bytes are the
+          // authoritative artifact.
+          const buf = await readFile(localPath);
+          actualHash = sha256Bytes(buf);
+          if (actualHash !== cred.schema.sha256) {
+            err(
+              `\nHASH MISMATCH for credential "${cred.id}":\n  expected: ${cred.schema.sha256}\n  actual:   ${actualHash}\n`,
+            );
+            throw new Error(`schema hash mismatch for ${cred.id}`);
+          }
+          try {
+            schemaObj = YAML.parse(buf.toString("utf8"));
+          } catch (e) {
+            throw new Error(`credential ${cred.id}: schema YAML is not parseable: ${e.message}`);
+          }
+          if (!schemaObj || typeof schemaObj !== "object") {
+            throw new Error(`credential ${cred.id}: parsed YAML is not an object`);
+          }
+        } else {
+          const text = await readFile(localPath, "utf8");
+          schemaObj = JSON.parse(text);
+          actualHash = canonicalJsonSha256(schemaObj);
+        }
       } else {
         if (!cred.schema.url) {
           throw new Error(`credential ${cred.id}: referenced schema missing schema.url`);
@@ -296,7 +442,7 @@ export async function run(opts) {
             `credential ${cred.id}: schema URL host not on allowlist: ${cred.schema.url}`,
           );
         }
-        const res = await fetchWithTimeoutAndRetry(cred.schema.url, fetchImpl);
+        const res = await fetchWithTimeoutAndRetry(cred.schema.url, fetchImpl, fetchOpts);
         if (isYaml) {
           // YAML path: hash the raw bytes, then parse to JS for bundling.
           const buf = Buffer.from(await res.arrayBuffer());
@@ -327,12 +473,11 @@ export async function run(opts) {
         schemaUpstreamUrl = cred.schema.url;
       }
 
-      // For non-YAML branches actualHash is already canonical-JSON; for YAML
-      // it's literal-bytes. Either way, the manifest entry was generated the
-      // same way, so the comparison is apples-to-apples. The YAML branch
-      // above already compared before parsing; JSON/defined branches compare
-      // here.
-      if (!isYaml || sourceKind === "defined") {
+      // For JSON branches actualHash is canonical-JSON; for YAML it is
+      // literal-bytes. Either way, the manifest entry was generated the same
+      // way, so the comparison is apples-to-apples. Both YAML branches above
+      // already compared inline before parsing; JSON branches compare here.
+      if (!isYaml) {
         if (actualHash !== cred.schema.sha256) {
           err(
             `\nHASH MISMATCH for credential "${cred.id}":\n  expected: ${cred.schema.sha256}\n  actual:   ${actualHash}\n`,
@@ -366,7 +511,7 @@ export async function run(opts) {
               `credential ${cred.id}: context URL host not on allowlist: ${cred.context.url}`,
             );
           }
-          const res = await fetchWithTimeoutAndRetry(cred.context.url, fetchImpl);
+          const res = await fetchWithTimeoutAndRetry(cred.context.url, fetchImpl, fetchOpts);
           ctxBuf = Buffer.from(await res.arrayBuffer());
           ctxUpstreamUrl = cred.context.url;
         } else {
@@ -403,17 +548,37 @@ export async function run(opts) {
         });
       }
 
+      // Apply canonical `$id` override AFTER manifest hash verification. This
+      // rewrites the schema's `$id` and the registry's source.upstreamUrl so
+      // verifiers dereferencing `credentialSchema.id` land on the canonical
+      // publication URL (e.g. schema.beckn.io for Beckn-published schemas).
+      // Recompute the embedded checksum so the registry stays self-consistent
+      // with the rewritten in-memory schema.
+      const idOverride = ID_OVERRIDES[cred.id];
+      let embeddedChecksum = actualHash;
+      let embeddedUpstreamUrl = schemaUpstreamUrl;
+      if (idOverride) {
+        if (!schemaObj || typeof schemaObj !== "object") {
+          throw new Error(
+            `credential ${cred.id}: cannot apply $id override on non-object schema`,
+          );
+        }
+        schemaObj = { ...schemaObj, $id: idOverride };
+        embeddedChecksum = canonicalJsonSha256(schemaObj);
+        embeddedUpstreamUrl = idOverride;
+      }
+
       records.push({
         id: cred.id,
         constName: idToConst(cred.id),
         schema: schemaObj,
         version: cred.version ?? "1.0.0",
         lastUpdated: cred.lastUpdated ?? "2026-04-08T00:00:00Z",
-        checksum: actualHash,
+        checksum: embeddedChecksum,
         contextUrl,
         source: {
           kind: sourceKind,
-          upstreamUrl: schemaUpstreamUrl,
+          upstreamUrl: embeddedUpstreamUrl,
           upstreamOwner: cred.owner ?? "OpenCred",
           upstreamLicense: cred.license ?? "Apache-2.0",
         },
@@ -444,7 +609,7 @@ export async function run(opts) {
       `[fetch-and-embed-schemas] embedded ${records.length} credentials (${definedCount} defined, ${referencedCount} referenced), ${externalContexts.length} contexts; all hashes verified`,
     );
 
-    return { records, externalContexts };
+    return { records, externalContexts, usedPriorEmbed: false };
   } finally {
     await rm(extractDir, { recursive: true, force: true });
   }

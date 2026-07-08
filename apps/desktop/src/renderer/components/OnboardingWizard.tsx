@@ -1,10 +1,16 @@
 /**
  * OnboardingWizard — multi-step first-run setup for new users.
  *
- * Presents 3 onboarding paths:
- *   1. "I have a DSC" → choose source (Upload File, Hardware Token, OS Cert Store) → Profile
- *   2. "I want to get a DSC" → Coming Soon (connect to CAs)
- *   3. "Self-Published Keys" → Generate key, enter domain, export DID doc → Profile
+ * Step 2 ("where should your issuer identity live?") offers four anchors:
+ *   - "My organisation has a website" (did:web on the issuer's own domain)
+ *   - "Publish to a DeDi directory" (did:web hosted in a bring-your-own DeDi namespace)
+ *   - "I have an official certificate" → choose source
+ *     (Upload File, Hardware Token, OS Cert Store) → Profile
+ *   - "Just get started" (self-contained did:key)
+ *
+ * The website / directory / did:key anchors run through SelfPublishedSetup; the
+ * official-certificate anchor runs through the DSC sources. All paths converge
+ * on the optional DeDi publish step.
  *
  * On completion the wizard calls `onComplete` so the parent can
  * switch to the main sidebar interface.
@@ -18,70 +24,30 @@ import { useState } from "react";
 import type { KeyMetadata } from "../../shared/ipc-types";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
+import { Badge } from "./ui/Badge";
 import { KeyImport } from "./KeyImport";
 import { HardwareToken } from "./HardwareToken";
 import { OsCertStore } from "./OsCertStore";
 import { SelfPublishedSetup } from "./SelfPublishedSetup";
 import { DeDiSetup } from "./DeDiSetup";
+import { DISPLAY_STEPS, getDisplayStepIndex, type Step } from "./onboarding-steps";
 import logoSrc from "../assets/logo.svg";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type Step =
-  | "welcome"
-  | "choose-path"
-  | "dsc-source"
-  | "dsc-upload"
-  | "dsc-hardware"
-  | "dsc-os-cert"
-  | "profile"
-  | "get-dsc-soon"
-  | "self-pub-setup"
-  | "dedi-setup";
-
 interface OnboardingWizardProps {
   onComplete: () => void;
 }
 
 // ---------------------------------------------------------------------------
-// Progress Indicator — maps internal steps to 6 user-visible steps
+// Progress Indicator — maps internal steps to the visible DISPLAY_STEPS
+// (mapping + step model live in ./onboarding-steps for unit testing).
 // ---------------------------------------------------------------------------
 
-const DISPLAY_STEPS = [
-  "Welcome",
-  "Choose Path",
-  "Set Up Key",
-  "Publish Identity",
-  "Public Directory",
-  "Done",
-] as const;
-
-function getDisplayStepIndex(step: Step): number {
-  switch (step) {
-    case "welcome":
-      return 0;
-    case "choose-path":
-    case "get-dsc-soon":
-      return 1;
-    case "dsc-source":
-    case "dsc-upload":
-    case "dsc-hardware":
-    case "dsc-os-cert":
-    case "self-pub-setup":
-      return 2;
-    case "profile":
-      return 3;
-    case "dedi-setup":
-      return 4;
-    default:
-      return 0;
-  }
-}
-
-function StepIndicator({ step }: { step: Step }) {
-  const currentIndex = getDisplayStepIndex(step);
+function StepIndicator({ step, selfPubPhase }: { step: Step; selfPubPhase: string | null }) {
+  const currentIndex = getDisplayStepIndex(step, selfPubPhase);
 
   return (
     <div className="w-full max-w-xl mb-8">
@@ -100,7 +66,7 @@ function StepIndicator({ step }: { step: Step }) {
           return (
             <div key={label} className="flex flex-col items-center relative z-10">
               <div
-                className={`w-6 h-6 rounded-full flex items-center justify-center text-[0.6rem] font-semibold transition-colors ${
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-body-2xs font-semibold transition-colors ${
                   isActive
                     ? "bg-brand-blue text-white"
                     : isCompleted
@@ -111,7 +77,7 @@ function StepIndicator({ step }: { step: Step }) {
                 {isCompleted ? "\u2713" : i + 1}
               </div>
               <span
-                className={`mt-1.5 text-[0.6rem] font-medium whitespace-nowrap ${
+                className={`mt-1.5 text-body-2xs font-medium whitespace-nowrap ${
                   isActive
                     ? "text-brand-blue"
                     : isCompleted
@@ -140,7 +106,7 @@ function PathGuidance() {
     <div className="pt-1">
       <button
         onClick={() => setOpen(!open)}
-        className="text-[0.78rem] text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
+        className="text-body-xs text-brand-blue font-medium hover:underline focus:outline-none flex items-center gap-1"
       >
         <svg
           width="12"
@@ -156,22 +122,27 @@ function PathGuidance() {
         Which should I choose?
       </button>
       {open && (
-        <div className="mt-3 rounded-oc border border-border-light bg-surface-warm p-4 space-y-3 text-[0.78rem] text-txt-secondary">
+        <div className="mt-3 rounded-oc border border-border-light bg-surface-warm p-4 space-y-3 text-body-xs text-txt-secondary">
           <p>
-            <span className="font-semibold text-txt-primary">
-              I have a Digital Signature Certificate
-            </span>
-            : Choose this if you already have a DSC from a government certificate authority (e.g.,
-            NIC, eMudhra).
+            <span className="font-semibold text-txt-primary">My organisation has a website</span>:
+            best if you control a domain (e.g. acme.org). Your website becomes your identity, and
+            you can replace your key later if needed.
           </p>
           <p>
-            <span className="font-semibold text-txt-primary">Self-Published Keys</span>{" "}
-            (Recommended): Choose this if your organization has a website. You&apos;ll generate a
-            signing key and publish your identity on your domain.
+            <span className="font-semibold text-txt-primary">Publish to a DeDi directory</span>:
+            choose this if you use DeDi. It is not a managed service — you create your own DeDi
+            account and namespace; OpenCred then publishes your key there (with key replacement and
+            revocation) so verifiers can resolve it. We&apos;ll point you to DeDi if you don&apos;t
+            have a namespace yet.
           </p>
           <p>
-            <span className="font-semibold text-txt-primary">I want to get a DSC</span>: Coming
-            soon. Choose Self-Published Keys for now.
+            <span className="font-semibold text-txt-primary">I have an official certificate</span>:
+            choose this if you already have a government-issued signing certificate.
+          </p>
+          <p>
+            <span className="font-semibold text-txt-primary">Just get started</span>: the simplest
+            option — a self-contained key that works offline. Trade-off: it can&apos;t be replaced
+            later.
           </p>
         </div>
       )}
@@ -188,6 +159,41 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [importedKey, setImportedKey] = useState<KeyMetadata | null>(null);
   const [selfPubDomain, setSelfPubDomain] = useState<string | null>(null);
   const [selfPubDidDoc, setSelfPubDidDoc] = useState<string | null>(null);
+  // Which DID method the user picked in SelfPublishedSetup. `null` means the
+  // self-pub flow hasn't completed (or the user never entered it). Used by
+  // DeDiSetup to render attribution-only mode for did:key (no DID document
+  // to publish) and by the Back logic to distinguish "user finished
+  // self-pub" from "user completed DSC and selfPubFlowEntered is stale".
+  const [selfPubMethod, setSelfPubMethod] = useState<"web" | "key" | null>(null);
+  // The canonical (fragment-less) issuer DID that the user committed to in
+  // the self-pub flow — `did:web:<domain>` for the did:web branch, or
+  // `did:key:z…` (the signer's id minus its `#fragment`) for the did:key
+  // branch. Threaded into DeDiSetup so the DeDi record name matches the
+  // `issuer` field a verifier later resolves; using `importedKey.id` (the
+  // full verification-method ref `did:key:z…#z…`) would publish under the
+  // wrong record name and silently break cross-surface attribution lookup.
+  const [selfPubDid, setSelfPubDid] = useState<string | null>(null);
+  // Track which DSC source the user came from so the `profile` Back button
+  // can return to that specific source instead of the generic `dsc-source`
+  // picker. Set in `handleKeyReady`. Issue #547.
+  const [dscSourceStep, setDscSourceStep] = useState<
+    "dsc-upload" | "dsc-hardware" | "dsc-os-cert" | null
+  >(null);
+  // `selfPubFlowEntered` flips the moment the user steps into the self-pub
+  // sub-flow and stays true for the rest of the wizard. It lets us keep
+  // `<SelfPublishedSetup />` mounted (hidden via CSS) once entered, so
+  // navigating back from `dedi-setup` preserves the user's generated key,
+  // domain, exported doc, etc. that would otherwise live only in
+  // SelfPublishedSetup's local useState. Issue #547.
+  const [selfPubFlowEntered, setSelfPubFlowEntered] = useState(false);
+  // The self-pub sub-flow reports its current phase so the step indicator can
+  // tell "Your key" phases apart from "Publish" phases (fixes the skipped-step
+  // bug). `null` until the self-pub flow mounts and emits its first phase.
+  const [selfPubPhase, setSelfPubPhase] = useState<string | null>(null);
+  // The identity anchor the user picked on the Step-2 situation screen. Drives
+  // the preset method handed to SelfPublishedSetup so the in-flow method picker
+  // is skipped — the user already answered "where should your identity live?".
+  const [anchorMethod, setAnchorMethod] = useState<"web" | "key" | "directory" | null>(null);
 
   // ------------------------------------------------------------------
   // Key connected handler (shared by all DSC sources)
@@ -196,6 +202,21 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   function handleKeyReady(key: KeyMetadata) {
     setImportedKey(key);
     setStep("profile");
+  }
+
+  function handleDscSourceClick(target: "dsc-upload" | "dsc-hardware" | "dsc-os-cert") {
+    setDscSourceStep(target);
+    setStep(target);
+  }
+
+  // Enter the self-published flow with the anchor the user picked on the
+  // Step-2 situation screen. The preset method skips the in-flow method
+  // picker — the user already chose where their identity should live.
+  function enterSelfPub(method: "web" | "key" | "directory") {
+    setAnchorMethod(method);
+    setSelfPubPhase("generate");
+    setSelfPubFlowEntered(true);
+    setStep("self-pub-setup");
   }
 
   // ------------------------------------------------------------------
@@ -222,7 +243,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
       <main className="flex-1 flex flex-col items-center justify-center px-4">
         {/* Step indicator — shown on all steps */}
-        <StepIndicator step={step} />
+        <StepIndicator step={step} selfPubPhase={selfPubPhase} />
 
         <div className="w-full max-w-xl">
           {/* ============================================================
@@ -248,78 +269,96 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 Your private keys never leave this machine. All signing happens locally.
               </p>
               <div className="pt-2 space-y-3">
-                <Button onClick={() => setStep("choose-path")}>Get Started</Button>
-                <p className="text-[0.72rem] text-txt-muted">Setup takes about 5 minutes</p>
+                <Button onClick={() => setStep("choose-anchor")}>Get Started</Button>
+                <p className="text-body-2xs text-txt-muted">Setup takes about 5 minutes</p>
               </div>
             </Card>
           )}
 
           {/* ============================================================
-              Step: Choose Path (3 options)
+              Step: Identity anchor — "where should your identity live?"
+              Situation-based choices; the protocol (did:web / did:key / DSC)
+              is intentionally not surfaced here — see PathGuidance for the
+              plain-language "which should I choose?" help.
               ============================================================ */}
-          {step === "choose-path" && (
+          {step === "choose-anchor" && (
             <Card variant="neutral" className="space-y-6">
               <div className="space-y-2">
                 <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-                  How would you like to get started?
+                  Where should your issuer identity live?
                 </h2>
                 <p className="text-body-sm text-txt-secondary">
-                  Choose how to set up your signing identity.
+                  This is how people will trust the credentials you issue. Pick what fits you.
                 </p>
               </div>
 
               <div className="space-y-3">
-                {/* Option 1: I have a DSC */}
+                {/* Anchor 1: own website (did:web) */}
+                <button
+                  onClick={() => enterSelfPub("web")}
+                  className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="block text-body-sm font-semibold text-txt-primary">
+                        My organisation has a website
+                      </span>
+                      <span className="block text-body-xs text-txt-muted mt-1">
+                        Use your domain (e.g. acme.org) as your identity. You stay in control.
+                      </span>
+                    </div>
+                    <Badge variant="info" className="flex-shrink-0 ml-3 mt-0.5">
+                      Recommended
+                    </Badge>
+                  </div>
+                </button>
+
+                {/* Anchor 2: public directory (did:web via a DeDi namespace) */}
+                <button
+                  onClick={() => enterSelfPub("directory")}
+                  className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="block text-body-sm font-semibold text-txt-primary">
+                        Publish to a DeDi directory
+                      </span>
+                      <span className="block text-body-xs text-txt-muted mt-1">
+                        Connect your own DeDi namespace so verifiers can resolve your key. You bring
+                        the DeDi account; we set up the registries.
+                      </span>
+                    </div>
+                    <Badge variant="neutral" className="flex-shrink-0 ml-3 mt-0.5">
+                      Powered by DeDi
+                    </Badge>
+                  </div>
+                </button>
+
+                {/* Anchor 3: official certificate (DSC) */}
                 <button
                   onClick={() => setStep("dsc-source")}
                   className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
                   <span className="block text-body-sm font-semibold text-txt-primary">
-                    I have a Digital Signature Certificate
+                    I have an official certificate
                   </span>
-                  <span className="block text-[0.78rem] text-txt-muted mt-1">
-                    Sign credentials using your existing DSC from a certificate authority
+                  <span className="block text-body-xs text-txt-muted mt-1">
+                    Use a government-issued signing certificate. For regulated issuers.
                   </span>
                 </button>
 
-                {/* Option 2: I want to get a DSC */}
+                {/* Anchor 4: self-contained key (did:key) */}
                 <button
-                  onClick={() => setStep("get-dsc-soon")}
-                  className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-border-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <span className="block text-body-sm font-semibold text-txt-primary">
-                        I want to get a DSC
-                      </span>
-                      <span className="block text-[0.78rem] text-txt-muted mt-1">
-                        Connect to a Certificate Authority to obtain your DSC
-                      </span>
-                    </div>
-                    <span className="inline-flex items-center rounded-oc bg-amber-50 border border-amber-200/60 px-2 py-0.5 font-mono text-[0.6rem] uppercase tracking-wider text-amber-700 flex-shrink-0 ml-3 mt-0.5">
-                      Coming Soon
-                    </span>
-                  </div>
-                </button>
-
-                {/* Option 3: Self-Published Keys */}
-                <button
-                  onClick={() => setStep("self-pub-setup")}
+                  onClick={() => enterSelfPub("key")}
                   className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <span className="block text-body-sm font-semibold text-txt-primary">
-                        Self-Published Keys
-                      </span>
-                      <span className="block text-[0.78rem] text-txt-muted mt-1">
-                        Generate a key pair and publish your public key on your website
-                      </span>
-                    </div>
-                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium flex-shrink-0 ml-3 mt-0.5">
-                      Recommended
-                    </span>
-                  </div>
+                  <span className="block text-body-sm font-semibold text-txt-primary">
+                    Just get started
+                  </span>
+                  <span className="block text-body-xs text-txt-muted mt-1">
+                    A self-contained key. Works offline, simplest to set up — but can&apos;t be
+                    replaced later.
+                  </span>
                 </button>
               </div>
 
@@ -352,46 +391,46 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               <div className="space-y-3">
                 {/* Upload file */}
                 <button
-                  onClick={() => setStep("dsc-upload")}
+                  onClick={() => handleDscSourceClick("dsc-upload")}
                   className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
                   <span className="block text-body-sm font-semibold text-txt-primary">
                     Certificate File
                   </span>
-                  <span className="block text-[0.78rem] text-txt-muted mt-1">
+                  <span className="block text-body-xs text-txt-muted mt-1">
                     Import a PFX (.pfx, .p12) or PEM (.pem, .crt) file from your computer
                   </span>
                 </button>
 
                 {/* Hardware token */}
                 <button
-                  onClick={() => setStep("dsc-hardware")}
+                  onClick={() => handleDscSourceClick("dsc-hardware")}
                   className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
                   <span className="block text-body-sm font-semibold text-txt-primary">
                     Hardware Token
                   </span>
-                  <span className="block text-[0.78rem] text-txt-muted mt-1">
+                  <span className="block text-body-xs text-txt-muted mt-1">
                     Connect a PKCS#11 device (YubiKey, smart card, HSM)
                   </span>
                 </button>
 
                 {/* OS certificate store */}
                 <button
-                  onClick={() => setStep("dsc-os-cert")}
+                  onClick={() => handleDscSourceClick("dsc-os-cert")}
                   className="w-full rounded-oc border border-border p-4 text-left transition-colors hover:border-brand-blue hover:bg-brand-blue-light focus:outline-none focus:ring-2 focus:ring-brand-blue"
                 >
                   <span className="block text-body-sm font-semibold text-txt-primary">
                     OS Certificate Store
                   </span>
-                  <span className="block text-[0.78rem] text-txt-muted mt-1">
+                  <span className="block text-body-xs text-txt-muted mt-1">
                     Use a certificate from macOS Keychain or Windows Certificate Store
                   </span>
                 </button>
               </div>
 
               <div className="pt-2">
-                <Button variant="secondary" onClick={() => setStep("choose-path")}>
+                <Button variant="secondary" onClick={() => setStep("choose-anchor")}>
                   Back
                 </Button>
               </div>
@@ -505,14 +544,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 </p>
               </div>
 
-              <div className="rounded-oc border border-green-200 bg-green-50 p-4 space-y-2">
+              <div className="rounded-oc border border-state-success-border bg-state-success-bg p-4 space-y-2">
                 <h3 className="oc-card-label" style={{ color: "#2e7d32" }}>
                   Key Details
                 </h3>
-                <dl className="text-[0.78rem] text-green-700 space-y-1.5">
+                <dl className="text-body-xs text-state-success space-y-1.5">
                   <div className="flex gap-2">
                     <dt className="font-medium w-24 flex-shrink-0">DID:</dt>
-                    <dd className="font-mono text-[0.72rem] break-all">{importedKey.id}</dd>
+                    <dd className="font-mono text-body-2xs break-all">{importedKey.id}</dd>
                   </div>
                   <div className="flex gap-2">
                     <dt className="font-medium w-24 flex-shrink-0">Algorithm:</dt>
@@ -520,7 +559,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   </div>
                   <div className="flex gap-2">
                     <dt className="font-medium w-24 flex-shrink-0">Fingerprint:</dt>
-                    <dd className="font-mono text-[0.72rem]">{importedKey.fingerprint}</dd>
+                    <dd className="font-mono text-body-2xs">{importedKey.fingerprint}</dd>
                   </div>
                   {importedKey.source && (
                     <div className="flex gap-2">
@@ -531,38 +570,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 </dl>
               </div>
 
-              <div className="pt-2">
+              <div className="pt-2 flex gap-3">
                 <Button onClick={() => setStep("dedi-setup")}>Continue</Button>
-              </div>
-            </Card>
-          )}
-
-          {/* ============================================================
-              Coming Soon: Get a DSC
-              ============================================================ */}
-          {step === "get-dsc-soon" && (
-            <Card variant="neutral" className="space-y-6">
-              <div className="space-y-2">
-                <h2 className="oc-page-title" style={{ marginBottom: 0 }}>
-                  Get a Digital Signature Certificate
-                </h2>
-                <p className="text-body-sm text-txt-secondary">
-                  OpenCred will connect you to trusted Certificate Authorities to obtain your own
-                  DSC. This feature is under development.
-                </p>
-              </div>
-
-              <div className="rounded-oc border border-amber-200 bg-amber-50 p-4">
-                <p className="text-[0.82rem] text-amber-800 font-medium mb-1">Coming Soon</p>
-                <p className="text-[0.78rem] text-amber-700">
-                  CA integration is being built as part of Phase 3. In the meantime, if you already
-                  have a DSC from a certificate authority, choose &ldquo;I have a DSC&rdquo; to
-                  import it.
-                </p>
-              </div>
-
-              <div className="pt-2">
-                <Button variant="secondary" onClick={() => setStep("choose-path")}>
+                <Button variant="secondary" onClick={() => setStep(dscSourceStep ?? "dsc-source")}>
                   Back
                 </Button>
               </div>
@@ -571,14 +581,37 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
           {/* ============================================================
               Self-Published Keys Setup
-              ============================================================ */}
-          {step === "self-pub-setup" && (
+              ============================================================
+              Mounted once the user enters the self-pub flow and kept
+              mounted thereafter (visibility toggled via `hidden`) so that
+              navigating back from `dedi-setup` preserves SelfPub's local
+              state (generated key, domain, exported DID document) which
+              otherwise lives entirely in SelfPublishedSetup's useState.
+              Issue #547. */}
+          {selfPubFlowEntered && (
             <SelfPublishedSetup
+              // Re-key on the anchor so switching identity choice on the Step-2
+              // screen remounts the sub-flow fresh, while back-from-dedi (same
+              // anchor) keeps it mounted and preserves the user's progress.
+              key={anchorMethod ?? "none"}
+              hidden={step !== "self-pub-setup"}
+              initialMethod={anchorMethod ?? undefined}
+              onPhaseChange={setSelfPubPhase}
+              onBack={() => setStep("choose-anchor")}
               onComplete={(result) => {
                 if (result) {
                   setImportedKey(result.key);
-                  setSelfPubDomain(result.domain);
+                  setSelfPubMethod(result.method);
+                  // did:web branch carries domain + DID document for the
+                  // "publish to your web server" instructions in DeDiSetup.
+                  // did:key branch leaves these undefined; DeDiSetup detects
+                  // the absence and shifts into attribution-only mode.
+                  setSelfPubDomain(result.domain ?? null);
                   setSelfPubDidDoc(result.didDocument ?? null);
+                  // Capture the canonical issuer DID — see the field's
+                  // declaration comment for why we must not fall back to
+                  // `importedKey.id` (full VM ref with #fragment) here.
+                  setSelfPubDid(result.did);
                 }
                 setStep("dedi-setup");
               }}
@@ -591,14 +624,40 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           {step === "dedi-setup" && !importedKey && (
             <Card className="space-y-4 text-center">
               <p className="text-body-sm text-txt-muted">Something went wrong during key setup.</p>
-              <Button onClick={() => setStep("choose-path")}>Go Back</Button>
+              <Button onClick={() => setStep("choose-anchor")}>Go Back</Button>
             </Card>
           )}
           {step === "dedi-setup" && importedKey && (
             <DeDiSetup
-              did={importedKey.id}
+              // Prefer the canonical issuer DID computed by the self-pub
+              // wizard (`did:web:<domain>` or fragment-less `did:key:z…`).
+              // Falls back to `importedKey.id` only on the DSC paths,
+              // where the wizard never sets `selfPubDid` — those keys are
+              // DSC-backed signers, not self-published, and DeDi publish
+              // there is meaningful as a "this DSC is associated with our
+              // namespace" attribution rather than a did-document mirror.
+              did={selfPubDid ?? importedKey.id}
+              signerKeyId={importedKey.id}
               didDocument={selfPubDidDoc ?? undefined}
               domain={selfPubDomain ?? undefined}
+              // For the public-directory anchor, DeDi is THE publish step, not
+              // an optional mirror — surface it as such (and warn on "finish
+              // later"). Website / did:key / DSC keep it optional.
+              directoryAnchor={anchorMethod === "directory"}
+              onBack={() =>
+                // Key the Back destination off which sub-flow actually
+                // produced `importedKey`, not off `selfPubFlowEntered`.
+                // The latter sticks once true even if the user backs out
+                // of self-pub and picks the DSC path instead, leaving
+                // the hidden SelfPublishedSetup subtree mounted; we
+                // don't want Back from dedi-setup to land them there
+                // when they finished onboarding via DSC. `selfPubMethod`
+                // is only set when SelfPublishedSetup's `onComplete` ran,
+                // so it accurately reflects the completed path. It works
+                // for both did:web and did:key (whereas `selfPubDomain`
+                // alone would mis-route did:key users to "profile").
+                setStep(selfPubMethod ? "self-pub-setup" : "profile")
+              }
               onComplete={onComplete}
             />
           )}

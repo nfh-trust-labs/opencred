@@ -4,7 +4,7 @@ import { CredentialBuilder, isValidSubjectUri } from "../credential-builder.js";
 import {
   W3C_CREDENTIALS_V2_CONTEXT,
   DATA_INTEGRITY_V1_CONTEXT,
-  OPENCRED_DELEGATION_V1_CONTEXT,
+  TRACEABILITY_V1_CONTEXT,
 } from "../types.js";
 import { createDocumentLoader, getBundledContextUrls } from "../document-loader.js";
 
@@ -764,13 +764,18 @@ describe("CredentialBuilder", () => {
           statusListCredential:
             "https://dedi.global/dedi/query/university.example/vc-revocation-registry",
         })
-        .addContext(OPENCRED_DELEGATION_V1_CONTEXT)
+        .addContext(TRACEABILITY_V1_CONTEXT)
         .build();
 
-      // Verify structure matches PRD Section 10.1
+      // Verify structure matches PRD Section 10.1. The second context here
+      // exercises the addContext() builder method. Traceability v1 is the
+      // stand-in (stable, bundled, and — unlike DATA_INTEGRITY_V1_CONTEXT
+      // — not deduplicated by addContext, which auto-drops both
+      // W3C_CREDENTIALS_V2_CONTEXT and DATA_INTEGRITY_V1_CONTEXT as
+      // redundant; see credential-builder.ts).
       expect(vc["@context"]).toEqual([
         "https://www.w3.org/ns/credentials/v2",
-        OPENCRED_DELEGATION_V1_CONTEXT,
+        TRACEABILITY_V1_CONTEXT,
       ]);
       expect(vc.id).toMatch(/^urn:uuid:/);
       expect(vc.type).toEqual(["VerifiableCredential"]);
@@ -1071,11 +1076,11 @@ describe("Document Loader", () => {
 
     expect(urls).toContain(W3C_CREDENTIALS_V2_CONTEXT);
     expect(urls).toContain(DATA_INTEGRITY_V1_CONTEXT);
-    // v1 schema library: 3 base (W3C credentials/data-integrity + OpenCred
-    // delegation) + 2 upstream (Open Badges 3.0, Traceability v1) + 8
-    // OpenCred-defined credential contexts (electricity, immunization,
-    // prescription, test-result, insurance-policy, functional-identity,
+    // v1 schema library: 2 base (W3C credentials, Data Integrity) + 2
+    // upstream (Open Badges 3.0, Traceability v1) + 8 OpenCred-defined
+    // credential contexts (electricity, immunization, prescription,
+    // test-result, insurance-policy, functional-identity,
     // employment-offer-letter, business-entity).
-    expect(urls.size).toBe(13);
+    expect(urls.size).toBe(12);
   });
 });

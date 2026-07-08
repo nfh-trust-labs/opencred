@@ -12,7 +12,7 @@ import type {
   DeDiRegistry,
   DeDiRegistryTag,
   DeDiRecord,
-  DeDiRecordState,
+  DeDiResponse,
   DeDiQueryParams,
   DeDiQueryResult,
   DeDiSearchResult,
@@ -134,10 +134,18 @@ export class DeDiApiClient {
   // ── Namespace ────────────────────────────────────────────────────
 
   async createNamespace(name: string, description: string): Promise<DeDiNamespace> {
-    return this.request<DeDiNamespace>("/dedi/create-namespace", {
-      method: "POST",
-      body: JSON.stringify({ name, description, meta: {} }),
-    });
+    // Non-idempotent POST — disable retry. The DeDi server does not currently
+    // accept an `Idempotency-Key` header, and blind retry on a transient 5xx
+    // (or a network blip after the row was already written) silently creates
+    // duplicate namespaces on the user's account. See issue #546.
+    return this.request<DeDiNamespace>(
+      "/dedi/create-namespace",
+      {
+        method: "POST",
+        body: JSON.stringify({ name, description, meta: {} }),
+      },
+      { retryable: false },
+    );
   }
 
   async lookupNamespace(ns: string): Promise<DeDiNamespace> {
@@ -152,27 +160,34 @@ export class DeDiApiClient {
     schema: unknown,
     tag?: DeDiRegistryTag,
   ): Promise<DeDiRegistry> {
-    return this.request<DeDiRegistry>(`/dedi/${enc(ns)}/create-registry`, {
-      method: "POST",
-      body: JSON.stringify({
-        registry_name: name,
-        description: `OpenCred ${name} registry`,
-        // DeDi API: either schema OR tag, not both
-        ...(tag
-          ? { tag }
-          : {
-              schema:
-                Object.keys(schema as Record<string, unknown>).length > 0
-                  ? schema
-                  : {
-                      $schema: "http://json-schema.org/draft-07/schema#",
-                      type: "object",
-                      properties: {},
-                    },
-            }),
-        meta: {},
-      }),
-    });
+    // Non-idempotent POST — disable retry. Same rationale as createNamespace:
+    // duplicate registries on transient 5xx are easy to create and hard to
+    // clean up. See issue #546.
+    return this.request<DeDiRegistry>(
+      `/dedi/${enc(ns)}/create-registry`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          registry_name: name,
+          description: `OpenCred ${name} registry`,
+          // DeDi API: either schema OR tag, not both
+          ...(tag
+            ? { tag }
+            : {
+                schema:
+                  Object.keys(schema as Record<string, unknown>).length > 0
+                    ? schema
+                    : {
+                        $schema: "http://json-schema.org/draft-07/schema#",
+                        type: "object",
+                        properties: {},
+                      },
+              }),
+          meta: {},
+        }),
+      },
+      { retryable: false },
+    );
   }
 
   async lookupRegistry(ns: string, reg: string): Promise<DeDiRegistry> {
@@ -192,10 +207,16 @@ export class DeDiApiClient {
     reg: string,
     name: string,
     details: T,
-  ): Promise<DeDiRecord<T>> {
-    // Step 1: Save record as draft and publish immediately
-    const record = await this.request<DeDiRecord<T>>(
-      `/dedi/${enc(ns)}/${enc(reg)}/save-record-as-draft?publish=true`,
+  ): Promise<DeDiResponse<DeDiRecord<T>>> {
+    // DeDi requires a two-step publish: `save-record-as-draft` creates the
+    // record in DRAFT state, then `publish-records` advances it to LIVE
+    // and makes it visible to `lookup/`. The `?publish=true` query-string
+    // shortcut returns 201 but on `api.dedi.global` it does NOT actually
+    // publish — the record stays a draft and every subsequent
+    // `lookup/{ns}/{reg}/{record_name}` returns 404 (#610). The two-call
+    // sequence is the canonical flow per the DeDi Postman collection.
+    const saveResponse = await this.request<{ message: string; data: { record_name: string } }>(
+      `/dedi/${enc(ns)}/${enc(reg)}/save-record-as-draft`,
       {
         method: "POST",
         body: JSON.stringify({
@@ -205,60 +226,120 @@ export class DeDiApiClient {
           meta: {},
         }),
       },
+      { retryable: false },
     );
-    return record;
+
+    const savedName = saveResponse?.data?.record_name ?? name;
+    await this.publishDraftRecords(ns, reg, [savedName]);
+
+    // Synthesize the envelope so callers that read `data.record_name` /
+    // `data.details` / `data.updated_at` keep working. The only field we
+    // can't observe from the two-step calls is `updated_at` — callers
+    // already fall back to "now" when it's missing (see
+    // `client.publishRevocationHash`). A follow-up `lookupRecord` could
+    // populate it, but that costs a third round-trip and the timestamp
+    // is informational, not load-bearing for downstream verification.
+    return {
+      message: "Record published",
+      data: {
+        record_name: savedName,
+        details,
+      },
+    } as DeDiResponse<DeDiRecord<T>>;
+  }
+
+  /**
+   * Advance existing DRAFT records to LIVE — the second step of the two-step
+   * publish (see {@link publishRecord}). Exposed separately so a caller can
+   * re-drive `publish-records` against a draft that was created but never
+   * published — e.g. a `save-record-as-draft` that landed server-side but
+   * whose response exceeded the request timeout, stranding the record in
+   * DRAFT (#11/#718). Callers should only invoke this for a record they have
+   * confirmed is NOT already LIVE (via `lookupRecord`), so an already-LIVE
+   * record is never re-published. Non-idempotent at the DeDi layer, so retry
+   * stays disabled — same rationale as the rest of the publish path (#546).
+   */
+  async publishDraftRecords(ns: string, reg: string, recordNames: string[]): Promise<void> {
+    await this.request<{ message: string; data: { count: number; record_ids: string[] } }>(
+      `/dedi/${enc(ns)}/${enc(reg)}/publish-records`,
+      {
+        method: "POST",
+        body: JSON.stringify({ records: recordNames }),
+      },
+      { retryable: false },
+    );
   }
 
   async lookupRecord<T = unknown>(
     ns: string,
     reg: string,
     recordName: string,
-  ): Promise<DeDiRecord<T>> {
-    return this.request<DeDiRecord<T>>(`/dedi/lookup/${enc(ns)}/${enc(reg)}/${enc(recordName)}`);
+  ): Promise<DeDiResponse<DeDiRecord<T>>> {
+    return this.request<DeDiResponse<DeDiRecord<T>>>(
+      `/dedi/lookup/${enc(ns)}/${enc(reg)}/${enc(recordName)}`,
+    );
   }
 
-  async revokeRecord(ns: string, reg: string, recordName: string): Promise<void> {
-    await this.changeRecordState(ns, reg, recordName, "revoked");
-  }
-
-  async changeRecordState(
+  /**
+   * Update an existing record's `details` wholesale.
+   *
+   * POSTs to `/dedi/{ns}/{reg}/{record}/update-record` with body
+   * `{ details, meta: {} }` — see the `develop` Postman collection.
+   * Non-idempotent (the server appends a new version each call), so retry
+   * is disabled — same rationale as `publishRecord` / `createNamespace`
+   * (#546). Callers wanting "patch" semantics must read-merge-write
+   * themselves; the `details` field replaces the prior payload in full.
+   */
+  async updateRecord<T = unknown>(
     ns: string,
     reg: string,
     recordName: string,
-    state: DeDiRecordState,
-  ): Promise<void> {
-    // Map state to DeDi endpoint
-    const action =
-      state === "revoked"
-        ? "revoke-record"
-        : state === "suspended"
-          ? "suspend-record"
-          : state === "live"
-            ? "reinstate-record"
-            : null;
-    if (!action) return;
-    await this.requestVoid(`/dedi/${enc(ns)}/${enc(reg)}/${enc(recordName)}/${action}`, {
-      method: "POST",
-    });
+    details: T,
+  ): Promise<DeDiResponse<DeDiRecord<T>>> {
+    return this.request<DeDiResponse<DeDiRecord<T>>>(
+      `/dedi/${enc(ns)}/${enc(reg)}/${enc(recordName)}/update-record`,
+      {
+        method: "POST",
+        body: JSON.stringify({ details, meta: {} }),
+      },
+      { retryable: false },
+    );
   }
 
+  // NOTE: per-record state-change endpoints (`revoke-record`,
+  // `suspend-record`, `reinstate-record`) were removed in PR-4 of the
+  // DeDi client refactor (issue #555). The real DeDi API (verified
+  // against the `develop` Postman collection, 2026-05-19) does not
+  // expose these routes. OpenCred manages credential revocation and
+  // key rotation independently of DeDi's record state machine — see
+  // `docs/decisions/dedi-integration-open-questions.md`.
+
   // ── Query & Search ───────────────────────────────────────────────
+  //
+  // Pagination: `DeDiQueryParams` forwards `page`/`per_page` to DeDi, but
+  // the response envelope carries no total/has_next metadata, so callers
+  // cannot iterate beyond the first page reliably. OpenCred's lifecycle
+  // operations use direct record lookups (by record name), which is why
+  // this hasn't mattered; treat these two methods as "first page only"
+  // until DeDi exposes pagination metadata.
 
   async queryRecords<T = unknown>(
     ns: string,
     reg: string,
     params?: DeDiQueryParams,
-  ): Promise<DeDiQueryResult<T>> {
+  ): Promise<DeDiResponse<DeDiQueryResult<T>>> {
     const qs = params ? toQueryString(params as Record<string, unknown>) : "";
-    return this.request<DeDiQueryResult<T>>(`/dedi/query/${enc(ns)}/${enc(reg)}${qs}`);
+    return this.request<DeDiResponse<DeDiQueryResult<T>>>(
+      `/dedi/query/${enc(ns)}/${enc(reg)}${qs}`,
+    );
   }
 
   async search<T = unknown>(
     ns: string,
     params: Record<string, string>,
-  ): Promise<DeDiSearchResult<T>> {
+  ): Promise<DeDiResponse<DeDiSearchResult<T>>> {
     const qs = toQueryString(params);
-    return this.request<DeDiSearchResult<T>>(`/dedi/search/${enc(ns)}${qs}`);
+    return this.request<DeDiResponse<DeDiSearchResult<T>>>(`/dedi/search/${enc(ns)}${qs}`);
   }
 
   // ── Domain verification ──────────────────────────────────────────
@@ -305,7 +386,12 @@ export class DeDiApiClient {
 
   // ── Bulk ─────────────────────────────────────────────────────────
 
-  async bulkUpload(_ns: string, _reg: string, file: Blob): Promise<{ job_id: string }> {
+  async bulkUpload(
+    ns: string,
+    reg: string,
+    file: Blob,
+    recordNameField?: string,
+  ): Promise<{ jobId: string }> {
     // Anand's P2-08: this method used to inline a copy of the entire
     // `doFetch` pipeline — AbortController, timeout, SSRF re-check,
     // logging, error handling — purely because the body is `FormData`
@@ -314,11 +400,23 @@ export class DeDiApiClient {
     // FormData bodies and skips the JSON `Content-Type` auto-set, so
     // we route through the shared pipeline. FormData is rebuilt per
     // retry attempt so the underlying blob can be re-read from scratch.
+    //
+    // The real DeDi `/dedi/bulk-upload` endpoint expects multiple form
+    // fields alongside the file: `namespace`, `registry_name`, and an
+    // optional `record_name_field` that names the CSV column to use as
+    // the record name. Verified against the `develop` Postman
+    // collection, 2026-05-19. Response is `{ message, data: { jobId } }`
+    // — camelCase `jobId` nested under `data`, not top-level `job_id`.
     return this.circuitBreaker.execute(() =>
       withRetry(
         async () => {
           const formData = new FormData();
           formData.append("file", file);
+          formData.append("namespace", ns);
+          formData.append("registry_name", reg);
+          if (recordNameField !== undefined) {
+            formData.append("record_name_field", recordNameField);
+          }
           const response = await this.doFetch("/dedi/bulk-upload", {
             method: "POST",
             body: formData,
@@ -336,6 +434,8 @@ export class DeDiApiClient {
             throw new DeDiClientError(
               `DeDi API error: ${response.status}`,
               response.status >= 500 ? 502 : response.status,
+              undefined,
+              parseRetryAfterMs(response),
             );
           }
           let parsed: unknown;
@@ -344,8 +444,7 @@ export class DeDiApiClient {
           } catch {
             throw new DeDiClientError("DeDi API returned non-JSON response", 502);
           }
-          assertBulkUploadResultShape(parsed);
-          return parsed;
+          return extractBulkUploadResult(parsed);
         },
         { maxRetries: this.config.maxRetries, logger: this.logger },
       ),
@@ -384,20 +483,34 @@ export class DeDiApiClient {
 
   // ── Internal HTTP plumbing ───────────────────────────────────────
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+  /**
+   * Per-call request options that the public methods can use to override
+   * the default retry/circuit-breaker behaviour.
+   */
+  private async request<T>(
+    path: string,
+    init?: RequestInit,
+    callOptions?: { retryable?: boolean },
+  ): Promise<T> {
     return this.circuitBreaker.execute(() =>
       withRetry(() => this.fetchJson<T>(path, init), {
         maxRetries: this.config.maxRetries,
         logger: this.logger,
+        retryable: callOptions?.retryable,
       }),
     );
   }
 
-  private async requestVoid(path: string, init?: RequestInit): Promise<void> {
+  private async requestVoid(
+    path: string,
+    init?: RequestInit,
+    callOptions?: { retryable?: boolean },
+  ): Promise<void> {
     await this.circuitBreaker.execute(() =>
       withRetry(() => this.fetchVoid(path, init), {
         maxRetries: this.config.maxRetries,
         logger: this.logger,
+        retryable: callOptions?.retryable,
       }),
     );
   }
@@ -406,16 +519,13 @@ export class DeDiApiClient {
     const response = await this.doFetch(path, init);
 
     if (!response.ok) {
-      let body = "";
-      try {
-        body = await response.text();
-      } catch {
-        /* ignore */
-      }
-      this.logger.error(`DeDi API ${response.status} ${path}`, { body: body.slice(0, 500) });
+      const { text, json } = await readErrorBody(response);
+      this.logger.error(`DeDi API ${response.status} ${path}`, { body: text.slice(0, 500) });
       throw new DeDiClientError(
         `DeDi API error: ${response.status}`,
         response.status >= 500 ? 502 : response.status,
+        json ?? (text ? text : undefined),
+        parseRetryAfterMs(response),
       );
     }
 
@@ -430,16 +540,13 @@ export class DeDiApiClient {
     const response = await this.doFetch(path, init);
 
     if (!response.ok) {
-      let body = "";
-      try {
-        body = await response.text();
-      } catch {
-        /* ignore */
-      }
-      this.logger.error(`DeDi API ${response.status} ${path}`, { body: body.slice(0, 500) });
+      const { text, json } = await readErrorBody(response);
+      this.logger.error(`DeDi API ${response.status} ${path}`, { body: text.slice(0, 500) });
       throw new DeDiClientError(
         `DeDi API error: ${response.status}`,
         response.status >= 500 ? 502 : response.status,
+        json ?? (text ? text : undefined),
+        parseRetryAfterMs(response),
       );
     }
   }
@@ -595,14 +702,66 @@ function enc(value: string): string {
   return encodeURIComponent(value);
 }
 
-function assertBulkUploadResultShape(value: unknown): asserts value is { job_id: string } {
+/**
+ * Parse a 429 response's `Retry-After` header into milliseconds for
+ * `DeDiClientError.retryAfterMs` (issue #679). Only the integer-seconds
+ * form is honoured; the HTTP-date form is ignored. `withRetry` caps the
+ * value, so no clamping here.
+ */
+function parseRetryAfterMs(response: Response): number | undefined {
+  if (response.status !== 429) return undefined;
+  const header = response.headers.get("retry-after")?.trim();
+  if (header === undefined || !/^\d+$/.test(header)) return undefined;
+  return Number(header) * 1000;
+}
+
+/**
+ * Read a non-2xx Response body once and return both the raw text and a
+ * best-effort JSON parse. Errors are logged with the raw text (truncated)
+ * and the JSON body is surfaced on `DeDiClientError.responseBody` so
+ * adapters can branch on server-specific body codes (e.g.
+ * `{ code: "NAMESPACE_EXISTS" }`).
+ */
+async function readErrorBody(
+  response: Response,
+): Promise<{ text: string; json: unknown | undefined }> {
+  let text = "";
+  try {
+    text = await response.text();
+  } catch {
+    /* ignore — body already consumed or stream broken */
+  }
+  if (!text) return { text: "", json: undefined };
+  try {
+    return { text, json: JSON.parse(text) };
+  } catch {
+    return { text, json: undefined };
+  }
+}
+
+/**
+ * Parse the bulk-upload response envelope. The real DeDi shape is
+ * `{ message, data: { jobId } }` (camelCase `jobId`, nested under
+ * `data`). Verified against the `develop` Postman collection,
+ * 2026-05-19.
+ */
+function extractBulkUploadResult(value: unknown): { jobId: string } {
   if (value == null || typeof value !== "object") {
     throw new DeDiClientError("DeDi API bulk upload response is missing or not an object", 502);
   }
-  const rec = value as Record<string, unknown>;
-  if (typeof rec["job_id"] !== "string") {
-    throw new DeDiClientError("DeDi API bulk upload response missing required field: job_id", 502);
+  const env = value as Record<string, unknown>;
+  const data = env["data"];
+  if (data == null || typeof data !== "object") {
+    throw new DeDiClientError("DeDi API bulk upload response missing required field: data", 502);
   }
+  const dataRec = data as Record<string, unknown>;
+  if (typeof dataRec["jobId"] !== "string") {
+    throw new DeDiClientError(
+      "DeDi API bulk upload response missing required field: data.jobId",
+      502,
+    );
+  }
+  return { jobId: dataRec["jobId"] };
 }
 
 function toQueryString(params: Record<string, unknown>): string {

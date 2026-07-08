@@ -25,8 +25,8 @@ The Electron-based Desktop Client. Primary OpenCred product.
 | Preload | `src/main/preload.ts` | contextBridge that exposes the typed `window.opencred` API to the renderer |
 | Renderer | `src/renderer/` | React UI: `HomeScreen`, `OnboardingWizard`, `IssuePage`, `VerifyPage`, `SettingsPage`, etc. |
 | Shared types | `src/shared/` | TypeScript types used on both sides of the IPC boundary |
-| Build scripts | `scripts/` | `bundle-main.mjs` (esbuild), `prepare-native-deps.cjs`, `notarize.cjs` |
-| Native deps | (rebuilt at build time) | `pkcs11js` and the OS-cert addons (compiled against the Electron ABI by `electron-rebuild`) |
+| Build scripts | `scripts/` | `bundle-main.mjs` (esbuild), `prepare-native-deps.cjs`, `rebuild-native.cjs`, `electron-builder-hooks.cjs`, `verify-packaged-arch.cjs`, `notarize.cjs` |
+| Native deps | (rebuilt at build time) | `pkcs11js` and the OS-cert addons, compiled against the Electron ABI **per target architecture**: the `beforePack` hook reruns `rebuild-native.cjs --arch=<target>` for each packaged arch, and the `afterPack` hook fails the build if any packaged `.node` binary doesn't match (#641/#642) |
 
 Build pipeline: `vite build` for the renderer, `esbuild` for the main process, then `electron-builder` for the installer. See `apps/desktop/package.json` for `electron-builder` configuration (DMG/zip on macOS, NSIS on Windows, AppImage/deb on Linux).
 
@@ -36,16 +36,17 @@ The headless Hono-based HTTP server that ships as the Docker image.
 
 | Layer | Path | What lives here |
 |---|---|---|
-| Bootstrap | `src/index.ts` | Wires config, logger, auth, routes, error handler. Starts Hono. |
-| Configuration | `src/config.ts` | Zod schema for all `OPENCRED_*` env vars |
+| Bootstrap | `src/index.ts` | Wires config, logger, auth, routes, middleware, tracing, error handler. Starts Hono. |
+| Worker | `src/worker.ts` | Separate BullMQ worker process (started when `OPENCRED_BATCH_DISPATCH=queue`). Consumes the `opencred:batch` and `opencred:webhook` queues. |
+| Configuration | `src/config.ts` | Zod schema for all `OPENCRED_*` env vars (auth, rate limits, job store, tracing, dispatch, …) |
 | Logging | `src/logger.ts` | pino, structured JSON to stdout |
-| Auth | `src/middleware/auth.ts` | Optional Bearer token check |
-| Errors | `src/middleware/error-handler.ts` | Maps `OpenCredError` and `ZodError` to HTTP responses |
-| Routes | `src/routes/*.ts` | `health`, `schemas`, `credentials`, `batch`, `revocation`, `packaging` |
+| Tracing | `src/tracing.ts`, `src/observability/*.ts` | OTel critical-path spans (signer, batch, verify, DeDi) |
+| Middleware | `src/middleware/` | Auth, rate-limit, body-limit, read-only mode, cache-control, tracing, error handler |
+| Routes | `src/routes/*.ts` | `health`, `schemas`, `credentials`, `batch`, `revocation`, `keys`, `dedi`, `packaging` |
 | Signing | `src/signing/key-manager.ts`, `src/signing/cloud-hsm/` | Loads the active signer from a file or KMS |
-| Batch processing | `src/batch/` | CSV parsing, in-memory job queue, results store |
+| Batch processing | `src/batch/` | Streaming engine, CSV parser, BullMQ queue + webhook delivery, pluggable job store (`job-store/memory.ts`, `job-store/redis.ts`) |
 | Packaging | `src/packaging/` | PDF, QR code, JSON-LD output |
-| CLI | `src/cli.ts` | `opencred` command for one-off operations (issue, verify, hash, batch) |
+| CLI | `src/cli.ts` | `opencred` command for one-off operations (issue, verify, hash, batch, config validate, identity show) |
 
 The server depends on the same `@opencred/*` packages as the Desktop client. See `apps/server/package.json` for the dependency list.
 
@@ -169,11 +170,36 @@ Hardware token (PKCS#11) and OS certificate store backends. Native addons live u
 | `Pkcs11Signer`, `Pkcs11Session`, `Pkcs11Loader`, p11-kit discovery | Hardware tokens |
 | `OsCertSigner`, `MacOSCertProvider`, `WindowsCertProvider` | OS cert store signing |
 
-The native addons (`packages/signing/native/macos-keychain.mm`, `windows-cng.cpp`) are built via `node-gyp`. The Desktop build pipeline rebuilds them against the Electron ABI via `electron-rebuild`.
+The native addons (`packages/signing/native/macos-keychain.mm`, `windows-cng.cpp`) are built via `node-gyp`. The Desktop build pipeline rebuilds them against the Electron ABI per target architecture (`apps/desktop/scripts/rebuild-native.cjs --arch=<target>`, driven by the `beforePack` hook and arch-verified by `afterPack` — see #641/#642).
 
 ### `packages/ca-adapter` — `@opencred/ca-adapter`
 
 Certificate Authority adapter — extension point for "Issuer Seeking DSC" (Type 2) onboarding. The package defines the `CertificateAuthorityAdapter` interface (`requestDSC`, `checkStatus`). No CA implementations ship in v2; deployments wire their own.
+
+### `packages/batch-core` — `@opencred/batch-core`
+
+Streaming CSV ingestion shared by the Desktop client and the Docker server's batch engines. Replaces the old `parseCsv(string)` path that materialised three in-memory copies of the input before signing began. The streaming parser yields one `ParsedRow` at a time and enforces both row-count and per-record-byte caps fail-fast inside the parser.
+
+| Export | Purpose |
+|---|---|
+| `streamingParseCsv` | Async iterable over parsed rows; respects `maxRecordBytes` and `maxRows`. |
+| `parseCsv`, `parseRawCsv`, `detectDelimiter`, `applyMapping` | One-shot helpers for non-streaming callers. |
+| `StreamingCsvRecordSizeError`, `StreamingCsvLimitError` | Error types raised when caps are exceeded. |
+| Types | `BatchProgress`, `BatchRowResult`, `BatchRowStatus`, `ColumnMapping`, `CsvParseOptions`, `CsvParseResult`, `Delimiter`, `ParsedRow`, `RowValidationVerdict`, `StreamingCsvInput`, `StreamingCsvOptions`, `StreamingCsvParser` |
+
+### `packages/verify-sdk` — `@opencred/verify`
+
+Public verification SDK published as a single-install facade over `@opencred/verification`. Use this in third-party verifier services that embed verification without pulling the full server or workspace deps.
+
+| Export | Purpose |
+|---|---|
+| `createVerifier(options?)` | Returns a `Verifier` function with a `.pdf(bytes)` method. Reusable across many verifications. |
+| `verifyCredential(input, options?)` | One-shot helper equivalent to `createVerifier(options)(input)`. |
+| `verifyPdf(bytes, options?)` | One-shot helper for PDF inputs. |
+| `detectFormat(input)` | Wire-format inspector (`data-integrity` / `vc-jwt` / `sd-jwt-vc` / etc.) without verifying. |
+| Re-exported types | `CredentialVerificationResult`, `VerificationCheck`, `VerificationInput`, `CredentialFormat`, `VerificationResultCode` |
+
+`VerifySdkOptions` accepts optional `dedi` config (for revocation + did:web fallback), `trustAnchors` (PEM-encoded CSCA roots for DSC chains), `didResolver` (override the default did:key / did:jwk / did:web composite), and `logger`. With zero config, the verifier handles `did:key` / `did:jwk` credentials fully offline.
 
 ## Dependency direction
 
@@ -189,6 +215,8 @@ apps/server  ─┘   verification├── packages/did ─────┤
                               packages/templates ────┴── packages/shared
                               packages/signing ───── packages/crypto + did + shared
                               packages/ca-adapter ── packages/shared
+                              packages/batch-core ── packages/shared
+                              packages/verify-sdk ── packages/verification + did + dedi-client
 ```
 
 ## See also

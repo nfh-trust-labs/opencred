@@ -11,6 +11,7 @@ import {
   verifyVcJwt,
   extractVcJwtCredentialFields,
   crossValidateVcJwtClaims,
+  decodeJwtPayloadUnsafe,
   type VcJwtPayload,
 } from "../vc-jwt.js";
 
@@ -368,12 +369,117 @@ describe("crossValidateVcJwtClaims (#156)", () => {
     expect(errors).toHaveLength(0);
   });
 
-  it("should skip validation for DM 2.0 payloads (no vc wrapper)", () => {
+  it("should pass DM 2.0 payloads (no vc wrapper) without credential fields", () => {
     const errors = crossValidateVcJwtClaims({
       iss: "did:web:example",
       jti: "urn:uuid:12345",
       sub: "did:example:holder",
     });
     expect(errors).toHaveLength(0);
+  });
+
+  it("should return error when DM 2.0 flat sub does not match credentialSubject.id", () => {
+    // Flat layout: credential fields live directly on the payload. A token
+    // pairing a trusted `sub` with a swapped credentialSubject must fail.
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      sub: "did:example:holder456",
+      credentialSubject: { id: "did:example:attacker", name: "Mallory" },
+    } as never);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("sub");
+    expect(errors[0]).toContain("credentialSubject.id");
+  });
+
+  it("should return error when DM 2.0 flat jti does not match credential id", () => {
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      jti: "urn:uuid:12345",
+      id: "urn:uuid:67890",
+    } as never);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("jti");
+  });
+
+  it("should pass DM 2.0 payloads when flat fields are consistent", () => {
+    const errors = crossValidateVcJwtClaims({
+      iss: "did:web:example",
+      jti: "urn:uuid:12345",
+      sub: "did:example:holder456",
+      id: "urn:uuid:12345",
+      credentialSubject: { id: "did:example:holder456", name: "Jane" },
+    } as never);
+    expect(errors).toHaveLength(0);
+  });
+});
+
+describe("decodeJwtPayloadUnsafe", () => {
+  // This helper is the load-bearing primitive that lets workspace
+  // packages decode JWT payloads without taking a direct `jose`
+  // dependency. The `-Unsafe` suffix is load-bearing too: the function
+  // intentionally skips signature verification, so its only safe
+  // callers are offline rendering paths that preserve the original
+  // token elsewhere (e.g. embedded in a QR for verifier-side checking).
+  // Keep these tests pinned to the contract.
+
+  function buildJwt(headerObj: object, payloadObj: object): string {
+    // Produce a 3-segment "JWT" with a fake signature segment. We never
+    // verify the signature in these tests — only payload decode.
+    const header = Buffer.from(JSON.stringify(headerObj)).toString("base64url");
+    const payload = Buffer.from(JSON.stringify(payloadObj)).toString("base64url");
+    return `${header}.${payload}.fakesig`;
+  }
+
+  it("returns the parsed payload for a well-formed JWT", () => {
+    const jwt = buildJwt({ alg: "ES256" }, { iss: "did:web:example", iat: 1700000000 });
+    const result = decodeJwtPayloadUnsafe(jwt);
+    expect(result).toEqual({ iss: "did:web:example", iat: 1700000000 });
+  });
+
+  it("preserves nested objects and arrays in the payload", () => {
+    const jwt = buildJwt(
+      { alg: "ES256" },
+      {
+        iss: "did:web:example",
+        vc: {
+          credentialSubject: { name: "Alice", roles: ["doctor", "trainer"] },
+        },
+      },
+    );
+    const result = decodeJwtPayloadUnsafe(jwt) as Record<string, unknown> & {
+      vc: { credentialSubject: { name: string; roles: string[] } };
+    };
+    expect(result.vc.credentialSubject.name).toBe("Alice");
+    expect(result.vc.credentialSubject.roles).toEqual(["doctor", "trainer"]);
+  });
+
+  it("throws on empty input", () => {
+    // jose.decodeJwt rejects empty strings before we even hit assertJwtSize;
+    // the contract is "throws Error", not a specific subclass.
+    expect(() => decodeJwtPayloadUnsafe("")).toThrow();
+  });
+
+  it("throws on a single-segment input (no dots)", () => {
+    expect(() => decodeJwtPayloadUnsafe("not-a-jwt")).toThrow();
+  });
+
+  it("throws on a two-segment input (one dot — header.payload only)", () => {
+    expect(() => decodeJwtPayloadUnsafe("eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJ4In0")).toThrow();
+  });
+
+  it("throws on oversized input via assertJwtSize", () => {
+    // MAX_JWT_BYTES is 1 MiB; a JWT > that should be rejected before
+    // jose ever sees it. Build a payload large enough to overflow.
+    const bigPayload = { iss: "did:web:example", junk: "x".repeat(2 * 1024 * 1024) };
+    const oversized = buildJwt({ alg: "ES256" }, bigPayload);
+    expect(() => decodeJwtPayloadUnsafe(oversized)).toThrow();
+  });
+
+  it("throws on a non-JSON payload segment", () => {
+    // header.<not-json>.signature — base64url decodes but JSON.parse fails
+    const headerSeg = Buffer.from(JSON.stringify({ alg: "ES256" })).toString("base64url");
+    const garbageSeg = Buffer.from("not valid json").toString("base64url");
+    const malformed = `${headerSeg}.${garbageSeg}.fakesig`;
+    expect(() => decodeJwtPayloadUnsafe(malformed)).toThrow();
   });
 });

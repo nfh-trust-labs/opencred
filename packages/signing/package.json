@@ -53,6 +53,10 @@
     "./pkcs11-loader": {
       "types": "./dist/pkcs11-loader.d.ts",
       "import": "./dist/pkcs11-loader.js"
+    },
+    "./signer-did-cache": {
+      "types": "./dist/signer-did-cache.d.ts",
+      "import": "./dist/signer-did-cache.js"
     }
   },
   "scripts": {

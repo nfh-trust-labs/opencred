@@ -189,9 +189,11 @@ export const OpenCredErrorCode = {
   SCHEMA_VALIDATION: "SCHEMA_VALIDATION_ERROR",
   DELEGATION: "DELEGATION_ERROR",
   DEDI_CLIENT: "DEDI_CLIENT_ERROR",
+  DEDI_RECORD_EXISTS: "DEDI_RECORD_EXISTS",
   SESSION_EXPIRED: "SESSION_EXPIRED",
   VERIFICATION: "VERIFICATION_ERROR",
   NOT_IMPLEMENTED: "NOT_IMPLEMENTED",
+  INVALID_JSON: "INVALID_JSON",
 } as const;
 
 export type OpenCredErrorCodeValue = (typeof OpenCredErrorCode)[keyof typeof OpenCredErrorCode];
@@ -218,9 +220,11 @@ export type OpenCredErrorKind =
   | "SchemaValidationError"
   | "DelegationError"
   | "DeDiClientError"
+  | "DeDiRecordExistsError"
   | "SessionExpiredError"
   | "VerificationError"
-  | "NotImplementedError";
+  | "NotImplementedError"
+  | "MalformedJsonError";
 
 export class OpenCredError extends Error {
   public readonly code: string;
@@ -281,6 +285,98 @@ export class ValidationError extends OpenCredError {
     super(message, "VALIDATION_ERROR", 400, { kind: "ValidationError" });
     this.name = "ValidationError";
   }
+}
+
+/**
+ * Thrown when the HTTP request body cannot be parsed as JSON (i.e.
+ * `c.req.json()` raises a SyntaxError before any route logic runs).
+ *
+ * Distinct from ValidationError because:
+ *   - The wire-level error code "INVALID_JSON" is a stable contract
+ *     consumed by the bootcamp-friendly error UX.
+ *   - It is structurally a parser failure, not a schema-shape mismatch.
+ *
+ * SECURITY: the constructor receives a message of the form
+ * "Request body is not valid JSON: <V8 parser message>". V8/JSC parser
+ * errors include a position number ("at position 47") but never echo
+ * the offending bytes — the parser's own message format is
+ * 'Expected ',' or '}' after property value in JSON at position N (line L column C)'.
+ *
+ * Why this overrides toJSON:
+ *   The base sanitizer's stack-frame stripper (`/\s*at\s+[^\n]+\([^)]*\)/g`)
+ *   greedily matches the parser's positional hint
+ *   ' at position 17 (line 1 column 18)' as if it were a V8 stack frame
+ *   `at fn (file:L:C)`, eating the developer-friendly offset. The override
+ *   builds the wire body manually, applying the path/PEM/base64 scrubbing
+ *   rules but skipping the stack-frame heuristic. PEM/path/base64
+ *   patterns are still stripped because if a future engine ever does echo
+ *   bytes, those are the leak vectors that matter.
+ */
+export class MalformedJsonError extends OpenCredError {
+  constructor(message: string) {
+    super(message, "INVALID_JSON", 400, { kind: "MalformedJsonError" });
+    this.name = "MalformedJsonError";
+  }
+
+  override toJSON(): OpenCredErrorBody {
+    return {
+      error: {
+        code: this.code,
+        message: sanitizeJsonParserMessage(this.message),
+      },
+    };
+  }
+}
+
+/**
+ * Narrow sanitization for `MalformedJsonError.message`. Preserves the
+ * V8/JSC parser's positional hint ("at position N (line L column C)")
+ * which the base `sanitizeErrorMessage` regex would otherwise strip as
+ * if it were a stack frame. Still scrubs PEM blocks, absolute paths,
+ * file:// URLs, and long base64/hex blobs — the actual leak vectors.
+ */
+function sanitizeJsonParserMessage(raw: unknown): string {
+  if (typeof raw !== "string") {
+    return "An error occurred";
+  }
+
+  let out = raw;
+
+  // PEM blocks first — they contain newlines and would interact poorly
+  // with the path regexes if processed later.
+  out = out.replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g, "[REDACTED_PEM]");
+
+  // POSIX absolute paths.
+  out = out.replace(
+    /\/(?:home|Users|tmp|var|private|opt|srv|root|etc|usr|mnt)\/[^\s:"'<>()]+/g,
+    posixBasename,
+  );
+
+  // Windows absolute paths.
+  out = out.replace(
+    /[A-Za-z]:\\(?:Users|Windows|Program Files|Program Files \(x86\)|ProgramData|Temp)\\[^\s:"'<>()]+/g,
+    windowsBasename,
+  );
+
+  // UNC paths.
+  out = out.replace(/\\\\[^\s\\"'<>()]+\\[^\s"'<>()]+/g, "[PATH]");
+
+  // file:// URLs.
+  out = out.replace(/file:\/\/[^\s"'<>()]+/g, "[FILE_URL]");
+
+  // Hex blobs (40+ chars) — fingerprints, signatures.
+  out = out.replace(/\b[0-9a-fA-F]{40,}\b/g, "[REDACTED_HEX]");
+
+  // Long base64 blobs (40+ chars) — likely key material or signatures.
+  out = out.replace(/[A-Za-z0-9+/]{40,}={0,2}/g, "[REDACTED_B64]");
+
+  out = out.replace(/\s+/g, " ").trim();
+
+  if (out.length > MAX_HTTP_MESSAGE_LENGTH) {
+    out = `${out.slice(0, MAX_HTTP_MESSAGE_LENGTH - 3)}...`;
+  }
+
+  return out.length === 0 ? "An error occurred" : out;
 }
 
 export class AuthenticationError extends OpenCredError {
@@ -367,9 +463,74 @@ export class DelegationError extends OpenCredError {
 }
 
 export class DeDiClientError extends OpenCredError {
-  constructor(message: string, statusCode: number = 502) {
+  /**
+   * The parsed JSON body of the DeDi API response (when one was present and
+   * decodable), or the raw response text. Lets callers branch on
+   * server-specific body codes — e.g. distinguish a 400 with
+   * `{ code: "NAMESPACE_EXISTS" }` from a generic 400.
+   */
+  readonly responseBody?: unknown;
+  /**
+   * Milliseconds the server asked us to wait before retrying, parsed from
+   * the `Retry-After` header of a 429 response (integer-seconds form only).
+   * `withRetry` uses it as the backoff delay for that attempt when present.
+   */
+  readonly retryAfterMs?: number;
+  constructor(
+    message: string,
+    statusCode: number = 502,
+    responseBody?: unknown,
+    retryAfterMs?: number,
+  ) {
     super(message, "DEDI_CLIENT_ERROR", statusCode, { kind: "DeDiClientError" });
     this.name = "DeDiClientError";
+    this.responseBody = responseBody;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/**
+ * Thrown by the DeDi adapter when a publish (revocation hash or DID
+ * document) is rejected because the record already exists in DeDi —
+ * i.e. the operation already succeeded in a prior call. Carries an
+ * operation-specific `hint` pointing the caller at the right
+ * "read-the-state" endpoint (e.g. `/v1/credentials/revocation-status`
+ * for revoke, `/v1/keys/resolve` for DID publish).
+ *
+ * HTTP shape: 409 with body
+ *   `{ error: { code: "DEDI_RECORD_EXISTS", message, hint, statusCode: 409 } }`
+ *
+ * Why this is distinct from `DeDiClientError`: a generic 409 from DeDi
+ * could mean other things (e.g. concurrent registry creation, future
+ * conflict semantics). This subclass exists precisely for the case
+ * where the adapter has *verified* via the response body that the
+ * cause is a duplicate record_name — turning an opaque "DEDI_CLIENT_ERROR: 409"
+ * into a specific, actionable error code for clients.
+ */
+export class DeDiRecordExistsError extends OpenCredError {
+  /** Pointer at the right "read the state" endpoint for the caller. */
+  readonly hint: string;
+  /**
+   * The raw DeDi response body (string or parsed JSON) that the adapter
+   * inspected to classify this as a duplicate. Kept for debuggability.
+   */
+  readonly responseBody?: unknown;
+  constructor(message: string, hint: string, responseBody?: unknown) {
+    super(message, "DEDI_RECORD_EXISTS", 409, { kind: "DeDiRecordExistsError" });
+    this.name = "DeDiRecordExistsError";
+    this.hint = hint;
+    this.responseBody = responseBody;
+  }
+
+  override toJSON(): OpenCredErrorBody {
+    const base = super.toJSON();
+    return {
+      error: {
+        ...base.error,
+        hint: this.hint,
+        statusCode: 409,
+      },
+    };
   }
 }
 
@@ -415,4 +576,5 @@ export type AnyOpenCredError =
   | DeDiClientError
   | SessionExpiredError
   | VerificationError
-  | NotImplementedError;
+  | NotImplementedError
+  | MalformedJsonError;

@@ -2,9 +2,21 @@ import { VerificationError, assertJwtSize } from "@opencred/shared";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import { verifyDataIntegrity } from "./data-integrity.js";
 import { verifyJwsProof } from "./jws-proof.js";
-import { verifyVcJwt, extractVcJwtCredentialFields, crossValidateVcJwtClaims } from "./vc-jwt.js";
+import {
+  verifyVcJwt,
+  extractVcJwtCredentialFields,
+  crossValidateVcJwtClaims,
+  isJwsEnvelope,
+  checkJwsEnvelopeConsistency,
+} from "./vc-jwt.js";
 import { verifySdJwtVc, extractSdJwtVcCredentialFields } from "./sd-jwt-vc.js";
-import { checkDates, checkRevocation, checkBitstringStatusList } from "./checks.js";
+import {
+  checkDates,
+  checkRevocation,
+  checkBitstringStatusList,
+  checkKeyStatus,
+  checkRegistryAnchor,
+} from "./checks.js";
 import { checkX509Chain } from "./x509-chain-check.js";
 import type {
   CredentialFormat,
@@ -80,6 +92,24 @@ export async function verifyCredential(
   input: VerificationInput,
   config: VerifierConfig = {},
 ): Promise<CredentialVerificationResult> {
+  // VC-JWT envelope: the canonical issuance output for `proofFormat:
+  // "vc-jwt"` is a JSON-LD credential wrapping its compact token as
+  // `proof: { type: "JsonWebSignature2020", jwt }` — this is what PDF
+  // info-dicts, PixelPass QRs, and JSON exports carry. Only the inner JWT
+  // is signed, so: (1) cross-validate the outer JSON against the signed
+  // payload (a tampered display copy must not verify), then (2) run the
+  // inner token through the standard VC-JWT pipeline below.
+  if (isJwsEnvelope(input)) {
+    const envelope = input as Record<string, unknown>;
+    const jwt = (envelope["proof"] as { jwt: string }).jwt;
+    const envelopeCheck = checkJwsEnvelopeConsistency(envelope, jwt);
+    if (!envelopeCheck.passed) {
+      return { code: "INVALID", verified: false, checks: [envelopeCheck] };
+    }
+    const inner = await verifyCredential(jwt, config);
+    return { ...inner, checks: [envelopeCheck, ...inner.checks] };
+  }
+
   const format = detectFormat(input);
   const checks: VerificationCheck[] = [];
 
@@ -131,11 +161,12 @@ export async function verifyCredential(
       return buildResult(checks, check);
     }
 
-    // VC-JOSE-COSE §3.3.1 / §3.3.2 — `jti` MUST equal `vc.id` and `sub`
-    // MUST equal `vc.credentialSubject.id` when the envelope uses the
-    // DM 1.1 nested layout. Signature verification alone does not enforce
-    // this, so a malicious issuer could reuse a valid envelope signature
-    // around a swapped inner `vc` object unless we cross-validate.
+    // VC-JOSE-COSE §3.3.1 / §3.3.2 — `jti` MUST equal the credential `id`
+    // and `sub` MUST equal `credentialSubject.id`, for both the DM 1.1
+    // nested (`vc`) layout and the DM 2.0 flat layout. Signature
+    // verification alone does not enforce this, so a malicious issuer
+    // could reuse a valid envelope signature around swapped credential
+    // fields unless we cross-validate.
     const crossErrors = crossValidateVcJwtClaims(payload);
     if (crossErrors.length > 0) {
       const crossCheck: VerificationCheck = {
@@ -189,7 +220,11 @@ export async function verifyCredential(
     };
   }
 
-  // Revocation checks
+  // Revocation checks.
+  //
+  // We deliberately removed `checkIssuerAttribution` — the bare issuer DID
+  // (a string visible elsewhere in the verifier UI) is sufficient as
+  // identity; no separate advisory check is needed.
   if (config.dediClient && credentialForRevocationHash) {
     const revocationCheck = await checkRevocation(credentialForRevocationHash, config.dediClient);
     checks.push(revocationCheck);
@@ -199,6 +234,49 @@ export async function verifyCredential(
       }
       return { code: "UNRESOLVABLE", verified: false, checks };
     }
+  } else if (credentialStatus != null) {
+    // The issuer explicitly committed to a revocation registry
+    // (credentialStatus is present) but this verifier has no DeDi client —
+    // a revoked credential would verify as VALID here. Surface the skip as
+    // a non-failing check row so operators and UIs can see the gap instead
+    // of mistaking "not checked" for "checked and clean".
+    checks.push({
+      name: "revocation",
+      passed: true,
+      detail:
+        "Credential declares credentialStatus but no DeDi registry is configured — " +
+        "revocation was NOT checked. Configure `dedi` to enforce revocation.",
+    });
+  }
+
+  // Key-status check (per-key registry; all DID methods).
+  //
+  // Looks up the signing key's status (`active` / `rotated` / `revoked`) in
+  // the `opencred-key-registry`. A `revoked` key is fail-closed → top-level
+  // `REVOKED`: a revoked key may be compromised, so no signature it produced
+  // can be trusted. `active`/`rotated` pass (a clean rotation leaves old
+  // credentials valid). The check degrades to a non-failing "not checked"
+  // when the namespace can't be determined or DeDi is unreachable — see
+  // `checkKeyStatus`.
+  if (credentialForRevocationHash && config.dediClient) {
+    const keyStatusCheck = await checkKeyStatus(credentialForRevocationHash, config.dediClient);
+    checks.push(keyStatusCheck);
+    if (!keyStatusCheck.passed) {
+      return { code: "REVOKED", verified: false, checks };
+    }
+  }
+
+  // Registry-anchor check (all DID methods, advisory).
+  //
+  // Surfaces the CORD-blockchain proof block DeDi attaches to record
+  // lookup responses so verifier UIs can show "anchored on CORD by X"
+  // provenance. Advisory: does not flip the headline `verified` boolean.
+  // Anchor mismatches or missing proofs are surfaced as info rather than
+  // rejection — the underlying VC signature is the authority on crypto
+  // validity. On-chain CORD lookup is a follow-up.
+  if (credentialForRevocationHash && config.dediClient) {
+    const anchorCheck = await checkRegistryAnchor(credentialForRevocationHash, config.dediClient);
+    checks.push(anchorCheck);
   }
 
   // BitstringStatusList check

@@ -238,9 +238,9 @@ describe("loadSigningKey() boot path", () => {
     // PEM block, JWK private parameter, or hex-encoded raw key.
     const res = await app.request("/v1/keys");
     const text = await res.text();
-    expect(text).not.toContain("BEGIN");
-    expect(text).not.toContain("END");
-    expect(text).not.toContain("PRIVATE");
+    expect(text).not.toContain("-----BEGIN");
+    expect(text).not.toContain("-----END");
+    expect(text).not.toMatch(/PRIVATE\s+KEY/i);
     expect(text).not.toMatch(/"d"\s*:/);
 
     // Cleanup
@@ -285,6 +285,225 @@ describe("POST /v1/credentials/verify", () => {
     expect(result.checks).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: "signature", passed: true })]),
     );
+  });
+
+  // ----- PDF-as-input branch ------------------------------------------ //
+  // Round-trip: issue with `packageFormats: ["pdf"]`, take the produced
+  // PDF bytes, post them straight back to /v1/credentials/verify with
+  // Content-Type: application/pdf, expect VALID. The point is to pin the
+  // contract between the issuance side (which writes the embedded
+  // `OpenCredCredential` info-dict key) and the verification side (which
+  // reads it). Breaks if either end stops honoring the key.
+  it("verifies a PDF certificate posted with Content-Type: application/pdf", async () => {
+    const issueRes = await app.request("/v1/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        schemaId: "functional-identity/v1",
+        issuerDid: testKey.signer.id.split("#")[0],
+        credentialSubject: EDUCATION_SUBJECT,
+        validFrom: "2025-06-15T00:00:00Z",
+        proofFormat: "data-integrity",
+        packageFormats: ["pdf"],
+      }),
+    });
+    expect(issueRes.status).toBe(200);
+    const issued = (await issueRes.json()) as {
+      packagedOutputs?: Array<{ format: string; data: string; encoding: string }>;
+    };
+    const pdfOutput = issued.packagedOutputs?.find((o) => o.format === "pdf");
+    expect(pdfOutput, "issue response did not include a packaged PDF").toBeDefined();
+    expect(pdfOutput!.encoding).toBe("base64");
+    const pdfBytes = Buffer.from(pdfOutput!.data, "base64");
+    expect(pdfBytes.subarray(0, 5).toString("ascii")).toBe("%PDF-");
+
+    const verifyRes = await app.request("/v1/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/pdf" },
+      body: pdfBytes,
+    });
+
+    expect(verifyRes.status).toBe(200);
+    const result = (await verifyRes.json()) as Record<string, unknown>;
+    expect(result.valid).toBe(true);
+    expect(result.code).toBe("VALID");
+  });
+
+  it("returns valid=false with a structured check for a PDF without an embedded credential", async () => {
+    // A PDF that's syntactically valid but carries no `OpenCredCredential`
+    // info-dict key — the legacy / non-OpenCred case. The route must
+    // surface this as a clean 200 INVALID with the
+    // `pdf-embedded-credential` check failed, not a 500 or generic error.
+    // Built with pdfkit (already a dep here) rather than pulling pdf-lib
+    // into apps/server just for this fixture.
+    const { default: PDFDocument } = await import("pdfkit");
+    const blankBytes: Buffer = await new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: "A4" });
+      const chunks: Buffer[] = [];
+      doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+      doc.text("a plain pdf, not produced by OpenCred");
+      doc.end();
+    });
+
+    const verifyRes = await app.request("/v1/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/pdf" },
+      body: blankBytes,
+    });
+
+    expect(verifyRes.status).toBe(200);
+    const result = (await verifyRes.json()) as {
+      valid: boolean;
+      code: string;
+      checks: Array<{ name: string; passed: boolean }>;
+    };
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe("INVALID");
+    expect(result.checks.some((c) => c.name === "pdf-embedded-credential" && !c.passed)).toBe(true);
+  });
+
+  it("verifies a PDF that wraps an sd-jwt-vc compact token", async () => {
+    // Round-trip parity check for the compact-token path of the issuance
+    // PDF generator. The server's pdf-generator embeds either the
+    // PixelPass-compressed VC (data-integrity) or the raw compact token
+    // (vc-jwt / sd-jwt-vc) under the `OpenCredCredential` info-dict key.
+    // The format dispatcher in `verifyPdf` routes these through
+    // `detectCredentialInputFormat`'s `jwt-compact` branch — this test
+    // pins that path end-to-end so a regression in the detection rules
+    // or the embedding switch in `pdf-generator.ts` is caught.
+    const issueRes = await app.request("/v1/credentials/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        schemaId: "functional-identity/v1",
+        issuerDid: testKey.signer.id.split("#")[0],
+        credentialSubject: EDUCATION_SUBJECT,
+        validFrom: "2025-06-15T00:00:00Z",
+        proofFormat: "sd-jwt-vc",
+        selectiveDisclosureClaims: ["/credentialSubject/role"],
+        packageFormats: ["pdf"],
+      }),
+    });
+    expect(issueRes.status).toBe(200);
+    const issued = (await issueRes.json()) as {
+      packagedOutputs?: Array<{ format: string; data: string; encoding: string }>;
+    };
+    const pdfOutput = issued.packagedOutputs?.find((o) => o.format === "pdf");
+    expect(pdfOutput, "sd-jwt-vc issue did not include a packaged PDF").toBeDefined();
+    const pdfBytes = Buffer.from(pdfOutput!.data, "base64");
+
+    const verifyRes = await app.request("/v1/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/pdf" },
+      body: pdfBytes,
+    });
+
+    expect(verifyRes.status).toBe(200);
+    const result = (await verifyRes.json()) as Record<string, unknown>;
+    expect(result.valid).toBe(true);
+    expect(result.code).toBe("VALID");
+  });
+
+  it("falls back to DeDi for did:web resolution when the canonical HTTPS endpoint is unreachable", async () => {
+    // End-to-end pin of the #527 contract: a credential whose issuer is a
+    // did:web at a deliberately bad domain still verifies VALID when DeDi
+    // has the matching DID document. The HTTPS resolution path will fail
+    // DNS lookup on a `.invalid` host (RFC 2606), so the DIDWebResolver's
+    // fallback is the only way the verify can succeed — proving the verify
+    // route correctly threads `createDeDiDIDWebFallback` into the resolver
+    // when `getDeDiClient()` is non-null.
+    const { generateKeyPairSync } = await import("node:crypto");
+    const { signCredential } = await import("@opencred/crypto");
+    const { setDeDiClient, resetDeDiClient } = await import("../dedi-singleton.js");
+
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const did = "did:web:nonexistent-host-for-smoke-test-12345.invalid";
+    const vmId = `${did}#key-0`;
+    const publicJwk = publicKey.export({ format: "jwk" }) as Record<string, unknown>;
+
+    const didDocument = {
+      "@context": ["https://www.w3.org/ns/did/v1"],
+      id: did,
+      verificationMethod: [
+        {
+          id: vmId,
+          type: "JsonWebKey",
+          controller: did,
+          publicKeyJwk: publicJwk,
+        },
+      ],
+      assertionMethod: [vmId],
+    };
+
+    const unsigned = {
+      "@context": ["https://www.w3.org/ns/credentials/v2"],
+      id: "urn:uuid:dedi-fallback-smoke-test",
+      type: ["VerifiableCredential"],
+      issuer: did,
+      validFrom: "2026-01-01T00:00:00Z",
+      credentialSubject: { id: "did:example:holder", name: "Smoke Test Subject" },
+    };
+    const signedVC = await signCredential(
+      unsigned,
+      { id: vmId, privateKey, publicKey, algorithm: "P-256" },
+      { verificationMethod: vmId, proofPurpose: "assertionMethod" },
+    );
+
+    // Stub DeDi client: `resolveDidWebDocument` powers the fallback we're
+    // testing. It projects the did.json from the per-key registry snapshots and
+    // returns the document directly (or null) — there is no separate
+    // did-documents registry. `queryRevocationHash` is also stubbed because the
+    // verifier runs a revocation check whenever DeDi is configured — without it
+    // the overall result code becomes UNRESOLVABLE even though the signature
+    // verifies. The "not revoked" branch is the realistic happy path
+    // (record absent → credential not in the revocation registry).
+    let resolveDidCalls = 0;
+    const stubDeDiClient = {
+      resolveDidWebDocument: async (inputDid: string) => {
+        resolveDidCalls += 1;
+        if (inputDid !== did) {
+          return null;
+        }
+        return didDocument;
+      },
+      queryRevocationHash: async () => ({ revoked: false as const }),
+    } as unknown as Parameters<typeof setDeDiClient>[0];
+
+    try {
+      setDeDiClient(stubDeDiClient);
+
+      const verifyRes = await app.request("/v1/credentials/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential: JSON.stringify(signedVC) }),
+      });
+
+      expect(verifyRes.status).toBe(200);
+      const result = (await verifyRes.json()) as Record<string, unknown>;
+      expect(result.valid).toBe(true);
+      expect(result.code).toBe("VALID");
+      // Pin that the fallback actually got called — without this, an
+      // accidental change that wires `new DIDWebResolver()` (no fallback)
+      // would still pass the test for the wrong reason (DNS failure
+      // dropped, document magically resolved somehow).
+      expect(resolveDidCalls).toBeGreaterThanOrEqual(1);
+    } finally {
+      resetDeDiClient();
+    }
+  });
+
+  it("returns 400 BAD_REQUEST when application/pdf body is not actually a PDF", async () => {
+    const verifyRes = await app.request("/v1/credentials/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/pdf" },
+      body: Buffer.from("not a pdf at all"),
+    });
+
+    expect(verifyRes.status).toBe(400);
+    const body = (await verifyRes.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("BAD_REQUEST");
   });
 
   it("returns valid=false for a tampered credential", async () => {

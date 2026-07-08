@@ -17,6 +17,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card } from "./ui/Card";
 import { Button } from "./ui/Button";
 import { KeyManagement } from "./KeyManagement";
+import { DeDiKeyActions } from "./DeDiKeyActions";
 import { BrandingSettings } from "./BrandingSettings";
 import { BugReportDialog } from "./BugReportDialog";
 import type { UpdateStatusResponse, DeDiStatusResponse } from "../../shared/ipc-types";
@@ -50,8 +51,8 @@ function StatusRow({
         <span
           className={`h-2 w-2 rounded-full flex-shrink-0 ${active ? "bg-green-500" : "bg-gray-300"}`}
         />
-        <span className="text-xs font-medium text-gray-700">{label}</span>
-        <span className="text-xs text-gray-400">{description}</span>
+        <span className="text-xs font-medium text-txt-secondary">{label}</span>
+        <span className="text-xs text-txt-muted">{description}</span>
       </div>
       {action && onAction && (
         <button
@@ -63,7 +64,7 @@ function StatusRow({
         </button>
       )}
       {!action && (
-        <span className={`text-xs font-medium ${active ? "text-green-600" : "text-gray-400"}`}>
+        <span className={`text-xs font-medium ${active ? "text-state-success" : "text-txt-muted"}`}>
           {active ? "Live" : "Inactive"}
         </span>
       )}
@@ -84,14 +85,45 @@ function DeDiCard() {
     type: "success" | "error";
     message: string;
   } | null>(null);
+  // Active signing key + issuer DID, needed to surface per-key Revoke/Rotate
+  // actions. Resolved best-effort whenever DeDi is configured and a namespace
+  // is set; null until both a key and a did:web DID are available.
+  const [activeKeyInfo, setActiveKeyInfo] = useState<{ keyId: string; did: string } | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
       const s = await window.opencred.dediGetStatus();
       setStatus(s);
       if (s.configured && s.namespace) setNamespace(s.namespace);
+
+      // Resolve the active key id + issuer DID for the per-key actions.
+      // Mirrors handlePublishDID: first key is the active signer, the DID is
+      // derived from the configured namespace (domain) via exportDidDocument.
+      if (s.configured && s.namespace) {
+        try {
+          const { keys } = await window.opencred.listKeys();
+          if (keys.length > 0) {
+            const exportResult = await window.opencred.exportDidDocument({
+              keyId: keys[0].id,
+              domain: s.namespace,
+            });
+            if (exportResult.success && exportResult.did) {
+              setActiveKeyInfo({ keyId: keys[0].id, did: exportResult.did });
+            } else {
+              setActiveKeyInfo(null);
+            }
+          } else {
+            setActiveKeyInfo(null);
+          }
+        } catch {
+          setActiveKeyInfo(null);
+        }
+      } else {
+        setActiveKeyInfo(null);
+      }
     } catch {
       setStatus({ configured: false, registriesReady: false, publishedSchemas: [] });
+      setActiveKeyInfo(null);
     }
   }, []);
 
@@ -191,16 +223,30 @@ function DeDiCard() {
         return;
       }
 
-      const pubResult = await window.opencred.dediPublishDID({
+      const pubResult = await window.opencred.dediPublishKey({
+        signerKeyId: activeKey.id,
         did: exportResult.did,
         document: JSON.parse(exportResult.didDocument),
+        hostDidDocument: true,
       });
 
-      setActionResult(
-        pubResult.success
-          ? { type: "success", message: "DID published successfully." }
-          : { type: "error", message: pubResult.error ?? "Failed to publish DID." },
-      );
+      // Partial success: the key record is in DeDi's registry, but the
+      // hosted did.json refresh failed — verifiers resolving via DeDi
+      // would see a stale key set until the publish is retried.
+      if (pubResult.success && pubResult.didDocumentStored === false) {
+        setActionResult({
+          type: "error",
+          message:
+            "Key published, but storing the hosted did.json failed. " +
+            "Verifiers may see a stale key set — retry publishing.",
+        });
+      } else {
+        setActionResult(
+          pubResult.success
+            ? { type: "success", message: "Key published successfully." }
+            : { type: "error", message: pubResult.error ?? "Failed to publish key." },
+        );
+      }
     } catch (err) {
       setActionResult({
         type: "error",
@@ -236,14 +282,14 @@ function DeDiCard() {
   return (
     <Card className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-gray-700">DeDi Integration</h2>
+        <h2 className="text-sm font-medium text-txt-secondary">DeDi Integration</h2>
         {isConfigured ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-state-success">
             <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
             Connected
           </span>
         ) : (
-          <span className="text-xs text-gray-400">Not configured</span>
+          <span className="text-xs text-txt-muted">Not configured</span>
         )}
       </div>
 
@@ -252,8 +298,8 @@ function DeDiCard() {
         <div
           className={`rounded-md px-3 py-2 text-xs ${
             actionResult.type === "success"
-              ? "bg-green-50 text-green-700 border border-green-200"
-              : "bg-red-50 text-red-700 border border-red-200"
+              ? "bg-state-success-bg text-state-success border border-state-success-border"
+              : "bg-state-danger-bg text-state-danger border border-state-danger-border"
           }`}
         >
           {actionResult.message}
@@ -263,7 +309,7 @@ function DeDiCard() {
       {/* Not configured — idle */}
       {!isConfigured && state === "idle" && (
         <>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-txt-muted">
             Connect to DeDi to publish your DID, schemas, and revocation lists.
           </p>
           <Button
@@ -280,12 +326,12 @@ function DeDiCard() {
       {/* Configured — idle */}
       {isConfigured && state === "idle" && (
         <>
-          <div className="text-xs text-gray-500 mb-1">
-            Namespace: <span className="font-medium text-gray-700">{status.namespace}</span>
+          <div className="text-xs text-txt-muted mb-1">
+            Namespace: <span className="font-medium text-txt-secondary">{status.namespace}</span>
           </div>
 
           {/* Status indicators */}
-          <div className="rounded-md border border-gray-200 divide-y divide-gray-100">
+          <div className="rounded-md border border-border-light divide-y divide-gray-100">
             <StatusRow
               label="Registries"
               active={status.registriesReady}
@@ -317,6 +363,12 @@ function DeDiCard() {
             />
           </div>
 
+          {/* Per-key Revoke / Rotate — only when DeDi is configured and the
+              active signing key + issuer DID are resolvable. */}
+          {activeKeyInfo && (
+            <DeDiKeyActions did={activeKeyInfo.did} signerKeyId={activeKeyInfo.keyId} />
+          )}
+
           <div className="flex gap-2 pt-1">
             <Button
               onClick={() => {
@@ -330,7 +382,7 @@ function DeDiCard() {
             </Button>
             <button
               onClick={() => void handleDisconnect()}
-              className="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-state-danger border border-state-danger-border rounded hover:bg-state-danger-bg transition-colors"
             >
               Disconnect
             </button>
@@ -342,7 +394,7 @@ function DeDiCard() {
       {(state === "form" || state === "saving") && (
         <div className="space-y-3 pt-1">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Namespace</label>
+            <label className="block text-xs font-medium text-txt-secondary mb-1">Namespace</label>
             <input
               type="text"
               value={namespace}
@@ -352,11 +404,11 @@ function DeDiCard() {
               }}
               placeholder="your-domain.example"
               disabled={state === "saving"}
-              className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-50"
+              className="w-full rounded border border-border px-3 py-2 text-sm text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">API Key</label>
+            <label className="block text-xs font-medium text-txt-secondary mb-1">API Key</label>
             <input
               type="password"
               value={apiKey}
@@ -366,11 +418,11 @@ function DeDiCard() {
               }}
               placeholder="Enter your DeDi API key"
               disabled={state === "saving"}
-              className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-50"
+              className="w-full rounded border border-border px-3 py-2 text-sm text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-50"
             />
           </div>
 
-          {error && <p className="text-xs text-red-600">{error}</p>}
+          {error && <p className="text-xs text-state-danger">{error}</p>}
 
           <div className="flex gap-2">
             <Button onClick={() => void handleSave()} disabled={state === "saving"}>
@@ -395,7 +447,7 @@ function DeDiCard() {
       {state === "publishing" && (
         <div className="flex items-center gap-2">
           <div className="h-3 w-3 border-2 border-brand-blue border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs text-gray-500">Publishing DID...</span>
+          <span className="text-xs text-txt-muted">Publishing DID...</span>
         </div>
       )}
     </Card>
@@ -445,8 +497,8 @@ function UpdateCard() {
   if (isDev) {
     return (
       <Card className="space-y-2">
-        <h2 className="text-sm font-medium text-gray-700">Software Updates</h2>
-        <p className="text-xs text-gray-500">Auto-update is not available in development mode.</p>
+        <h2 className="text-sm font-medium text-txt-secondary">Software Updates</h2>
+        <p className="text-xs text-txt-muted">Auto-update is not available in development mode.</p>
       </Card>
     );
   }
@@ -460,12 +512,12 @@ function UpdateCard() {
 
   return (
     <Card className="space-y-3">
-      <h2 className="text-sm font-medium text-gray-700">Software Updates</h2>
+      <h2 className="text-sm font-medium text-txt-secondary">Software Updates</h2>
 
       {/* Error state */}
       {status.error && (
         <div className="flex items-center justify-between">
-          <p className="text-xs text-red-600">{status.error}</p>
+          <p className="text-xs text-state-danger">{status.error}</p>
           <button
             onClick={handleCheck}
             className="text-xs font-medium text-brand-blue hover:underline"
@@ -478,11 +530,11 @@ function UpdateCard() {
       {/* Downloaded — ready to install */}
       {status.downloaded && (
         <div className="space-y-2">
-          <p className="text-xs text-green-700">
+          <p className="text-xs text-state-success">
             Version {status.version} downloaded. Restart to apply.
           </p>
           {status.releaseNotes && (
-            <p className="text-xs text-gray-500 line-clamp-3">{status.releaseNotes}</p>
+            <p className="text-xs text-txt-muted line-clamp-3">{status.releaseNotes}</p>
           )}
           <button
             onClick={handleInstall}
@@ -496,7 +548,7 @@ function UpdateCard() {
       {/* Downloading — progress bar */}
       {status.downloading && !status.downloaded && (
         <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs text-gray-600">
+          <div className="flex items-center justify-between text-xs text-txt-secondary">
             <span>Downloading {status.version}...</span>
             {status.progress && (
               <span>
@@ -517,9 +569,9 @@ function UpdateCard() {
       {/* Available — offer download */}
       {status.available && !status.downloading && !status.downloaded && !status.error && (
         <div className="space-y-2">
-          <p className="text-xs text-gray-700">Version {status.version} is available.</p>
+          <p className="text-xs text-txt-secondary">Version {status.version} is available.</p>
           {status.releaseNotes && (
-            <p className="text-xs text-gray-500 line-clamp-3">{status.releaseNotes}</p>
+            <p className="text-xs text-txt-muted line-clamp-3">{status.releaseNotes}</p>
           )}
           <button
             onClick={handleDownload}
@@ -534,7 +586,7 @@ function UpdateCard() {
       {status.checking && (
         <div className="flex items-center gap-2">
           <div className="h-3 w-3 border-2 border-brand-blue border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs text-gray-500">Checking for updates...</span>
+          <span className="text-xs text-txt-muted">Checking for updates...</span>
         </div>
       )}
 
@@ -545,7 +597,7 @@ function UpdateCard() {
         !status.downloaded &&
         !status.error && (
           <div className="flex items-center justify-between">
-            <p className="text-xs text-gray-500">Running latest version.</p>
+            <p className="text-xs text-txt-muted">Running latest version.</p>
             <button
               onClick={handleCheck}
               className="text-xs font-medium text-brand-blue hover:underline"
@@ -659,8 +711,8 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
     <div className="space-y-6">
       {/* Organization name */}
       <Card className="space-y-3">
-        <h2 className="text-sm font-medium text-gray-700">Your Organization</h2>
-        <p className="text-xs text-gray-500 -mt-1">This name appears on credentials you issue.</p>
+        <h2 className="text-sm font-medium text-txt-secondary">Your Organization</h2>
+        <p className="text-xs text-txt-muted -mt-1">This name appears on credentials you issue.</p>
         <div className="flex items-center gap-2">
           <input
             type="text"
@@ -670,13 +722,13 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
               setOrgNameSaved(false);
             }}
             placeholder="e.g. Ministry of Agriculture, Govt of India"
-            className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue"
+            className="flex-1 rounded border border-border px-3 py-2 text-sm text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue"
           />
           <Button onClick={() => void handleSaveOrgName()} disabled={orgNameSaving} size="sm">
             {orgNameSaving ? "Saving..." : "Save"}
           </Button>
           {orgNameSaved && (
-            <span className="flex items-center gap-1 text-xs text-green-600">
+            <span className="flex items-center gap-1 text-xs text-state-success">
               <svg
                 width="14"
                 height="14"
@@ -698,7 +750,7 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
 
       {/* Key rotation warning */}
       {rotationInfo.overdue && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+        <div className="flex items-center justify-between rounded-lg border border-amber-300 bg-state-warning-bg px-4 py-3">
           <div className="flex items-center gap-3">
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-200">
               <svg
@@ -716,7 +768,7 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
                 />
               </svg>
             </span>
-            <p className="text-sm text-amber-800">
+            <p className="text-sm text-state-warning">
               Your signing key is <strong>{rotationInfo.ageDays} days</strong> old. Consider
               rotating for security best practices.
             </p>
@@ -724,7 +776,7 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
           <div className="flex items-center gap-2">
             <button
               onClick={() => void handleDismissRotation()}
-              className="text-xs font-medium text-amber-700 hover:text-amber-900 px-2 py-1"
+              className="text-xs font-medium text-state-warning hover:text-amber-900 px-2 py-1"
             >
               Dismiss
             </button>
@@ -753,19 +805,19 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
 
       {/* 4. Network status */}
       <Card className="space-y-2">
-        <h2 className="text-sm font-medium text-gray-700">Network Status</h2>
-        <p className="text-xs text-gray-400 -mt-1">
+        <h2 className="text-sm font-medium text-txt-secondary">Network Status</h2>
+        <p className="text-xs text-txt-muted -mt-1">
           Check your connectivity for online features like revocation and DeDi sync.
         </p>
         <div className="flex items-center gap-2">
           <span
             className={`h-2.5 w-2.5 rounded-full ${isOffline ? "bg-amber-500" : "bg-green-500"}`}
           />
-          <span className={`text-sm ${isOffline ? "text-amber-700" : "text-green-700"}`}>
+          <span className={`text-sm ${isOffline ? "text-state-warning" : "text-state-success"}`}>
             {isOffline ? "Offline" : "Online"}
           </span>
         </div>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-txt-muted">
           {isOffline
             ? "You are offline. Credential issuance and signature verification still work. Revocation checks require a network connection."
             : "Connected. All features are available."}
@@ -774,13 +826,13 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
 
       {/* 5. Help & Support */}
       <Card className="space-y-2">
-        <h2 className="text-sm font-medium text-gray-700">Help & Support</h2>
-        <p className="text-xs text-gray-500">
+        <h2 className="text-sm font-medium text-txt-secondary">Help & Support</h2>
+        <p className="text-xs text-txt-muted">
           Encountered an issue? Generate a bug report with system info and recent logs.
         </p>
         <button
           onClick={() => setBugReportOpen(true)}
-          className="px-3 py-1.5 text-xs font-medium text-txt-primary bg-surface-card border border-border-default rounded hover:bg-gray-100 transition-colors"
+          className="px-3 py-1.5 text-xs font-medium text-txt-primary bg-surface-card border border-border-default rounded hover:bg-surface-warm transition-colors"
         >
           Report Bug
         </button>
@@ -788,10 +840,10 @@ export function SettingsPage({ onRotationDismissed }: SettingsPageProps) {
 
       {/* 6. About */}
       <Card className="space-y-1">
-        <h2 className="text-sm font-medium text-gray-700">About</h2>
-        <p className="text-xs text-gray-400">Version and security info for this installation.</p>
-        <p className="text-xs text-gray-500">OpenCred Desktop v0.1.0</p>
-        <p className="text-xs text-gray-400">
+        <h2 className="text-sm font-medium text-txt-secondary">About</h2>
+        <p className="text-xs text-txt-muted">Version and security info for this installation.</p>
+        <p className="text-xs text-txt-muted">OpenCred Desktop v0.1.0</p>
+        <p className="text-xs text-txt-muted">
           All signing happens locally. Private keys never leave this machine.
         </p>
       </Card>

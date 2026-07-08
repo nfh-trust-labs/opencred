@@ -14,6 +14,15 @@ export {
 // Re-export detectKeyAlgorithm from its canonical home in @opencred/crypto
 export { detectKeyAlgorithm } from "@opencred/crypto";
 
+// In-process DID document cache for active signers (scale Tier 1 #3 — #571).
+export {
+  getCachedSignerDidDocument,
+  signerDidDocumentCacheSize,
+  signerDidDocumentCacheMaxSize,
+  resetSignerDidDocumentCache,
+  resolveSignerDidCacheMaxSize,
+} from "./signer-did-cache.js";
+
 // PFX parser
 export type { PfxContents } from "./pfx-parser.js";
 export { parsePfx } from "./pfx-parser.js";

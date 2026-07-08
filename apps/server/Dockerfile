@@ -8,11 +8,25 @@
 # Build from the repo root:
 #   docker build -f apps/server/Dockerfile -t opencred/server:dev .
 #
-# Run:
+# Run (server — API):
 #   docker run --rm -p 3100:3100 \
 #     -e OPENCRED_KEY_PATH=/run/secrets/issuer.pem \
 #     -v /local/path/issuer.pem:/run/secrets/issuer.pem:ro \
 #     opencred/server:dev
+#
+# Run (worker — batch + webhook consumer, Tier 3 #8 of #446):
+#   docker run --rm \
+#     -e OPENCRED_BATCH_DISPATCH=queue \
+#     -e OPENCRED_JOB_STORE=redis \
+#     -e OPENCRED_REDIS_URL=redis://redis:6379 \
+#     -e OPENCRED_KEY_PATH=/run/secrets/issuer.pem \
+#     -v /local/path/issuer.pem:/run/secrets/issuer.pem:ro \
+#     opencred/server:dev \
+#     node apps/server/dist/worker.js
+#
+# The worker uses the SAME image as the server — only the entry point
+# differs. Workers load the same signing key as the API (CLAUDE.md
+# rule 1: keys never travel through the queue).
 #
 # REQUIRED ENV VARS
 #   OPENCRED_KEY_PATH        Absolute path inside the container to a PEM/JWK/
@@ -57,7 +71,7 @@
 # -----------------------------------------------------------------------------
 # Pin base image digest for reproducible builds.
 # Periodically update: docker pull node:20-alpine && docker inspect --format='{{index .RepoDigests 0}}' node:20-alpine
-FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS builder
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder
 
 # Upgrade Alpine base packages to pick up security fixes (e.g. libcrypto3,
 # libssl3, zlib). This keeps the pinned digest for reproducibility while still
@@ -88,6 +102,7 @@ COPY packages/ca-adapter/package.json packages/ca-adapter/package.json
 COPY packages/crypto/package.json packages/crypto/package.json
 COPY packages/dedi-client/package.json packages/dedi-client/package.json
 COPY packages/did/package.json packages/did/package.json
+COPY packages/packaging/package.json packages/packaging/package.json
 COPY packages/schema-engine/package.json packages/schema-engine/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/signing/package.json packages/signing/package.json
@@ -112,14 +127,40 @@ RUN pnpm --filter @opencred/server... build
 # pnpm 10 removed the `prune` command — re-install with --prod instead.
 RUN pnpm install --prod --filter @opencred/server...
 
+# Purge dev/build tooling that `install --prod` leaves behind in the
+# content-addressed .pnpm store. After --prod the dependency tree no longer
+# symlinks to these packages, but pnpm does not garbage-collect the now-orphaned
+# directories, so they ship in the runtime image. `pnpm why <pkg> --prod` shows
+# NO production path to any of them (they are reachable only via `vitest` in
+# workspace devDependencies), so the runtime never loads them — yet Trivy scans
+# their package.json + prebuilt binaries and trips on every esbuild Go-stdlib
+# and vitest disclosure, forcing an ever-growing .trivyignore. Delete the
+# orphans so the production image ships production code only. See #638.
+RUN find /build/node_modules/.pnpm -maxdepth 1 -type d \( \
+        -name 'esbuild@*'    -o -name '@esbuild+*' \
+     -o -name 'vitest@*'     -o -name '@vitest+*' \
+     -o -name 'vite@*'       -o -name 'vite-node@*' \
+     -o -name 'rollup@*'     -o -name '@rollup+*' \
+     -o -name 'tsx@*' \
+    \) -prune -exec rm -rf {} + \
+ && echo "Pruned dev/build tooling (esbuild, vitest, vite, rollup, tsx) from the production .pnpm store."
+
 # -----------------------------------------------------------------------------
 # Stage 2: runtime — minimal image with only production artifacts
 # -----------------------------------------------------------------------------
-FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS runtime
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS runtime
 
 # Upgrade Alpine base packages to pick up security fixes (e.g. libcrypto3,
 # libssl3, zlib). Must run before switching to the non-root node user.
-RUN apk upgrade --no-cache
+#
+# Also delete the npm CLI that ships bundled in node:20-alpine. The runtime
+# entrypoint is `node apps/server/dist/index.js` — it never invokes npm — but
+# npm bundles its own vendored deps (e.g. `sigstore`) that Trivy flags as
+# HIGH/CRITICAL and that we cannot patch via our lockfile. Removing npm drops
+# those findings and shrinks the runtime attack surface. Must run as root,
+# before switching to the non-root node user.
+RUN apk upgrade --no-cache \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 # Run as the non-root `node` user that ships with the alpine image.
 USER node

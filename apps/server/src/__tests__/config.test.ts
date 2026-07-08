@@ -50,6 +50,7 @@ describe("Config validation", () => {
     expect(config.OPENCRED_LOG_LEVEL).toBe("info");
     expect(config.OPENCRED_KEY_LABEL).toBe("server-key");
     expect(config.OPENCRED_BATCH_ROW_LIMIT).toBe(1000);
+    expect(config.OPENCRED_BATCH_MAX_RECORD_BYTES).toBe(1024 * 1024);
     expect(config.OPENCRED_SESSION_TTL).toBe(14400);
     expect(config.OPENCRED_KMS_PROVIDER).toBe("none");
     expect(config.OPENCRED_DEV_MODE_NO_AUTH).toBe(false);
@@ -306,5 +307,187 @@ describe("Config — DeDi cross-field validation", () => {
     process.env.OPENCRED_DEDI_TIMEOUT_MS = "5000";
     const config = loadConfig();
     expect(config.OPENCRED_DEDI_TIMEOUT_MS).toBe(5000);
+  });
+
+  it("defaults OPENCRED_DEDI_MAX_RETRIES to 2", () => {
+    const config = loadConfig();
+    expect(config.OPENCRED_DEDI_MAX_RETRIES).toBe(2);
+  });
+
+  it("accepts a custom OPENCRED_DEDI_MAX_RETRIES (including 0 to disable)", () => {
+    process.env.OPENCRED_DEDI_MAX_RETRIES = "0";
+    expect(loadConfig().OPENCRED_DEDI_MAX_RETRIES).toBe(0);
+    resetConfig();
+    process.env.OPENCRED_DEDI_MAX_RETRIES = "4";
+    expect(loadConfig().OPENCRED_DEDI_MAX_RETRIES).toBe(4);
+  });
+
+  it("rejects OPENCRED_DEDI_MAX_RETRIES above the cap of 5", () => {
+    process.env.OPENCRED_DEDI_MAX_RETRIES = "6";
+    expect(() => loadConfig()).toThrow();
+  });
+});
+
+describe("Config — issuer identity (DID method)", () => {
+  it("defaults to OPENCRED_ISSUER_DID_METHOD=key", () => {
+    const config = loadConfig();
+    expect(config.OPENCRED_ISSUER_DID_METHOD).toBe("key");
+    expect(config.OPENCRED_ISSUER_DOMAIN).toBeUndefined();
+  });
+
+  it("accepts OPENCRED_ISSUER_DID_METHOD=web with a domain", () => {
+    process.env.OPENCRED_ISSUER_DID_METHOD = "web";
+    process.env.OPENCRED_ISSUER_DOMAIN = "issuer.example.com";
+    const config = loadConfig();
+    expect(config.OPENCRED_ISSUER_DID_METHOD).toBe("web");
+    expect(config.OPENCRED_ISSUER_DOMAIN).toBe("issuer.example.com");
+  });
+
+  it("rejects OPENCRED_ISSUER_DID_METHOD=web without a domain", () => {
+    process.env.OPENCRED_ISSUER_DID_METHOD = "web";
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/OPENCRED_ISSUER_DOMAIN is required/);
+  });
+
+  it("rejects unknown DID method values", () => {
+    process.env.OPENCRED_ISSUER_DID_METHOD = "ion";
+    expect(() => loadConfig()).toThrow();
+  });
+
+  it("ignores OPENCRED_ISSUER_DOMAIN when method=key (does not error)", () => {
+    // Operators may flip methods without scrubbing env vars — don't punish them.
+    process.env.OPENCRED_ISSUER_DID_METHOD = "key";
+    process.env.OPENCRED_ISSUER_DOMAIN = "leftover.example.com";
+    const config = loadConfig();
+    expect(config.OPENCRED_ISSUER_DID_METHOD).toBe("key");
+  });
+
+  it("accepts OPENCRED_DEDI_HOST_DID_DOC=true with method=web and DeDi configured", () => {
+    process.env.OPENCRED_ISSUER_DID_METHOD = "web";
+    process.env.OPENCRED_ISSUER_DOMAIN = "issuer.example.com";
+    process.env.OPENCRED_DEDI_HOST_DID_DOC = "true";
+    process.env.OPENCRED_DEDI_BASE_URL = "https://dedi.example.com";
+    process.env.OPENCRED_DEDI_AUTH_TYPE = "api-key";
+    process.env.OPENCRED_DEDI_API_KEY = "test-key";
+    process.env.OPENCRED_DEDI_NAMESPACE = "test-ns";
+    const config = loadConfig();
+    expect(config.OPENCRED_DEDI_HOST_DID_DOC).toBe(true);
+  });
+
+  it("accepts OPENCRED_DEDI_HOST_DID_DOC=true when method=key (flag ignored, no throw)", () => {
+    // Matches the philosophy of the OPENCRED_ISSUER_DOMAIN cross-field rule:
+    // operators may flip methods without scrubbing env vars, so leftover
+    // hosting-related flags are silently ignored under method=key.
+    process.env.OPENCRED_ISSUER_DID_METHOD = "key";
+    process.env.OPENCRED_DEDI_HOST_DID_DOC = "true";
+    const config = loadConfig();
+    expect(config.OPENCRED_ISSUER_DID_METHOD).toBe("key");
+    expect(config.OPENCRED_DEDI_HOST_DID_DOC).toBe(true);
+  });
+
+  it("rejects OPENCRED_DEDI_HOST_DID_DOC=true without DeDi configured", () => {
+    process.env.OPENCRED_ISSUER_DID_METHOD = "web";
+    process.env.OPENCRED_ISSUER_DOMAIN = "issuer.example.com";
+    process.env.OPENCRED_DEDI_HOST_DID_DOC = "true";
+    expect(() => loadConfig()).toThrow(/requires DeDi to be configured/);
+  });
+
+  it("accepts OPENCRED_AUTO_PUBLISH_KEY=true with DeDi configured (did:key)", () => {
+    process.env.OPENCRED_AUTO_PUBLISH_KEY = "true";
+    process.env.OPENCRED_DEDI_BASE_URL = "https://dedi.example.com";
+    process.env.OPENCRED_DEDI_AUTH_TYPE = "api-key";
+    process.env.OPENCRED_DEDI_API_KEY = "test-key";
+    process.env.OPENCRED_DEDI_NAMESPACE = "test-ns";
+    const config = loadConfig();
+    expect(config.OPENCRED_AUTO_PUBLISH_KEY).toBe(true);
+  });
+
+  it("rejects OPENCRED_AUTO_PUBLISH_KEY=true without DeDi configured", () => {
+    // This is the exact silent-no-op the flag was created to prevent, so the
+    // validator must fail closed rather than tolerate the misconfiguration.
+    process.env.OPENCRED_AUTO_PUBLISH_KEY = "true";
+    delete process.env.OPENCRED_DEDI_BASE_URL;
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/OPENCRED_AUTO_PUBLISH_KEY=true requires DeDi/);
+  });
+
+  // --- Job store (Tier 2 #5 of nfh-trust-labs/opencred#446) ---
+
+  it("defaults OPENCRED_JOB_STORE to memory", () => {
+    const config = loadConfig();
+    expect(config.OPENCRED_JOB_STORE).toBe("memory");
+  });
+
+  it("accepts OPENCRED_JOB_STORE=redis with a valid OPENCRED_REDIS_URL", () => {
+    process.env.OPENCRED_JOB_STORE = "redis";
+    process.env.OPENCRED_REDIS_URL = "redis://localhost:6379";
+    const config = loadConfig();
+    expect(config.OPENCRED_JOB_STORE).toBe("redis");
+    expect(config.OPENCRED_REDIS_URL).toBe("redis://localhost:6379");
+  });
+
+  it("rejects OPENCRED_JOB_STORE=redis when OPENCRED_REDIS_URL is unset", () => {
+    process.env.OPENCRED_JOB_STORE = "redis";
+    delete process.env.OPENCRED_REDIS_URL;
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/OPENCRED_REDIS_URL is required/);
+  });
+
+  it("rejects unknown OPENCRED_JOB_STORE values", () => {
+    process.env.OPENCRED_JOB_STORE = "etcd";
+    expect(() => loadConfig()).toThrow();
+  });
+
+  it("defaults OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED to true (verify by default)", () => {
+    const config = loadConfig();
+    expect(config.OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED).toBe(true);
+  });
+
+  it("honours OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED=false (explicit opt-out)", () => {
+    process.env.OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED = "false";
+    const config = loadConfig();
+    expect(config.OPENCRED_REDIS_TLS_REJECT_UNAUTHORIZED).toBe(false);
+  });
+
+  // -------------------------------------------------------------------
+  // Batch dispatch cross-field validation (Tier 3 #8 of #446)
+  // -------------------------------------------------------------------
+
+  it("defaults OPENCRED_BATCH_DISPATCH to inline", () => {
+    const config = loadConfig();
+    expect(config.OPENCRED_BATCH_DISPATCH).toBe("inline");
+  });
+
+  it("OPENCRED_BATCH_DISPATCH=queue rejects without OPENCRED_REDIS_URL", () => {
+    process.env.OPENCRED_BATCH_DISPATCH = "queue";
+    expect(() => loadConfig()).toThrow(ConfigError);
+    expect(() => loadConfig()).toThrow(/OPENCRED_REDIS_URL is required/);
+  });
+
+  it("OPENCRED_BATCH_DISPATCH=queue rejects when OPENCRED_JOB_STORE=memory", () => {
+    process.env.OPENCRED_BATCH_DISPATCH = "queue";
+    process.env.OPENCRED_REDIS_URL = "redis://localhost:6379";
+    // OPENCRED_JOB_STORE defaults to memory — explicit assignment is
+    // not required to trigger the validator.
+    expect(() => loadConfig()).toThrow(/requires OPENCRED_JOB_STORE=redis/);
+  });
+
+  it("OPENCRED_BATCH_DISPATCH=queue accepts with redis store + url", () => {
+    process.env.OPENCRED_BATCH_DISPATCH = "queue";
+    process.env.OPENCRED_REDIS_URL = "redis://localhost:6379";
+    process.env.OPENCRED_JOB_STORE = "redis";
+    const config = loadConfig();
+    expect(config.OPENCRED_BATCH_DISPATCH).toBe("queue");
+  });
+
+  it("OPENCRED_WEBHOOK_WORKER_CONCURRENCY defaults to 4", () => {
+    const config = loadConfig();
+    expect(config.OPENCRED_WEBHOOK_WORKER_CONCURRENCY).toBe(4);
+  });
+
+  it("OPENCRED_WORKER_CONCURRENCY parses to a positive integer override", () => {
+    process.env.OPENCRED_WORKER_CONCURRENCY = "8";
+    const config = loadConfig();
+    expect(config.OPENCRED_WORKER_CONCURRENCY).toBe(8);
   });
 });

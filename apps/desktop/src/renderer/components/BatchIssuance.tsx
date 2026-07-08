@@ -559,9 +559,9 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
     <div className="space-y-6">
       {/* Phase: Upload CSV */}
       {phase === "upload" && (
-        <div className="rounded-lg border border-gray-200 bg-white p-6 space-y-4">
-          <h2 className="text-sm font-medium text-gray-700">Batch Credential Issuance</h2>
-          <p className="text-sm text-gray-500">
+        <div className="rounded-lg border border-border-light bg-white p-6 space-y-4">
+          <h2 className="text-sm font-medium text-txt-secondary">Batch Credential Issuance</h2>
+          <p className="text-sm text-txt-muted">
             Issue multiple credentials at once from a CSV file. Maximum{" "}
             {BATCH_ROW_LIMIT.toLocaleString()} rows per batch. All processing happens locally -- no
             network required.
@@ -569,14 +569,14 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
           <div className="flex gap-3">
             <button
               onClick={() => void handleImportCsv()}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+              className="rounded-md bg-brand px-4 py-2 text-sm text-white hover:bg-brand"
             >
               Import CSV File
             </button>
             <button
               onClick={() => void handleDownloadTemplate()}
               disabled={!schemaId}
-              className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="rounded-md border border-border bg-white px-4 py-2 text-sm text-txt-secondary hover:bg-surface-warm disabled:opacity-40 disabled:cursor-not-allowed"
               title={
                 schemaId
                   ? "Download a CSV template for the selected schema"
@@ -587,11 +587,11 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
             </button>
           </div>
           {!schemaId && (
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-txt-muted">
               Select a schema on the home screen to enable the CSV template download.
             </p>
           )}
-          {batchError && <p className="text-sm text-red-600">{batchError}</p>}
+          {batchError && <p className="text-sm text-state-danger">{batchError}</p>}
         </div>
       )}
 
@@ -599,19 +599,22 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
       {phase === "mapping" && (
         <div className="space-y-4">
           {/* CSV Preview */}
-          <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+          <div className="rounded-lg border border-border-light bg-white p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-gray-700">CSV Preview: {csvFileName}</h2>
-              <button onClick={handleReset} className="text-xs text-gray-500 hover:text-gray-700">
+              <h2 className="text-sm font-medium text-txt-secondary">CSV Preview: {csvFileName}</h2>
+              <button
+                onClick={handleReset}
+                className="text-xs text-txt-muted hover:text-txt-secondary"
+              >
                 Change File
               </button>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-xs">
                 <thead>
-                  <tr className="border-b border-gray-200">
+                  <tr className="border-b border-border-light">
                     {csvHeaders.map((h, i) => (
-                      <th key={i} className="px-2 py-1 text-left font-medium text-gray-600">
+                      <th key={i} className="px-2 py-1 text-left font-medium text-txt-secondary">
                         {h}
                       </th>
                     ))}
@@ -619,9 +622,9 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
                 </thead>
                 <tbody>
                   {csvPreview.map((row, ri) => (
-                    <tr key={ri} className="border-b border-gray-100">
+                    <tr key={ri} className="border-b border-border-light">
                       {row.map((val, ci) => (
-                        <td key={ci} className="px-2 py-1 text-gray-700">
+                        <td key={ci} className="px-2 py-1 text-txt-secondary">
                           {val}
                         </td>
                       ))}
@@ -631,15 +634,15 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
               </table>
             </div>
             {csvPreview.length >= 5 && (
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-txt-muted">
                 Showing first 5 of {csvRowCount.toLocaleString()} rows...
               </p>
             )}
 
             {/* Row limit warning */}
             {isOverRowLimit && (
-              <div className="rounded-md bg-red-50 border border-red-200 p-3">
-                <p className="text-sm text-red-700">
+              <div className="rounded-md bg-state-danger-bg border border-state-danger-border p-3">
+                <p className="text-sm text-state-danger">
                   This CSV contains {csvRowCount.toLocaleString()} rows, which exceeds the maximum
                   of {BATCH_ROW_LIMIT.toLocaleString()} rows per batch. Please split your CSV into
                   smaller files before continuing.
@@ -653,22 +656,25 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
 
           {/* Column Mapping UI */}
           {schemaId && schemaFields.length > 0 && (
-            <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-              <h2 className="text-sm font-medium text-gray-700">Column Mapping</h2>
-              <p className="text-xs text-gray-500">
+            <div className="rounded-lg border border-border-light bg-white p-4 space-y-3">
+              <h2 className="text-sm font-medium text-txt-secondary">Column Mapping</h2>
+              <p className="text-xs text-txt-muted">
                 Map each CSV column to a credential schema field.
               </p>
               <div className="space-y-2">
                 {csvHeaders.map((header) => (
                   <div key={header} className="flex items-center gap-3">
-                    <span className="w-1/3 text-xs font-mono text-gray-600 truncate" title={header}>
+                    <span
+                      className="w-1/3 text-xs font-mono text-txt-secondary truncate"
+                      title={header}
+                    >
                       {header}
                     </span>
-                    <span className="text-gray-400 text-xs">-&gt;</span>
+                    <span className="text-txt-muted text-xs">-&gt;</span>
                     <select
                       value={columnMapping[header] ?? ""}
                       onChange={(e) => handleMappingChange(header, e.target.value)}
-                      className="flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700"
+                      className="flex-1 rounded-md border border-border bg-white px-2 py-1 text-xs text-txt-secondary"
                     >
                       <option value="">(skip this column)</option>
                       {schemaFields.map((field) => (
@@ -683,7 +689,7 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
               </div>
               <button
                 onClick={handleMappingComplete}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+                className="rounded-md bg-brand px-4 py-2 text-sm text-white hover:bg-brand"
               >
                 Continue
               </button>
@@ -695,12 +701,12 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
       {/* Phase: Issuance Configuration */}
       {phase === "config" && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+          <div className="rounded-lg border border-border-light bg-white p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-gray-700">Issuance Settings</h2>
+              <h2 className="text-sm font-medium text-txt-secondary">Issuance Settings</h2>
               <button
                 onClick={() => setPhase("mapping")}
-                className="text-xs text-gray-500 hover:text-gray-700"
+                className="text-xs text-txt-muted hover:text-txt-secondary"
               >
                 Back to Mapping
               </button>
@@ -710,22 +716,22 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
               <div>
                 <label
                   htmlFor="batch-valid-from"
-                  className="block text-xs font-medium text-gray-600"
+                  className="block text-xs font-medium text-txt-secondary"
                 >
-                  Valid From <span className="text-red-500">*</span>
+                  Valid From <span className="text-state-danger">*</span>
                 </label>
                 <input
                   id="batch-valid-from"
                   type="date"
                   value={validFrom}
                   onChange={(e) => setValidFrom(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
                 />
               </div>
               <div>
                 <label
                   htmlFor="batch-valid-until"
-                  className="block text-xs font-medium text-gray-600"
+                  className="block text-xs font-medium text-txt-secondary"
                 >
                   Valid Until (optional)
                 </label>
@@ -734,7 +740,7 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
                   type="date"
                   value={validUntil}
                   onChange={(e) => setValidUntil(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
                 />
               </div>
             </div>
@@ -742,12 +748,12 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
             <div>
               <label
                 htmlFor="batch-signing-key"
-                className="block text-xs font-medium text-gray-600"
+                className="block text-xs font-medium text-txt-secondary"
               >
-                Signing Key <span className="text-red-500">*</span>
+                Signing Key <span className="text-state-danger">*</span>
               </label>
               {keys.length === 0 ? (
-                <p className="mt-1 text-xs text-gray-400 italic">
+                <p className="mt-1 text-xs text-txt-muted italic">
                   No keys imported. Go to Key Management to import a key.
                 </p>
               ) : (
@@ -755,7 +761,7 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
                   id="batch-signing-key"
                   value={selectedKeyId}
                   onChange={(e) => setSelectedKeyId(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  className="mt-1 block w-full rounded-md border border-border bg-white px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
                 >
                   {keys.map((key) => (
                     <option key={key.id} value={key.id}>
@@ -768,15 +774,17 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
 
             {/* Output format selection */}
             <div>
-              <span className="block text-xs font-medium text-gray-600 mb-1">Output Formats</span>
+              <span className="block text-xs font-medium text-txt-secondary mb-1">
+                Output Formats
+              </span>
               <div className="flex flex-wrap gap-2">
                 {["json-ld", "qr-png", "pdf"].map((fmt) => (
-                  <label key={fmt} className="flex items-center gap-1 text-xs text-gray-600">
+                  <label key={fmt} className="flex items-center gap-1 text-xs text-txt-secondary">
                     <input
                       type="checkbox"
                       checked={packageFormats.includes(fmt)}
                       onChange={() => toggleFormat(fmt)}
-                      className="rounded border-gray-300"
+                      className="rounded border-border"
                     />
                     {fmt === "json-ld" ? "JSON" : fmt === "qr-png" ? "QR Code" : "PDF"}
                   </label>
@@ -799,19 +807,19 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
             onCredentialSchemaUrlChange={setCredentialSchemaUrl}
           />
 
-          {batchError && <p className="text-sm text-red-600">{batchError}</p>}
+          {batchError && <p className="text-sm text-state-danger">{batchError}</p>}
 
           <div className="flex gap-3">
             <button
               onClick={() => void handleStartBatch()}
               disabled={!schemaId || !selectedKeyId || isOverRowLimit}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="rounded-md bg-brand px-4 py-2 text-sm text-white hover:bg-brand disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Start Batch Issuance
             </button>
             <button
               onClick={handleReset}
-              className="rounded-md bg-gray-100 px-4 py-2 text-sm text-gray-700 hover:bg-gray-200"
+              className="rounded-md bg-surface-warm px-4 py-2 text-sm text-txt-secondary hover:bg-gray-200"
             >
               Cancel
             </button>
@@ -822,13 +830,13 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
       {/* Phase: Processing */}
       {phase === "processing" && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
+          <div className="rounded-lg border border-border-light bg-white p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-gray-700">Batch Processing</h2>
+              <h2 className="text-sm font-medium text-txt-secondary">Batch Processing</h2>
               {processing && (
                 <button
                   onClick={() => void handleCancel()}
-                  className="rounded-md bg-red-100 px-3 py-1 text-xs text-red-700 hover:bg-red-200"
+                  className="rounded-md bg-red-100 px-3 py-1 text-xs text-state-danger hover:bg-red-200"
                 >
                   Cancel
                 </button>
@@ -837,7 +845,7 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
 
             {/* Progress bar */}
             <div>
-              <div className="flex justify-between text-xs text-gray-500 mb-1">
+              <div className="flex justify-between text-xs text-txt-muted mb-1">
                 <span>
                   {completed} of {total} complete
                 </span>
@@ -845,7 +853,7 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  className="bg-brand h-2 rounded-full transition-all duration-300"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
@@ -853,29 +861,29 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
 
             {/* Summary stats */}
             <div className="flex gap-4 text-xs">
-              <span className="text-green-600">Success: {successCount}</span>
-              <span className="text-red-600">Errors: {errorCount}</span>
-              <span className="text-gray-400">Skipped: {skippedCount}</span>
+              <span className="text-state-success">Success: {successCount}</span>
+              <span className="text-state-danger">Errors: {errorCount}</span>
+              <span className="text-txt-muted">Skipped: {skippedCount}</span>
             </div>
           </div>
 
           {/* Per-row status */}
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <h3 className="text-xs font-medium text-gray-600 mb-2">Row Status</h3>
+          <div className="rounded-lg border border-border-light bg-white p-4">
+            <h3 className="text-xs font-medium text-txt-secondary mb-2">Row Status</h3>
             <div className="max-h-60 overflow-auto space-y-1">
               {rowResults.map((row) => (
                 <div
                   key={row.rowIndex}
                   className={`flex items-center gap-2 text-xs px-2 py-1 rounded ${
                     row.status === "success"
-                      ? "bg-green-50 text-green-700"
+                      ? "bg-state-success-bg text-state-success"
                       : row.status === "error"
-                        ? "bg-red-50 text-red-700"
+                        ? "bg-state-danger-bg text-state-danger"
                         : row.status === "processing"
-                          ? "bg-blue-50 text-blue-700"
+                          ? "bg-brand-light text-brand"
                           : row.status === "skipped"
-                            ? "bg-gray-50 text-gray-400"
-                            : "bg-gray-50 text-gray-600"
+                            ? "bg-surface-warm text-txt-muted"
+                            : "bg-surface-warm text-txt-secondary"
                   }`}
                 >
                   <span className="font-mono w-8">#{row.rowIndex + 1}</span>
@@ -896,13 +904,13 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
       {/* Phase: Complete */}
       {phase === "complete" && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-3">
-            <h2 className="text-sm font-medium text-green-800">Batch Complete</h2>
+          <div className="rounded-lg border border-state-success-border bg-state-success-bg p-4 space-y-3">
+            <h2 className="text-sm font-medium text-state-success">Batch Complete</h2>
             <div className="flex gap-4 text-sm">
-              <span className="text-green-700">Success: {successCount}</span>
-              <span className="text-red-600">Errors: {errorCount}</span>
-              <span className="text-gray-500">Skipped: {skippedCount}</span>
-              <span className="text-gray-500">Total: {total}</span>
+              <span className="text-state-success">Success: {successCount}</span>
+              <span className="text-state-danger">Errors: {errorCount}</span>
+              <span className="text-txt-muted">Skipped: {skippedCount}</span>
+              <span className="text-txt-muted">Total: {total}</span>
             </div>
           </div>
 
@@ -924,18 +932,18 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
           )}
 
           {/* Per-row results */}
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <h3 className="text-xs font-medium text-gray-600 mb-2">Row Results</h3>
+          <div className="rounded-lg border border-border-light bg-white p-4">
+            <h3 className="text-xs font-medium text-txt-secondary mb-2">Row Results</h3>
             <div className="max-h-60 overflow-auto space-y-1">
               {rowResults.map((row) => (
                 <div
                   key={row.rowIndex}
                   className={`flex items-center gap-2 text-xs px-2 py-1 rounded ${
                     row.status === "success"
-                      ? "bg-green-50 text-green-700"
+                      ? "bg-state-success-bg text-state-success"
                       : row.status === "error"
-                        ? "bg-red-50 text-red-700"
-                        : "bg-gray-50 text-gray-400"
+                        ? "bg-state-danger-bg text-state-danger"
+                        : "bg-surface-warm text-txt-muted"
                   }`}
                 >
                   <span className="font-mono w-8">#{row.rowIndex + 1}</span>
@@ -951,27 +959,27 @@ export function BatchIssuance({ preSelectedSchemaId, preSelectedKeyId }: BatchIs
 
           {/* Export */}
           {successCount > 0 && (
-            <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-              <h3 className="text-sm font-medium text-gray-700">Export Results</h3>
-              <p className="text-xs text-gray-500">
+            <div className="rounded-lg border border-border-light bg-white p-4 space-y-3">
+              <h3 className="text-sm font-medium text-txt-secondary">Export Results</h3>
+              <p className="text-xs text-txt-muted">
                 Export all {successCount} successfully issued credentials as a ZIP archive.
               </p>
               <button
                 onClick={() => void handleExport()}
                 disabled={exporting}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-40"
+                className="rounded-md bg-brand px-4 py-2 text-sm text-white hover:bg-brand disabled:opacity-40"
               >
                 {exporting ? "Exporting..." : "Export as ZIP"}
               </button>
-              {exportResult && <p className="text-xs text-green-700">{exportResult}</p>}
+              {exportResult && <p className="text-xs text-state-success">{exportResult}</p>}
             </div>
           )}
 
-          {batchError && <p className="text-sm text-red-600">{batchError}</p>}
+          {batchError && <p className="text-sm text-state-danger">{batchError}</p>}
 
           <button
             onClick={handleReset}
-            className="rounded-md bg-gray-100 px-4 py-2 text-sm text-gray-700 hover:bg-gray-200"
+            className="rounded-md bg-surface-warm px-4 py-2 text-sm text-txt-secondary hover:bg-gray-200"
           >
             Start New Batch
           </button>

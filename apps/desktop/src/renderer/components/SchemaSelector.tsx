@@ -152,19 +152,19 @@ export function SchemaSelector({ onSchemaSelect, selectedSchema }: Props) {
   }, [builtInOptions]);
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <h2 className="text-sm font-medium text-gray-700">Credential Type</h2>
-      <p className="mt-1 text-xs text-gray-500">
+    <div className="rounded-lg border border-border-light bg-white p-4">
+      <h2 className="text-sm font-medium text-txt-secondary">Credential Type</h2>
+      <p className="mt-1 text-xs text-txt-muted">
         Select a credential schema to define the subject fields.
       </p>
 
       {loading ? (
-        <div className="mt-2 text-sm text-gray-400">Loading schemas...</div>
+        <div className="mt-2 text-sm text-txt-muted">Loading schemas...</div>
       ) : (
         <select
           value={selected}
           onChange={(e) => void handleSelect(e.target.value)}
-          className="mt-2 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          className="mt-2 block w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-txt-secondary shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
         >
           <option value="">Select a credential type...</option>
           {categorizedGroups.map((group) => (
@@ -188,7 +188,7 @@ export function SchemaSelector({ onSchemaSelect, selectedSchema }: Props) {
         </select>
       )}
 
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-sm text-state-danger">{error}</p>}
     </div>
   );
 }

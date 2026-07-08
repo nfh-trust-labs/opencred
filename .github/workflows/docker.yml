@@ -27,6 +27,18 @@ on:
     tags: ['v*']
     # Note: no paths filter on push — tags don't carry a changed-files diff,
     # so paths would prevent tag pushes from triggering. PRs still use paths.
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag to build and publish (e.g. v1.0.0). Must already exist.'
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and publish (e.g. v1.0.0). Must already exist.'
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -105,11 +117,24 @@ jobs:
   docker-push:
     name: Push to GHCR
     needs: [docker-build, test]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.tag != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # When called via workflow_call/dispatch with a `tag` input, build
+          # at that tag rather than the caller's SHA (release-please runs on
+          # new-opencred-dev but creates a v* tag we want to build from).
+          ref: ${{ inputs.tag || github.ref }}
+
+      # Required for cross-arch builds — emulates arm64 on the amd64 runner.
+      # Adds ~3-4 min to the build vs single-arch, but means Apple Silicon
+      # users and AWS Graviton hosts can pull without `--platform` workarounds.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -124,18 +149,24 @@ jobs:
       - name: Extract version from tag
         id: version
         env:
+          INPUT_TAG: ${{ inputs.tag }}
           GIT_REF: ${{ github.ref_name }}
         run: |
-          # Strip leading 'v' from tag (v1.2.3 -> 1.2.3)
-          VERSION="${GIT_REF#v}"
+          # Prefer the input tag (workflow_call / workflow_dispatch) over
+          # github.ref_name (tag push). Strip leading 'v' (v1.2.3 -> 1.2.3).
+          TAG_RAW="${INPUT_TAG:-$GIT_REF}"
+          VERSION="${TAG_RAW#v}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push
+      - name: Build and push (multi-arch)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/server/Dockerfile
           push: true
+          # Multi-arch manifest list. Clients pull the variant matching
+          # their CPU automatically — no `--platform` flag required.
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.SERVER_IMAGE }}:${{ steps.version.outputs.version }}
             ${{ env.SERVER_IMAGE }}:latest
@@ -160,9 +191,11 @@ jobs:
       - name: Extract version
         id: version
         env:
+          INPUT_TAG: ${{ inputs.tag }}
           GIT_REF: ${{ github.ref_name }}
         run: |
-          VERSION="${GIT_REF#v}"
+          TAG_RAW="${INPUT_TAG:-$GIT_REF}"
+          VERSION="${TAG_RAW#v}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -176,20 +209,59 @@ jobs:
         env:
           IMAGE_TAG: ${{ steps.version.outputs.version }}
         run: |
+          set -e
+
+          # The server requires both an API key and a signing key at
+          # startup. Generate throwaway versions of each just for this
+          # smoke test — they're discarded after the run.
+          mkdir -p smoke-keys
+          openssl genpkey -algorithm EC \
+            -pkeyopt ec_paramgen_curve:P-256 \
+            -out smoke-keys/key.pem
+          # Mode 0644 — bind mount preserves host ownership (runner uid),
+          # container runs as `node` (uid 1000); 0600 reads with EACCES
+          # inside the container. Runner is ephemeral; throwaway file.
+          chmod 644 smoke-keys/key.pem
+          # Random API key — never echoed, never committed.
+          API_KEY=$(openssl rand -base64 32)
+
           docker run -d --name opencred-smoke \
             -p 3100:3100 \
+            -e OPENCRED_PORT=3100 \
+            -e OPENCRED_API_KEY="$API_KEY" \
+            -e OPENCRED_KEY_PATH=/secrets/key.pem \
             -e OPENCRED_LOG_LEVEL=info \
+            -v "$(pwd)/smoke-keys/key.pem:/secrets/key.pem:ro" \
+            --read-only \
+            --tmpfs /tmp:noexec,nosuid,size=64m \
+            --cap-drop ALL \
+            --cap-add NET_BIND_SERVICE \
+            --security-opt no-new-privileges:true \
             "$SERVER_IMAGE:$IMAGE_TAG"
 
-          # Wait for container to start
-          sleep 5
+          # Poll /v1/health until the server is ready (typically <3s).
+          # 30s upper bound — anything slower is a real regression.
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3100/v1/health >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
 
-          # Health check
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3100/health)
-          echo "Health check returned: $HTTP_CODE"
+          HEALTH=$(curl -fsS http://localhost:3100/v1/health || true)
+          echo "Health response: $HEALTH"
 
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "Smoke test failed — /health returned $HTTP_CODE"
+          # Smoke is "boots + loads key + ready to serve". Anything weaker
+          # would have let v1.1.0 ship green when it had been broken; the
+          # `signingKeyLoaded:true` check is what would have caught a bad
+          # key-loading regression.
+          if ! echo "$HEALTH" | grep -q '"signingKeyLoaded":true'; then
+            echo "Smoke test failed — signingKeyLoaded is not true"
+            docker logs opencred-smoke
+            exit 1
+          fi
+          if ! echo "$HEALTH" | grep -q '"ready":true'; then
+            echo "Smoke test failed — ready is not true"
             docker logs opencred-smoke
             exit 1
           fi
@@ -197,3 +269,10 @@ jobs:
           echo "Smoke test passed"
           docker stop opencred-smoke
           docker rm opencred-smoke
+
+      # Always remove the throwaway key, even if the smoke step above
+      # failed. Runner is ephemeral but belt-and-braces — `if: always()`
+      # handles the failure path.
+      - name: Cleanup smoke-test key
+        if: always()
+        run: rm -rf smoke-keys

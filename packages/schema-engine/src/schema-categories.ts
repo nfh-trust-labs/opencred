@@ -18,6 +18,8 @@ const EXACT_CATEGORIES: Record<string, SchemaCategory> = {
   "open-badges": "education",
   "dif/verified-person": "identity",
   "dif/proof-of-age": "identity",
+  "ies/electricity-credential": "utility",
+  "ies/meter-data-credential": "utility",
 };
 
 const PREFIX_CATEGORIES: Array<[string, SchemaCategory]> = [["traceability/", "supply-chain"]];
@@ -29,8 +31,9 @@ const PREFIX_CATEGORIES: Array<[string, SchemaCategory]> = [["traceability/", "s
  * then prefix matches, then falls back to "other".
  */
 export function getCategoryForSchema(schemaId: string): SchemaCategory {
-  // Strip version suffix (e.g. "education/v1" → "education", "dif/verified-person/v1" → "dif/verified-person")
-  const base = schemaId.replace(/\/v\d+$/, "");
+  // Strip version suffix, including dotted versions (e.g. "education/v1" →
+  // "education", "ies/electricity-credential/v1.2" → "ies/electricity-credential")
+  const base = schemaId.replace(/\/v\d+(?:\.\d+)*$/, "");
 
   const exact = EXACT_CATEGORIES[base];
   if (exact) return exact;

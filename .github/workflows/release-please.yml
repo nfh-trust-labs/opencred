@@ -29,3 +29,13 @@ jobs:
     if: ${{ needs.release-please.outputs.release_created }}
     uses: ./.github/workflows/desktop-release.yml
     secrets: inherit
+
+  # NOTE: The chained workflow_call into docker.yml + the `with: tag: ...`
+  # input passing on desktop-release.yml were added in #533 to fix the
+  # post-tag fan-out gap (GitHub's anti-loop rule suppresses tag-push
+  # triggers on refs created via GITHUB_TOKEN). That change caused every
+  # release-please run to fail at startup — see follow-up issue. Reverted
+  # to the v1.3.0 known-good shape until the fan-out fix can be tested in
+  # isolation. Recovery for now is the manual tag re-push we used for
+  # v1.3.0: delete the release-please-created tag and re-push from local
+  # git credentials.

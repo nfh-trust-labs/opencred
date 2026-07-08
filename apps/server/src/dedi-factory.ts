@@ -75,7 +75,7 @@ export function createDeDiClientFromConfig(
     defaultNamespace: config.OPENCRED_DEDI_NAMESPACE,
     timeoutMs: config.OPENCRED_DEDI_TIMEOUT_MS,
     circuitBreakerThreshold: 5,
-    maxRetries: 2,
+    maxRetries: config.OPENCRED_DEDI_MAX_RETRIES,
     logger: dediLogger,
   });
 }

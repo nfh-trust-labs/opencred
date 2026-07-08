@@ -82,12 +82,12 @@ export function CredentialVerifier() {
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
+    <div className="rounded-lg border border-border-light bg-white p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-gray-700">Verify Credential</h2>
+        <h2 className="text-sm font-medium text-txt-secondary">Verify Credential</h2>
         <button
           onClick={() => void handleLoadFile()}
-          className="rounded-md bg-gray-100 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-200"
+          className="rounded-md bg-surface-warm px-3 py-1.5 text-xs text-txt-secondary hover:bg-gray-200"
         >
           Load from File
         </button>
@@ -103,13 +103,13 @@ export function CredentialVerifier() {
           setChecks([]);
         }}
         placeholder="Paste a signed Verifiable Credential (JSON)..."
-        className="block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+        className="block w-full rounded-md border border-border px-3 py-2 font-mono text-xs shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
       />
 
       <button
         onClick={() => void handleVerify()}
         disabled={!credential.trim() || loading}
-        className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-40"
+        className="rounded-md bg-brand px-4 py-2 text-sm text-white hover:bg-brand disabled:opacity-40"
       >
         {loading ? "Verifying..." : "Verify"}
       </button>
@@ -118,20 +118,22 @@ export function CredentialVerifier() {
 
       {checks.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-xs font-medium text-gray-600">Verification Checks</h3>
+          <h3 className="text-xs font-medium text-txt-secondary">Verification Checks</h3>
           {checks.map((check, i) => (
             <div
               key={i}
               className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
-                check.passed ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
+                check.passed
+                  ? "border-state-success-border bg-state-success-bg"
+                  : "border-state-danger-border bg-state-danger-bg"
               }`}
             >
-              <span className={check.passed ? "text-green-600" : "text-red-600"}>
+              <span className={check.passed ? "text-state-success" : "text-state-danger"}>
                 {check.passed ? "PASS" : "FAIL"}
               </span>
               <div>
-                <span className="font-medium text-gray-700">{check.name}</span>
-                {check.detail && <p className="mt-0.5 text-gray-500">{check.detail}</p>}
+                <span className="font-medium text-txt-secondary">{check.name}</span>
+                {check.detail && <p className="mt-0.5 text-txt-muted">{check.detail}</p>}
               </div>
             </div>
           ))}

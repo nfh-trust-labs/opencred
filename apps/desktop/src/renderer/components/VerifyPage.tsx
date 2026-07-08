@@ -6,7 +6,7 @@
  *  - Loading a credential from a file via native dialog
  *  - Drag-and-drop of .json files onto the input area
  *  - Scanning QR codes via camera or image file
- *  - Pasting encoded QR strings (OPENCRED1:, JWT, SD-JWT)
+ *  - Pasting encoded QR strings (PixelPass QR data, JWT, SD-JWT)
  *  - Verifying the credential and displaying per-check results
  *  - Downloading a verification report (plain-text)
  *  - Session-scoped recent verification history (last 5)
@@ -78,7 +78,50 @@ const CHECK_HINTS: Record<string, string> = {
   expiry: "The credential has not expired",
   revocation: "The credential has not been revoked",
   context: "The credential's context is valid and resolvable",
+  keyrotation: "Whether the issuer has rotated to a new signing key",
+  registryanchor: "Whether the issuer's DID record is anchored on the CORD blockchain",
 };
+
+/**
+ * Per-check advisory list — these checks contribute information to the
+ * verifier UI but do NOT count against the headline VALID/INVALID outcome.
+ * Failed advisory checks render with neutral amber styling instead of red
+ * to communicate "still cryptographically valid, but worth knowing" rather
+ * than "rejected".
+ */
+const ADVISORY_CHECK_NAMES = new Set(["keyRotation", "registryAnchor"]);
+
+/**
+ * Issuer key status shown as a distinct badge above the per-check list.
+ *
+ * - `"current"`  — DeDi reports `keyStatus: "current"` for this DID.
+ * - `"rotated"`  — DeDi reports the issuer has rotated to a new key
+ *                  (credential is still cryptographically valid against
+ *                  the old key).
+ * - `"unknown"`  — no DeDi lookup happened (verifier offline, no client,
+ *                  or no DID extracted). The badge is hidden in this
+ *                  case; the issuer DID itself is shown in the
+ *                  credential body for the user to read directly.
+ */
+type AttributionState = "current" | "rotated" | "unknown";
+
+/**
+ * Derive a single key-status summary from the checks array.
+ *
+ * Priority order:
+ *   1. keyRotation failure → red "Rotated" badge (issuer rotated away)
+ *   2. keyRotation passed (DeDi present) → green "Current" badge
+ *   3. no keyRotation check ran → "unknown" — render no badge
+ */
+function deriveAttributionBadge(checks: VerificationCheck[]): {
+  state: AttributionState;
+  message?: string;
+} {
+  const rotation = checks.find((c) => c.name === "keyRotation");
+  if (!rotation) return { state: "unknown" };
+  if (rotation.passed) return { state: "current", message: rotation.detail };
+  return { state: "rotated", message: rotation.detail };
+}
 
 function getCheckHint(checkName: string): string | undefined {
   const lower = checkName.toLowerCase();
@@ -489,10 +532,13 @@ export function VerifyPage() {
     try {
       const isImageMode = inputMode === "upload-file";
       const result = await window.opencred.openFile({
-        title: isImageMode ? "Load Credential or QR Code Image" : "Load Verifiable Credential",
+        title: isImageMode
+          ? "Load Credential, PDF, or QR Code Image"
+          : "Load Verifiable Credential",
         filters: isImageMode
           ? [
               { name: "JSON", extensions: ["json", "jsonld"] },
+              { name: "PDF certificate", extensions: ["pdf"] },
               { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "bmp", "webp"] },
               { name: "All Files", extensions: ["*"] },
             ]
@@ -504,9 +550,19 @@ export function VerifyPage() {
 
       if (result.filePath && result.content) {
         const ext = result.filePath.toLowerCase();
+        const isPdf = ext.endsWith(".pdf");
         const isImage = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"].some((e) =>
           ext.endsWith(e),
         );
+        // PDF: route through verifyCredential's `pdfBase64` branch. The
+        // base64 payload travels as-is over IPC; the main process decodes
+        // and runs `verifyPdf`. We immediately call handleVerifyPdf rather
+        // than stashing the bytes into `credential`, since the textarea
+        // is for text-shaped formats only.
+        if (isPdf && result.encoding === "base64") {
+          await handleVerifyPdf(result.content);
+          return;
+        }
         if (isImage && result.encoding === "base64") {
           const binary = Uint8Array.from(atob(result.content), (c) => c.charCodeAt(0));
           const file = new File([binary], result.filePath.split("/").pop() ?? "image.png");
@@ -525,6 +581,51 @@ export function VerifyPage() {
       }
     } catch {
       // User cancelled
+    }
+  }
+
+  /**
+   * Verify a PDF certificate by sending its base64-encoded bytes to the
+   * main process. Mirrors `handleVerify` for state side-effects so the
+   * result panel renders the same way regardless of input form.
+   *
+   * @internal
+   */
+  async function handleVerifyPdf(pdfBase64: string) {
+    setLoading(true);
+    setValid(null);
+    setMessage(null);
+    setChecks([]);
+    setCredential("");
+
+    const now = new Date();
+    setVerifiedAt(now);
+
+    try {
+      try {
+        const offline = await window.opencred.getOfflineStatus();
+        setIsOffline(offline);
+      } catch {
+        setIsOffline(true);
+      }
+
+      const response = await window.opencred.verifyCredential({ pdfBase64 });
+      if (response.success) {
+        const isValid = response.valid ?? false;
+        const msg = response.message ?? (isValid ? "Valid." : "PDF verification did not succeed.");
+        const responseChecks = response.checks ?? [];
+        setValid(isValid);
+        setMessage(msg);
+        setChecks(responseChecks);
+      } else {
+        setValid(false);
+        setMessage(response.error ?? "PDF verification failed.");
+      }
+    } catch (err) {
+      setValid(false);
+      setMessage(err instanceof Error ? err.message : "PDF verification failed.");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -574,7 +675,7 @@ export function VerifyPage() {
           {credential && (
             <button
               onClick={handleClear}
-              className="rounded-md bg-gray-100 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-200"
+              className="rounded-md bg-surface-warm px-3 py-1.5 text-xs text-txt-muted hover:bg-gray-200"
             >
               Clear
             </button>
@@ -582,7 +683,7 @@ export function VerifyPage() {
         </div>
 
         {/* Mode selector tabs */}
-        <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
+        <div className="flex gap-1 rounded-lg bg-surface-warm p-1">
           {(
             [
               { key: "paste-json", label: "Paste JSON" },
@@ -596,8 +697,8 @@ export function VerifyPage() {
               onClick={() => setInputMode(key)}
               className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                 inputMode === key
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "bg-white text-txt-primary shadow-sm"
+                  : "text-txt-muted hover:text-txt-secondary"
               }`}
             >
               {label}
@@ -606,7 +707,7 @@ export function VerifyPage() {
         </div>
 
         {!credential && inputMode !== "scan-qr" && (
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-txt-muted">
             You can get this from the person or organization that issued the credential.
           </p>
         )}
@@ -629,13 +730,15 @@ export function VerifyPage() {
                 setChecks([]);
               }}
               placeholder="Paste credential JSON here, or drag a .json file onto this area"
-              className={`block w-full rounded-md border px-3 py-2 font-mono text-xs shadow-sm transition-colors duration-150 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
-                isDragOver ? "border-2 border-dashed border-blue-400 bg-blue-50" : "border-gray-300"
+              className={`block w-full rounded-md border px-3 py-2 font-mono text-xs shadow-sm transition-colors duration-150 focus:border-brand focus:ring-1 focus:ring-blue-500 ${
+                isDragOver
+                  ? "border-2 border-dashed border-blue-400 bg-brand-light"
+                  : "border-border"
               }`}
             />
             {isDragOver && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-blue-50/80">
-                <p className="text-sm font-medium text-blue-600">Drop credential file here</p>
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-brand-light/80">
+                <p className="text-sm font-medium text-brand">Drop credential file here</p>
               </div>
             )}
           </div>
@@ -645,14 +748,14 @@ export function VerifyPage() {
           <div className="space-y-3">
             <button
               onClick={() => void handleLoadFile()}
-              className="w-full rounded-md border-2 border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-500 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+              className="w-full rounded-md border-2 border-dashed border-border px-4 py-8 text-center text-sm text-txt-muted hover:border-blue-400 hover:bg-brand-light hover:text-brand transition-colors"
             >
               Click to select a credential file (.json) or QR code image (.png, .jpg)
             </button>
             {credential && (
-              <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
-                <p className="text-xs text-gray-500 mb-1">Loaded content:</p>
-                <pre className="max-h-32 overflow-auto text-xs font-mono text-gray-700">
+              <div className="rounded-md border border-border-light bg-surface-warm p-3">
+                <p className="text-xs text-txt-muted mb-1">Loaded content:</p>
+                <pre className="max-h-32 overflow-auto text-xs font-mono text-txt-secondary">
                   {credential.slice(0, 500)}
                   {credential.length > 500 ? "..." : ""}
                 </pre>
@@ -670,8 +773,8 @@ export function VerifyPage() {
               style={{ minHeight: scannerActive ? 300 : 0 }}
             />
             {cameraError && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2">
-                <p className="text-xs text-red-700">{cameraError}</p>
+              <div className="rounded-md border border-state-danger-border bg-state-danger-bg px-3 py-2">
+                <p className="text-xs text-state-danger">{cameraError}</p>
               </div>
             )}
             <div className="flex gap-2">
@@ -682,9 +785,9 @@ export function VerifyPage() {
               )}
             </div>
             {credential && (
-              <div className="rounded-md border border-green-200 bg-green-50 p-3">
-                <p className="text-xs text-green-700 mb-1">QR code decoded:</p>
-                <pre className="max-h-32 overflow-auto text-xs font-mono text-green-800">
+              <div className="rounded-md border border-state-success-border bg-state-success-bg p-3">
+                <p className="text-xs text-state-success mb-1">QR code decoded:</p>
+                <pre className="max-h-32 overflow-auto text-xs font-mono text-state-success">
                   {credential.slice(0, 500)}
                   {credential.length > 500 ? "..." : ""}
                 </pre>
@@ -703,8 +806,8 @@ export function VerifyPage() {
               setMessage(null);
               setChecks([]);
             }}
-            placeholder="Paste an OPENCRED1:... compressed string, a JWT (eyJ...), or an SD-JWT here"
-            className="block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            placeholder="Paste PixelPass QR data, a JWT (eyJ...), or an SD-JWT here"
+            className="block w-full rounded-md border border-border px-3 py-2 font-mono text-xs shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500"
           />
         )}
 
@@ -717,10 +820,10 @@ export function VerifyPage() {
         <Card
           className={`space-y-3 ${
             status === "VALID"
-              ? "border-green-200 bg-green-50"
+              ? "border-state-success-border bg-state-success-bg"
               : status === "EXPIRED"
-                ? "border-amber-200 bg-amber-50"
-                : "border-red-200 bg-red-50"
+                ? "border-state-warning-border bg-state-warning-bg"
+                : "border-state-danger-border bg-state-danger-bg"
           }`}
         >
           <div className="flex items-center justify-between">
@@ -729,9 +832,9 @@ export function VerifyPage() {
               <p
                 className={`text-sm font-medium ${
                   status === "VALID"
-                    ? "text-green-800"
+                    ? "text-state-success"
                     : status === "EXPIRED"
-                      ? "text-amber-800"
+                      ? "text-state-warning"
                       : "text-red-800"
                 }`}
               >
@@ -744,7 +847,7 @@ export function VerifyPage() {
             </div>
             <button
               onClick={() => void handleDownloadReport()}
-              className="rounded-md bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-white hover:ring-gray-300 transition-colors"
+              className="rounded-md bg-white/80 px-3 py-1.5 text-xs font-medium text-txt-secondary shadow-sm ring-1 ring-gray-200 hover:bg-white hover:ring-gray-300 transition-colors"
             >
               Download Report
             </button>
@@ -752,19 +855,63 @@ export function VerifyPage() {
           <p
             className={`text-sm ${
               status === "VALID"
-                ? "text-green-700"
+                ? "text-state-success"
                 : status === "EXPIRED"
-                  ? "text-amber-700"
-                  : "text-red-700"
+                  ? "text-state-warning"
+                  : "text-state-danger"
             }`}
           >
             {message}
           </p>
           {status !== "VALID" && message && getErrorHint(message) && (
-            <p className="mt-1 text-xs text-gray-500">{getErrorHint(message)}</p>
+            <p className="mt-1 text-xs text-txt-muted">{getErrorHint(message)}</p>
           )}
         </Card>
       )}
+
+      {/* Issuer key-status badge — surfaced separately from the per-check
+          list so users can see "is this issuer's key still current?" at a
+          glance without parsing the full check details. The headline
+          VALID/INVALID badge above is unchanged — it reflects crypto
+          correctness only. The issuer DID itself is rendered in the
+          credential body where the user can read it directly. */}
+      {checks.length > 0 &&
+        (() => {
+          const attribution = deriveAttributionBadge(checks);
+          if (attribution.state === "unknown") return null;
+          const palette = {
+            current: {
+              border: "border-state-success-border",
+              bg: "bg-state-success-bg",
+              text: "text-state-success",
+            },
+            rotated: {
+              border: "border-state-danger-border",
+              bg: "bg-state-danger-bg",
+              text: "text-red-800",
+            },
+            unknown: {
+              border: "border-border-light",
+              bg: "bg-surface-warm",
+              text: "text-txt-secondary",
+            },
+          }[attribution.state];
+          const heading = {
+            current: "Issuer key current",
+            rotated: "Issuer key rotated",
+            unknown: "",
+          }[attribution.state];
+          return (
+            <Card className={`${palette.border} ${palette.bg}`}>
+              <div className="space-y-1">
+                <p className={`text-sm font-medium ${palette.text}`}>{heading}</p>
+                {attribution.message && (
+                  <p className={`text-xs ${palette.text} opacity-80`}>{attribution.message}</p>
+                )}
+              </div>
+            </Card>
+          );
+        })()}
 
       {checks.length > 0 && (
         <Card className="space-y-3">
@@ -772,24 +919,34 @@ export function VerifyPage() {
           <div className="space-y-2">
             {checks.map((check, i) => {
               const hint = getCheckHint(check.name);
+              const isAdvisory = ADVISORY_CHECK_NAMES.has(check.name);
+              // Advisory check failures render amber, not red — they
+              // surface information but don't reject the credential.
+              const failedPalette = isAdvisory
+                ? "border-state-warning-border bg-state-warning-bg"
+                : "border-state-danger-border bg-state-danger-bg";
+              const failedLabel = isAdvisory ? "text-state-warning" : "text-state-danger";
+              const failedText = isAdvisory ? "INFO" : "FAIL";
               return (
                 <div
                   key={i}
                   className={`flex items-start gap-3 rounded-md border px-3 py-2.5 ${
-                    check.passed ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
+                    check.passed ? "border-state-success-border bg-state-success-bg" : failedPalette
                   }`}
                 >
                   <span
                     className={`flex-shrink-0 mt-0.5 text-xs font-semibold ${
-                      check.passed ? "text-green-600" : "text-red-600"
+                      check.passed ? "text-state-success" : failedLabel
                     }`}
                   >
-                    {check.passed ? "PASS" : "FAIL"}
+                    {check.passed ? "PASS" : failedText}
                   </span>
                   <div className="min-w-0">
-                    <span className="text-xs font-medium text-gray-700">{check.name}</span>
-                    {hint && <p className="mt-0.5 text-xs text-gray-400">{hint}</p>}
-                    {check.detail && <p className="mt-0.5 text-xs text-gray-500">{check.detail}</p>}
+                    <span className="text-xs font-medium text-txt-secondary">{check.name}</span>
+                    {hint && <p className="mt-0.5 text-xs text-txt-muted">{hint}</p>}
+                    {check.detail && (
+                      <p className="mt-0.5 text-xs text-txt-muted">{check.detail}</p>
+                    )}
                   </div>
                 </div>
               );
@@ -799,8 +956,8 @@ export function VerifyPage() {
       )}
 
       {isOffline && valid !== null && (
-        <Card className="border-amber-200 bg-amber-50">
-          <p className="text-xs text-amber-700">
+        <Card className="border-state-warning-border bg-state-warning-bg">
+          <p className="text-xs text-state-warning">
             You are offline. Only signature and date checks were performed. Revocation status could
             not be verified.
           </p>
@@ -815,15 +972,15 @@ export function VerifyPage() {
               <button
                 key={entry.id}
                 onClick={() => handleLoadFromHistory(entry)}
-                className="flex w-full items-center gap-3 rounded-md border border-gray-100 px-3 py-2 text-left transition-colors hover:bg-gray-50"
+                className="flex w-full items-center gap-3 rounded-md border border-border-light px-3 py-2 text-left transition-colors hover:bg-surface-warm"
               >
                 <span
-                  className={`flex-shrink-0 text-[0.6rem] font-mono font-semibold uppercase ${
+                  className={`flex-shrink-0 text-body-2xs font-mono font-semibold uppercase ${
                     entry.status === "VALID"
-                      ? "text-green-600"
+                      ? "text-state-success"
                       : entry.status === "EXPIRED"
                         ? "text-amber-600"
-                        : "text-red-600"
+                        : "text-state-danger"
                   }`}
                 >
                   {entry.status === "VALID"
@@ -832,10 +989,10 @@ export function VerifyPage() {
                       ? "EXPD"
                       : "INVLD"}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-xs text-gray-700">
+                <span className="min-w-0 flex-1 truncate text-xs text-txt-secondary">
                   {entry.issuer}
                 </span>
-                <span className="flex-shrink-0 text-[0.6rem] text-gray-400">
+                <span className="flex-shrink-0 text-body-2xs text-txt-muted">
                   {new Date(entry.timestamp).toLocaleTimeString(undefined, {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -844,7 +1001,7 @@ export function VerifyPage() {
               </button>
             ))}
           </div>
-          <p className="text-[0.6rem] text-gray-400">
+          <p className="text-body-2xs text-txt-muted">
             Click to reload a credential. History is session-only and not persisted.
           </p>
         </Card>

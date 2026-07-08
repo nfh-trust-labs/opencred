@@ -114,6 +114,34 @@ opencred config validate
 
 Loads and validates all `OPENCRED_*` environment variables via the Zod schema in `apps/server/src/config.ts`. On success, prints the resolved port, auth mode, and KMS provider. On failure, prints the validation error and exits with code 1.
 
+### opencred identity show
+
+Print the configured issuer DID and key-source metadata. Uses the same DID-resolution logic as `opencred issue` / `opencred batch` so the printed DID is exactly what verifiers will see in issued credentials.
+
+```bash
+opencred identity show --key ./issuer.pem
+```
+
+For `did:web` issuers:
+
+```bash
+OPENCRED_ISSUER_DID_METHOD=web \
+OPENCRED_ISSUER_DOMAIN=issuer.example.com \
+  opencred identity show --key ./issuer.pem
+```
+
+| Flag / env var | Required | Description |
+|---|---|---|
+| `--key <pem-path>` | Yes (or `OPENCRED_KEY_PATH`) | Path to the signing key file (PEM/JWK/PFX). |
+| `OPENCRED_KEY_PATH` | Fallback for `--key` | Used when `--key` is not supplied. |
+| `OPENCRED_ISSUER_DID_METHOD` | No | `key` (default) or `web`. Drives DID derivation. |
+| `OPENCRED_ISSUER_DOMAIN` | When `OPENCRED_ISSUER_DID_METHOD=web` | Domain for did:web. |
+| `OPENCRED_DEDI_BASE_URL` | No | Surfaces DeDi configuration status in the output. |
+| `OPENCRED_DEDI_HOST_DID_DOC` | No | When `true`, output reports DeDi as the DID-doc host. Requires DeDi to be configured (rejected by `config validate` otherwise). |
+| `OPENCRED_AUTO_PUBLISH_KEY` | No | When `true`, the server publishes the issuer DID to DeDi at startup. Requires DeDi to be configured. Works for both did:key and did:web. |
+
+The output lists DID method, derived issuer DID, verification-method ID, signing algorithm, key fingerprint, key source (file / KMS / hardware token), and DeDi configuration state.
+
 ## Exit Codes
 
 | Code | Meaning |

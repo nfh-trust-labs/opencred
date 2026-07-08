@@ -1258,7 +1258,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
       <div className="flex items-center gap-2 text-sm">
         <button
           onClick={onBack}
-          className="text-gray-500 hover:text-gray-700 transition-colors flex items-center gap-1"
+          className="text-txt-muted hover:text-txt-secondary transition-colors flex items-center gap-1"
         >
           <svg
             width="16"
@@ -1272,7 +1272,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
           </svg>
           Home
         </button>
-        <span className="text-gray-300">/</span>
+        <span className="text-txt-muted">/</span>
         {showDidWebWarning && didWarningDismissed && (
           <span
             className="inline-block w-2 h-2 rounded-full bg-amber-400 flex-shrink-0"
@@ -1290,12 +1290,12 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
             }}
             onBlur={() => void handleRename()}
             autoFocus
-            className="rounded border border-gray-300 px-2 py-0.5 text-sm font-medium focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            className="rounded border border-border px-2 py-0.5 text-sm font-medium focus:border-brand focus:ring-1 focus:ring-blue-500"
             style={{ minWidth: 120 }}
           />
         ) : (
           <span
-            className={`text-gray-700 font-medium ${isRenameable ? "cursor-pointer hover:text-blue-600" : ""}`}
+            className={`text-txt-secondary font-medium ${isRenameable ? "cursor-pointer hover:text-brand" : ""}`}
             onClick={() => {
               if (isRenameable) {
                 setNameInput(schemaName || "Credential");
@@ -1345,7 +1345,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
 
       {/* did:web publication warning */}
       {showDidWebWarning && !didWarningDismissed && (
-        <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+        <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-state-warning-bg px-4 py-3">
           <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-amber-200">
             <svg
               width="14"
@@ -1362,13 +1362,13 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
               />
             </svg>
           </span>
-          <p className="text-sm text-amber-800 flex-1">
+          <p className="text-sm text-state-warning flex-1">
             Your DID document hasn't been published yet. Verifiers won't be able to discover your
             public key.
             {onNavigate && (
               <button
                 onClick={() => onNavigate("settings")}
-                className="ml-2 text-amber-900 underline hover:text-amber-700 text-sm font-medium bg-transparent border-none cursor-pointer p-0"
+                className="ml-2 text-amber-900 underline hover:text-state-warning text-sm font-medium bg-transparent border-none cursor-pointer p-0"
               >
                 Set Up in Settings
               </button>
@@ -1408,12 +1408,12 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
                   <div key={field.name}>
                     <label
                       htmlFor={`field-${field.name}`}
-                      className="block text-xs font-medium text-gray-600"
+                      className="block text-xs font-medium text-txt-secondary"
                     >
                       {labelForField(field.name)}
-                      {field.required && <span className="text-red-500 ml-0.5">*</span>}
+                      {field.required && <span className="text-state-danger ml-0.5">*</span>}
                       {!field.required && (
-                        <span className="text-gray-400 ml-1 font-normal">(optional)</span>
+                        <span className="text-txt-muted ml-1 font-normal">(optional)</span>
                       )}
                     </label>
                     <input
@@ -1429,7 +1429,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
                       required={field.required}
                       disabled={signing}
                       placeholder={`Enter ${labelForField(field.name).toLowerCase()}...`}
-                      className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+                      className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm disabled:text-txt-muted"
                     />
                   </div>
                 ))}
@@ -1443,12 +1443,12 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
             <div>
               <label
                 htmlFor="builder-signing-key"
-                className="block text-xs font-medium text-gray-600"
+                className="block text-xs font-medium text-txt-secondary"
               >
-                Signing Key <span className="text-red-500">*</span>
+                Signing Key <span className="text-state-danger">*</span>
               </label>
               {keys.length === 0 ? (
-                <p className="mt-1 text-xs text-gray-400 italic">
+                <p className="mt-1 text-xs text-txt-muted italic">
                   No keys imported. Go to Settings to import or generate a key.
                 </p>
               ) : (
@@ -1457,7 +1457,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
                   value={selectedKeyId}
                   onChange={(e) => setSelectedKeyId(e.target.value)}
                   disabled={signing}
-                  className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+                  className="mt-1 block w-full rounded-md border border-border bg-white px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
                 >
                   {keys.map((key) => (
                     <option key={key.id} value={key.id} title={key.fingerprint}>
@@ -1471,7 +1471,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
               <div>
                 <label
                   htmlFor="builder-valid-from"
-                  className="block text-xs font-medium text-gray-600"
+                  className="block text-xs font-medium text-txt-secondary"
                 >
                   Valid From
                 </label>
@@ -1481,13 +1481,13 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
                   value={validFrom}
                   onChange={(e) => setValidFrom(e.target.value)}
                   disabled={signing}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+                  className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
                 />
               </div>
               <div>
                 <label
                   htmlFor="builder-valid-until"
-                  className="block text-xs font-medium text-gray-600"
+                  className="block text-xs font-medium text-txt-secondary"
                 >
                   Valid Until
                 </label>
@@ -1497,7 +1497,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
                   value={validUntil}
                   onChange={(e) => setValidUntil(e.target.value)}
                   disabled={signing}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+                  className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm shadow-sm focus:border-brand focus:ring-1 focus:ring-blue-500 disabled:bg-surface-warm"
                 />
               </div>
             </div>
@@ -1523,7 +1523,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="oc-card-label">Build & Sign</h2>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-txt-muted">
                   Keys never leave this machine. Signing works offline.
                 </p>
               </div>
@@ -1535,7 +1535,7 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
               </Button>
             </div>
 
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && <p className="text-sm text-state-danger">{error}</p>}
 
             {/* Confirmation dialog overlay */}
             {showConfirmDialog && (
@@ -1544,21 +1544,23 @@ export function CredentialBuilderPage({ schemaId, isBlank, onBack, onNavigate }:
                 onClick={() => setShowConfirmDialog(false)}
               >
                 <div
-                  className="mx-4 w-full max-w-md rounded-lg border border-gray-200 bg-white p-6 shadow-xl"
+                  className="mx-4 w-full max-w-md rounded-lg border border-border-light bg-white p-6 shadow-xl"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <h3 className="text-sm font-semibold text-gray-800 mb-3">
+                  <h3 className="text-sm font-semibold text-txt-primary mb-3">
                     Confirm Credential Issuance
                   </h3>
-                  <p className="text-sm text-gray-600 mb-5">
+                  <p className="text-sm text-txt-secondary mb-5">
                     You are about to issue a{" "}
-                    <span className="font-medium text-gray-800">{schemaName || "Credential"}</span>
+                    <span className="font-medium text-txt-primary">
+                      {schemaName || "Credential"}
+                    </span>
                     {(() => {
                       const firstValue = Object.values(subjectValues).find((v) => v.trim());
                       return firstValue ? (
                         <>
                           {" "}
-                          for <span className="font-medium text-gray-800">{firstValue}</span>
+                          for <span className="font-medium text-txt-primary">{firstValue}</span>
                         </>
                       ) : null;
                     })()}

@@ -13,9 +13,9 @@ interface BadgeProps {
 }
 
 const VARIANT_CLASSES: Record<Variant, string> = {
-  success: "bg-green-50 text-green-800 border-green-200/60",
-  error: "bg-red-50 text-red-800 border-red-200/60",
-  warning: "bg-amber-50 text-amber-800 border-amber-200/60",
+  success: "bg-state-success-bg text-state-success border-state-success-border/60",
+  error: "bg-state-danger-bg text-red-800 border-state-danger-border/60",
+  warning: "bg-state-warning-bg text-state-warning border-state-warning-border/60",
   info: "bg-brand-blue-light text-brand-blue border-blue-200/60",
   neutral: "bg-surface-bg text-txt-muted border-border",
 };
@@ -23,7 +23,7 @@ const VARIANT_CLASSES: Record<Variant, string> = {
 export function Badge({ variant = "neutral", children, className = "" }: BadgeProps) {
   return (
     <span
-      className={`inline-flex items-center rounded-oc border px-2 py-0.5 font-mono text-[0.6rem] uppercase tracking-wider ${VARIANT_CLASSES[variant]} ${className}`}
+      className={`inline-flex items-center rounded-oc border px-2 py-0.5 font-mono text-body-2xs uppercase tracking-wider ${VARIANT_CLASSES[variant]} ${className}`}
     >
       {children}
     </span>

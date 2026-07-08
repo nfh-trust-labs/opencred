@@ -9,11 +9,16 @@ export type DeDiRegistryState = "active" | "archived" | "revoked";
 
 export type DeDiNamespaceState = "active" | "archived" | "revoked";
 
-// Tag values are case-sensitive schema names from dedi.global/schemas registry.
-// "custom" indicates a registry with no fixed schema (e.g., JSON-LD contexts).
+// Tag values are case-sensitive record names from the dedi.global/schemas
+// registry. Verified directly against api.dedi.global on 2026-05-21:
+// "Revoke" / "Membership" / "Public_key" / "Public-Data-Set" / etc. are the
+// exact strings the server accepts. Lowercase ("revoke", "membership") and
+// the previously-assumed "custom" tag are rejected with
+// `400 Invalid input: tag is not valid` — DeDi has no no-schema tag, so
+// registries that store free-form payloads must pass an inline JSON schema.
 export type DeDiRegistryTag =
-  | "custom"
   | "Membership"
+  | "Public-Data-Set"
   | "Public_key"
   | "Revoke"
   | "beckn_subscriber"
@@ -69,23 +74,78 @@ export interface DeDiRegistrySummary {
   record_count: number;
 }
 
+// ── Envelope ─────────────────────────────────────────────────────────
+
+/**
+ * The standard DeDi response envelope. The real wire format wraps every
+ * successful response in `{ message, data }` — see Postman `develop`
+ * collection, 2026-05-19. `data` is the payload (single record, array
+ * of records, job descriptor, etc.) and `message` is a human-readable
+ * status string set by the server. This generic models the wrapper so
+ * adapter code unwraps `data` explicitly rather than treating the
+ * envelope as the payload.
+ */
+export interface DeDiResponse<T> {
+  message: string;
+  data: T;
+}
+
 // ── Record ───────────────────────────────────────────────────────────
 
+/**
+ * A single DeDi record as it appears under `response.data`. The HTTP
+ * layer wraps this in `DeDiResponse<DeDiRecord<T>>` on lookup/publish
+ * paths; adapters extract `response.data.details` to get the OpenCred
+ * payload.
+ *
+ * Field names match the wire shape exactly (`record_name`, `details`
+ * plural, `version` as a string, etc.) so JSON parsing is direct.
+ */
 export interface DeDiRecord<T = unknown> {
-  name: string;
+  record_name: string;
   registry: string;
   namespace: string;
-  detail: T;
+  details: T;
   state: DeDiRecordState;
-  version: number;
+  /** Version is a string on the wire (e.g. `"1"`), not a number. */
+  version: string;
   created_at: string;
   updated_at: string;
+  /** CORD-blockchain anchor metadata. Present on most lookup responses. */
+  proof?: DeDiProof;
+  /** Optional TTL in seconds for this record. */
+  ttl?: number;
+  /** Optional ISO 8601 timestamp at which the record expires. */
+  valid_till?: string;
+}
+
+/**
+ * Proof block surfaced by DeDi alongside record responses. Anchors the
+ * record to the underlying CORD blockchain so verifiers can independently
+ * confirm the entry exists on-chain. Surfaced here as opaque metadata;
+ * the verifier UI / downstream consumers may surface specific fields.
+ */
+export interface DeDiProof {
+  /** Proof type, e.g. `"DediRecordProof2026"`. */
+  type: string;
+  /** DID of the namespace controller. */
+  namespace_did: string;
+  /** Registry-level identifier when the proof is registry-scoped. */
+  registry_identifier?: string;
+  /** Record-level identifier when the proof is record-scoped. */
+  record_identifier?: string;
+  /** DID of the entity that created the record. */
+  creator_did: string;
+  /** Hash of the record's contents as anchored on-chain. */
+  digest: string;
+  /** Genesis hash of the network this record was anchored against. */
+  network_genesis: string | null;
 }
 
 export interface DeDiRecordSummary {
-  name: string;
+  record_name: string;
   state: DeDiRecordState;
-  version: number;
+  version: string;
   updated_at: string;
 }
 
@@ -99,16 +159,26 @@ export interface DeDiQueryParams {
   order?: "asc" | "desc";
 }
 
+/**
+ * Query/search responses wrap their record list in a registry-metadata
+ * envelope under `data` — verified against the live API on 2026-06-11:
+ *
+ *   { message, data: { registry_id, registry_name, total_records, records: [...], ... } }
+ *
+ * The records themselves are NOT bare under `data`; they live at
+ * `data.records`. (A prior assumption that `data` was the array directly
+ * silently broke did:web → DeDi document resolution — see
+ * `resolveDidWebDocument`.) Only `records` and `total_records` are typed
+ * here; the rest of the registry metadata is passed through untyped.
+ */
 export interface DeDiQueryResult<T = unknown> {
   records: DeDiRecord<T>[];
-  total: number;
-  page: number;
-  per_page: number;
+  total_records?: number;
 }
 
 export interface DeDiSearchResult<T = unknown> {
   records: DeDiRecord<T>[];
-  total: number;
+  total_records?: number;
 }
 
 // ── Domain verification ──────────────────────────────────────────────

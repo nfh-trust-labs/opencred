@@ -9,9 +9,18 @@ This guide covers deploying the OpenCred Docker image in production. The image i
 - A signing key in PEM, JWK, PKCS#8, or PFX format (or a Cloud HSM provider)
 - (Optional) A DeDi instance for revocation and directory services
 
-## Build
+## Pull the prebuilt image (recommended)
 
-Build the image from the repo root:
+```bash
+docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
+# or pin to a version tag, e.g. :1.2.0
+```
+
+The image is public — no GHCR auth required. Trivy-scanned by CI.
+
+## Build from source
+
+If you'd rather build the image yourself, build from the repo root:
 
 ```bash
 docker build -f apps/server/Dockerfile -t opencred:latest .
@@ -48,8 +57,10 @@ docker run -d \
   --cap-drop ALL \
   --cap-add NET_BIND_SERVICE \
   --security-opt no-new-privileges:true \
-  opencred:latest
+  ghcr.io/nfh-trust-labs/opencred/opencred-server:latest
 ```
+
+> Use `opencred:latest` instead if you built the image locally.
 
 ### Docker Compose
 
@@ -146,7 +157,10 @@ DeDi provides revocation and directory services. All DeDi variables are optional
 | `OPENCRED_DEDI_EMAIL` | string (email) | -- | If auth type = `bearer` | Email for DeDi bearer auth |
 | `OPENCRED_DEDI_PASSWORD` | string | -- | If auth type = `bearer` | Password for DeDi bearer auth |
 | `OPENCRED_DEDI_NAMESPACE` | string | -- | If DeDi enabled | Default DeDi namespace |
-| `OPENCRED_DEDI_TIMEOUT_MS` | integer (1000-30000) | `10000` | No | DeDi request timeout in milliseconds |
+| `OPENCRED_DEDI_TIMEOUT_MS` | integer (1000-30000) | `10000` | No | DeDi request timeout in milliseconds. Hard-capped at 10s per request, so values above `10000` have no effect |
+| `OPENCRED_DEDI_MAX_RETRIES` | integer (0-5) | `2` | No | Retries for a failed idempotent DeDi request (key/DID resolution); `2` means 3 attempts total, `0` disables. Raise this — not the timeout — to ride out a brief DeDi outage |
+
+> **Revocation publishing (asynchronous, self-healing).** `POST /v1/credentials/revoke` writes to DeDi, which anchors to CORD; **both** write steps (`save-record-as-draft`, `publish-records`) can exceed the 10s per-request ceiling. The endpoint first attempts the publish synchronously — returning **200** `{"revoked":true}` when it completes in time, or **409** if the hash is already revoked. If the CORD write exceeds the ceiling it returns **202** `{"revoked":false,"status":"pending"}` and finishes the publish in the **background** (idempotent, self-healing: `save-draft` → on-409 `lookup` → `publish-records`), so a slow revoke is **accepted, never 504'd**. Confirm completion with `POST /v1/credentials/revocation-status` — it returns `{"revoked":true}` once the write settles. The background driver is in-process and best-effort: a restart mid-publish leaves the record recoverable (re-POST `revoke`, or the next status poll seeing `revoked:false`, re-drives the stranded draft to LIVE).
 
 ### Example .env File
 
@@ -200,7 +214,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3100/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:3100/v1/health"]
       interval: 30s
       timeout: 5s
       retries: 3

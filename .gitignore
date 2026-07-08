@@ -21,3 +21,12 @@ blob-report/
 
 # pnpm local store
 .pnpm-store/
+
+# Transient backup written by apps/desktop/scripts/build-dist.mjs
+apps/desktop/package.json.bak
+
+# Sibling marketing-site repo. Contributors clone it next to opencred/ for
+# co-located edits, but it lives in its own git repo (nfh-trust-labs/opencred-website)
+# and is NOT a submodule of this one. Ignored so accidental `git add` doesn't
+# re-create the orphan gitlink that broke CI (see #601).
+opencred-website/

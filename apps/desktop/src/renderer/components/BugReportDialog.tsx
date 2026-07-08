@@ -109,11 +109,11 @@ export function BugReportDialog({ open, onClose }: BugReportDialogProps) {
             <>
               {/* System info */}
               <div>
-                <h3 className="text-xs font-medium text-gray-600 uppercase tracking-wide mb-2">
+                <h3 className="text-xs font-medium text-txt-secondary uppercase tracking-wide mb-2">
                   System Information
                 </h3>
                 {systemInfo && (
-                  <div className="bg-gray-50 border border-gray-200 rounded p-3 text-xs font-mono space-y-1">
+                  <div className="bg-surface-warm border border-border-light rounded p-3 text-xs font-mono space-y-1">
                     <p>App: OpenCred v{systemInfo.appVersion}</p>
                     <p>Electron: {systemInfo.electronVersion}</p>
                     <p>Node.js: {systemInfo.nodeVersion}</p>
@@ -126,16 +126,16 @@ export function BugReportDialog({ open, onClose }: BugReportDialogProps) {
 
               {/* Log preview */}
               <div>
-                <h3 className="text-xs font-medium text-gray-600 uppercase tracking-wide mb-2">
+                <h3 className="text-xs font-medium text-txt-secondary uppercase tracking-wide mb-2">
                   Recent Logs
                 </h3>
-                <div className="bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-2">
-                  <p className="text-xs text-amber-800">
+                <div className="bg-state-warning-bg border border-state-warning-border rounded px-3 py-2 mb-2">
+                  <p className="text-xs text-state-warning">
                     Review these logs for sensitive information before sharing. Logs are from:{" "}
                     <span className="font-mono">{logPath}</span>
                   </p>
                 </div>
-                <pre className="bg-gray-50 border border-gray-200 rounded p-3 text-[11px] font-mono overflow-auto max-h-48 whitespace-pre-wrap text-gray-700">
+                <pre className="bg-surface-warm border border-border-light rounded p-3 text-[11px] font-mono overflow-auto max-h-48 whitespace-pre-wrap text-txt-secondary">
                   {logs || "(no logs available)"}
                 </pre>
               </div>
@@ -148,7 +148,7 @@ export function BugReportDialog({ open, onClose }: BugReportDialogProps) {
           <button
             onClick={() => void handleCopy()}
             disabled={loading}
-            className="px-4 py-2 text-sm font-medium text-txt-primary bg-surface-card border border-border-default rounded hover:bg-gray-100 transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-txt-primary bg-surface-card border border-border-default rounded hover:bg-surface-warm transition-colors disabled:opacity-50"
           >
             {copied ? "Copied!" : "Copy Report to Clipboard"}
           </button>

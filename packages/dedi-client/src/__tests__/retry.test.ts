@@ -86,6 +86,30 @@ describe("withRetry", () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
+  it("retries on 429 rate-limit errors", async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new DeDiClientError("rate limited", 429))
+      .mockResolvedValue("ok");
+
+    const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+    const result = await promise;
+
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("exhausts retries on persistent 429 and surfaces the error", async () => {
+    const fn = vi.fn().mockRejectedValue(new DeDiClientError("rate limited", 429));
+
+    const promise = withRetry(fn, { maxRetries: 2, baseDelayMs: 100 });
+    const assertion = expect(promise).rejects.toThrow("rate limited");
+    await vi.advanceTimersByTimeAsync(300);
+    await assertion;
+    expect(fn).toHaveBeenCalledTimes(3); // initial + 2 retries
+  });
+
   it("retries on network errors (TypeError with fetch)", async () => {
     const fn = vi.fn().mockRejectedValueOnce(new TypeError("fetch failed")).mockResolvedValue("ok");
 
@@ -181,5 +205,107 @@ describe("withRetry", () => {
       "validation failed",
     );
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  describe("Retry-After on 429 (issue #679)", () => {
+    it("retries a 429 and waits the Retry-After duration instead of the exponential delay", async () => {
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new DeDiClientError("rate limited", 429, undefined, 3000))
+        .mockResolvedValue("ok");
+
+      const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+      expect(fn).toHaveBeenCalledTimes(1);
+
+      // Exponential would be 100ms; the server said 3000ms. No jitter — the
+      // Retry-After path is deterministic.
+      await vi.advanceTimersByTimeAsync(2999);
+      expect(fn).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await promise;
+
+      expect(result).toBe("ok");
+      expect(fn).toHaveBeenCalledTimes(2);
+    });
+
+    it("caps the Retry-After delay at 10s", async () => {
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new DeDiClientError("rate limited", 429, undefined, 60_000))
+        .mockResolvedValue("ok");
+
+      const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await promise;
+
+      expect(result).toBe("ok");
+      expect(fn).toHaveBeenCalledTimes(2);
+    });
+
+    it("retries a 429 without Retry-After using the exponential formula", async () => {
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new DeDiClientError("rate limited", 429))
+        .mockResolvedValue("ok");
+
+      const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+      await vi.advanceTimersByTimeAsync(100);
+      const result = await promise;
+
+      expect(result).toBe("ok");
+      expect(fn).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("retryable: false (issue #546)", () => {
+    it("does NOT retry a 5xx when retryable is false", async () => {
+      // 500 would normally be retried (it's a transient error), but the
+      // explicit retryable:false flag short-circuits the loop. This is
+      // the protection against non-idempotent POSTs creating duplicates
+      // on transient upstream failures.
+      const fn = vi.fn().mockRejectedValue(new DeDiClientError("upstream blip", 502));
+
+      await expect(
+        withRetry(fn, { maxRetries: 3, baseDelayMs: 100, retryable: false }),
+      ).rejects.toThrow("upstream blip");
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it("does NOT retry a network error when retryable is false", async () => {
+      const fn = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+
+      await expect(
+        withRetry(fn, { maxRetries: 3, baseDelayMs: 100, retryable: false }),
+      ).rejects.toThrow("fetch failed");
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it("still returns the result on success with retryable false", async () => {
+      const fn = vi.fn().mockResolvedValue("ok");
+
+      const result = await withRetry(fn, {
+        maxRetries: 3,
+        baseDelayMs: 100,
+        retryable: false,
+      });
+
+      expect(result).toBe("ok");
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it("defaults to retryable true (preserves historical behaviour)", async () => {
+      // Sanity check that omitting the flag retries like before.
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new DeDiClientError("upstream blip", 502))
+        .mockResolvedValueOnce("ok");
+
+      const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
+      await vi.advanceTimersByTimeAsync(100);
+      const result = await promise;
+
+      expect(result).toBe("ok");
+      expect(fn).toHaveBeenCalledTimes(2);
+    });
   });
 });

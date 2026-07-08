@@ -45,7 +45,12 @@ vi.mock("electron", () => ({
     showSaveDialog: vi.fn(),
   },
   safeStorage: {
-    isEncryptionAvailable: vi.fn(() => false),
+    // Tests cover both paths: keychain-encryption available (so DeDi
+    // credentials decrypt and the publish manager spins up) and not.
+    // The store mock is mutated per-test for path selection — keep this
+    // default at `true` so the DeDi-configured tests work without an
+    // explicit override.
+    isEncryptionAvailable: vi.fn(() => true),
     encryptString: vi.fn((s: string) => Buffer.from(s)),
     decryptString: vi.fn((b: Buffer) => b.toString()),
   },
@@ -56,6 +61,7 @@ vi.mock("electron", () => ({
 const storeData: Record<string, unknown> = {
   recentTemplates: [],
   dediPublishedSchemas: [],
+  dediPublishedKeys: [],
   credentialHistory: [],
 };
 vi.mock("electron-store", () => ({
@@ -63,6 +69,9 @@ vi.mock("electron-store", () => ({
     get: vi.fn((key: string) => storeData[key]),
     set: vi.fn((key: string, value: unknown) => {
       storeData[key] = value;
+    }),
+    delete: vi.fn((key: string) => {
+      delete storeData[key];
     }),
     store: {},
   })),
@@ -76,8 +85,13 @@ vi.mock("electron-updater", () => ({
 
 // Mock DeDi publish manager — we test DeDi separately
 const mockEnsureSchemaPublished = vi.fn();
-const mockPublishDIDDocument = vi.fn();
+const mockPublishKey = vi.fn();
 const mockEnsureRegistries = vi.fn();
+const mockSetKeyStatus = vi.fn();
+// `rawClient.resolveKey` is consulted when assembling the hosted did.json from
+// the issuer's current non-revoked key set (GAP 1). Default: every lookup
+// 404s, so the common one-key issuer assembles a single-key document.
+const mockResolveKey = vi.fn();
 
 vi.mock("@opencred/dedi-client", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
@@ -85,9 +99,11 @@ vi.mock("@opencred/dedi-client", async (importOriginal) => {
     ...actual,
     createPublishManager: vi.fn(() => ({
       ensureSchemaPublished: mockEnsureSchemaPublished,
-      publishDIDDocument: mockPublishDIDDocument,
+      publishKey: mockPublishKey,
       ensureRegistries: mockEnsureRegistries,
+      setKeyStatus: mockSetKeyStatus,
       getPublishedSchemaIds: () => [],
+      rawClient: { resolveKey: mockResolveKey },
     })),
     DeDiPublishManager: vi.fn(),
   };
@@ -149,7 +165,10 @@ beforeEach(() => {
   // Reset store data
   storeData["recentTemplates"] = [];
   storeData["dediPublishedSchemas"] = [];
+  storeData["dediPublishedKeys"] = [];
+  storeData["dediActiveKeyIndex"] = 0;
   storeData["credentialHistory"] = [];
+  delete storeData["dediConfig"];
 });
 
 // ---------------------------------------------------------------------------
@@ -235,6 +254,106 @@ describe("IPC Handler Integration Tests", () => {
       expect(result.key.id).toContain("did:key:");
     });
 
+    it("sets previously-published keys to rotated when DeDi is configured and a new key is generated", async () => {
+      // Simulate: user has DeDi configured and previously published one or
+      // more keys to the registry. Generating a fresh key should fire
+      // setKeyStatus(vm, "rotated") for every prior verification method.
+      storeData["dediConfig"] = {
+        baseUrl: "https://dedi.example.com",
+        namespace: "test-ns",
+        authType: "api-key",
+      };
+      storeData["dediPublishedKeys"] = ["did:key:z6Mkold1#z6Mkold1", "did:key:z6Mkold2#z6Mkold2"];
+      // safeStorage mock returns the literal "encrypted" string back as
+      // the credential JSON — give it a valid api-key envelope so the
+      // publish-manager factory doesn't bail.
+      storeData["preferences"] = {
+        dediCredentialEncrypted: Buffer.from(JSON.stringify({ apiKey: "dk_test" })).toString(
+          "base64",
+        ),
+      };
+      // ipc-handlers re-uses the cached publishManager, so reset it via the
+      // disconnect path before this test exercises the hook. Easiest path:
+      // hit the existing reset hook by calling disconnect.
+      const disconnect = registeredHandlers[IPC_CHANNELS.DEDI_DISCONNECT];
+      await disconnect(fakeEvent);
+      // Restore dediConfig the disconnect handler just nuked.
+      storeData["dediConfig"] = {
+        baseUrl: "https://dedi.example.com",
+        namespace: "test-ns",
+        authType: "api-key",
+      };
+      storeData["dediPublishedKeys"] = ["did:key:z6Mkold1#z6Mkold1", "did:key:z6Mkold2#z6Mkold2"];
+      storeData["preferences"] = {
+        dediCredentialEncrypted: Buffer.from(JSON.stringify({ apiKey: "dk_test" })).toString(
+          "base64",
+        ),
+      };
+
+      mockSetKeyStatus.mockResolvedValue({ changed: true });
+
+      const handler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const result = (await handler(fakeEvent, {})) as { success: boolean; key: { id: string } };
+      expect(result.success).toBe(true);
+
+      // Both previously-published verification methods should have been
+      // set to rotated.
+      expect(mockSetKeyStatus).toHaveBeenCalledTimes(2);
+      expect(mockSetKeyStatus).toHaveBeenCalledWith("did:key:z6Mkold1#z6Mkold1", "rotated");
+      expect(mockSetKeyStatus).toHaveBeenCalledWith("did:key:z6Mkold2#z6Mkold2", "rotated");
+    });
+
+    it("skips DeDi rotation when DeDi is not configured", async () => {
+      // No dediConfig → no rotation calls, even if dediPublishedKeys
+      // happens to be populated (defense in depth — the store entries are
+      // stale if the user has since disconnected DeDi).
+      storeData["dediConfig"] = undefined;
+      storeData["dediPublishedKeys"] = ["did:key:z6Mkold#z6Mkold"];
+
+      const handler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const result = (await handler(fakeEvent, {})) as { success: boolean };
+      expect(result.success).toBe(true);
+      expect(mockSetKeyStatus).not.toHaveBeenCalled();
+    });
+
+    it("does NOT fail key generation when DeDi rotation throws", async () => {
+      // DeDi outage must not break local key generation — the new key is
+      // already in memory and the user expects success.
+      storeData["dediConfig"] = {
+        baseUrl: "https://dedi.example.com",
+        namespace: "test-ns",
+        authType: "api-key",
+      };
+      storeData["dediPublishedKeys"] = ["did:key:z6Mkold#z6Mkold"];
+      storeData["preferences"] = {
+        dediCredentialEncrypted: Buffer.from(JSON.stringify({ apiKey: "dk_test" })).toString(
+          "base64",
+        ),
+      };
+
+      const disconnect = registeredHandlers[IPC_CHANNELS.DEDI_DISCONNECT];
+      await disconnect(fakeEvent);
+      storeData["dediConfig"] = {
+        baseUrl: "https://dedi.example.com",
+        namespace: "test-ns",
+        authType: "api-key",
+      };
+      storeData["dediPublishedKeys"] = ["did:key:z6Mkold#z6Mkold"];
+      storeData["preferences"] = {
+        dediCredentialEncrypted: Buffer.from(JSON.stringify({ apiKey: "dk_test" })).toString(
+          "base64",
+        ),
+      };
+
+      mockSetKeyStatus.mockRejectedValue(new Error("DeDi unreachable"));
+
+      const handler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const result = (await handler(fakeEvent, {})) as { success: boolean; key?: { id: string } };
+      // Key generation should still succeed.
+      expect(result.success).toBe(true);
+      expect(result.key?.id).toContain("did:key:");
+    });
+
     it("should reject import of nonexistent file", async () => {
       const handler = registeredHandlers[IPC_CHANNELS.KEY_IMPORT];
       const result = (await handler(fakeEvent, { filePath: "/nonexistent/key.pem" })) as Record<
@@ -244,6 +363,516 @@ describe("IPC Handler Integration Tests", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // DEDI_PUBLISH_KEY + DEDI_SET_KEY_STATUS — per-key registry
+  // -----------------------------------------------------------------------
+  //
+  // The IPC surface references keys by their local signer id only — the
+  // private key never crosses IPC. The handler resolves the public JWK +
+  // algorithm from the in-memory signer registry and publishes a
+  // KeyRecord; key status changes (rotated/revoked) go through
+  // setKeyStatus(verificationMethod, status).
+  describe("DEDI_PUBLISH_KEY + DEDI_SET_KEY_STATUS", () => {
+    /**
+     * Provision a DeDi-configured publish manager and reset the
+     * cached singleton so the next handler call sees the new mocks.
+     * Mirrors the pattern used in the KEY_GENERATE rotation tests.
+     */
+    async function setupConfiguredDeDi(): Promise<void> {
+      const baseConfig = {
+        baseUrl: "https://dedi.example.com",
+        namespace: "test-ns",
+        authType: "api-key" as const,
+      };
+      const prefs = {
+        dediCredentialEncrypted: Buffer.from(JSON.stringify({ apiKey: "dk_test" })).toString(
+          "base64",
+        ),
+      };
+      storeData["dediConfig"] = baseConfig;
+      storeData["preferences"] = prefs;
+
+      // Drop the cached publishManager singleton so the configured
+      // mocks (publishKey / setKeyStatus) wire in fresh.
+      const disconnect = registeredHandlers[IPC_CHANNELS.DEDI_DISCONNECT];
+      await disconnect(fakeEvent);
+
+      // disconnect nukes config; restore it for the actual test body.
+      storeData["dediConfig"] = baseConfig;
+      storeData["preferences"] = prefs;
+    }
+
+    it("did:key: publishes a key record keyed by the signer id and tracks it", async () => {
+      await setupConfiguredDeDi();
+
+      // Generate a fresh keypair so loadedSigners has a software signer
+      // whose metadata.publicKeyJwk is populated.
+      const genHandler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const gen = (await genHandler(fakeEvent, {})) as { success: boolean; key: { id: string } };
+      expect(gen.success).toBe(true);
+      const keyId = gen.key.id;
+      // The generate hook may have called setKeyStatus on prior keys;
+      // reset so this test asserts only its own publish behaviour.
+      mockSetKeyStatus.mockClear();
+
+      mockPublishKey.mockResolvedValue({ recordName: "rec-1" });
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_PUBLISH_KEY];
+      const result = (await handler(fakeEvent, {
+        signerKeyId: keyId,
+        did: keyId,
+      })) as { success: boolean; recordName?: string; keyId?: string; didDocumentStored?: boolean };
+
+      expect(result.success).toBe(true);
+      expect(result.recordName).toBe("rec-1");
+      // did:key → verification method is the signer id itself.
+      expect(result.keyId).toBe(keyId);
+      expect(result.didDocumentStored).toBeUndefined();
+
+      expect(mockPublishKey).toHaveBeenCalledTimes(1);
+      const keyRecord = mockPublishKey.mock.calls[0]![0] as Record<string, unknown>;
+      expect(keyRecord.keyId).toBe(keyId);
+      expect(keyRecord.controllerDid).toBe(keyId);
+      expect(keyRecord.status).toBe("active");
+      expect(keyRecord.purpose).toEqual(["assertionMethod"]);
+
+      // Security invariant: only the public JWK is published.
+      const jwk = keyRecord.publicKeyJwk as Record<string, unknown>;
+      expect(jwk.kty).toBe("EC");
+      expect(jwk.crv).toBe("P-256");
+      expect(jwk.x).toBeDefined();
+      expect(jwk.y).toBeDefined();
+      expect(jwk.d).toBeUndefined();
+
+      // The published verification method is tracked locally.
+      expect(storeData["dediPublishedKeys"]).toContain(keyId);
+    });
+
+    it("did:web: publishes #key-0 verification method and stores the document", async () => {
+      await setupConfiguredDeDi();
+      const genHandler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const gen = (await genHandler(fakeEvent, {})) as { success: boolean; key: { id: string } };
+      const keyId = gen.key.id;
+      mockSetKeyStatus.mockClear();
+
+      mockPublishKey.mockResolvedValue({ recordName: "rec-web" });
+
+      const did = "did:web:issuer.example.org";
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_PUBLISH_KEY];
+      const result = (await handler(fakeEvent, {
+        signerKeyId: keyId,
+        did,
+        document: { id: did },
+        hostDidDocument: true,
+      })) as { success: boolean; keyId?: string; didDocumentStored?: boolean };
+
+      expect(result.success).toBe(true);
+      expect(result.keyId).toBe(did + "#key-0");
+      expect(result.didDocumentStored).toBe(true);
+
+      // The did.json snapshot now lives ON the key record (no separate
+      // did-documents registry). It's freshly ASSEMBLED from the active key
+      // set, not the single-key `document` the renderer supplied. For a
+      // one-key issuer that's a single-key doc with the active #key-0 method.
+      expect(mockPublishKey).toHaveBeenCalledTimes(1);
+      const keyRecord = mockPublishKey.mock.calls[0]![0] as Record<string, unknown>;
+      expect(keyRecord.keyId).toBe(did + "#key-0");
+      expect(keyRecord.controllerDid).toBe(did);
+      const storedDoc = keyRecord.document as {
+        id: string;
+        verificationMethod: { id: string }[];
+      };
+      expect(storedDoc.id).toBe(did);
+      expect(storedDoc.verificationMethod).toHaveLength(1);
+      expect(storedDoc.verificationMethod[0]!.id).toBe(did + "#key-0");
+      expect(storeData["dediPublishedKeys"]).toContain(did + "#key-0");
+    });
+
+    it("did:web: publishes at the operator-chosen #key-<n> and records the active index", async () => {
+      await setupConfiguredDeDi();
+      const genHandler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const gen = (await genHandler(fakeEvent, {})) as { success: boolean; key: { id: string } };
+      const keyId = gen.key.id;
+      mockSetKeyStatus.mockClear();
+      mockPublishKey.mockClear();
+      mockPublishKey.mockResolvedValue({ recordName: "rec-idx" });
+
+      const did = "did:web:issuer.example.org";
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_PUBLISH_KEY];
+      const result = (await handler(fakeEvent, {
+        signerKeyId: keyId,
+        did,
+        keyIndex: 1,
+      })) as { success: boolean; keyId?: string };
+
+      expect(result.success).toBe(true);
+      expect(result.keyId).toBe(did + "#key-1");
+      expect((mockPublishKey.mock.calls[0]![0] as Record<string, unknown>).keyId).toBe(
+        did + "#key-1",
+      );
+      // The active index is recorded so subsequent signing stamps #key-1.
+      expect(storeData["dediActiveKeyIndex"]).toBe(1);
+      expect(storeData["dediPublishedKeys"]).toContain(did + "#key-1");
+    });
+
+    it("did:web: rejects publishing at an index already present in the current did.json", async () => {
+      await setupConfiguredDeDi();
+      const genHandler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const gen = (await genHandler(fakeEvent, {})) as { success: boolean; key: { id: string } };
+      const keyId = gen.key.id;
+      mockPublishKey.mockClear();
+
+      const did = "did:web:issuer.example.org";
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_PUBLISH_KEY];
+      const result = (await handler(fakeEvent, {
+        signerKeyId: keyId,
+        did,
+        keyIndex: 0,
+        currentDidDocument: {
+          id: did,
+          verificationMethod: [
+            {
+              id: did + "#key-0",
+              type: "JsonWebKey",
+              controller: did,
+              publicKeyJwk: { kty: "EC", crv: "P-256", x: "x0", y: "y0" },
+            },
+          ],
+          assertionMethod: [did + "#key-0"],
+        },
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("#key-0 is already");
+      // Validation runs BEFORE publishKey — nothing is written to DeDi.
+      expect(mockPublishKey).not.toHaveBeenCalled();
+    });
+
+    it("did:web rotation: retires the previous key and carries both into the did.json", async () => {
+      await setupConfiguredDeDi();
+      const genHandler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const gen = (await genHandler(fakeEvent, {})) as { success: boolean; key: { id: string } };
+      const keyId = gen.key.id;
+      mockSetKeyStatus.mockClear();
+      mockSetKeyStatus.mockResolvedValue({ changed: true, keyId: "" });
+      mockPublishKey.mockClear();
+      mockPublishKey.mockResolvedValue({ recordName: "rec-rot" });
+
+      const did = "did:web:issuer.example.org";
+      const currentDidDocument = {
+        id: did,
+        verificationMethod: [
+          {
+            id: did + "#key-0",
+            type: "JsonWebKey",
+            controller: did,
+            publicKeyJwk: { kty: "EC", crv: "P-256", x: "x0", y: "y0" },
+          },
+        ],
+        assertionMethod: [did + "#key-0"],
+        authentication: [did + "#key-0"],
+      };
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_PUBLISH_KEY];
+      const result = (await handler(fakeEvent, {
+        signerKeyId: keyId,
+        did,
+        keyIndex: 1,
+        previousVerificationMethod: did + "#key-0",
+        currentDidDocument,
+        hostDidDocument: true,
+        namespace: "test-ns",
+      })) as { success: boolean; keyId?: string; didDocumentStored?: boolean };
+
+      expect(result.success).toBe(true);
+      expect(result.keyId).toBe(did + "#key-1");
+      // The previous key was flipped to rotated (stays valid). setKeyStatus
+      // carries the old key record's own did.json snapshot forward unchanged —
+      // no document is passed to it.
+      expect(mockSetKeyStatus).toHaveBeenCalledWith(did + "#key-0", "rotated", "test-ns");
+
+      // The NEW key record carries the regenerated did.json snapshot embedded on
+      // it, with BOTH keys (old #key-0 still resolves).
+      const newKeyRecord = mockPublishKey.mock.calls[0]![0] as Record<string, unknown>;
+      const storedDoc = newKeyRecord.document as {
+        verificationMethod: { id: string }[];
+        assertionMethod: string[];
+      };
+      expect(storedDoc.verificationMethod.map((v) => v.id)).toEqual([
+        did + "#key-0",
+        did + "#key-1",
+      ]);
+      expect(storedDoc.assertionMethod).toEqual([did + "#key-0", did + "#key-1"]);
+      expect(storeData["dediActiveKeyIndex"]).toBe(1);
+    });
+
+    it("did:web revoke: flips the per-key registry status (the authoritative signal)", async () => {
+      await setupConfiguredDeDi();
+      mockSetKeyStatus.mockClear();
+      mockSetKeyStatus.mockResolvedValue({
+        changed: true,
+        keyId: "did:web:issuer.example.org#key-0",
+      });
+
+      const did = "did:web:issuer.example.org";
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_SET_KEY_STATUS];
+      const result = (await handler(fakeEvent, {
+        verificationMethod: did + "#key-0",
+        status: "revoked",
+        did,
+        hostDidDocument: true,
+        namespace: "test-ns",
+      })) as { success: boolean; statusChange?: { changed: boolean }; didDocumentStored?: boolean };
+
+      // Revoke is a single status flip on the per-key registry record — the
+      // verifier reads that `status` to report REVOKED, and the live did.json is
+      // projected from the per-key snapshots. There is no separate did.json
+      // regeneration (no did-documents registry), and setKeyStatus carries each
+      // record's immutable snapshot forward unchanged.
+      expect(result.success).toBe(true);
+      expect(result.statusChange?.changed).toBe(true);
+      expect(mockSetKeyStatus).toHaveBeenCalledWith(did + "#key-0", "revoked", "test-ns");
+      // No document is re-published on revoke; the field is no longer surfaced.
+      expect(result.didDocumentStored).toBeUndefined();
+    });
+
+    it("did:web: assembled did.json keeps revoked keys resolvable but drops them from relationships", async () => {
+      await setupConfiguredDeDi();
+      const genHandler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const gen = (await genHandler(fakeEvent, {})) as { success: boolean; key: { id: string } };
+      const keyId = gen.key.id;
+      mockSetKeyStatus.mockClear();
+
+      const did = "did:web:issuer.example.org";
+      const activeVm = did + "#key-0";
+      // Two previously-published verification methods: one still rotated
+      // (retained) and one revoked (dropped). The active key is also already
+      // in the list to exercise de-duplication.
+      const rotatedVm = did + "#key-rotated";
+      const revokedVm = did + "#key-revoked";
+      storeData["dediPublishedKeys"] = [activeVm, rotatedVm, revokedVm];
+
+      mockPublishKey.mockResolvedValue({ recordName: "rec-web" });
+      const retainedJwk = { kty: "EC", crv: "P-256", x: "ret-x", y: "ret-y" };
+      mockResolveKey.mockImplementation(async (vm: string) => {
+        if (vm === rotatedVm) {
+          return {
+            keyId: rotatedVm,
+            controllerDid: did,
+            algorithm: "ES256",
+            publicKeyJwk: retainedJwk,
+            purpose: ["assertionMethod"],
+            status: "rotated",
+          };
+        }
+        if (vm === revokedVm) {
+          return {
+            keyId: revokedVm,
+            controllerDid: did,
+            algorithm: "ES256",
+            publicKeyJwk: { kty: "EC", crv: "P-256", x: "rev-x", y: "rev-y" },
+            purpose: ["assertionMethod"],
+            status: "revoked",
+          };
+        }
+        throw new Error("unexpected resolveKey call");
+      });
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_PUBLISH_KEY];
+      const result = (await handler(fakeEvent, {
+        signerKeyId: keyId,
+        did,
+        document: { id: did },
+        hostDidDocument: true,
+      })) as { success: boolean; didDocumentStored?: boolean };
+
+      expect(result.success).toBe(true);
+      expect(result.didDocumentStored).toBe(true);
+
+      // resolveKey is consulted for the two NON-active prior keys (active is
+      // skipped — it's the key being published now).
+      const resolvedVms = mockResolveKey.mock.calls.map((c) => c[0]);
+      expect(resolvedVms).toContain(rotatedVm);
+      expect(resolvedVms).toContain(revokedVm);
+      expect(resolvedVms).not.toContain(activeVm);
+
+      // The assembled did.json snapshot is embedded on the published key record.
+      const keyRecord = mockPublishKey.mock.calls[0]![0] as Record<string, unknown>;
+      const storedDoc = keyRecord.document as {
+        verificationMethod: { id: string }[];
+        assertionMethod: string[];
+      };
+      const ids = storedDoc.verificationMethod.map((m) => m.id);
+      // Active + rotated + revoked keys ALL stay in verificationMethod[] so
+      // their signatures still resolve (a revoked key yields REVOKED, not
+      // "unresolvable"); no dupes.
+      expect(ids).toContain(activeVm);
+      expect(ids).toContain(rotatedVm);
+      expect(ids).toContain(revokedVm);
+      expect(new Set(ids).size).toBe(ids.length);
+      // ...but the revoked key is dropped from the verification relationships.
+      expect(storedDoc.assertionMethod).toContain(activeVm);
+      expect(storedDoc.assertionMethod).toContain(rotatedVm);
+      expect(storedDoc.assertionMethod).not.toContain(revokedVm);
+    });
+
+    it("did:web: a resolveKey outage on a prior key is skipped (best-effort assembly)", async () => {
+      await setupConfiguredDeDi();
+      const genHandler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const gen = (await genHandler(fakeEvent, {})) as { success: boolean; key: { id: string } };
+      const keyId = gen.key.id;
+      mockSetKeyStatus.mockClear();
+
+      const did = "did:web:issuer.example.org";
+      const activeVm = did + "#key-0";
+      const unreachableVm = did + "#key-old";
+      storeData["dediPublishedKeys"] = [unreachableVm];
+
+      mockPublishKey.mockResolvedValue({ recordName: "rec-web" });
+      mockResolveKey.mockRejectedValue(new Error("DeDi unreachable"));
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_PUBLISH_KEY];
+      const result = (await handler(fakeEvent, {
+        signerKeyId: keyId,
+        did,
+        document: { id: did },
+        hostDidDocument: true,
+      })) as { success: boolean; didDocumentStored?: boolean };
+
+      // Publish still succeeds; the unreachable key is silently skipped.
+      expect(result.success).toBe(true);
+      expect(result.didDocumentStored).toBe(true);
+      const keyRecord = mockPublishKey.mock.calls[0]![0] as Record<string, unknown>;
+      const storedDoc = keyRecord.document as {
+        verificationMethod: { id: string }[];
+      };
+      const ids = storedDoc.verificationMethod.map((m) => m.id);
+      expect(ids).toEqual([activeVm]);
+    });
+
+    it("returns success:false when the signer has no public key", async () => {
+      await setupConfiguredDeDi();
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_PUBLISH_KEY];
+      const result = (await handler(fakeEvent, {
+        signerKeyId: "did:key:zNotLoaded#abc",
+        did: "did:key:zNotLoaded",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/No public key/);
+      expect(mockPublishKey).not.toHaveBeenCalled();
+    });
+
+    it("publish: returns success:false when DeDi is not configured", async () => {
+      const disconnect = registeredHandlers[IPC_CHANNELS.DEDI_DISCONNECT];
+      await disconnect(fakeEvent);
+      delete storeData["dediConfig"];
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_PUBLISH_KEY];
+      const result = (await handler(fakeEvent, {
+        signerKeyId: "did:key:zX#zX",
+        did: "did:key:zX",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not configured/);
+    });
+
+    it("publish: returns success:false when publishKey returns null", async () => {
+      await setupConfiguredDeDi();
+      const genHandler = registeredHandlers[IPC_CHANNELS.KEY_GENERATE];
+      const gen = (await genHandler(fakeEvent, {})) as { success: boolean; key: { id: string } };
+      const keyId = gen.key.id;
+      mockSetKeyStatus.mockClear();
+      mockPublishKey.mockResolvedValue(null);
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_PUBLISH_KEY];
+      const result = (await handler(fakeEvent, {
+        signerKeyId: keyId,
+        did: keyId,
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/Failed to publish key/);
+    });
+
+    it("setKeyStatus: rotates a key and surfaces the change result", async () => {
+      await setupConfiguredDeDi();
+      mockSetKeyStatus.mockResolvedValue({
+        changed: true,
+        keyId: "did:web:issuer.example.org#key-0",
+      });
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_SET_KEY_STATUS];
+      const result = (await handler(fakeEvent, {
+        verificationMethod: "did:web:issuer.example.org#key-0",
+        status: "rotated",
+      })) as {
+        success: boolean;
+        statusChange?: { changed: boolean; keyId: string; status: string };
+      };
+
+      expect(result.success).toBe(true);
+      expect(result.statusChange?.changed).toBe(true);
+      expect(result.statusChange?.keyId).toBe("did:web:issuer.example.org#key-0");
+      expect(result.statusChange?.status).toBe("rotated");
+      expect(mockSetKeyStatus).toHaveBeenCalledWith(
+        "did:web:issuer.example.org#key-0",
+        "rotated",
+        undefined,
+      );
+    });
+
+    it("setKeyStatus: surfaces a no-op (changed:false) result", async () => {
+      await setupConfiguredDeDi();
+      mockSetKeyStatus.mockResolvedValue({
+        changed: false,
+        keyId: "did:key:z6Mkold#z6Mkold",
+        status: "rotated",
+        reason: "already-at-status",
+      });
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_SET_KEY_STATUS];
+      const result = (await handler(fakeEvent, {
+        verificationMethod: "did:key:z6Mkold#z6Mkold",
+        status: "rotated",
+      })) as { success: boolean; statusChange?: { changed: boolean } };
+
+      expect(result.success).toBe(true);
+      expect(result.statusChange?.changed).toBe(false);
+    });
+
+    it("setKeyStatus: returns success:false when DeDi is not configured", async () => {
+      const disconnect = registeredHandlers[IPC_CHANNELS.DEDI_DISCONNECT];
+      await disconnect(fakeEvent);
+      delete storeData["dediConfig"];
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_SET_KEY_STATUS];
+      const result = (await handler(fakeEvent, {
+        verificationMethod: "did:key:z6Mkold#z6Mkold",
+        status: "rotated",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not configured/);
+    });
+
+    it("setKeyStatus: surfaces error when setKeyStatus returns null", async () => {
+      await setupConfiguredDeDi();
+      mockSetKeyStatus.mockResolvedValue(null);
+
+      const handler = registeredHandlers[IPC_CHANNELS.DEDI_SET_KEY_STATUS];
+      const result = (await handler(fakeEvent, {
+        verificationMethod: "did:key:z6Mkold#z6Mkold",
+        status: "revoked",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/Failed to set key status/);
     });
   });
 
@@ -301,6 +930,31 @@ describe("IPC Handler Integration Tests", () => {
       expect(signed.proof.type).toBe("DataIntegrityProof");
       expect(signed.proof.cryptosuite).toBe("ecdsa-rdfc-2019");
       expect(signed.proof.proofValue).toBeDefined();
+    });
+
+    it("data-integrity + did:web: stamps the active key index as the verification method", async () => {
+      const { keyId } = await importTestKey();
+      // Simulate a post-rotation issuer signing under #key-2.
+      storeData["dediActiveKeyIndex"] = 2;
+
+      const result = await buildAndSign({
+        keyId,
+        schemaId: "functional-identity/v1",
+        issuerDid: "did:web:issuer.example.org",
+        credentialSubject: {
+          name: "Jane Doe",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
+        },
+        validFrom: "2025-01-01T00:00:00Z",
+        proofFormat: "data-integrity",
+      });
+
+      expect(result.success).toBe(true);
+      const signed = JSON.parse(result.signedCredential!);
+      // The data-integrity / batch path (buildAndSign) must honor the active
+      // index — not the hardcoded #key-0 — or post-rotation creds break.
+      expect(signed.proof.verificationMethod).toBe("did:web:issuer.example.org#key-2");
     });
 
     it("sd-jwt-vc: should sign with education schema", async () => {
@@ -696,6 +1350,12 @@ describe("IPC Handler Integration Tests", () => {
   // Revocation queue
   // -----------------------------------------------------------------------
   describe("Revocation queue", () => {
+    // Each revocation queue test seeds a fresh queue so assertions on
+    // length / contents are not polluted by sibling tests.
+    beforeEach(() => {
+      storeData["revocationQueue"] = [];
+    });
+
     it("should queue a revocation and return it in status", async () => {
       const queueHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_QUEUE];
       const queueResult = (await queueHandler(fakeEvent, {
@@ -718,6 +1378,70 @@ describe("IPC Handler Integration Tests", () => {
       expect(statusResult.items.length).toBeGreaterThanOrEqual(1);
       const found = statusResult.items.find((i) => i.credentialId === "urn:uuid:test-cred-1");
       expect(found).toBeDefined();
+    });
+
+    it("should persist the reason on the queue item so the History tab can render it", async () => {
+      const queueHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_QUEUE];
+      const statusHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_STATUS];
+
+      await queueHandler(fakeEvent, {
+        credentialId: "urn:uuid:cred-with-reason",
+        registryUrl: "https://dedi.global/revocations/test",
+        reason: "Subject requested deletion",
+      });
+
+      const status = (await statusHandler(fakeEvent)) as {
+        items: Array<{ credentialId: string; reason?: string }>;
+      };
+      const item = status.items.find((i) => i.credentialId === "urn:uuid:cred-with-reason");
+      expect(item).toBeDefined();
+      // The persisted reason is what the History tab displays alongside
+      // the "Revoked" status; if this assertion ever fails the UI label
+      // would silently fall back to "No reason recorded".
+      expect(item?.reason).toBe("Subject requested deletion");
+    });
+
+    it("should queue successfully when reason is omitted (reason is optional)", async () => {
+      const queueHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_QUEUE];
+      const statusHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_STATUS];
+
+      const result = (await queueHandler(fakeEvent, {
+        credentialId: "urn:uuid:cred-no-reason",
+        registryUrl: "https://dedi.global/revocations/test",
+      })) as { success: boolean };
+
+      expect(result.success).toBe(true);
+
+      const status = (await statusHandler(fakeEvent)) as {
+        items: Array<{ credentialId: string; reason?: string }>;
+      };
+      const item = status.items.find((i) => i.credentialId === "urn:uuid:cred-no-reason");
+      expect(item).toBeDefined();
+      expect(item?.reason).toBeUndefined();
+    });
+
+    it("should reject a payload missing credentialId", async () => {
+      const queueHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_QUEUE];
+      const result = (await queueHandler(fakeEvent, {
+        registryUrl: "https://dedi.global/revocations/test",
+        reason: "Key compromised",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/credentialId/i);
+    });
+
+    it("should reject a reason that exceeds the IPC max length", async () => {
+      const queueHandler = registeredHandlers[IPC_CHANNELS.REVOCATION_QUEUE];
+      const oversized = "x".repeat(2048);
+      const result = (await queueHandler(fakeEvent, {
+        credentialId: "urn:uuid:oversized-reason",
+        registryUrl: "https://dedi.global/revocations/test",
+        reason: oversized,
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/reason/i);
     });
   });
 

@@ -17,6 +17,10 @@ import { resolveRevocationHash } from "@opencred/crypto";
 import { rejectKeyMaterial } from "./credentials.js";
 import { getDeDiClient } from "../dedi-singleton.js";
 import { revocationsPublishedTotal } from "../metrics.js";
+import { parseJsonBody } from "../middleware/parse-json.js";
+import { driveRevocationToLive } from "../revocation-worker.js";
+import { getLogger } from "../logger.js";
+import { DeDiClientError } from "@opencred/shared";
 
 const revocation = new Hono();
 
@@ -29,7 +33,7 @@ const batchHashSchema = z.object({
 });
 
 revocation.post("/credentials/revocation-hash", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   // SECURITY: defense-in-depth — no route accepts key material. See CLAUDE.md rule 1.
   rejectKeyMaterial(body);
   const parsed = singleHashSchema.parse(body);
@@ -41,7 +45,7 @@ revocation.post("/credentials/revocation-hash", async (c) => {
 });
 
 revocation.post("/credentials/revocation-hash/batch", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   // SECURITY: defense-in-depth — no route accepts key material. See CLAUDE.md rule 1.
   rejectKeyMaterial(body);
   const parsed = batchHashSchema.parse(body);
@@ -81,13 +85,15 @@ const revokeSchema = z
       .regex(/^[a-f0-9]+$/)
       .optional(),
     namespace: z.string().optional(),
+    /** Optional reason (per DeDi canonical revoke schema https://dedi.global/revoke.json). */
+    reason: z.string().optional(),
   })
   .refine((data) => data.credential || data.hash, {
     message: "Either credential or hash must be provided",
   });
 
 revocation.post("/credentials/revoke", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   // SECURITY: defense-in-depth — no route accepts key material. See CLAUDE.md rule 1.
   rejectKeyMaterial(body);
   const parsed = revokeSchema.parse(body);
@@ -98,13 +104,48 @@ revocation.post("/credentials/revoke", async (c) => {
   }
 
   const hash = parsed.hash ?? resolveRevocationHash(parsed.credential!);
-  const result = await dediClient.publishRevocationHash(hash, parsed.namespace);
 
-  revocationsPublishedTotal.inc();
-
-  // publishRevocationHash always returns a revoked=true record.
-  const revokedAt = result.revoked ? result.revokedAt : new Date().toISOString();
-  return c.json({ hash, revoked: true, revokedAt });
+  try {
+    // Fast path: try to publish synchronously. On a non-congested namespace (or
+    // an already-stranded draft) this completes in well under the 10s ceiling
+    // and returns 200, preserving the synchronous revoke contract.
+    const result = await dediClient.publishRevocationHash(hash, parsed.namespace, parsed.reason);
+    revocationsPublishedTotal.inc();
+    const revokedAt = result.revoked ? result.revokedAt : new Date().toISOString();
+    const responseReason = result.revoked ? result.reason : undefined;
+    return c.json({
+      hash,
+      revoked: true,
+      revokedAt,
+      ...(responseReason !== undefined ? { reason: responseReason } : {}),
+    });
+  } catch (err) {
+    // DeDi's write anchors to CORD, and BOTH steps (save-record-as-draft,
+    // publish-records) can exceed the hard 10s ceiling, so a synchronous publish
+    // 504s under load (opencred-releases#11). The write is eventually consistent
+    // (a step that times out client-side still lands on CORD), so instead of
+    // failing we ACCEPT the revoke (202) and drive the idempotent, self-healing
+    // publish in the background until the record is LIVE. The client confirms
+    // with POST /v1/credentials/revocation-status (#718). Any non-timeout error
+    // (e.g. DeDiRecordExistsError → 409) propagates unchanged.
+    if (err instanceof DeDiClientError && err.statusCode === 504) {
+      void driveRevocationToLive(dediClient, hash, parsed.namespace, parsed.reason, getLogger());
+      revocationsPublishedTotal.inc();
+      return c.json(
+        {
+          hash,
+          revoked: false,
+          status: "pending",
+          message:
+            "Revocation accepted and is being published to DeDi (the CORD write exceeded the " +
+            "synchronous timeout). The credential becomes revoked once the write settles; confirm " +
+            "with POST /v1/credentials/revocation-status.",
+        },
+        202,
+      );
+    }
+    throw err;
+  }
 });
 
 // --- Revocation query endpoint (checks DeDi) ---
@@ -118,7 +159,7 @@ const querySchema = z.object({
 });
 
 revocation.post("/credentials/revocation-status", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   rejectKeyMaterial(body);
   const parsed = querySchema.parse(body);
 
@@ -128,7 +169,12 @@ revocation.post("/credentials/revocation-status", async (c) => {
   }
 
   const record = await dediClient.queryRevocationHash(parsed.hash, parsed.namespace);
-  return c.json(record);
+  // Adapter's `RevocationHashRecord` no longer carries the hash (it
+  // dropped out of DeDi's canonical revoke shape — record existence ⇒
+  // revoked, no need to echo the key inside details). Re-attach `hash`
+  // here so clients of this endpoint still get the input they queried
+  // for in the response.
+  return c.json({ hash: parsed.hash, ...record });
 });
 
 export { revocation };

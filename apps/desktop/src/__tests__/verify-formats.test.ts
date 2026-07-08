@@ -1,35 +1,39 @@
 import { describe, it, expect } from "vitest";
-import { decodeQrData, compressCredentialForQr } from "../packaging/qr-generator";
+import { detectCredentialInputFormat, decodePixelPass } from "@opencred/shared";
+import { compressCredentialForQr, decodeQrData } from "@opencred/packaging";
 import type { VerifiableCredential } from "@opencred/vc-core";
 
+/**
+ * Mirrors the dispatch logic used by the desktop IPC handler's verify
+ * branch. Kept in this test as a thin re-implementation so format-detection
+ * regressions surface here even when the IPC layer is mocked.
+ */
 type FormatResult =
-  | { format: "opencred-qr"; decoded: string }
+  | { format: "pixelpass"; decoded: string }
   | { format: "json"; raw: string }
-  | { format: "jwt"; raw: string }
-  | { format: "sd-jwt"; raw: string }
+  | { format: "jwt-compact"; raw: string }
   | { format: "unknown"; error: string };
 
 function detectFormat(credential: string): FormatResult {
   const trimmed = credential.trim();
-  if (trimmed.startsWith("OPENCRED1:")) {
-    const decoded = decodeQrData(trimmed);
-    return { format: "opencred-qr", decoded };
-  } else if (trimmed.startsWith("{")) {
-    return { format: "json", raw: trimmed };
-  } else if (trimmed.includes("~")) {
-    return { format: "sd-jwt", raw: trimmed };
-  } else if (trimmed.split(".").length === 3) {
-    return { format: "jwt", raw: trimmed };
-  } else {
-    return {
-      format: "unknown",
-      error: "Unrecognized credential format. Expected JSON, OPENCRED1: QR data, JWT, or SD-JWT.",
-    };
+  const format = detectCredentialInputFormat(trimmed);
+  switch (format) {
+    case "pixelpass":
+      return { format, decoded: decodePixelPass(trimmed) };
+    case "json":
+      return { format, raw: trimmed };
+    case "jwt-compact":
+      return { format, raw: trimmed };
+    case "unknown":
+      return {
+        format,
+        error: "Unrecognized credential format. Expected JSON, PixelPass QR data, JWT, or SD-JWT.",
+      };
   }
 }
 
 describe("verify-formats: format detection", () => {
-  it("should detect OPENCRED1: compressed QR data and decode it", () => {
+  it("should detect bare PixelPass QR data and decode it", () => {
     const sampleCredential = {
       "@context": ["https://www.w3.org/2018/credentials/v1"],
       type: ["VerifiableCredential"],
@@ -38,11 +42,12 @@ describe("verify-formats: format detection", () => {
     } as unknown as VerifiableCredential;
 
     const compressed = compressCredentialForQr(sampleCredential);
-    expect(compressed).toMatch(/^OPENCRED1:/);
+    // Sanity: no prefix on the emitted payload.
+    expect(compressed).not.toMatch(/^OPENCRED1:/);
 
     const result = detectFormat(compressed);
-    expect(result.format).toBe("opencred-qr");
-    if (result.format === "opencred-qr") {
+    expect(result.format).toBe("pixelpass");
+    if (result.format === "pixelpass") {
       const parsed = JSON.parse(result.decoded);
       expect(parsed.issuer).toBe(sampleCredential.issuer);
       expect(parsed.credentialSubject.name).toBe("Test");
@@ -67,8 +72,8 @@ describe("verify-formats: format detection", () => {
   it("should detect JWT compact serialization", () => {
     const jwt = "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature_here";
     const result = detectFormat(jwt);
-    expect(result.format).toBe("jwt");
-    if (result.format === "jwt") {
+    expect(result.format).toBe("jwt-compact");
+    if (result.format === "jwt-compact") {
       expect(result.raw).toBe(jwt);
     }
   });
@@ -76,8 +81,8 @@ describe("verify-formats: format detection", () => {
   it("should detect SD-JWT format (contains ~ separator)", () => {
     const sdJwt = "eyJhbGciOiJFUzI1NiJ9.eyJfc2QiOlsiYSJdfQ.sig~eyJhbGciOiJFUzI1NiJ9~";
     const result = detectFormat(sdJwt);
-    expect(result.format).toBe("sd-jwt");
-    if (result.format === "sd-jwt") {
+    expect(result.format).toBe("jwt-compact");
+    if (result.format === "jwt-compact") {
       expect(result.raw).toBe(sdJwt);
     }
   });
@@ -85,7 +90,7 @@ describe("verify-formats: format detection", () => {
   it("should prefer SD-JWT over JWT when ~ is present", () => {
     const sdJwt = "header.payload.signature~disclosure1~disclosure2~";
     const result = detectFormat(sdJwt);
-    expect(result.format).toBe("sd-jwt");
+    expect(result.format).toBe("jwt-compact");
   });
 
   it("should reject unrecognized formats", () => {
@@ -101,7 +106,7 @@ describe("verify-formats: format detection", () => {
     expect(result.format).toBe("unknown");
   });
 
-  it("should handle OPENCRED1: with whitespace padding", () => {
+  it("should handle PixelPass with whitespace padding", () => {
     const sampleCredential = {
       "@context": ["https://www.w3.org/2018/credentials/v1"],
       type: ["VerifiableCredential"],
@@ -112,7 +117,7 @@ describe("verify-formats: format detection", () => {
     const compressed = compressCredentialForQr(sampleCredential);
     const padded = "  " + compressed + "  ";
     const result = detectFormat(padded);
-    expect(result.format).toBe("opencred-qr");
+    expect(result.format).toBe("pixelpass");
   });
 });
 

@@ -73,6 +73,8 @@ export interface BatchConfig {
   schemaId: string;
   /** The issuer DID. */
   issuerDid: string;
+  /** The active did:web key index (`#key-<n>`) to sign under. Default 0. */
+  keyIndex?: number;
   /** ISO 8601 validFrom date. */
   validFrom: string;
   /** ISO 8601 validUntil date (optional). */
@@ -148,6 +150,7 @@ export function createBatchEngine(signer: Signer, parsedRows: ParsedRow[], confi
       const signingOptions: LocalSigningOptions = {
         schemaId: config.schemaId,
         issuerDid: config.issuerDid,
+        keyIndex: config.keyIndex,
         credentialSubject: parsedRow.mappedSubject as Record<string, unknown>,
         validFrom: config.validFrom,
         validUntil: config.validUntil,

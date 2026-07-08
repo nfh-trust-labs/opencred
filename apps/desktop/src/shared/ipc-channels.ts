@@ -100,6 +100,10 @@ export const IPC_CHANNELS = {
   DID_WEB_EXPORT: "keys:export-did-document",
   DID_WEB_VERIFY: "keys:verify-did-web",
 
+  // --- Self-Published Keys (did:key) ---
+  /** Synthesise a DID document for a did:key. Payload: DidKeyExportRequest. */
+  DID_KEY_EXPORT: "keys:export-did-key-document",
+
   // --- Recent templates ---
   /** List recently used templates. Response: RecentTemplatesListResponse. */
   RECENT_TEMPLATES_LIST: "recent-templates:list",
@@ -134,8 +138,18 @@ export const IPC_CHANNELS = {
   DEDI_SET_CONFIG: "dedi:set-config",
   /** Get DeDi integration status. Response: DeDiStatusResponse. */
   DEDI_GET_STATUS: "dedi:get-status",
-  /** Publish a DID document to DeDi. Payload: DeDiPublishDIDRequest. Response: DeDiPublishResponse. */
-  DEDI_PUBLISH_DID: "dedi:publish-did",
+  /** Publish a key (and optionally its did:web document) to DeDi. Payload: DeDiPublishKeyRequest. Response: DeDiPublishResponse. */
+  DEDI_PUBLISH_KEY: "dedi:publish-key",
+  /**
+   * Set the status of a previously-published key in DeDi (e.g.
+   * `"rotated"` or `"revoked"`). Called when the issuer regenerates or
+   * revokes their signing key — the verifier UI surfaces the status for
+   * credentials still signed under that key, but valid signatures remain
+   * cryptographically valid.
+   *
+   * Payload: DeDiSetKeyStatusRequest. Response: DeDiPublishResponse.
+   */
+  DEDI_SET_KEY_STATUS: "dedi:set-key-status",
   /** Publish a schema to DeDi. Payload: DeDiPublishSchemaRequest. Response: DeDiPublishResponse. */
   DEDI_PUBLISH_SCHEMA: "dedi:publish-schema",
   /** Ensure DeDi registries exist. Response: DeDiEnsureRegistriesResponse. */

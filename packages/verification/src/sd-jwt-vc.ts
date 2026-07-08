@@ -5,8 +5,13 @@ import { assertJwtSize } from "@opencred/shared";
 import { publicKeyFromMultibase } from "./key-utils.js";
 import type { VerificationCheck } from "./types.js";
 
-/** Allowed JWT signing algorithms — prevents algorithm confusion attacks. */
-const ALLOWED_ALGORITHMS = ["ES256", "ES384", "ES512", "EdDSA"] as const;
+/**
+ * Allowed JWT signing algorithms — prevents algorithm confusion attacks.
+ * Mirrors the algorithms produced by @opencred/crypto for VC signing
+ * (see signingAlgorithmToJwsAlg): ES256 (P-256), ES384 (P-384),
+ * PS256 (RSA-2048/3072/4096), EdDSA (Ed25519).
+ */
+const ALLOWED_ALGORITHMS = ["ES256", "ES384", "ES512", "PS256", "EdDSA"] as const;
 
 /**
  * Decoded SD-JWT VC components.
@@ -380,8 +385,14 @@ async function verifyKeyBindingJwt(
       algorithms: ALLOWED_ALGORITHMS as unknown as string[],
     });
 
-    // Verify sd_hash: the hash of the SD-JWT without the KB-JWT part
-    const sdJwtWithoutKb = fullSdJwtVc.substring(0, fullSdJwtVc.lastIndexOf(keyBindingJwt));
+    // Verify sd_hash: the hash of the SD-JWT without the KB-JWT part.
+    // Per SD-JWT §4.3 the serialization is
+    // `<issuer-jwt>~<disclosure>~...~<kb-jwt>`, so the KB-JWT is exactly
+    // the segment after the LAST `~`. Cutting at that structural boundary
+    // (rather than string-searching for the KB-JWT's own bytes) cannot be
+    // confused by a crafted disclosure that happens to contain the KB-JWT
+    // as a substring.
+    const sdJwtWithoutKb = fullSdJwtVc.substring(0, fullSdJwtVc.lastIndexOf("~") + 1);
     const sdAlg = issuerPayload["_sd_alg"] as string | undefined;
     const expectedSdHash = computeSdHash(sdJwtWithoutKb, sdAlg);
     if (kbPayload["sd_hash"] !== expectedSdHash) {
