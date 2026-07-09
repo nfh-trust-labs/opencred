@@ -1,12 +1,21 @@
 name: E2E Matrix
 
-# Nightly credential-matrix run: every valid {algorithm × proof format}
+# Release-gate credential-matrix run: every valid {algorithm × proof format}
 # cell issued and verified against the real Docker image. DeDi lifecycle
 # cells run only when the staging secrets are configured — they skip
 # loudly otherwise (see e2e/README.md).
+#
+# Runs on every v* release tag (~45 min, once per release) instead of the
+# original nightly cron (~45 min/day, most of it re-testing unchanged code).
+# A red run here means: do NOT advance :latest / announce the release until
+# it's fixed. Also runnable on demand via workflow_dispatch.
+#
+# Caveat (same as docker.yml's tag trigger): tags created by a workflow via
+# GITHUB_TOKEN don't fire tag-push triggers (anti-loop rule) — the release
+# runbook's manual tag re-push is what fires this, exactly like docker-push.
 on:
-  schedule:
-    - cron: "0 2 * * *" # 02:00 UTC nightly
+  push:
+    tags: ['v*']
   workflow_dispatch:
 
 jobs:

@@ -1,6 +1,6 @@
 # Credential support matrix
 
-The contract for what OpenCred can issue and verify, across both products (Desktop Client and Docker image). Every **valid** cell below is exercised nightly by the E2E matrix harness (`e2e/`, [workflow](../../.github/workflows/e2e-matrix.yml)) against the real Docker image — issue → verify through the public `@opencred/verify` SDK **and** the server's `/v1/credentials/verify` → tampered copy rejected.
+The contract for what OpenCred can issue and verify, across both products (Desktop Client and Docker image). Every **valid** cell below is exercised on every release tag by the E2E matrix harness (`e2e/`, [workflow](../../.github/workflows/e2e-matrix.yml)) against the real Docker image — issue → verify through the public `@opencred/verify` SDK **and** the server's `/v1/credentials/verify` → tampered copy rejected.
 
 ## Algorithm × proof format
 

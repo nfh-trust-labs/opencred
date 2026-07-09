@@ -7,7 +7,12 @@ name: Docker
 #
 # - PRs: build + Trivy vulnerability scan (validates Dockerfile compiles)
 # - Push to new-opencred-dev or opencred-prod: build + scan
-# - v* tags: build + scan + push to GHCR + smoke test
+# - v* tags: test + build + scan + push to GHCR + smoke test
+#
+# The `test` job runs ONLY on the publish path (v* tags / workflow_call /
+# workflow_dispatch with a tag). On PRs and branch pushes it duplicated the
+# identical CI workflow test job (~18 min per run, twice per PR) and gated
+# nothing — docker-push doesn't run there.
 # ==============================================================================
 
 on:
@@ -40,6 +45,14 @@ on:
         required: false
         type: string
 
+# Superseded runs on the same PR are cancelled (a fixup push obsoletes the
+# in-flight run). Push/tag/release runs are never cancelled — for reusable
+# calls (release-please) github.workflow is the CALLER's name, so release
+# runs land in their own group and can't collide with regular Docker runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   REGISTRY: ghcr.io
   SERVER_IMAGE: ghcr.io/${{ github.repository }}/opencred-server
@@ -50,11 +63,18 @@ permissions:
 
 jobs:
   # --------------------------------------------------------------------------
-  # Run tests before allowing push
+  # Run tests before allowing push. Publish path only (see header) — on PRs
+  # and branch pushes the CI workflow already runs the identical suite.
   # --------------------------------------------------------------------------
   test:
     name: Test
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.tag != '' }}
     runs-on: ubuntu-latest
+    # Same vitest/tinypool worker-startup wedge as ci.yml's test job: a lost
+    # fork→ready IPC handshake hangs the run forever with zero output. Two
+    # such runs each burned the full 6-hour default budget (360 min apiece)
+    # in June 2026 — 37% of that month's Actions bill. Healthy run: ~18 min.
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -81,6 +101,9 @@ jobs:
   docker-build:
     name: Build & Scan
     runs-on: ubuntu-latest
+    # Healthy run ~2 min with a warm gha cache; cold cache + Trivy DB pull
+    # stays well under this.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -119,6 +142,9 @@ jobs:
     needs: [docker-build, test]
     if: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.tag != '' }}
     runs-on: ubuntu-latest
+    # Multi-arch build: the arm64 half runs under QEMU emulation and
+    # dominates (~3-4x the native amd64 build).
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -184,6 +210,7 @@ jobs:
     name: Smoke Test
     needs: docker-push
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4

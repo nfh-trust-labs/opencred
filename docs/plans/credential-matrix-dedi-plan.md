@@ -113,7 +113,7 @@ Expired / not-yet-valid / oversized (>1 MiB) / null-byte DIDs / percent-encoded 
 
 ### B6. CI wiring
 
-Nightly `e2e-matrix.yml` workflow (Docker backend always; DeDi cells when secrets configured; Cloud HSM cells when cloud creds configured). Produces the matrix report artifact (§1 DoD). PR gate unchanged.
+`e2e-matrix.yml` workflow (Docker backend always; DeDi cells when secrets configured; Cloud HSM cells when cloud creds configured). Produces the matrix report artifact (§1 DoD). PR gate unchanged. _Originally nightly; since 2026-07 it runs as a release gate on every `v*` tag (plus `workflow_dispatch`) to cut Actions spend._
 
 ---
 

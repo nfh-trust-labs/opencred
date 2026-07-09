@@ -2,7 +2,7 @@
 
 Credential-matrix E2E harness. Proves every valid `{algorithm × proof format}` cell issues and verifies against the **real Docker image**, through both verifiers (the public `@opencred/verify` SDK and the server's `/v1/credentials/verify`), with tamper rejection, PDF/JSON export round-trips, the documented exclusions, and — when a staging namespace is configured — the full DeDi key lifecycle (publish → issue → verify → rotate → revoke credential → revoke key).
 
-Not part of the unit-test run (`vitest.workspace.ts` deliberately excludes it). CI runs it nightly via `.github/workflows/e2e-matrix.yml`.
+Not part of the unit-test run (`vitest.workspace.ts` deliberately excludes it). CI runs it as a release gate — on every `v*` tag, plus on demand via `workflow_dispatch` — through `.github/workflows/e2e-matrix.yml`. A red run means the release must not be announced (and `:latest` not advanced) until fixed.
 
 ## Running locally
 

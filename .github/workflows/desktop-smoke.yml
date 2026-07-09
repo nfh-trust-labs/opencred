@@ -11,6 +11,11 @@
 # Linux only, on purpose: macOS/Windows packaged-launch checks need signing
 # identities (Gatekeeper / SmartScreen) that are only configured in the
 # release workflow — out of scope here.
+#
+# No scheduled run: the pull_request paths below cover apps/desktop/** and
+# packages/**, which is nearly every PR, so a nightly re-run of unchanged
+# code added cost without coverage. workflow_dispatch remains for on-demand
+# checks (e.g. after a runner-image update).
 name: Desktop Packaged Smoke
 
 on:
@@ -20,10 +25,12 @@ on:
       - "packages/**"
       - "pnpm-lock.yaml"
       - ".github/workflows/desktop-smoke.yml"
-  schedule:
-    # Nightly, so renderer/main regressions surface even without desktop PRs.
-    - cron: "17 3 * * *"
   workflow_dispatch:
+
+# A fixup push to a PR cancels the superseded in-flight run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
