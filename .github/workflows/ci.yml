@@ -6,6 +6,13 @@ on:
   push:
     branches: [new-opencred-dev]
 
+# A fixup push to a PR cancels the superseded in-flight run. Push runs on
+# new-opencred-dev are never cancelled mid-flight (cancel-in-progress is
+# false for them), but queued superseded ones are replaced.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     name: Lint
@@ -24,6 +31,11 @@ jobs:
 
   typecheck:
     name: Type Check
+    # Gated on lint: it's the cheapest job (~1 min) and historically the
+    # most common failure (47 of 58 runs in June 2026 were red, mostly
+    # lint/format). Running the expensive jobs only after lint passes
+    # trades ~1 min of latency on green runs for ~7 min saved on red ones.
+    needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -39,6 +51,7 @@ jobs:
 
   test:
     name: Test
+    needs: lint
     runs-on: ubuntu-latest
     # vitest 2.x's forks pool (tinypool 1.x) has no watchdog on worker
     # startup: if the fork→ready IPC handshake is lost while recycling the

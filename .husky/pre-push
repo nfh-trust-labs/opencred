@@ -1,0 +1,6 @@
+# Lint + format gate before anything leaves the machine. In June 2026,
+# 47 of 58 CI runs were red — mostly lint/format drift pushed unchecked —
+# and CI's expensive jobs are now gated on lint (ci.yml), so a bad push
+# just fails faster. Catch it locally instead.
+# Bypass for emergencies: git push --no-verify
+pnpm lint && pnpm format:check
