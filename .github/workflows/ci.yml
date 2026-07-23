@@ -7,6 +7,25 @@ on:
     branches: [new-opencred-dev]
 
 jobs:
+  changelog-guard:
+    name: CHANGELOG guard
+    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release-please')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Fail if CHANGELOG.md edited by hand
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename' | grep -qx "CHANGELOG.md"; then
+            echo "::error file=CHANGELOG.md::CHANGELOG.md is owned by release-please — remove manual edits (see CLAUDE.md / REVIEW.md)."
+            exit 1
+          fi
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
