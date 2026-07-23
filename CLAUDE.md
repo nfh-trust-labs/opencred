@@ -1,5 +1,29 @@
 # OpenCred — Claude Code Instructions
 
+## Mode & Stability
+
+- **Mode: production** — the global lifecycle skills (testing-standards,
+  ci-cd, observability, security-baseline, release, ui-standards) apply here.
+- **Stability: stable** (declared by Anusree, 2026-07) — the `release`
+  skill's backward-compatibility gate applies to every release.
+
+## Backward Compatibility — HARD RULE (launch-blocking)
+
+Every version must be backward compatible. Treat any change to a public
+contract as breaking: `/v1/*` request/response shapes, env vars and their
+defaults, VC/JWT/PDF output formats, on-disk DID/key formats, DeDi record
+shapes, desktop settings, Docker env/volumes. Prefer additive evolution.
+Credentials issued by version N must verify under N+1. Migrations are
+automatic and tested. Known gap: no N→N+1 upgrade test suite exists yet —
+flag any change that relies on untested compatibility.
+
+## Build & Dev Notes
+
+- `pnpm install` needs `CI=true` for non-interactive runs.
+- TEMPORARY until the silent-abort fix lands: `pnpm build` must exit 0
+  before trusting local dist — schema-engine can abort silently on network
+  failure.
+
 ## Security Invariants — MANDATORY
 
 These rules are non-negotiable. Every agent, every PR, every line of code must respect them.
@@ -60,9 +84,13 @@ Follow this protocol for every issue you work on:
 6. **Write tests** for all new functionality
 7. **Open a PR** referencing the issue:
    - PR title: concise summary of what was implemented
-   - PR body must include `Closes #<number>` to auto-close the issue on merge
+   - PR body should reference the issue with `Closes #<number>` — but note
+     auto-close does NOT fire (PRs target `new-opencred-dev`, not the
+     default branch)
    - PR body should include a summary of changes and a test plan
-8. **After the PR is merged**, the issue auto-closes. Then **update the closed issue** with a completion comment:
+8. **After the PR is merged**, close the issue manually
+   (`gh issue close <number>`) — `Closes #` does not auto-close here —
+   and **update the closed issue** with a completion comment:
    - What was implemented (briefly)
    - Any deviations from the original issue description
    - Any follow-up work identified (create new issues for these)

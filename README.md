@@ -63,6 +63,17 @@ curl -s http://localhost:3100/v1/credentials/issue \
 
 See the [Deployment Guide](docs/deployment-guide.md) for Docker Compose, reverse proxy, and production configuration.
 
+## Development
+
+```bash
+CI=true pnpm install   # CI=true for non-interactive install
+pnpm build             # build all packages (required before typecheck/test)
+pnpm test              # vitest across the workspace
+pnpm lint && pnpm typecheck && pnpm format:check
+```
+
+Tests live in `src/__tests__/` per package. PRs target `new-opencred-dev` (never `main`); conventional commits, squash-merge. See [`CLAUDE.md`](CLAUDE.md) for conventions and [`REVIEW.md`](REVIEW.md) for review criteria.
+
 ## Documentation
 
 Full documentation is in the [`docs/`](docs/README.md) directory:
