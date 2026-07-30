@@ -1,5 +1,9 @@
 name: Release Please
 
+# NOTE (repo transition): this trigger is written for the merged-repo
+# branch model (releases cut from main). Until the public-repo import
+# completes, pushes to the legacy integration branch no longer trigger
+# release-please — releases are intentionally frozen until the import.
 on:
   push:
     branches: [main]

@@ -7,7 +7,9 @@ name: PR Checks
 
 on:
   pull_request:
-    branches: [main, opencred-dev]
+    # new-opencred-dev is the pre-import name of the integration branch —
+    # kept during the repo transition; remove it in the public-repo import.
+    branches: [main, opencred-dev, new-opencred-dev]
 
 permissions:
   contents: read
@@ -27,9 +29,11 @@ jobs:
           # Allowed onto main: the opencred-dev promotion PR and
           # release-please's own release PRs — both from branches in THIS
           # repo (never from a fork).
+          # new-opencred-dev: pre-import name of the integration branch,
+          # allowed during the repo transition; remove at import.
           if [ "$HEAD_REPO" = "$BASE_REPO" ]; then
             case "$HEAD_REF" in
-              opencred-dev|release-please--*)
+              opencred-dev|new-opencred-dev|release-please--*)
                 echo "Promotion/release PR — allowed onto main."
                 exit 0
                 ;;
@@ -42,6 +46,11 @@ jobs:
 
   dco:
     name: DCO sign-off
+    # Gate feature PRs only (base = the integration branch). PRs targeting
+    # main are exempt: release-please's bot commits carry no sign-off, and
+    # the promotion PR's squash commits already passed this gate when they
+    # landed on the integration branch.
+    if: github.base_ref != 'main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

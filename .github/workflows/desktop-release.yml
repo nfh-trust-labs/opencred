@@ -435,10 +435,13 @@ jobs:
   # Generate and attach SHA256SUMS for the user-facing installers.
   #
   # Historical note: this job used to be `mirror-to-public`, copying
-  # artefacts from the private source repo to this public repo when they
-  # were separate. Since the repos merged (source + releases both live
-  # here), only the checksum generation remains — releases publish
-  # directly from the `release` job above.
+  # artefacts to the separate nfh-trust-labs/opencred-releases repo while
+  # the source repo was private. In the merged-repo model, releases
+  # publish directly from the `release` job above and only the checksum
+  # generation remains. IMPORTANT until the repo merge/import completes:
+  # do NOT cut a release from the pre-import repo — installed desktop
+  # apps poll opencred-releases for updates, and without the mirror job a
+  # pre-import release would never reach them.
   # ----------------------------------------------------------------------
   checksums:
     name: Attach SHA256SUMS
