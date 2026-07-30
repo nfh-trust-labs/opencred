@@ -432,23 +432,20 @@ jobs:
           retention-days: 30
 
   # ----------------------------------------------------------------------
-  # Mirror release artefacts to the public nfh-trust-labs/opencred-releases
-  # repo so end users can download .dmg / .AppImage / .deb / latest*.yml
-  # without authenticating to a private repo.
+  # Generate and attach SHA256SUMS for the user-facing installers.
   #
-  # Source of truth remains the private repo's GitHub Release. This job
-  # downloads the same verified artefacts that were just uploaded there
-  # and re-uploads them to the public mirror under the matching tag.
-  #
-  # Requires repo secret PUBLIC_RELEASES_TOKEN: a fine-grained PAT or
-  # GitHub App token with `contents: write` on
-  # nfh-trust-labs/opencred-releases. GITHUB_TOKEN cannot be used here
-  # because it is scoped to the source repo only.
+  # Historical note: this job used to be `mirror-to-public`, copying
+  # artefacts from the private source repo to this public repo when they
+  # were separate. Since the repos merged (source + releases both live
+  # here), only the checksum generation remains — releases publish
+  # directly from the `release` job above.
   # ----------------------------------------------------------------------
-  mirror-to-public:
-    name: Mirror to public releases repo
+  checksums:
+    name: Attach SHA256SUMS
     needs: release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Resolve release tag
         id: tag
@@ -462,17 +459,14 @@ jobs:
             echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Download artefacts from private release
+      - name: Download release artefacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
           SOURCE_REPO: ${{ github.repository }}
         run: |
-          mkdir -p mirror-artefacts
-          cd mirror-artefacts
-          # Pull every uploaded artefact. Blockmaps are mirrored too —
-          # electron-updater pulls them from the mirror to compute
-          # differential updates.
+          mkdir -p artefacts
+          cd artefacts
           gh release download "$RELEASE_TAG" \
             --repo "$SOURCE_REPO" \
             --pattern '*.dmg' \
@@ -480,45 +474,24 @@ jobs:
             --pattern '*.exe' \
             --pattern '*.msi' \
             --pattern '*.AppImage' \
-            --pattern '*.deb' \
-            --pattern '*.blockmap' \
-            --pattern 'latest*.yml'
+            --pattern '*.deb'
           ls -la
 
-      - name: Generate SHA256SUMS
-        working-directory: mirror-artefacts
-        run: |
-          shopt -s nullglob
-          files=(*.dmg *.zip *.exe *.msi *.AppImage *.deb)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "::warning::No user-facing artefacts to checksum"
-          else
-            sha256sum "${files[@]}" > SHA256SUMS
-            echo "Generated SHA256SUMS:"
-            cat SHA256SUMS
-          fi
-
-      - name: Publish to public mirror repo
+      - name: Generate and upload SHA256SUMS
         env:
-          GH_TOKEN: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
-          MIRROR_REPO: nfh-trust-labs/opencred-releases
-        working-directory: mirror-artefacts
+          SOURCE_REPO: ${{ github.repository }}
+        working-directory: artefacts
         run: |
           set -e
           shopt -s nullglob
-          files=(*.dmg *.zip *.exe *.msi *.AppImage *.deb *.blockmap latest*.yml SHA256SUMS)
-          actual=()
-          for f in "${files[@]}"; do [ -f "$f" ] && actual+=("$f"); done
-          if [ ${#actual[@]} -eq 0 ]; then
-            echo "::error::No artefacts to mirror."
+          files=(*.dmg *.zip *.exe *.msi *.AppImage *.deb)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No user-facing artefacts to checksum"
             exit 1
           fi
-          if ! gh release view "$RELEASE_TAG" --repo "$MIRROR_REPO" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" \
-              --repo "$MIRROR_REPO" \
-              --title "$RELEASE_TAG" \
-              --notes "Public release artefacts for $RELEASE_TAG. Verify downloads with the included SHA256SUMS file. Bug reports and feature requests: https://github.com/nfh-trust-labs/opencred-releases/issues."
-          fi
-          gh release upload "$RELEASE_TAG" "${actual[@]}" --clobber --repo "$MIRROR_REPO"
-          echo "Mirrored ${#actual[@]} artefacts to $MIRROR_REPO release $RELEASE_TAG"
+          sha256sum "${files[@]}" > SHA256SUMS
+          echo "Generated SHA256SUMS:"
+          cat SHA256SUMS
+          gh release upload "$RELEASE_TAG" SHA256SUMS --clobber --repo "$SOURCE_REPO"

@@ -60,7 +60,7 @@ const verify = createVerifier({
 });
 ```
 
-The SDK is a single bundled facade over `@opencred/verification`, `@opencred/did`, and `@opencred/dedi-client` — one dependency, dual ESM/CJS, no workspace setup. Today it ships source-available from the [opencred-releases](https://github.com/nfh-trust-labs/opencred-releases) mirror; install via `npm install ../opencred-releases/sdk/verify` or a git URL. npm publication is on the roadmap.
+The SDK is a single bundled facade over `@opencred/verification`, `@opencred/did`, and `@opencred/dedi-client` — one dependency, dual ESM/CJS, no workspace setup. It is MIT-licensed and lives at [`packages/verify-sdk`](https://github.com/nfh-trust-labs/opencred-releases/tree/main/packages/verify-sdk) in this repository; today, install it from source (clone the repo, `pnpm install && pnpm build`, then `npm install <path>/packages/verify-sdk`). npm publication is on the roadmap.
 
 > **Advanced — in-monorepo or fine-grained control:** if you need to wire DID resolvers, trust anchors, or the verification pipeline yourself (e.g. you're inside this monorepo or you want to swap in a custom DID method), drop down to the lower-level `@opencred/verification` library — see [Library](#library) below for the unwrapped API.
 

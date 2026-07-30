@@ -31,7 +31,7 @@
 #     per-key revoke path. This script generates prime256v1 keys.
 #
 # VALIDATED: this script's default flow was run end-to-end on 2026-06-08
-# against api.dedi.global (namespace "verifaistudio.co"): all four steps and
+# against api.dedi.global (namespace "issuer.example"): all four steps and
 # both REVOKE_ALL revokes passed (#key-0 + #key-1 both ended "revoked").
 #
 # Usage:

@@ -18,7 +18,7 @@ OpenCred Desktop runs on macOS and Linux. Release builds bundle Node.js and Elec
 
 Download the installer for your platform from the **public release page**: <https://github.com/nfh-trust-labs/opencred-releases/releases>.
 
-> Why a separate repo? OpenCred's source code is private, but binaries are distributed publicly via `nfh-trust-labs/opencred-releases`. Bug reports and feature requests should still be raised via the contact channels on <https://docs.opencred.global>.
+> Releases, source code, and the issue tracker all live in `nfh-trust-labs/opencred-releases` — the repo began as a binaries-only mirror and became the canonical open-source repository (MIT) when OpenCred was open-sourced.
 
 | Platform | File | How to install |
 |---|---|---|
@@ -58,7 +58,7 @@ AppImages and `.deb` packages are not currently signed. Verify checksums against
 
 Building from source is supported for development and air-gapped deployments.
 
-> **Note:** OpenCred's source repository is private. The instructions below assume you have read access. For most users the prebuilt installers above are the right path; reach out via the contact channels at <https://docs.opencred.global> if you need source access for a regulated or air-gapped deployment.
+> **Note:** for most users the prebuilt installers above are the right path. Building from source is fully supported — the repository is open source (MIT) — and useful for regulated or air-gapped deployments that require auditable builds.
 
 ### Prerequisites
 
@@ -69,9 +69,9 @@ Building from source is supported for development and air-gapped deployments.
 ### Build steps
 
 ```bash
-git clone https://github.com/nfh-trust-labs/opencred.git
-cd opencred
-pnpm install
+git clone https://github.com/nfh-trust-labs/opencred-releases.git
+cd opencred-releases
+CI=true pnpm install
 pnpm build               # builds all workspace packages
 cd apps/desktop
 pnpm dev                 # starts the dev server with hot reload
