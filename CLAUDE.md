@@ -16,7 +16,7 @@ These rules are non-negotiable. Every agent, every PR, every line of code must r
 4. **CSPRNG only.** All key generation must use `crypto.randomBytes` or equivalent CSPRNG. Never use `Math.random()` for anything security-related.
 5. **No secrets in error responses.** Error responses must never leak key material, internal paths, or signing buffers. Use the `OpenCredError` hierarchy — it sanitizes by design.
 6. **JSON-LD contexts are bundled.** Never fetch remote contexts at runtime in production — use the bundled document loader. Remote fetch is a supply-chain attack vector.
-7. **did:web resolution requires SSRF protection.** When fetching DID documents for `did:web` verification, always validate that resolved IPs are public (use `isPrivateIP` from `@opencred/shared`). HTTPS only, no redirects, 10-second timeout.
+7. **did:web resolution requires SSRF protection.** When fetching DID documents for `did:web` verification, always validate that resolved IPs are public (use `resolveDnsForSsrf` from `@opencred/shared`) AND pin the connection to the validated addresses (use `fetchWithPinnedIp` from `@opencred/shared`) — a plain `fetch(url)` after the DNS check re-resolves the hostname and is vulnerable to DNS-rebinding TOCTOU. Never "pin" by putting the IP in the URL with a `Host` header (breaks TLS certificate validation). HTTPS only, no redirects, 10-second timeout.
 
 ## Project Tracking
 

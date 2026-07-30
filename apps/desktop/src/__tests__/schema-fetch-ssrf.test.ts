@@ -92,6 +92,21 @@ vi.mock("node:dns", () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
+// The handler fetches through `fetchWithPinnedIp` (connection pinned to the
+// DNS-validated addresses — DNS-rebinding TOCTOU prevention), never through
+// plain `fetch(url)`. Delegate the pinned fetch to the global fetch stub so
+// these tests keep a single mock surface; `resolveDnsForSsrf` stays real and
+// is driven by the node:dns mock above.
+vi.mock("@opencred/shared", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    fetchWithPinnedIp: vi.fn((url: string | URL, _addresses: readonly string[], opts?: unknown) =>
+      (globalThis.fetch as typeof fetch)(url, opts as RequestInit | undefined),
+    ),
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Import under test — after all mocks are installed
 // ---------------------------------------------------------------------------
@@ -112,22 +127,16 @@ function enodata(): Error {
   return Object.assign(new Error("queryA ENODATA"), { code: "ENODATA" });
 }
 
-function validJsonSchemaResponse(): {
-  ok: boolean;
-  status: number;
-  statusText: string;
-  json: () => Promise<unknown>;
-} {
-  return {
-    ok: true,
-    status: 200,
-    statusText: "OK",
-    json: () =>
-      Promise.resolve({
-        title: "Test",
-        properties: { name: { type: "string" } },
-      }),
-  };
+function validJsonSchemaResponse(): Response {
+  // A real Response: the handler streams the body through
+  // readBodyWithSizeLimit (1 MiB cap) instead of calling response.json().
+  return new Response(
+    JSON.stringify({
+      title: "Test",
+      properties: { name: { type: "string" } },
+    }),
+    { status: 200, statusText: "OK" },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +236,45 @@ describe("SCHEMA_FETCH_URL SSRF protection", () => {
 
     expect(result.success).toBe(true);
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("pins the DNS-validated addresses for the fetch connection (DNS rebinding)", async () => {
+    mockResolve4.mockResolvedValue(["93.184.216.34"]);
+    mockResolve6.mockRejectedValue(enodata());
+    mockFetch.mockResolvedValue(validJsonSchemaResponse());
+
+    const result = await schemaFetchUrlHandler(
+      {},
+      { url: "https://rebind.example.org/schema.json" },
+    );
+
+    expect(result.success).toBe(true);
+    // The fetch goes through fetchWithPinnedIp with exactly the addresses
+    // that passed the SSRF check — a rebinding DNS server cannot swap in a
+    // private IP between the check and the connection.
+    const { fetchWithPinnedIp } = await import("@opencred/shared");
+    expect(vi.mocked(fetchWithPinnedIp)).toHaveBeenCalledWith(
+      "https://rebind.example.org/schema.json",
+      ["93.184.216.34"],
+      expect.anything(),
+    );
+  });
+
+  it("rejects response bodies larger than the 1 MiB cap", async () => {
+    mockResolve4.mockResolvedValue(["93.184.216.34"]);
+    mockResolve6.mockRejectedValue(enodata());
+    // 1 MiB + 1 byte of padding inside valid JSON — must be rejected by the
+    // streaming size limit, not buffered whole.
+    const oversized = `{"properties":{},"pad":"${"x".repeat(1024 * 1024)}"}`;
+    mockFetch.mockResolvedValue(new Response(oversized, { status: 200 }));
+
+    const result = await schemaFetchUrlHandler(
+      {},
+      { url: "https://oversized.example.org/schema.json" },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("size limit");
   });
 
   it("rejects HTTP URLs before any DNS resolution runs", async () => {

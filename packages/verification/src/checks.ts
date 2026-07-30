@@ -6,7 +6,7 @@ import type { DeDiClient } from "@opencred/dedi-client";
 import { DeDiClientError } from "@opencred/dedi-client";
 import { resolveRevocationHash } from "@opencred/crypto";
 import type { DIDResolver } from "@opencred/did";
-import { isPrivateIP } from "@opencred/shared";
+import { fetchWithPinnedIp, isPrivateIP } from "@opencred/shared";
 import { verifyDataIntegrity } from "./data-integrity.js";
 import type { VerifiableCredential } from "@opencred/vc-core";
 import type { VerificationCheck } from "./types.js";
@@ -261,24 +261,24 @@ export async function checkBitstringStatusList(
       };
     }
 
-    // DNS rebinding prevention: resolve hostname and pin IP before fetch
-    let fetchUrl = urlValidation.url;
-    const fetchHeaders: Record<string, string> = {};
-
+    // DNS rebinding prevention: resolve the hostname, validate the IP, and
+    // PIN the connection to that validated address (fetchWithPinnedIp). The
+    // URL keeps the original hostname so TLS SNI + certificate validation
+    // still run against it — the previous approach of putting the IP in the
+    // URL and sending a `Host` header fails certificate validation
+    // (ERR_TLS_CERT_ALTNAME_INVALID), since certs are issued for hostnames,
+    // not IPs.
     const parsedUrl = new URL(urlValidation.url);
     const hostname = parsedUrl.hostname;
 
-    if (!isIP(hostname)) {
+    let pinnedAddresses: string[];
+    if (isIP(hostname)) {
+      // Literal-IP URL: already validated as public by validateStatusListUrl,
+      // and with no DNS involved there is nothing to rebind.
+      pinnedAddresses = [hostname];
+    } else {
       const resolved = await resolveAndValidateIp(hostname);
-      // Replace hostname with resolved IP; set Host header to original hostname
-      const pinnedUrl = new URL(urlValidation.url);
-      if (resolved.family === 6) {
-        pinnedUrl.hostname = `[${resolved.address}]`;
-      } else {
-        pinnedUrl.hostname = resolved.address;
-      }
-      fetchUrl = pinnedUrl.toString();
-      fetchHeaders["Host"] = hostname;
+      pinnedAddresses = [resolved.address];
     }
 
     // #469 (P1-02): the status-list fetch used to have no timeout, so a stalled
@@ -290,9 +290,7 @@ export async function checkBitstringStatusList(
     const timer = setTimeout(() => controller.abort(), 10_000);
     let statusListVC: Record<string, unknown>;
     try {
-      const response = await globalThis.fetch(fetchUrl, {
-        redirect: "error", // Prevent redirect-based SSRF
-        headers: fetchHeaders,
+      const response = await fetchWithPinnedIp(urlValidation.url, pinnedAddresses, {
         signal: controller.signal,
       });
       if (!response.ok) {

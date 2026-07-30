@@ -106,6 +106,8 @@ For each finding I identify the file and line(s); I do not raise issues without 
   1. After validating that all addresses are public, replace the URL hostname with one of the resolved IPs (with `[ipv6]` brackets when needed) and set `headers.Host` to the original hostname, mirroring `checkBitstringStatusList`.
   2. Add a test that mocks DNS to alternate between a public IP (first resolve) and a private IP (second resolve) and asserts the fetch never reaches the private IP.
 
+> **Remediated (2026-07-30).** The resolver now pins the connection to the DNS-validated addresses via `fetchWithPinnedIp` (`packages/shared/src/pinned-fetch.ts`); a dedicated rebinding test suite lives in `packages/did/src/__tests__/did-web.test.ts`. Note: the recommended IP-in-URL + `Host`-header pattern turned out to be **TLS-broken** — Node validates the certificate against the URL host, so `fetch("https://<ip>/", { headers: { Host: hostname } })` fails with `ERR_TLS_CERT_ALTNAME_INVALID` for any host without an IP SAN (verified empirically). The `checkBitstringStatusList` code this finding cited as the correct pattern was therefore itself broken (every hostname-based status-list fetch failed TLS validation) and has been fixed the same way. The actual pin overrides the socket-level DNS `lookup` on a fresh non-keep-alive agent while the URL keeps the hostname, so SNI + certificate validation stay correct.
+
 ### HIGH-2: `SCHEMA_FETCH_URL` IPC handler uses `dns.lookup` and unpinned fetch
 
 - **Severity**: High
@@ -121,6 +123,8 @@ For each finding I identify the file and line(s); I do not raise issues without 
   2. Pin the resolved IP into the fetch URL with a `Host` header.
   3. Switch to the more thorough `isPrivateIP` from `verification/src/checks.ts` (or merge that logic into `@opencred/shared`).
   4. Add a hard 1 MB cap on response size — currently the handler reads `await response.json()` with no size cap.
+
+> **Remediated (2026-07-30).** Items 1 and 3 were fixed earlier (`resolveDnsForSsrf` with the merged `isPrivateIP`). The remaining TOCTOU is now closed: the handler fetches through `fetchWithPinnedIp` (socket pinned to the validated addresses — see the HIGH-1 note on why the `Host`-header approach in item 2 was not used), and the response body is streamed through `readBodyWithSizeLimit` with a 1 MiB cap (item 4). Tests: `apps/desktop/src/__tests__/schema-fetch-ssrf.test.ts`.
 
 ### HIGH-3: SVG template renderer leaves injection paths via credential-derived strings
 
@@ -272,7 +276,7 @@ For each finding I identify the file and line(s); I do not raise issues without 
 | 4. CSPRNG only — no `Math.random` | Upheld | No `Math.random` anywhere in `packages/` or `apps/`. All random uses go through `crypto.randomBytes`/`randomUUID`. |
 | 5. No secrets in error responses | Mostly upheld | `OpenCredError` does not auto-sanitize (LOW-3), but call sites generally produce generic messages. Desktop IPC handlers return `err.message` verbatim in several places, which could leak filesystem paths from `fs` errors but no key material. |
 | 6. JSON-LD contexts bundled | Upheld | `packages/vc-core/src/document-loader.ts` strictly serves bundled contexts and throws `ContextNotFoundError` on anything else. No remote fetching in production. |
-| 7. did:web requires SSRF protection | Partially upheld | The hostname is checked via `isPrivateIP` before fetch, but the check uses an incomplete IP list (MEDIUM-3) and is vulnerable to TOCTOU/DNS-rebinding (HIGH-1). HTTPS-only and `redirect: "error"` are correctly enforced. |
+| 7. did:web requires SSRF protection | Partially upheld | The hostname is checked via `isPrivateIP` before fetch, but the check uses an incomplete IP list (MEDIUM-3) and is vulnerable to TOCTOU/DNS-rebinding (HIGH-1). HTTPS-only and `redirect: "error"` are correctly enforced. *(2026-07-30: both gaps since remediated — see the HIGH-1 note.)* |
 
 ## Out of scope / not reviewed
 

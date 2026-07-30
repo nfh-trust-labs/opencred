@@ -49,10 +49,11 @@ The `:` character separates path segments, and a port is encoded as `%3A`. See `
 `did:web` is a network operation, and any network operation is a candidate for SSRF (Server-Side Request Forgery). The `DIDWebResolver` enforces several defenses:
 
 1. **HTTPS only** — the `did:web` spec requires HTTPS, and OpenCred refuses any other scheme.
-2. **No redirects** — `fetch` is called with `redirect: "error"`, so the resolver will not follow a 302 to an internal address.
-3. **DNS resolution + private-IP check** — the resolver looks up both A and AAAA records, then rejects the request if **any** resolved IP is private, loopback, link-local, or IPv4-mapped IPv6 in those ranges. The check lives in `packages/shared/src/ssrf.ts` (`isPrivateIP`).
-4. **10-second timeout** — `AbortController` cancels the fetch if the server is slow.
-5. **Document ID validation** — the resolved document's `id` field MUST equal the requested DID, otherwise resolution fails.
+2. **No redirects** — redirects are never followed; a 3xx surfaces as an error, so the resolver will not follow a 302 to an internal address.
+3. **DNS resolution + private-IP check** — the resolver looks up both A and AAAA records, then rejects the request if **any** resolved IP is private, loopback, link-local, or IPv4-mapped IPv6 in those ranges. The check lives in `packages/shared/src/ssrf.ts` (`resolveDnsForSsrf` / `isPrivateIP`).
+4. **Connection pinned to the validated IPs** — the actual fetch (`fetchWithPinnedIp` in `packages/shared/src/pinned-fetch.ts`) connects only to the addresses that passed the check; DNS is never re-consulted, which closes the DNS-rebinding TOCTOU window. The URL keeps the hostname so TLS certificate validation still runs against it.
+5. **10-second timeout** — `AbortController` cancels the fetch if the server is slow.
+6. **Document ID validation** — the resolved document's `id` field MUST equal the requested DID, otherwise resolution fails.
 
 These guarantees are non-negotiable; see the [SSRF invariant](../security/invariants.md#7-didweb-resolution-requires-ssrf-protection) for the rationale.
 
