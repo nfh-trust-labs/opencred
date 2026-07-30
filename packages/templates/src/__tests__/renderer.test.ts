@@ -274,4 +274,188 @@ describe("renderSvg", () => {
 
     expect(result).not.toContain("seal");
   });
+
+  // --- Injection regressions (2026-04-07 security review, HIGH) ---
+  // A malicious credential must not be able to produce an SVG that executes
+  // script when opened. Every credential-derived or issuer-supplied value is
+  // either XML-escaped or allowlisted.
+
+  describe("injection hardening", () => {
+    it("escapes XML in issuerName", () => {
+      const options = defaultOptions();
+      options.values.issuerName = '<script>alert(1)</script><a href="x">';
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      expect(result).not.toContain("<script>");
+      expect(result).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    });
+
+    it("escapes XML in credentialTitle", () => {
+      const options = defaultOptions();
+      options.values.credentialTitle = '</text><image href="x" onload="alert(1)"/><text>';
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      expect(result).not.toContain("</text><image");
+      expect(result).not.toContain('onload="alert(1)"');
+    });
+
+    it("escapes XML in the raw-date fallback of validFrom/validUntil", () => {
+      const options = defaultOptions();
+      options.values.validFrom = "<script>alert(1)</script>";
+      options.values.validUntil = "not-a-date <img>";
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      expect(result).not.toContain("<script>");
+      expect(result).not.toContain("<img>");
+    });
+
+    it("escapes XML in issuerDisplayName override", () => {
+      const options = defaultOptions();
+      options.customization = { issuerDisplayName: "<script>alert(1)</script>" };
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      expect(result).not.toContain("<script>");
+    });
+
+    it("drops javascript: logoDataUri", () => {
+      const options = defaultOptions();
+      options.customization = { logoDataUri: "javascript:alert(1)" };
+
+      const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+      expect(result).not.toContain("javascript:");
+      expect(result).not.toContain("logoDataUri");
+    });
+
+    it("drops remote-URL logoDataUri", () => {
+      const options = defaultOptions();
+      options.customization = { logoDataUri: "https://evil.example/logo.png" };
+
+      const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+      expect(result).not.toContain("evil.example");
+    });
+
+    it("drops SVG data URIs (nested SVG can carry script)", () => {
+      const options = defaultOptions();
+      options.customization = {
+        logoDataUri: "data:image/svg+xml;base64,PHN2Zz48c2NyaXB0Lz48L3N2Zz4=",
+      };
+
+      const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+      expect(result).not.toContain("svg+xml");
+    });
+
+    it("drops data URIs with attribute-breakout characters", () => {
+      const options = defaultOptions();
+      options.customization = {
+        sealDataUri: 'data:image/png;base64,abc" onload="alert(1)',
+      };
+
+      const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+      expect(result).not.toContain("onload");
+    });
+
+    it("drops malicious qrCode values", () => {
+      const options = defaultOptions();
+      options.values.qrCode = "javascript:alert(1)";
+
+      const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+      expect(result).not.toContain("javascript:");
+    });
+
+    it("still renders valid raster data URIs for logo, seal, and qrCode", () => {
+      const options = defaultOptions();
+      options.values.qrCode = "data:image/png;base64,qr+abc/123=";
+      options.customization = {
+        logoDataUri: "data:image/jpeg;base64,logo123==",
+        sealDataUri: "data:image/webp;base64,seal456",
+      };
+
+      const result = renderSvg(CONDITIONAL_TEMPLATE, options);
+
+      expect(result).toContain('href="data:image/png;base64,qr+abc/123="');
+      expect(result).toContain('href="data:image/jpeg;base64,logo123=="');
+      expect(result).toContain('href="data:image/webp;base64,seal456"');
+    });
+
+    it("falls back to default on CSS-injection primaryColor", () => {
+      const options = defaultOptions();
+      options.customization = {
+        primaryColor: "#fff; } </style><script>alert(1)</script><style>",
+      };
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      expect(result).not.toContain("<script>");
+      expect(result).not.toContain("</style>");
+      expect(result).toContain("#1a56db");
+    });
+
+    it("falls back to default on url() color values", () => {
+      const options = defaultOptions();
+      options.customization = { backgroundColor: "url(https://evil.example/x)" };
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      expect(result).not.toContain("url(");
+      expect(result).toContain("#ffffff");
+    });
+
+    it("sanitizes every color field independently", () => {
+      const options = defaultOptions();
+      options.customization = {
+        secondaryColor: "expression(alert(1))",
+        textColor: "}{ fill: red",
+        labelColor: '"><script>x</script>',
+      };
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      expect(result).not.toContain("expression(");
+      expect(result).not.toContain("}{");
+      expect(result).not.toContain("<script>");
+      expect(result).toContain("#2d5986");
+      expect(result).toContain("#333333");
+      expect(result).toContain("#666666");
+    });
+
+    it("accepts safe non-hex color shapes", () => {
+      const options = defaultOptions();
+      options.customization = {
+        primaryColor: "rebeccapurple",
+        backgroundColor: "rgb(240, 240, 240)",
+        textColor: "rgba(0, 0, 0, 0.8)",
+      };
+
+      const result = renderSvg(SIMPLE_TEMPLATE, options);
+
+      expect(result).toContain("rebeccapurple");
+      expect(result).toContain("rgb(240, 240, 240)");
+      expect(result).toContain("rgba(0, 0, 0, 0.8)");
+    });
+
+    it("replaces non-numeric logo dimensions with defaults", () => {
+      const options = defaultOptions();
+      options.customization = {
+        logoDataUri: "data:image/png;base64,logo123",
+        // Simulates a JS caller ignoring the number type
+        logoWidth: '10" onload="alert(1)' as unknown as number,
+        logoHeight: NaN,
+      };
+
+      const result = renderSvg(LOGO_SIZE_TEMPLATE, options);
+
+      expect(result).not.toContain("onload");
+      expect(result).toContain('width="50"');
+      expect(result).toContain('height="50"');
+    });
+  });
 });

@@ -139,6 +139,7 @@ For each finding I identify the file and line(s); I do not raise issues without 
   2. Validate `logoDataUri` is exactly a `data:image/...` URL (regex match) and refuse anything else; then escape XML attribute chars.
   3. Replace XML escape with a context-aware escape for CSS placeholders (allow only `#[0-9a-fA-F]{3,8}` and a small palette of named colors for `primaryColor`).
   4. Add tests that pass an injection payload through `issuerName` / `credentialTitle` / `logoDataUri` / `primaryColor` and assert the rendered SVG does not contain executable script.
+- **Remediation (2026-07-30)**: Fixed in `packages/templates/src/renderer.ts`. `issuerName`, `credentialTitle`, and the raw-input fallback of date formatting are now XML-escaped; `logoDataUri`, `sealDataUri`, and `qrCode` must match a strict base64 raster data-URI regex (`data:image/png|jpeg|jpg|gif|webp` — `svg+xml` deliberately excluded) or the value is dropped; all five color placeholders are allowlisted (hex, bare color name, or numeric `rgb()`/`hsl()` function) with fallback to defaults, closing the `<style>`-context CSS injection; `logoWidth`/`logoHeight` are validated as finite numbers. The desktop branding UI no longer accepts SVG uploads. Injection regression tests live in `packages/templates/src/__tests__/renderer.test.ts` ("injection hardening" suite).
 
 ### HIGH-4: X.509 chain check has no trust anchor and silently passes when DID resolution fails
 
