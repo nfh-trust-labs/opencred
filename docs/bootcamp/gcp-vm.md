@@ -158,11 +158,10 @@ VM$ sudo apt-get install -y git openssl jq
 
 All of this happens **on the VM**, not on your laptop.
 
-> **No source-repo clone required.** The main flow pulls the public OpenCred
-> image from GHCR (a few subsections down). The `nfh-trust-labs/opencred`
-> source repo is private; `git clone` returns 404 for most readers. If you
-> want to inspect or modify the server before issuing, see the optional
-> "Building from source" callout right after the `docker pull` step.
+> **No source clone required.** The main flow pulls the public OpenCred
+> image from GHCR (a few subsections down). If you want to inspect or
+> modify the server before issuing, see the optional "Building from
+> source" callout right after the `docker pull` step.
 
 Generate a signing key. EC P-256 supports all three proof formats:
 
@@ -247,11 +246,11 @@ When it finishes:
 VM$ docker images opencred:bootcamp        # should show one row
 ```
 
-> **Building from source instead?** Optional — only do this if you want to inspect or patch the server before issuing. The source repo `nfh-trust-labs/opencred` is private; `git clone` returns 404 unless you have read access. If you do:
+> **Building from source instead?** Optional — only do this if you want to inspect or patch the server before issuing:
 >
 > ```
-> VM$ git clone https://github.com/nfh-trust-labs/opencred.git
-> VM$ cd opencred && git checkout new-opencred-dev
+> VM$ git clone https://github.com/nfh-trust-labs/opencred-releases.git
+> VM$ cd opencred-releases
 > VM$ docker build -f apps/server/Dockerfile -t opencred:bootcamp .
 > ```
 >
@@ -821,7 +820,7 @@ you outgrow the single-instance model.
 | `401 AUTHENTICATION_ERROR` from your laptop | The token on the laptop side doesn't match the token in the container's env | Re-export `OPENCRED_API_KEY` on both sides from the same source-of-truth |
 | `503 DEDI_NOT_CONFIGURED` | DeDi env vars not set or partial | See §7b; `dediConfigured` in `/v1/health` is the canonical check |
 | Container exits with `OPENCRED_API_KEY is required` | Forgot to pass it through `-e` | Re-run `docker run` with `-e OPENCRED_API_KEY="$OPENCRED_API_KEY"` |
-| Startup log shows DeDi lookup URL with `%E2%80%9C` / `%E2%80%9D` wrapping your namespace (e.g. `/dedi/lookup/%E2%80%9Cverifaistudio.co%E2%80%9D` → `404 Namespace not found` → `401 Invalid API key`) | `OPENCRED_DEDI_NAMESPACE` (or API key) was pasted with **Unicode smart quotes** (`"…"` not ASCII `"…"`) — usually from a chat app or notes that auto-corrects | Re-export with straight ASCII quotes, or none if the value has no spaces: `export OPENCRED_DEDI_NAMESPACE=verifaistudio.co`. Verify with `printf '%s\n' "$OPENCRED_DEDI_NAMESPACE" \| od -c \| head -1` — anything other than plain ASCII bytes means a smart quote slipped in. |
+| Startup log shows DeDi lookup URL with `%E2%80%9C` / `%E2%80%9D` wrapping your namespace (e.g. `/dedi/lookup/%E2%80%9Cissuer.example%E2%80%9D` → `404 Namespace not found` → `401 Invalid API key`) | `OPENCRED_DEDI_NAMESPACE` (or API key) was pasted with **Unicode smart quotes** (`"…"` not ASCII `"…"`) — usually from a chat app or notes that auto-corrects | Re-export with straight ASCII quotes, or none if the value has no spaces: `export OPENCRED_DEDI_NAMESPACE=issuer.example`. Verify with `printf '%s\n' "$OPENCRED_DEDI_NAMESPACE" \| od -c \| head -1` — anything other than plain ASCII bytes means a smart quote slipped in. |
 | Cloud KMS issuance returns `403 PERMISSION_DENIED` | VM's service account lacks `roles/cloudkms.signerVerifier` | See §7a binding step; remember to stop/restart the VM after attaching the SA |
 | Mysterious `connection refused` on the tunnel even with the SSH window open | Tunnel terminal got backgrounded and SSH timed out | Foreground that terminal, or use `gcloud compute start-iap-tunnel ... &` with `keepalive` |
 

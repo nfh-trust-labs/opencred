@@ -6,13 +6,15 @@ name: Docker
 # Builds, scans, and pushes the apps/server Docker image.
 #
 # - PRs: build + Trivy vulnerability scan (validates Dockerfile compiles)
-# - Push to new-opencred-dev or opencred-prod: build + scan
+# - Push to opencred-dev or main: build + scan
 # - v* tags: build + scan + push to GHCR + smoke test
 # ==============================================================================
 
 on:
   pull_request:
-    branches: [new-opencred-dev, opencred-prod]
+    # new-opencred-dev is the pre-import name of the integration branch —
+    # kept during the repo transition; remove it in the public-repo import.
+    branches: [opencred-dev, main, new-opencred-dev]
     paths:
       - "apps/server/Dockerfile"
       - "apps/server/src/**"
@@ -23,7 +25,7 @@ on:
       - "pnpm-lock.yaml"
       - ".github/workflows/docker.yml"
   push:
-    branches: [new-opencred-dev, opencred-prod]
+    branches: [opencred-dev, main, new-opencred-dev]
     tags: ['v*']
     # Note: no paths filter on push — tags don't carry a changed-files diff,
     # so paths would prevent tag pushes from triggering. PRs still use paths.
@@ -42,7 +44,10 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  SERVER_IMAGE: ghcr.io/${{ github.repository }}/opencred-server
+  # Hardcoded (not ${{ github.repository }}): the image has always been
+  # published under the historical "opencred" path and every documented
+  # `docker pull` depends on it. Do not derive this from the repo name.
+  SERVER_IMAGE: ghcr.io/nfh-trust-labs/opencred/opencred-server
 
 permissions:
   contents: read
@@ -125,7 +130,7 @@ jobs:
         with:
           # When called via workflow_call/dispatch with a `tag` input, build
           # at that tag rather than the caller's SHA (release-please runs on
-          # new-opencred-dev but creates a v* tag we want to build from).
+          # opencred-dev but creates a v* tag we want to build from).
           ref: ${{ inputs.tag || github.ref }}
 
       # Required for cross-arch builds — emulates arm64 on the amd64 runner.

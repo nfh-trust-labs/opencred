@@ -1,9 +1,10 @@
 name: Desktop Build
 
+# Unsigned multi-platform build for ad-hoc verification. The signed release
+# pipeline is desktop-release.yml — this workflow intentionally does NOT run
+# on tag pushes (it used to, producing a duplicate unsigned build per release).
 on:
   workflow_dispatch:
-  push:
-    tags: ['v*']
 
 permissions:
   contents: read

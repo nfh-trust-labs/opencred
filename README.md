@@ -20,7 +20,7 @@ Open-source toolkit for issuing and verifying W3C Verifiable Credentials.
 
 ### Desktop
 
-Download the latest release for your platform from the [Releases](https://github.com/nfh-trust-labs/opencred/releases) page.
+Download the latest release for your platform from the [Releases](https://github.com/nfh-trust-labs/opencred-releases/releases) page.
 
 See the [Desktop User Guide](docs/desktop/README.md) for installation and first-launch instructions.
 
@@ -127,6 +127,21 @@ OpenCred enforces seven mandatory security invariants:
 
 See the [Security documentation](docs/security/README.md) for the full threat model and invariant enforcement details.
 
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the
+branch model (PRs target `opencred-dev`), commit conventions, and the DCO
+sign-off requirement. Security issues should be reported privately per
+[SECURITY.md](SECURITY.md).
+
 ## License
 
-Copyright NFH Trust Labs. See [LICENSE](LICENSE) for details.
+[MIT](LICENSE) © 2026 NFH Trust Labs. Bundled third-party material (fonts,
+JSON-LD contexts, schemas) is attributed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+> **A note on the repo name:** this repository (`opencred-releases`) began as
+> the public release mirror for OpenCred and became the canonical source
+> repository when the project was open-sourced — the name was kept so that
+> auto-update feeds baked into already-installed desktop apps keep working.
+> Source code, issues, and releases all live here.
