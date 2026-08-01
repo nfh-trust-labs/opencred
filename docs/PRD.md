@@ -1,8 +1,15 @@
 # OpenCred -- Product Requirements Document
 
+**Edition**: Public
 **Version**: 2.0
-**Date**: 13 March 2026
-**Status**: Draft
+**Last updated**: July 2026
+
+> This is the public edition of the OpenCred Product Requirements Document — the
+> source of truth for what the product is and why. It is adapted from the internal
+> PRD v2.0, with internal execution notes removed and the issuer-type model brought
+> in line with the shipped v2 architecture (the former "OpenCred-Attested" path was
+> replaced by **Self-Published Keys** — see Section 2.1.3). Like the rest of this
+> repository, this document is licensed under the MIT License.
 
 ---
 
@@ -23,13 +30,13 @@
 
 ## 1. Executive Summary
 
-OpenCred is a desktop application for issuing and verifying W3C-conformant verifiable credentials. It is designed for any issuer -- from governments to individuals -- to produce verifiable credentials without OpenCred ever persisting private keys, credential data, or personal information. The issuer retains full control over their cryptographic material; all signing happens locally on the issuer's machine. OpenCred validates schemas, builds canonical credential structures, manages revocation indices, and packages output for download (JSON-LD, PDF, QR code). All session data -- credential payloads, built VCs, packaged output, and bulk issuance job results -- is purged within a configurable window (default: 4 hours). Key attestation credentials are the sole exception: they persist as long as the attestation is active. OpenCred computes revocation hashes on request but does not publish them to DeDi -- the issuer publishes hashes to their own DeDi registry. OpenCred does not handle credential delivery to holders; the issuer downloads the issued credential and manages distribution through their own workflows.
+OpenCred is a desktop application for issuing and verifying W3C-conformant verifiable credentials. It is designed for any issuer -- from governments to individuals -- to produce verifiable credentials without OpenCred ever persisting private keys, credential data, or personal information. The issuer retains full control over their cryptographic material; all signing happens locally on the issuer's machine. OpenCred validates schemas, builds canonical credential structures, manages revocation indices, and packages output for download (JSON-LD, PDF, QR code). All session data -- credential payloads, built VCs, packaged output, and bulk issuance job results -- is purged within a configurable window (default: 4 hours). OpenCred computes revocation hashes on request but does not publish them to DeDi -- the issuer publishes hashes to their own DeDi registry. OpenCred does not handle credential delivery to holders; the issuer downloads the issued credential and manages distribution through their own workflows.
 
-OpenCred is available through two interfaces: a **Desktop Client** (the primary product, fully local, offline-capable) and a **Docker Image** (a headless version of the same application for cloud deployment and workflow integration). Both interfaces support **Local Signing** only -- the issuer always signs with their own private key. For issuers without a Digital Signature Certificate (DSC), OpenCred can attest the issuer's generated public key by signing it with OpenCred's own DSC, acting as an intermediate CA. This **Key Attestation** mechanism establishes a chain of trust without OpenCred ever signing credentials on behalf of the issuer.
+OpenCred is available through two interfaces: a **Desktop Client** (the primary product, fully local, offline-capable) and a **Docker Image** (a headless version of the same application for cloud deployment and workflow integration). Both interfaces support **Local Signing** only -- the issuer always signs with their own private key. For issuers without a Digital Signature Certificate (DSC), OpenCred generates a keypair locally and helps the issuer publish the public key as a `did:web` DID document on the issuer's own domain. Trust is then anchored in the domain's TLS certificate -- OpenCred is never a trust intermediary and never signs anything on the issuer's behalf.
 
 OpenCred ships with a library of commonly used credential schemas (e.g., education certificates, employment credentials, identity documents, health records) so that issuers can begin issuing immediately without defining their own schemas. Issuers may also register custom schemas. Both Desktop Client and Docker Image receive periodic updates including new schemas and security patches.
 
-OpenCred builds on top of [Sunbird RC](https://docs.sunbirdrc.dev/) and [Inji Certify](https://docs.inji.io/inji-certify) for credential schema management and issuance primitives, extending them with OpenCred's key sourcing model, DeDi-backed revocation, and multi-interface support. Credential verification uses DeDi as the revocation registry.
+Credential verification uses DeDi (Decentralized Directory) as the revocation registry.
 
 ---
 
@@ -49,13 +56,13 @@ The issuer already holds a Digital Signature Certificate (DSC) issued by a recog
 
 The issuer does not yet hold a DSC but wishes to obtain one. OpenCred facilitates the connection to Certificate Authority APIs or guides the issuer through independent DSC acquisition. Once the DSC is obtained, the issuer operates as an Issuer with DSC (2.1.1). This path serves as an extension point -- OpenCred does not custody the DSC or its private key.
 
-#### 2.1.3 OpenCred-Attested Issuer
+#### 2.1.3 Self-Published Keys
 
-The issuer does not hold a DSC and cannot readily obtain one. Instead, the issuer generates an ECDSA P-256 keypair, and OpenCred authenticates the issuer's identity through domain verification (DNS TXT or HTTP challenge) or by verifying an existing business verifiable credential. Upon successful authentication, OpenCred signs the issuer's public key with OpenCred's own DSC, producing a **Key Attestation Credential**. The issuer then signs credentials with their own key and embeds the attestation. Trust chain: VC signature → issuer key → Key Attestation → OpenCred DSC → CSCA. This enables issuers without traditional PKI infrastructure to issue verifiable credentials with a chain of trust rooted in a recognised certificate authority.
+The issuer does not hold a DSC and cannot readily obtain one, but controls a public web domain. The issuer generates an ECDSA P-256 keypair locally within OpenCred, and OpenCred builds a `did:web` DID document containing the public key. The issuer publishes that DID document at `https://<domain>/.well-known/did.json` on their own domain -- OpenCred never publishes on the issuer's behalf. The issuer then signs credentials with their own key, and verifiers resolve the issuer's `did:web` identifier to retrieve the public key. Trust chain: VC signature → published public key → `did:web` resolution → the domain's TLS certificate. This anchors trust in the issuer's own domain and the existing web PKI, without any centralised intermediary and without OpenCred appearing anywhere in the trust path.
 
 ### 2.2 Verifier
 
-The entity that receives a verifiable credential (via QR scan, JSON file, or wallet presentation) and cryptographically verifies its authenticity, integrity, revocation status, and validity period. Verifiers include employers, border agencies, insurance companies, and online services. Verification validates the credential signature, checks for DSC or Key Attestation chain when present, and queries DeDi for revocation status.
+The entity that receives a verifiable credential (via QR scan, JSON file, or wallet presentation) and cryptographically verifies its authenticity, integrity, revocation status, and validity period. Verifiers include employers, border agencies, insurance companies, and online services. Verification validates the credential signature, checks the DSC chain when present, and queries DeDi for revocation status.
 
 ### 2.3 Holder / Subject
 
@@ -74,7 +81,7 @@ The primary OpenCred product. A fully local, offline-capable desktop application
 | Property | Value |
 |---|---|
 | Deployment | Local install (Electron) |
-| Network required | No (offline-capable; network needed for key attestation, revocation hash publishing to DeDi, periodic schema updates) |
+| Network required | No (offline-capable; network needed for optional did:web publication checks, revocation hash publishing to DeDi, periodic schema updates) |
 | Signing | Local only -- issuer signs with their own private key |
 | Key custody | Issuer retains full custody; key never transmitted |
 | Key sources | Software key files (PFX/PEM/JWK), OS certificate store (Windows CNG, macOS Keychain), hardware tokens (PKCS#11) |
@@ -82,7 +89,7 @@ The primary OpenCred product. A fully local, offline-capable desktop application
 
 ### 3.2 Docker Image
 
-A headless version of the Desktop Client for cloud deployment and workflow integration. Provides the same credential issuance, verification, and key attestation capabilities without a GUI. Exposes endpoints for programmatic access and supports CLI mode for scripting and CI/CD integration.
+A headless version of the Desktop Client for cloud deployment and workflow integration. Provides the same credential issuance and verification capabilities without a GUI. Exposes endpoints for programmatic access and supports CLI mode for scripting and CI/CD integration.
 
 | Property | Value |
 |---|---|
@@ -93,16 +100,9 @@ A headless version of the Desktop Client for cloud deployment and workflow integ
 | Key sources | Software key files (PFX/PEM/JWK), hardware tokens (PKCS#11), cloud HSM (AWS KMS, Azure Key Vault, GCP Cloud KMS) |
 | Use case | Automated/batch issuance, system-to-system integration, cloud deployment, CI/CD pipelines |
 
-### 3.3 Interface × Signing Matrix
+All signing is local on both interfaces -- the issuer always signs with their own key. No interface, endpoint, or code path accepts an issuer's private key for transmission to OpenCred; keys stay on the issuer's machine or within the issuer's own container.
 
-| Interface | Local Signing | Key Attestation |
-|---|---|---|
-| Desktop Client | Yes | Yes (network required for attestation) |
-| Docker Image | Yes | Yes |
-
-All signing is local -- the issuer always signs with their own key. Key Attestation is a trust establishment mechanism (OpenCred attests the issuer's public key with its DSC), not a signing delegation.
-
-### 3.4 Built-in Schema Library
+### 3.3 Built-in Schema Library
 
 OpenCred ships with a curated set of commonly used credential schemas covering frequent issuance scenarios. These schemas are W3C VC Data Model 2.0 conformant and ready to use on both interfaces.
 
@@ -114,16 +114,16 @@ OpenCred ships with a curated set of commonly used credential schemas covering f
 | Health | Vaccination record, test result, insurance card |
 | Business | Business registration, trade licence, professional licence |
 
-Issuers can select a built-in schema and populate it with their credential data, or register custom schemas for domain-specific use cases. Custom schemas are validated against JSON Schema / JSON-LD context rules before acceptance. Schema management is powered by [Sunbird RC](https://docs.sunbirdrc.dev/).
+Issuers can select a built-in schema and populate it with their credential data, or register custom schemas for domain-specific use cases. Custom schemas are validated against JSON Schema / JSON-LD context rules before acceptance.
 
-### 3.5 Access Model
+### 3.4 Access Model
 
 OpenCred is a lightweight application. There are no user accounts and no login UI.
 
 | Interface | Access model |
 |---|---|
 | **Desktop Client** | No authentication required. The application runs locally on the issuer's machine. |
-| **Docker Image** | Optional API key authentication via `OPENCRED_API_KEY` environment variable. When set, all endpoints require the key in the `Authorization` header. When unset, endpoints are open (suitable for internal/private network deployment). |
+| **Docker Image** | API key authentication via the `OPENCRED_API_KEY` environment variable (Bearer token on every protected endpoint). Authentication is fail-closed: the server refuses to start unless `OPENCRED_API_KEY` is set, or authentication is explicitly disabled for local development via `OPENCRED_DEV_MODE_NO_AUTH=true` (refused when `NODE_ENV=production`). |
 
 ---
 
@@ -146,44 +146,33 @@ The issuer does not yet hold a DSC. OpenCred provides an extension point for Cer
 
 OpenCred acts as a facilitator -- it does not custody the DSC or its private key. The CA integration is configurable per deployment. Alternatively, the issuer may obtain a DSC independently through their CA and then import it.
 
-### 4.3 OpenCred-Attested (Key Attestation)
+### 4.3 Self-Published Keys (did:web)
 
-The issuer does not hold a DSC and generates their own signing keys. OpenCred authenticates the issuer's identity and attests their public key by signing it with OpenCred's own DSC. The flow:
+The issuer does not hold a DSC and generates their own signing keys. Trust is established by publishing the public key on a domain the issuer controls. The flow:
 
-1. **Key Generation**: The issuer generates an ECDSA P-256 keypair within OpenCred. The private key stays on the issuer's machine (or within the Docker container).
-2. **Issuer Authentication**: OpenCred verifies the issuer's identity through one of two methods:
-   - **Domain verification**: The issuer proves control of a domain via DNS TXT record or HTTP challenge-response.
-   - **Business VC verification**: The issuer presents an existing verifiable credential (e.g., business registration, trade licence, institutional accreditation). OpenCred verifies the credential's signature, revocation status, and expiry.
-3. **Key Attestation**: Upon successful authentication, OpenCred signs the issuer's public key with OpenCred's own DSC, producing a Key Attestation Credential. This credential binds the issuer's public key to their verified identity.
-4. **Credential Issuance**: The issuer signs credentials with their own key and embeds or references the Key Attestation Credential. Verifiers can trace trust: VC signature → issuer key → Key Attestation → OpenCred DSC → CSCA.
+1. **Key Generation**: The issuer generates an ECDSA P-256 keypair within OpenCred, using a CSPRNG. The private key stays on the issuer's machine (or within the Docker container).
+2. **DID Document Generation**: The issuer provides their domain (e.g., `university.example`). OpenCred builds a `did:web` DID document whose `verificationMethod` contains the issuer's public key in JWK format (see the example in Section 6.1).
+3. **Publication**: The issuer downloads the generated `did.json` and hosts it at `https://<domain>/.well-known/did.json` themselves. OpenCred never publishes on the issuer's behalf. Optionally, OpenCred fetches the published URL (over HTTPS, with SSRF protection) to confirm publication.
+4. **Credential Issuance**: From then on, every credential the issuer signs carries `issuer: did:web:<domain>`. Verifiers resolve the DID through standard `did:web` resolution and trace trust: VC signature → published public key → `did:web` resolution → domain TLS certificate.
 
 ```mermaid
 sequenceDiagram
     participant Issuer
-    participant OpenCred
+    participant Domain as Issuer's Web Server
 
-    Note over Issuer,OpenCred: One-time Key Attestation Setup
-    Issuer->>Issuer: Generate ECDSA P-256 keypair
-    Issuer->>OpenCred: Submit public key + identity proof (domain / business VC)
-    OpenCred->>OpenCred: Verify issuer identity
-    OpenCred->>OpenCred: Sign issuer's public key with OpenCred's DSC
-    OpenCred-->>Issuer: Return Key Attestation Credential
+    Note over Issuer,Domain: One-time Self-Published Keys setup
+    Issuer->>Issuer: Generate ECDSA P-256 keypair (local)
+    Issuer->>Issuer: Build did:web DID document with public key
+    Issuer->>Domain: Publish did.json at /.well-known/did.json (issuer-managed hosting)
+    Issuer->>Domain: (Optional) Fetch did.json to confirm publication
 
-    Note over Issuer,OpenCred: Per-credential issuance (local)
-    Issuer->>Issuer: Build VC + sign with own key
-    Issuer->>Issuer: Embed Key Attestation reference in proof
+    Note over Issuer: Per-credential issuance (local)
+    Issuer->>Issuer: Build VC + sign with own key (issuer = did:web:domain)
     Issuer->>Issuer: Package output (QR, JSON-LD, PDF)
     Note over Issuer: Credential complete (signed locally)
 ```
 
-**Key Attestation Credential requirements**:
-
-- MUST identify the issuer (attestee) by their verified identity (domain URL, business ID, or other authentication-derived identifier).
-- MUST contain the issuer's public key material (in JWK format).
-- MUST be signed by OpenCred's DSC using Data Integrity proof.
-- SHOULD include validity period (`validFrom`, `validUntil`).
-- SHOULD include scope constraints (e.g., allowed credential types).
-- The Key Attestation Credential is a W3C Verifiable Credential conforming to the VC Data Model 2.0.
+**Key rotation**: The issuer generates a new key, regenerates the DID document, and replaces the file at `.well-known/did.json`. Previously issued credentials remain verifiable as long as the issuer retains the old key's verification method in the document until those credentials expire.
 
 ---
 
@@ -193,11 +182,11 @@ All signing in OpenCred is local -- the issuer always signs with their own key. 
 
 OpenCred's **first implementation** standardises on the [W3C Verifiable Credentials Data Integrity 1.0](https://www.w3.org/TR/vc-data-integrity/) proof format for VC signatures. The [W3C Verifiable Credentials Data Model 2.0](https://www.w3.org/TR/vc-data-model-2.0/) remains the core data model, while JWT/JOSE, SD-JWT VC, and OpenID4VCI are deferred to later implementations (see [W3C VC JOSE/COSE](https://www.w3.org/TR/vc-jose-cose/), [IETF SD-JWT VC draft](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/), and [OpenID4VCI 1.0](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0-final.html)).
 
-This sequencing is intentional: v1 focuses on a single JSON-LD credential representation and one proof-verification path, which keeps issuance, key attestation, revocation hashing, and verifier behavior simpler while avoiding wallet and protocol complexity (for example, format negotiation, holder binding, and OpenID4VCI issuance flows). This reduces implementation and interoperability risk for a minimalist application and preserves a clean upgrade path to JWT/SD-JWT/OpenID4VCI in later releases. **JCS** is used only for DeDi revocation hash computation (Section 7), not for VC proof signing.
+This sequencing is intentional: v1 focuses on a single JSON-LD credential representation and one proof-verification path, which keeps issuance, revocation hashing, and verifier behavior simpler while avoiding wallet and protocol complexity (for example, format negotiation, holder binding, and OpenID4VCI issuance flows). This reduces implementation and interoperability risk for a minimalist application and preserves a clean upgrade path to JWT/SD-JWT/OpenID4VCI in later releases. **JCS** is used only for DeDi revocation hash computation (Section 7), not for VC proof signing.
 
 ### 5.1 Local Signing
 
-All operations happen locally with the issuer's own key. The application performs schema validation, VC construction, signing, and packaging. The issuer's private key never leaves their environment. No data is transmitted to OpenCred's hosted services. This is the only signing flow -- all users sign locally.
+All operations happen locally with the issuer's own key. The application performs schema validation, VC construction, signing, and packaging. The issuer's private key never leaves their environment. No data is transmitted to any hosted OpenCred service. This is the only signing flow -- all users sign locally.
 
 **When to use**: All issuance scenarios. The Desktop Client performs all operations locally. The Docker Image performs all operations within the container using keys provided by the issuer.
 
@@ -236,62 +225,22 @@ sequenceDiagram
     Issuer->>Issuer: If later revoked: compute hash and publish to DeDi
 ```
 
-### 5.2 Key Attestation (OpenCred-Attested Issuers)
+### 5.2 Self-Published Keys (did:web)
 
-For issuers without a DSC (Section 2.1.3), OpenCred provides a Key Attestation mechanism. OpenCred acts as an intermediate certificate authority: it signs the issuer's **public key** (NOT credentials) with OpenCred's own DSC, producing a Key Attestation Credential. The issuer still signs their own credentials -- OpenCred never signs credentials on behalf of anyone.
+For issuers without a DSC (Section 2.1.3), OpenCred generates a keypair locally and produces a `did:web` DID document the issuer publishes on their own domain. OpenCred is not part of the resulting trust chain -- trust is anchored entirely in the issuer's domain and its TLS certificate.
 
-**When to use**: Issuers who do not hold a DSC and cannot readily obtain one, but wish to issue credentials with a chain of trust rooted in a recognised certificate authority.
+**When to use**: Issuers who do not hold a DSC and cannot readily obtain one, but control a public web domain and wish to issue credentials whose keys are independently verifiable.
 
-**Trust chain**: VC signature → issuer's key → Key Attestation Credential → OpenCred's DSC → CSCA.
+**Trust chain**: VC signature → published public key → `did:web` resolution → domain TLS certificate (issued by a public CA).
 
-**Trust assumptions**: OpenCred is trusted to correctly authenticate the issuer's identity before attesting their key. The Key Attestation Credential binds a specific public key to a verified identity. OpenCred manages its own DSC and may use HSM-backed keys for attestation signing.
+**Trust assumptions**: The issuer controls their domain and its TLS certificate. The verifier's HTTPS client already trusts the web PKI, which is what anchors the chain. This mirrors patterns already used by some institutional issuers that publish signing keys at well-known HTTPS URLs.
 
 **Security properties**:
 
-- OpenCred never signs credentials -- only public keys.
-- The issuer retains full control of their private key at all times.
-- If OpenCred is compromised, an attacker could attest rogue public keys -- but could NOT issue credentials under legitimate issuers' identities, since the attacker would not hold the corresponding private keys.
-- Key attestation expiry or revocation stops future attestations but does not retroactively invalidate previously issued credentials that were signed while the attestation was valid (those credentials must be revoked individually if needed).
-
-**Key Attestation Credential structure**:
-
-The Key Attestation Credential is a W3C Verifiable Credential where the `credentialSubject` describes the attested public key and the issuer's verified identity:
-
-```json
-{
-  "@context": [
-    "https://www.w3.org/ns/credentials/v2",
-    "https://opencred.example/contexts/key-attestation/v1"
-  ],
-  "type": ["VerifiableCredential", "KeyAttestationCredential"],
-  "issuer": "did:key:zDnae...",
-  "validFrom": "2026-03-13T00:00:00Z",
-  "validUntil": "2027-03-13T00:00:00Z",
-  "credentialSubject": {
-    "id": "https://example-issuer.com",
-    "name": "Example Issuer Corp",
-    "publicKey": {
-      "kty": "EC",
-      "crv": "P-256",
-      "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
-      "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
-    },
-    "authenticationMethod": "domain-verification"
-  },
-  "proof": {
-    "type": "DataIntegrityProof",
-    "cryptosuite": "ecdsa-rdfc-2019",
-    "created": "2026-03-13T00:00:00Z",
-    "verificationMethod": "did:key:zDnae...#key-1",
-    "proofPurpose": "assertionMethod",
-    "proofValue": "z3FXQjecWufY46..."
-  }
-}
-```
-
-The `issuer` field of the Key Attestation Credential is OpenCred's DID (derived from its DSC). The `credentialSubject.id` identifies the attested issuer. The `credentialSubject.publicKey` contains the issuer's public key material that OpenCred has attested. The `proof` is signed by OpenCred's DSC key.
-
-**Embedding attestation in credentials**: The issuer's credentials reference or embed the Key Attestation Credential in the proof section via an `AttestationProof` that includes `keyAttestationCredential` (the full attestation) and optionally `keyAttestationUrl` (a URL where the attestation can be fetched).
+- The issuer retains full control of their private key at all times; only the public key is published.
+- No third party -- including OpenCred -- appears in the trust chain or can attest keys on the issuer's behalf.
+- Key rotation is supported by updating the published DID document (Section 4.3); old keys can be retained so previously issued credentials remain verifiable.
+- Domain compromise is the primary risk: an attacker controlling the domain could replace the published keys. Issuers should protect domain and hosting credentials accordingly, and rotate keys if compromise is suspected.
 
 ### 5.3 Key Source Matrix
 
@@ -301,7 +250,7 @@ The `issuer` field of the Key Attestation Credential is OpenCred's DID (derived 
 | OS certificate store (CNG, Keychain) | Yes | N/A | Signature → DSC → CSCA |
 | Hardware token (PKCS#11) | Yes | Yes | Signature → DSC → CSCA (if token holds DSC key) |
 | Cloud HSM (KMS, Key Vault) | No | Yes | Signature → DSC → CSCA (if HSM holds DSC key) |
-| Generated key + Key Attestation | Yes | Yes | Signature → key → Key Attestation → OpenCred DSC → CSCA |
+| Generated key + self-published did:web | Yes | Yes | Signature → published key → did:web resolution → domain TLS |
 
 ### 5.4 Bulk Issuance
 
@@ -322,9 +271,9 @@ Bulk issuance allows an issuer to issue many credentials in a single operation. 
 
 | Step | Docker Image Endpoint / Action | Response |
 |---|---|---|
-| Submit batch | `POST /credentials/batch` | `202 Accepted { jobId, status: "queued" }` |
-| Poll status | `GET /credentials/batch/{jobId}` | `{ status, total, succeeded, failed }` |
-| Retrieve results | `GET /credentials/batch/{jobId}/results` | Per-row results with individual status and error details |
+| Submit batch | `POST /v1/credentials/batch` | `202 Accepted { jobId, status: "queued" }` |
+| Poll status | `GET /v1/credentials/batch/{jobId}` | `{ status, total, succeeded, failed }` |
+| Retrieve results | `GET /v1/credentials/batch/{jobId}/results` | Per-row results with individual status and error details |
 
 #### 5.4.3 Error Handling: Validate-First, Then Issue
 
@@ -439,7 +388,7 @@ The public key is encoded directly within the credential itself via a `did:key` 
 
 - No key rotation support: if the key is compromised, all credentials containing that key are affected and there is no mechanism to update the key material.
 - Credential size increases because the key material is encoded in the identifier.
-- Trust anchoring is weaker -- the verifier must trust the key in the credential itself without an external trust root (unless a Key Attestation Credential chain is embedded alongside it).
+- Trust anchoring is weaker -- the verifier must trust the key in the credential itself without an external trust root.
 
 ### 6.3 Option C: KERI -- Key Event Receipt Infrastructure
 
@@ -486,9 +435,8 @@ The AID prefix is derived from the inception event's public key, making it self-
 | Pre-rotation security | No (domain compromise enables malicious rotation) | N/A | Yes (compromised key cannot authorise its own replacement) |
 | Issuer infrastructure | Web server + TLS cert | None | Witness nodes (self-hosted or provider) |
 | Credential size | Smaller (key not embedded) | Larger (+200-400 bytes) | Moderate (AID only) or larger if KEL bundled |
-| Trust anchoring | Domain-bound (TLS + DID doc) | Self-asserted (or Key Attestation) | Self-certifying (cryptographic inception binding) |
+| Trust anchoring | Domain-bound (TLS + DID doc) | Self-asserted | Self-certifying (cryptographic inception binding) |
 | Revocation of compromised key | Update DID document | No mechanism (must revoke all affected credentials) | Rotate via pre-committed key; old key provably superseded |
-| Key Attestation compatibility | Compatible (attestation adds chain to DSC/CSCA) | Compatible (attestation adds chain to DSC/CSCA) | Compatible (attestation can supplement KEL trust) |
 | Decentralisation | Depends on DNS/TLS CA | Fully decentralised (no resolution) | Fully decentralised (witness consensus, no blockchain) |
 | Standards maturity | W3C CCG did:web spec | W3C CCG did:key v0.9 | ToIP / IETF draft v0.9; growing implementations |
 
@@ -496,8 +444,8 @@ The AID prefix is derived from the inception event's public key, making it self-
 
 OpenCred SHOULD support all three options and let the issuer choose at issuance time:
 
-- **Default for institutional issuers with DSC**: `did:web` -- provides key rotation, domain-bound trust, and aligns with enterprise identity infrastructure. Lowest barrier to adoption given existing web PKI.
-- **Default for OpenCred-Attested issuers and offline-first use**: `did:key` -- enables fully self-contained credentials for field deployment, peer-to-peer issuance, or testing. The Key Attestation Credential provides additional trust anchoring beyond the self-asserted key, linking to OpenCred's DSC and CSCA.
+- **Default for institutional issuers and Self-Published Keys issuers**: `did:web` -- provides key rotation, domain-bound trust, and aligns with enterprise identity infrastructure. Lowest barrier to adoption given existing web PKI. Self-Published Keys issuers (Section 2.1.3) use `did:web` by construction.
+- **Default for offline-first use**: `did:key` -- enables fully self-contained credentials for field deployment, peer-to-peer issuance, or testing.
 - **For high-assurance / decentralised deployments**: KERI -- provides cryptographically pre-committed key rotation, native delegation, and decentralised trust without blockchain dependency. Recommended for issuers who require resilience against domain compromise or who operate in multi-stakeholder trust frameworks (e.g., government-to-government credential exchange).
 
 ---
@@ -572,17 +520,17 @@ OpenCred provides hash-computation capabilities on both interfaces. It does **no
 
 | Endpoint | Method | Request Body | Response | Description |
 |---|---|---|---|---|
-| `/credentials/revocation-hash` | POST | `{ "credential": { ... } }` | `{ "revocationHash": "<sha256-hex>" }` | Compute the revocation hash for a single credential. |
-| `/credentials/revocation-hash/batch` | POST | `{ "credentials": [{...}, {...}, ...] }` | `{ "revocationHashes": [{ "credentialId": "...", "revocationHash": "<sha256-hex>" }, ...] }` | Compute revocation hashes for multiple credentials. |
+| `/v1/credentials/revocation-hash` | POST | `{ "credential": { ... } }` | `{ "revocationHash": "<sha256-hex>" }` | Compute the revocation hash for a single credential. |
+| `/v1/credentials/revocation-hash/batch` | POST | `{ "credentials": [{...}, {...}, ...] }` | `{ "revocationHashes": [{ "credentialId": "...", "revocationHash": "<sha256-hex>" }, ...] }` | Compute revocation hashes for multiple credentials. |
 
 ### 7.4 Revocation Lifecycle
 
 | Step | Actor | Action | Details |
 |---|---|---|---|
 | At issuance | OpenCred | Embeds `credentialStatus` | Includes the issuer's DeDi revocation registry URL (`credentialStatus.id`) and status type `DeDiRevocationListStatusV1`. |
-| To revoke | Issuer | Computes hash | Desktop Client: compute locally. Docker Image: `POST /credentials/revocation-hash`. |
+| To revoke | Issuer | Computes hash | Desktop Client: compute locally. Docker Image: `POST /v1/credentials/revocation-hash`. |
 | To revoke | Issuer | Publishes hash to DeDi | The issuer publishes the revocation hash to their own DeDi revocation registry. OpenCred does not publish on the issuer's behalf. |
-| Bulk revoke | Issuer | Computes hashes in batch | Desktop Client: batch hash computation from loaded credentials. Docker Image: `POST /credentials/revocation-hash/batch`. The issuer publishes them to DeDi. |
+| Bulk revoke | Issuer | Computes hashes in batch | Desktop Client: batch hash computation from loaded credentials. Docker Image: `POST /v1/credentials/revocation-hash/batch`. The issuer publishes them to DeDi. |
 
 ### 7.5 Note on W3C BitstringStatusList
 
@@ -601,7 +549,7 @@ These models are not currently implemented. If adopted, they will be specified i
 
 ## 8. Verifier -- Public Key Retrieval
 
-The verifier needs to obtain the issuer's public key to verify the credential's signature. Four options are available, depending on how the credential was issued.
+The verifier needs to obtain the issuer's public key to verify the credential's signature. Three options are available, depending on how the credential was issued.
 
 ### 8.1 Option 1: DID Resolution
 
@@ -637,34 +585,17 @@ If the credential uses `did:key` as the issuer identifier, the verifier extracts
 1. If `issuer` is `did:key:z6Mk...`, decode the Multibase-encoded public key from the DID string.
 2. Use the extracted public key to verify the VC signature.
 
-**Caveat**: This option provides cryptographic verification but not trust anchoring. The verifier must decide whether to trust a self-asserted key or require additional evidence (such as a Key Attestation Credential).
+**Caveat**: This option provides cryptographic verification but not trust anchoring. The verifier must decide whether to trust a self-asserted key or require additional out-of-band evidence (for DSC-derived keys, the DSC chain to the CSCA provides that anchoring).
 
-### 8.4 Option 4: Key Attestation Chain Resolution
-
-For credentials issued by OpenCred-Attested issuers, the credential is signed with the issuer's own key (referenced via `did:key`), and the proof includes a reference to a Key Attestation Credential. The verifier must resolve the attestation chain to confirm that OpenCred attested the issuer's public key.
-
-The Key Attestation Credential is either **embedded** in the credential's proof section (as a `keyAttestationCredential` property) or **referenced** by a URL (`keyAttestationUrl`) pointing to where the attestation can be fetched.
-
-**Steps**:
-1. Verify the credential signature using the issuer's public key (extracted from `did:key` in the `proof.verificationMethod`).
-2. Locate the Key Attestation Credential (embedded in the proof or referenced by URL).
-3. Verify that the Key Attestation Credential's `credentialSubject.publicKey` matches the issuer's public key.
-4. Verify the Key Attestation Credential's signature using OpenCred's public key (from `did:key` in the attestation's `proof.verificationMethod`).
-5. Verify OpenCred's DSC against the CSCA trust anchor.
-6. Confirm the Key Attestation Credential was valid at the credential's issuance/proof time (check `validFrom`/`validUntil` against `proof.created`).
-
-**Applies when**: The credential's proof includes a Key Attestation reference (embedded or URL).
-
-### 8.5 Decision Table
+### 8.4 Decision Table
 
 | Credential Characteristic | Key Retrieval Option | Network Required |
 |---|---|---|
 | `issuer` = `did:web:*` | Option 1 (DID Resolution) or Option 2 (DeDi) | Yes |
-| `issuer` = `did:key:*` (no attestation) | Option 3 (Embedded Key) | No |
-| `issuer` = `did:key:*` + Key Attestation present | Option 3 + Option 4 (Key Attestation Chain) | Only for CSCA validation |
+| `issuer` = `did:key:*` | Option 3 (Embedded Key) | No |
 | Issuer has DSC | Verify DSC against CSCA trust anchor after key retrieval | Only for CSCA validation |
 
-### 8.6 Verification Flow Overview
+### 8.5 Verification Flow Overview
 
 ```mermaid
 flowchart TD
@@ -678,16 +609,10 @@ flowchart TD
     MethodCheck -->|"did:key"| DecodeDIDKey[Decode public key from did:key string]
     DecodeDIDKey --> VerifyVC_K[Verify VC signature with decoded key]
 
-    VerifyVC_K --> AttestCheck{Key Attestation present?}
-    AttestCheck -->|Yes| ValidateAttest[Validate Key Attestation Credential]
-    ValidateAttest --> VerifyAttestSig[Verify attestation signature with OpenCred key]
-    VerifyAttestSig --> VerifyOpenCredDSC[Verify OpenCred DSC against CSCA]
-    VerifyOpenCredDSC --> StatusCheck
-    AttestCheck -->|No| StatusCheck[Check revocation and expiry]
-
-    VerifyVC_W --> DSCCheck{DSC present?}
+    VerifyVC_K --> DSCCheck{DSC present?}
+    VerifyVC_W --> DSCCheck
     DSCCheck -->|Yes| VerifyDSC[Verify DSC against CSCA trust anchor]
-    DSCCheck -->|No| StatusCheck
+    DSCCheck -->|No| StatusCheck[Check revocation and expiry]
     VerifyDSC --> StatusCheck
 
     StatusCheck --> Result[Return VALID / REVOKED / INVALID / EXPIRED]
@@ -748,7 +673,6 @@ The verifier checks revocation using the `credentialStatus` field embedded in th
 | **EXPIRED** | Signature verified, but `validUntil` date has passed. |
 | **INVALID** | Signature verification failed (tampered or wrong key). |
 | **UNRESOLVABLE** | The issuer's DID could not be resolved, or DeDi is unreachable and no cache is available. |
-| **ATTESTATION_INVALID** | Signature verified, but the Key Attestation Credential could not be validated -- attestation signature failed, attestation expired at issuance time, or the attested public key does not match the signing key. |
 
 ### 9.5 Full Verification Sequence
 
@@ -771,15 +695,7 @@ sequenceDiagram
         Verifier->>Verifier: Verify VC signature with decoded key
     end
 
-    opt Key Attestation present in proof
-        Verifier->>Credential: Extract Key Attestation Credential
-        Verifier->>Verifier: Verify attestation: attested key matches issuer key
-        Verifier->>Verifier: Verify attestation signature with OpenCred's key
-        Verifier->>Verifier: Verify OpenCred DSC against CSCA trust anchor
-        Verifier->>Verifier: Check attestation was valid at proof.created time
-    end
-
-    opt Issuer has DSC (non-attested)
+    opt Issuer has DSC
         Verifier->>Verifier: Verify DSC against CSCA trust anchor
     end
 
@@ -838,20 +754,19 @@ The following example shows a fully-formed verifiable credential issued by an is
 }
 ```
 
-### 10.2 Sample Verifiable Credential -- OpenCred-Attested Issuer
+### 10.2 Sample Verifiable Credential -- Self-Published Keys Issuer
 
-The following example shows a credential issued by an OpenCred-Attested issuer. The proof includes a reference to the Key Attestation Credential:
+The following example shows a credential issued by a Self-Published Keys issuer. The `issuer` is a `did:web` identifier resolving to the DID document the issuer hosts on their own domain:
 
 ```json
 {
   "@context": [
     "https://www.w3.org/ns/credentials/v2",
-    "https://w3id.org/security/data-integrity/v1",
-    "https://opencred.example/contexts/key-attestation/v1"
+    "https://w3id.org/security/data-integrity/v1"
   ],
   "id": "urn:uuid:a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "type": ["VerifiableCredential"],
-  "issuer": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+  "issuer": "did:web:example-corp.com",
   "validFrom": "2026-03-13T00:00:00Z",
   "validUntil": "2027-03-13T00:00:00Z",
   "credentialSubject": {
@@ -873,41 +788,14 @@ The following example shows a credential issued by an OpenCred-Attested issuer. 
     "type": "DataIntegrityProof",
     "cryptosuite": "ecdsa-rdfc-2019",
     "created": "2026-03-13T00:00:00Z",
-    "verificationMethod": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK#key-1",
+    "verificationMethod": "did:web:example-corp.com#key-0",
     "proofPurpose": "assertionMethod",
-    "proofValue": "z4sB9Dk7Wq...",
-    "keyAttestationCredential": {
-      "@context": [
-        "https://www.w3.org/ns/credentials/v2",
-        "https://opencred.example/contexts/key-attestation/v1"
-      ],
-      "type": ["VerifiableCredential", "KeyAttestationCredential"],
-      "issuer": "did:key:zDnaeSWVQyW...",
-      "validFrom": "2026-03-01T00:00:00Z",
-      "validUntil": "2027-03-01T00:00:00Z",
-      "credentialSubject": {
-        "id": "https://example-corp.com",
-        "name": "Example Corp Ltd",
-        "publicKey": {
-          "kty": "EC",
-          "crv": "P-256",
-          "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
-          "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
-        },
-        "authenticationMethod": "domain-verification"
-      },
-      "proof": {
-        "type": "DataIntegrityProof",
-        "cryptosuite": "ecdsa-rdfc-2019",
-        "created": "2026-03-01T00:00:00Z",
-        "verificationMethod": "did:key:zDnaeSWVQyW...#key-1",
-        "proofPurpose": "assertionMethod",
-        "proofValue": "z7hG2qR..."
-      }
-    }
+    "proofValue": "z4sB9Dk7Wq..."
   }
 }
 ```
+
+The verifier resolves `did:web:example-corp.com` to `https://example-corp.com/.well-known/did.json`, extracts the public key from the referenced verification method, and verifies the signature. Trust is anchored in the domain's TLS certificate.
 
 ### 10.3 Sample credentialStatus (Standalone)
 
@@ -928,7 +816,7 @@ The following example shows a credential issued by an OpenCred-Attested issuer. 
 **Docker Image -- single hash**:
 
 ```bash
-curl -X POST http://localhost:3000/credentials/revocation-hash \
+curl -X POST http://localhost:3000/v1/credentials/revocation-hash \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <OPENCRED_API_KEY>" \
   -d '{
@@ -940,7 +828,7 @@ curl -X POST http://localhost:3000/credentials/revocation-hash \
 **Docker Image -- batch hashes**:
 
 ```bash
-curl -X POST http://localhost:3000/credentials/revocation-hash/batch \
+curl -X POST http://localhost:3000/v1/credentials/revocation-hash/batch \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <OPENCRED_API_KEY>" \
   -d '{
@@ -956,17 +844,14 @@ curl -X POST http://localhost:3000/credentials/revocation-hash/batch \
 | **CSCA** | Country Signing Certificate Authority. The root certificate authority in a national PKI hierarchy (e.g., used in ICAO e-passports). The CSCA signs Digital Signature Certificates. |
 | **DeDi** | Decentralized Directory. A verifiable data registry used by OpenCred for DID resolution, public key caching, and revocation status hosting. DeDi does not generate or store any signing keys. |
 | **DID** | Decentralized Identifier. A portable, URL-based identifier (e.g., `did:web:example.com`) associated with an entity and resolvable to a DID document containing public keys and service endpoints. |
-| **did:key** | A DID method that encodes the public key directly in the DID string (e.g., `did:key:z6Mk...`). No registry or network resolution needed. Best for offline use and OpenCred-Attested issuers. |
+| **did:key** | A DID method that encodes the public key directly in the DID string (e.g., `did:key:z6Mk...`). No registry or network resolution needed. Best for offline use. |
 | **did:web** | A DID method that resolves to a DID document hosted at `https://<domain>/.well-known/did.json`. Leverages existing web PKI (TLS) for trust anchoring. |
 | **DSC** | Digital Signature Certificate. An intermediate certificate issued by a CSCA, used by an organisation to sign documents or credentials. |
-| **Inji Certify** | An open-source credential issuance component from the Inji stack, reused by OpenCred for issuance primitives. |
 | **JCS** | JSON Canonicalization Scheme (RFC 8785). A deterministic serialisation of JSON objects used to produce a consistent byte representation for hashing or signing. |
 | **JWK** | JSON Web Key (RFC 7517). A JSON data structure representing a cryptographic key, commonly used to embed public keys in DID documents and VC proofs. |
 | **KEL** | Key Event Log. An append-only, cryptographically signed log of key lifecycle events (inception, rotation, delegation, revocation) used in KERI to establish verifiable key state. |
 | **KERI** | Key Event Receipt Infrastructure. A decentralised key management protocol that uses self-certifying identifiers and pre-rotation to provide secure, end-verifiable control over cryptographic keys without reliance on a blockchain or centralised registry. |
-| **Key Attestation** | The process by which OpenCred signs an issuer's public key with its own DSC, producing a Key Attestation Credential. This establishes a chain of trust (issuer key → OpenCred DSC → CSCA) for issuers who do not hold their own DSC. OpenCred attests keys, never signs credentials. |
-| **Key Attestation Credential** | A W3C Verifiable Credential issued by OpenCred that binds an issuer's public key to their verified identity. Signed by OpenCred's DSC. Embedded in or referenced by credentials issued by OpenCred-Attested issuers. |
-| **Sunbird RC** | An open-source registry and credentialing framework, reused by OpenCred for credential schema management. |
+| **Self-Published Keys** | OpenCred's onboarding path for issuers without a DSC: a locally generated keypair whose public key the issuer publishes in a `did:web` DID document on their own domain. Trust is anchored in the domain's TLS certificate; OpenCred is not part of the trust chain. |
 | **VC** | Verifiable Credential. A tamper-evident, cryptographically signed credential conforming to the W3C VC Data Model. |
 | **VP** | Verifiable Presentation. A tamper-evident wrapper around one or more VCs, presented by a holder to a verifier. |
 
@@ -987,6 +872,4 @@ curl -X POST http://localhost:3000/credentials/revocation-hash/batch \
 | KERI Specification (ToIP / IETF draft) | https://trustoverip.github.io/tswg-keri-specification/ |
 | JSON Canonicalization Scheme (RFC 8785) | https://www.rfc-editor.org/rfc/rfc8785 |
 | JSON Web Key (RFC 7517) | https://www.rfc-editor.org/rfc/rfc7517 |
-| Sunbird RC Documentation | https://docs.sunbirdrc.dev/ |
-| Inji Certify Documentation | https://docs.inji.io/inji-certify |
 | DeDi API OpenAPI Specification | https://github.com/nfh-trust-labs/docs/blob/main/openAPI.yaml |

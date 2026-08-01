@@ -126,7 +126,7 @@ Nightly `e2e-matrix.yml` workflow (Docker backend always; DeDi cells when secret
 | C3. Batch `interrupted` status surfaced distinctly from `failed` | operator can decide to re-run |
 | C4. Bundled-schema auto-publish to DeDi (#109) | startup behaviour behind `OPENCRED_DEDI_PUBLISH_BUNDLED` |
 | C5. Packaged desktop (electron-builder) boot smoke in CI | proves the **production renderer** path (`loadFile`), which `electron .` dev launches don't |
-| C6. verify-sdk npm publish pipeline | LICENSE now exists; add release job to `opencred-releases` sync + bundle-size note in README |
+| C6. verify-sdk npm publish pipeline | MIT-licensed; add npm publish job to the release pipeline + bundle-size note in README |
 
 ---
 
@@ -134,7 +134,7 @@ Nightly `e2e-matrix.yml` workflow (Docker backend always; DeDi cells when secret
 
 - D1. Publish the **support matrix table** (§1, including exclusions and why) in `docs/` — it is the user-facing contract.
 - D2. Key-source × lifecycle capability matrix (Desktop vs Docker) — updated after A1/A2 unlock KMS/hardware lifecycle.
-- D3. Per CLAUDE.md protocol: fold this plan into `implementation-plan.md`, then create GitHub issues (one per A/B/C item, phase-labelled), feature branches off `new-opencred-dev`, one PR per issue.
+- D3. Per CLAUDE.md protocol: create GitHub issues (one per A/B/C item, phase-labelled), feature branches off the integration branch, one PR per issue.
 
 ---
 

@@ -1,64 +1,21 @@
-OpenCred Source-Available License
+MIT License
 
-Copyright (c) 2026 NFH Trust Labs. All rights reserved.
+Copyright (c) 2026 NFH Trust Labs
 
-1. Definitions
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-   "Software" means the OpenCred source code, binaries, documentation, and
-   associated assets in this repository, including the @opencred/* packages.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-   "Verification Use" means installing and running the Software (including
-   the @opencred/verify SDK) within your own services for the purpose of
-   verifying credentials issued by OpenCred-based issuers.
-
-   "Issuer Use" means deploying the OpenCred Desktop Client or the OpenCred
-   Docker image within your own organisation to issue verifiable
-   credentials under your own keys.
-
-2. Grant
-
-   Subject to the conditions below, NFH Trust Labs grants you a
-   non-exclusive, non-transferable, royalty-free licence to:
-
-   a. view and audit the source code;
-   b. exercise Verification Use and Issuer Use, including in production,
-      for your own organisation;
-   c. make modifications strictly necessary to build and operate the
-      Software in your own environment.
-
-3. Conditions
-
-   The following require prior written permission from NFH Trust Labs:
-
-   a. redistribution of the Software or any derivative as a separate
-      package, product, or service;
-   b. modification of the Software beyond what Section 2(c) permits;
-   c. use of the Software in commercial production deployments operated
-      as a service for third parties (e.g. issuing or verifying
-      credentials on behalf of customers).
-
-4. Notices
-
-   You must retain this licence text and the NOTICE.md file in all copies
-   of the Software. You may not remove or alter copyright, trademark, or
-   attribution notices.
-
-5. No Trademark Rights
-
-   This licence grants no rights to the "OpenCred" or "NFH Trust Labs"
-   names or logos.
-
-6. Disclaimer
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-   IN NO EVENT SHALL NFH TRUST LABS BE LIABLE FOR ANY CLAIM, DAMAGES OR
-   OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-   ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-   OTHER DEALINGS IN THE SOFTWARE.
-
-7. Contact
-
-   For permissions beyond this licence: NFH Trust Labs
-   (https://github.com/nfh-trust-labs).
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
