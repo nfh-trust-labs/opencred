@@ -43,16 +43,26 @@ empty `MAC_CSC_LINK` / `APPLE_*` secrets. electron-builder fell through to
 an ad-hoc signature, which macOS rejects as broken rather than treating as
 unsigned.
 
-The workflow change that accompanies this document:
+How the release pipeline handles this today:
 
-1. Flips `forceCodeSigning: false` so electron-builder produces cleanly
-   unsigned artefacts rather than half-signed ones.
-2. Makes the signing preflight detect missing secrets and emit a warning
-   instead of failing the job.
-3. Sets `CSC_IDENTITY_AUTO_DISCOVERY=false` on unsigned builds to keep
-   electron-builder from finding a local ad-hoc identity.
-4. Skips the post-build signature verification when signing is disabled
+1. `forceCodeSigning` is **`true`** in `apps/desktop/package.json`, so a
+   build that *should* be signed fails loudly if the certificate is
+   missing or signing silently fails — an unsigned artefact must never
+   reach the auto-updater, whose integrity guarantee depends on a
+   consistent signing identity.
+2. The signing preflight detects missing secrets per platform and emits a
+   warning instead of failing the job (a partial configuration still
+   fails — that indicates a setup error).
+3. When a platform's secrets are absent, the release job opts out
+   explicitly with `--config.forceCodeSigning=false`, unsets the `CSC_*` /
+   `APPLE_*` variables, and sets `CSC_IDENTITY_AUTO_DISCOVERY=false` — so
+   the output is *cleanly unsigned* rather than half-signed, and the log
+   says so. Linux targets always opt out (no code-signing concept).
+4. Post-build signature verification is skipped when signing is disabled
    (the checks would fail trivially on unsigned bundles).
+5. Non-release CI builds (`desktop-build.yml`) always pass
+   `--config.forceCodeSigning=false`; they have no certificates by
+   design.
 
 This is a **temporary workaround**, not a target state.
 

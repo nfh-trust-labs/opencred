@@ -2,7 +2,7 @@ name: Desktop Release
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_call:
     inputs:
       tag:
@@ -10,13 +10,13 @@ on:
         # string when release_created is false (the `if:` guard in the
         # caller still gates execution, but GitHub validates inputs at
         # parse time — declaring `tag` here is what makes that pass).
-        description: 'Tag to build and publish (e.g. v1.0.0). Must already exist.'
+        description: "Tag to build and publish (e.g. v1.0.0). Must already exist."
         required: false
         type: string
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build and publish (e.g. v1.0.0). Must already exist.'
+        description: "Tag to build and publish (e.g. v1.0.0). Must already exist."
         required: true
         type: string
 
@@ -267,16 +267,28 @@ jobs:
           # to interpret CSC_LINK="" as a file path → resolves to cwd →
           # fails with "apps/desktop not a file". Setting
           # CSC_IDENTITY_AUTO_DISCOVERY=false alone is not enough.
+          # forceCodeSigning is true in package.json so a signed build that
+          # silently loses its certificate FAILS instead of shipping an
+          # unsigned artefact (which would break the auto-updater's
+          # integrity guarantee for existing installs). The deliberate
+          # unsigned paths below opt out explicitly and say so in the log.
+          EB_SIGNING_ARGS=""
           if [ "${{ runner.os }}" = "macOS" ] && [ "$SIGN_MAC" != "true" ]; then
             unset CSC_LINK CSC_KEY_PASSWORD
             unset APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_ID_PASSWORD
             export CSC_IDENTITY_AUTO_DISCOVERY=false
+            EB_SIGNING_ARGS="--config.forceCodeSigning=false"
             echo "Building UNSIGNED macOS artefacts (no MAC_CSC_LINK)"
           fi
           if [ "${{ runner.os }}" = "Windows" ] && [ "$SIGN_WIN" != "true" ]; then
             unset WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
             export CSC_IDENTITY_AUTO_DISCOVERY=false
+            EB_SIGNING_ARGS="--config.forceCodeSigning=false"
             echo "Building UNSIGNED Windows artefacts (no WIN_CSC_LINK)"
+          fi
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            # Linux targets (AppImage/deb) have no code-signing concept.
+            EB_SIGNING_ARGS="--config.forceCodeSigning=false"
           fi
           # --config.npmRebuild=false: electron-builder must not invoke its
           # bundled @electron/rebuild — it hangs 60+ min on Windows pnpm
@@ -284,7 +296,7 @@ jobs:
           # rebuilt for each TARGET arch by the beforePack hook instead
           # (scripts/electron-builder-hooks.cjs, #641/#642), which is not
           # affected by npmRebuild=false.
-          npx electron-builder $EB_ARGS --publish never --config.npmRebuild=false
+          npx electron-builder $EB_ARGS --publish never --config.npmRebuild=false $EB_SIGNING_ARGS
 
       # Verify Mac artefacts are properly code-signed, Gatekeeper-approved
       # and notarisation-stapled BEFORE publishing. Without this, a broken
