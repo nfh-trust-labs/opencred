@@ -19,9 +19,9 @@ function isValidHexColor(value: string): boolean {
   return /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(value);
 }
 
-/** Validate a data URI for an image. */
+/** Validate a data URI for an image (raster only — SVG can carry script). */
 function isValidImageDataUri(value: string): boolean {
-  return /^data:image\/(png|jpeg|jpg|svg\+xml|webp);base64,/.test(value);
+  return /^data:image\/(png|jpeg|jpg|webp);base64,/.test(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -76,8 +76,8 @@ describe("isValidImageDataUri", () => {
     expect(isValidImageDataUri("data:image/jpeg;base64,/9j/4")).toBe(true);
   });
 
-  it("should accept SVG data URIs", () => {
-    expect(isValidImageDataUri("data:image/svg+xml;base64,PHN2Zw")).toBe(true);
+  it("should reject SVG data URIs (renderer drops them — nested SVG can carry script)", () => {
+    expect(isValidImageDataUri("data:image/svg+xml;base64,PHN2Zw")).toBe(false);
   });
 
   it("should accept WebP data URIs", () => {
