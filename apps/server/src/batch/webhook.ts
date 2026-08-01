@@ -9,7 +9,7 @@
 
 import { createHmac } from "node:crypto";
 import { resolve as dnsResolve } from "node:dns/promises";
-import { isPrivateIP } from "@opencred/shared";
+import { fetchWithPinnedIp, isPrivateIP } from "@opencred/shared";
 
 export interface WebhookPayload {
   jobId: string;
@@ -25,7 +25,8 @@ export interface WebhookPayload {
  *
  * 1. Resolves the hostname and validates it is not a private IP (SSRF).
  * 2. Requires HTTPS.
- * 3. Rewrites the URL to the validated IP to prevent DNS rebinding (TOCTOU).
+ * 3. Pins the connection to the validated addresses to prevent DNS rebinding
+ *    (TOCTOU) — see `fetchWithPinnedIp`.
  * 4. Computes HMAC-SHA256 signature of the JSON body. `secret` must be a
  *    non-empty string — the caller is responsible for rejecting webhook
  *    requests that lack a configured secret (see LOW-04). Passing an empty
@@ -63,13 +64,18 @@ export async function deliverWebhook(
     }
   }
 
-  // SSRF: rewrite URL to use validated IP directly, preventing DNS rebinding
-  // (TOCTOU: DNS could resolve differently between our check and fetch)
-  const validatedIp = addresses[0];
-  const rewritten = new URL(url);
-  const originalHost = rewritten.hostname;
-  rewritten.hostname = validatedIp.includes(":") ? `[${validatedIp}]` : validatedIp;
-
+  // SSRF: the connection is pinned to the addresses validated just above, so a
+  // rebinding DNS server has no window between the check and the connect.
+  //
+  // This replaces an earlier "pin" that rewrote the URL to the IP and sent a
+  // `Host: <original hostname>` header. That approach was broken twice over:
+  // TLS certificate validation runs against the URL host, so every HTTPS
+  // webhook endpoint failed with ERR_TLS_CERT_ALTNAME_INVALID (certificates
+  // have DNS SANs, not IP SANs); and it only pinned one address. The URL now
+  // keeps its hostname — correct SNI and certificate validation — while the
+  // socket-level DNS lookup is overridden to the validated set. The FULL set
+  // is pinned (not just `addresses[0]`) so multi-A-record and CDN-fronted
+  // hosts keep their happy-eyeballs failover.
   const body = JSON.stringify(payload);
 
   // Compute HMAC-SHA256 signature. `secret` is guaranteed non-empty by the
@@ -81,7 +87,6 @@ export async function deliverWebhook(
     "X-OpenCred-Signature": signature,
     "X-OpenCred-Event": "batch.completed",
     "User-Agent": "OpenCred-Server",
-    Host: originalHost,
   };
 
   // 3 attempts: immediate, ~1s, ~4s. Jitter (+0–25%) de-synchronises worker
@@ -96,12 +101,15 @@ export async function deliverWebhook(
     }
 
     try {
-      const res = await fetch(rewritten.toString(), {
+      // Redirects are never followed: `fetchWithPinnedIp` uses
+      // `https.request`, so a 3xx surfaces as a non-2xx response and is
+      // retried/reported like any other HTTP failure — a redirect must not be
+      // chased to a host that was never SSRF-validated.
+      const res = await fetchWithPinnedIp(url, addresses, {
         method: "POST",
         headers,
         body,
         signal: AbortSignal.timeout(10_000),
-        redirect: "error",
       });
 
       if (res.status >= 200 && res.status < 300) {

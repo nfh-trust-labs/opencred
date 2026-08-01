@@ -108,6 +108,8 @@ The `did:web` SSRF protection has dedicated tests:
 * `packages/shared/src/__tests__/pinned-fetch.test.ts` — covers `fetchWithPinnedIp`, the DNS-rebinding-safe transport: the socket-level `lookup` override returns only the pinned addresses, the URL keeps the hostname for TLS validation, and every request uses a fresh non-keep-alive agent so pooled sockets can't bypass the pin
 * `packages/did/src/__tests__/did-web.test.ts` — covers the resolver behaviour: HTTPS-only, no redirects, timeout, document ID match, plus a dedicated DNS-rebinding (TOCTOU) suite asserting the fetch is pinned to the validated addresses and DNS is consulted exactly once
 * `apps/desktop/src/__tests__/schema-fetch-ssrf.test.ts` — the `SCHEMA_FETCH_URL` IPC handler: multi-record validation, fail-closed DNS errors, pinned fetch, and the 1 MiB response-size cap
+* `apps/server/src/__tests__/webhook.test.ts` — batch webhook delivery: HTTPS-only, private-IP refusal (including "any address private" for a multi-record host), and a rebinding suite asserting DNS is resolved once and every retry reuses the same pinned address set
+* `packages/dedi-client/src/__tests__/ssrf.test.ts` — the DeDi API client: literal-IP and DNS-resolved private-IP refusal, the 30 s DNS cache, connection pinning to the full resolved set, a rebinding case where the resolver flips to `169.254.169.254`, and refusal to follow redirects
 
 These tests are critical — adding a new IP range or a new resolver should always come with an additional test.
 

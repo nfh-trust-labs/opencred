@@ -9,8 +9,27 @@ vi.mock("node:dns", () => ({
   },
 }));
 
+// `doFetch` issues its request through `fetchWithPinnedIp` so the addresses
+// validated by `assertHostIsPublic` are the ONLY addresses the socket may
+// connect to. Route it back through `globalThis.fetch` so the existing stubs
+// still observe `(url, init)`; the pinned address set is asserted through the
+// mock's own call record.
+vi.mock("@opencred/shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@opencred/shared")>();
+  return {
+    ...actual,
+    fetchWithPinnedIp: vi.fn(
+      async (
+        url: string | URL,
+        _addresses: readonly string[],
+        options?: Record<string, unknown>,
+      ): Promise<Response> => globalThis.fetch(url as string, options as RequestInit),
+    ),
+  };
+});
+
 import { promises as dns } from "node:dns";
-import { DeDiClientError } from "@opencred/shared";
+import { DeDiClientError, fetchWithPinnedIp } from "@opencred/shared";
 import { DeDiApiClient } from "../api/api-client.js";
 import type { DeDiApiClientConfig } from "../api/api-client.js";
 
@@ -224,13 +243,104 @@ describe("DeDiApiClient SSRF and HTTPS protection", () => {
     });
   });
 
-  describe("fetch hardening", () => {
-    it("passes redirect: error to fetch", async () => {
-      mockFetch.mockResolvedValue(publicResponse());
+  // ── DNS-rebinding (TOCTOU) protection ────────────────────────────
+  //
+  // `assertHostIsPublic` validating DNS and then calling `globalThis.fetch`
+  // was only advisory: fetch performs its OWN lookup, so an attacker-run
+  // resolver could answer the validation query with a public IP and the
+  // connect-time query with 169.254.169.254. The request is now pinned to the
+  // addresses that were validated.
+  describe("DNS-rebinding protection (connection pinning)", () => {
+    it("pins the request to the validated addresses", async () => {
+      vi.mocked(dns.resolve4).mockResolvedValue(["93.184.216.34"]);
+      mockFetch.mockImplementation(async () => publicResponse());
+
       const client = new DeDiApiClient(baseConfig());
       await client.getStats();
-      const [, init] = mockFetch.mock.calls[0]!;
-      expect(init?.redirect).toBe("error");
+
+      expect(vi.mocked(fetchWithPinnedIp)).toHaveBeenCalledTimes(1);
+      const [url, addresses] = vi.mocked(fetchWithPinnedIp).mock.calls[0]!;
+      // The hostname stays in the URL so TLS SNI + certificate validation run
+      // against it — never an IP-in-URL + Host-header "pin".
+      expect(String(url)).toBe("https://dedi.example.com/dedi/stats");
+      expect(addresses).toEqual(["93.184.216.34"]);
+    });
+
+    it("pins the FULL resolved set so multi-A / dual-stack hosts keep failover", async () => {
+      vi.mocked(dns.resolve4).mockResolvedValue(["93.184.216.34", "93.184.216.35"]);
+      vi.mocked(dns.resolve6).mockResolvedValue(["2606:2800:220:1:248:1893:25c8:1946"]);
+      mockFetch.mockImplementation(async () => publicResponse());
+
+      const client = new DeDiApiClient(baseConfig());
+      await client.getStats();
+
+      const [, addresses] = vi.mocked(fetchWithPinnedIp).mock.calls[0]!;
+      expect(addresses).toEqual([
+        "93.184.216.34",
+        "93.184.216.35",
+        "2606:2800:220:1:248:1893:25c8:1946",
+      ]);
+    });
+
+    it("a resolver that rebinds to cloud metadata cannot poison the connection", async () => {
+      // First answer public (passes validation), every later answer is the
+      // metadata address. Because the connection is pinned and the addresses
+      // are cached, the rebound answer is never used.
+      vi.mocked(dns.resolve4)
+        .mockResolvedValueOnce(["93.184.216.34"])
+        .mockResolvedValue(["169.254.169.254"]);
+      vi.mocked(dns.resolve6).mockResolvedValue([]);
+      mockFetch.mockImplementation(async () => publicResponse());
+
+      const client = new DeDiApiClient(baseConfig());
+      await client.getStats();
+      await client.getStats();
+
+      expect(vi.mocked(dns.resolve4)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(fetchWithPinnedIp)).toHaveBeenCalledTimes(2);
+      for (const [, addresses] of vi.mocked(fetchWithPinnedIp).mock.calls) {
+        expect(addresses).toEqual(["93.184.216.34"]);
+        expect(addresses).not.toContain("169.254.169.254");
+      }
+    });
+
+    it("never reaches the pinned fetch when the host resolves to a private IP", async () => {
+      vi.mocked(dns.resolve4).mockResolvedValue(["169.254.169.254"]);
+      const client = new DeDiApiClient(baseConfig());
+
+      const err = await client.getStats().catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(DeDiClientError);
+      expect((err as DeDiClientError).message).toMatch(/private, loopback/);
+      expect(vi.mocked(fetchWithPinnedIp)).not.toHaveBeenCalled();
+    });
+
+    it("pins a literal public IP host to itself", async () => {
+      mockFetch.mockImplementation(async () => publicResponse());
+      const client = new DeDiApiClient(baseConfig({ baseUrl: "https://93.184.216.34" }));
+
+      await client.getStats();
+
+      const [, addresses] = vi.mocked(fetchWithPinnedIp).mock.calls[0]!;
+      expect(addresses).toEqual(["93.184.216.34"]);
+      // No DNS lookup for a literal IP.
+      expect(vi.mocked(dns.resolve4)).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("fetch hardening", () => {
+    it("refuses to follow redirects (surfaced as a 502 network error)", async () => {
+      // `https.request` never follows redirects, so a 3xx comes back as a
+      // response rather than a thrown fetch error. `doFetch` converts it to
+      // the same 502 network error the old `redirect: "error"` produced.
+      mockFetch.mockResolvedValue(new Response(null, { status: 302 }));
+      const client = new DeDiApiClient(baseConfig());
+
+      const err = await client.getStats().catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(DeDiClientError);
+      expect((err as DeDiClientError).statusCode).toBe(502);
+      expect((err as DeDiClientError).message).toMatch(/redirect/i);
     });
 
     it("caps the effective timeout at 10 seconds even when configured higher", async () => {
@@ -271,6 +381,37 @@ describe("DeDiApiClient SSRF and HTTPS protection", () => {
         await vi.advanceTimersByTimeAsync(100);
         const err = await promise;
         expect(err).toBeInstanceOf(DeDiClientError);
+        expect((err as DeDiClientError).message).toMatch(/timed out after 50ms/);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    // `fetch` rejects an abort with a DOMException; `https.request` rejects
+    // with Node's own AbortError (a plain Error carrying `code: ABORT_ERR`).
+    // Verified empirically against Node 26. A DOMException-only check would
+    // silently downgrade every DeDi timeout from 504 to a 502 network error.
+    it("maps Node's non-DOMException AbortError to a 504 timeout", async () => {
+      vi.useFakeTimers();
+      try {
+        mockFetch.mockImplementation(
+          (_url: string | URL | Request, init?: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () => {
+                const abortError = Object.assign(new Error("This operation was aborted"), {
+                  name: "AbortError",
+                  code: "ABORT_ERR",
+                });
+                reject(abortError);
+              });
+            }),
+        );
+        const client = new DeDiApiClient(baseConfig({ timeoutMs: 50 }));
+        const promise = client.getStats().catch((e: unknown) => e);
+        await vi.advanceTimersByTimeAsync(100);
+        const err = await promise;
+        expect(err).toBeInstanceOf(DeDiClientError);
+        expect((err as DeDiClientError).statusCode).toBe(504);
         expect((err as DeDiClientError).message).toMatch(/timed out after 50ms/);
       } finally {
         vi.useRealTimers();

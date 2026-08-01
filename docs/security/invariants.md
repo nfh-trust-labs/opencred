@@ -111,6 +111,8 @@ Adding a new context means adding it to the bundled set. There is no way to "jus
 6. **Document ID match** — the resolved document's `id` field MUST equal the requested DID. If not, resolution fails.
 7. **Fallback resolvers don't get a free pass** — if a DeDi fallback resolver is configured, it is **not** tried when the primary fetch fails with an SSRF error. SSRF errors are security boundaries, not transient network issues.
 
+**Everywhere else the same pattern applies.** `did:web` is the canonical case, but every outbound fetch of a semi-trusted URL uses the same validate-then-pin sequence: the status-list fetch (`packages/verification/src/checks.ts`), the schema-update fetch (`packages/schema-engine/src/schema-updater.ts`), the desktop `SCHEMA_FETCH_URL` IPC handler (`apps/desktop/src/main/ipc-handlers.ts`), batch webhook delivery to the operator-supplied `webhookUrl` (`apps/server/src/batch/webhook.ts`), and every DeDi API request (`packages/dedi-client/src/api/api-client.ts`). The DeDi token/registration calls in `packages/dedi-client/src/api/auth.ts` are the one remaining gap.
+
 The `isPrivateIP` helper covers:
 
 | Range | Type |

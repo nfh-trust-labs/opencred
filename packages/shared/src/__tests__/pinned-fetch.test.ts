@@ -26,6 +26,7 @@ import type { LookupFunction } from "node:net";
 interface CapturedRequest {
   url: URL;
   options: Record<string, unknown>;
+  body?: Buffer;
 }
 
 const captured: CapturedRequest[] = [];
@@ -50,10 +51,12 @@ vi.mock("node:https", () => ({
       url: URL,
       options: Record<string, unknown>,
       callback: (res: unknown) => void,
-    ): EventEmitter & { end: () => void } => {
-      captured.push({ url, options });
-      const req = new EventEmitter() as EventEmitter & { end: () => void };
-      req.end = () => {
+    ): EventEmitter & { end: (chunk?: Buffer) => void } => {
+      const entry: CapturedRequest = { url, options };
+      captured.push(entry);
+      const req = new EventEmitter() as EventEmitter & { end: (chunk?: Buffer) => void };
+      req.end = (chunk?: Buffer) => {
+        if (chunk !== undefined) entry.body = chunk;
         if (nextResponse.error) {
           queueMicrotask(() => req.emit("error", nextResponse.error));
           return;
@@ -186,6 +189,74 @@ describe("fetchWithPinnedIp", () => {
 
     expect(response.status).toBe(204);
     expect(response.body).toBeNull();
+  });
+
+  it("defaults to GET with no body", async () => {
+    await fetchWithPinnedIp("https://example.com/", ["93.184.216.34"]);
+
+    expect(captured[0].options["method"]).toBe("GET");
+    expect(captured[0].body).toBeUndefined();
+    // No body ⇒ no Content-Length is invented.
+    expect(captured[0].options["headers"]).toBeUndefined();
+  });
+
+  it("sends a POST body with an accurate Content-Length", async () => {
+    const body = JSON.stringify({ jobId: "job-1", status: "completed" });
+
+    await fetchWithPinnedIp("https://hooks.example.com/webhook", ["93.184.216.34"], {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-OpenCred-Event": "batch.completed" },
+      body,
+    });
+
+    expect(captured[0].options["method"]).toBe("POST");
+    expect(captured[0].body?.toString("utf8")).toBe(body);
+    const headers = captured[0].options["headers"] as Record<string, string>;
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(headers["X-OpenCred-Event"]).toBe("batch.completed");
+    expect(headers["Content-Length"]).toBe(String(Buffer.byteLength(body)));
+  });
+
+  it("does not mutate the caller's headers object", async () => {
+    const headers = { "Content-Type": "application/json" };
+
+    await fetchWithPinnedIp("https://example.com/", ["93.184.216.34"], {
+      method: "POST",
+      headers,
+      body: "{}",
+    });
+
+    expect(headers).toEqual({ "Content-Type": "application/json" });
+  });
+
+  it("derives a multipart Content-Type (with boundary) for a FormData body", async () => {
+    const form = new FormData();
+    form.append("file", new Blob(["a,b\n1,2"], { type: "text/csv" }), "rows.csv");
+    form.append("namespace", "ns");
+
+    await fetchWithPinnedIp("https://dedi.example.com/dedi/bulk-upload", ["93.184.216.34"], {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      body: form,
+    });
+
+    const headers = captured[0].options["headers"] as Record<string, string>;
+    expect(headers["Content-Type"]).toMatch(/^multipart\/form-data; boundary=/);
+    expect(captured[0].body?.toString("utf8")).toContain("rows.csv");
+    expect(headers["Content-Length"]).toBe(String(captured[0].body?.byteLength));
+  });
+
+  it("lets an explicit Content-Type win over the derived one (case-insensitive)", async () => {
+    await fetchWithPinnedIp("https://example.com/", ["93.184.216.34"], {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+
+    const headers = captured[0].options["headers"] as Record<string, string>;
+    expect(headers["content-type"]).toBe("application/json");
+    // No duplicate header in the other casing.
+    expect(headers["Content-Type"]).toBeUndefined();
   });
 
   it("rejects when the request errors (e.g. TLS failure against a wrong pin)", async () => {
