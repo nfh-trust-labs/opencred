@@ -105,7 +105,9 @@ The Docker server has its own end-to-end pattern: spin up the container with a t
 The `did:web` SSRF protection has dedicated tests:
 
 * `packages/shared/src/__tests__/ssrf.test.ts` — covers IPv4 ranges, IPv6 ranges, IPv4-mapped IPv6 (dotted and hex forms), edge cases like `0.0.0.0` and `::1`
-* `packages/did/src/__tests__/did-web.test.ts` — covers the resolver behaviour: HTTPS-only, no redirects, timeout, document ID match
+* `packages/shared/src/__tests__/pinned-fetch.test.ts` — covers `fetchWithPinnedIp`, the DNS-rebinding-safe transport: the socket-level `lookup` override returns only the pinned addresses, the URL keeps the hostname for TLS validation, and every request uses a fresh non-keep-alive agent so pooled sockets can't bypass the pin
+* `packages/did/src/__tests__/did-web.test.ts` — covers the resolver behaviour: HTTPS-only, no redirects, timeout, document ID match, plus a dedicated DNS-rebinding (TOCTOU) suite asserting the fetch is pinned to the validated addresses and DNS is consulted exactly once
+* `apps/desktop/src/__tests__/schema-fetch-ssrf.test.ts` — the `SCHEMA_FETCH_URL` IPC handler: multi-record validation, fail-closed DNS errors, pinned fetch, and the 1 MiB response-size cap
 
 These tests are critical — adding a new IP range or a new resolver should always come with an additional test.
 

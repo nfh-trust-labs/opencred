@@ -104,11 +104,12 @@ Adding a new context means adding it to the bundled set. There is no way to "jus
 `packages/did/src/did-web.ts` (`DIDWebResolver.resolveViaHttps`):
 
 1. **HTTPS only** — `didWebToUrl` always returns an `https://` URL. The spec requires it.
-2. **DNS resolution before fetch** — `dns.resolve4` and `dns.resolve6` are called via `Promise.allSettled`, and **all** returned addresses are passed to `isPrivateIP` (from `packages/shared/src/ssrf.ts`). If **any** address is private, the request is rejected with `"SSRF protection: DID document host resolves to a private IP"`.
-3. **No redirects** — `fetch` is called with `redirect: "error"`. A 302 to an internal address fails immediately.
-4. **10-second timeout** — `AbortController` with `setTimeout(controller.abort, 10_000)`.
-5. **Document ID match** — the resolved document's `id` field MUST equal the requested DID. If not, resolution fails.
-6. **Fallback resolvers don't get a free pass** — if a DeDi fallback resolver is configured, it is **not** tried when the primary fetch fails with an SSRF error. SSRF errors are security boundaries, not transient network issues.
+2. **DNS resolution before fetch** — `resolveDnsForSsrf` (from `packages/shared/src/ssrf.ts`) resolves both A and AAAA records and passes **all** returned addresses to `isPrivateIP`. If **any** address is private, the request is rejected with `"SSRF protection: DID document host resolves to a private IP"`. Non-benign DNS errors fail closed.
+3. **Connection pinned to the validated addresses (DNS-rebinding / TOCTOU prevention)** — the fetch goes through `fetchWithPinnedIp` (`packages/shared/src/pinned-fetch.ts`), which overrides the socket-level DNS `lookup` on a fresh non-keep-alive agent so the connection can only reach the addresses that passed step 2. DNS is never re-consulted between check and connect, so a rebinding DNS server has nothing to poison. The URL keeps the original hostname, so TLS SNI and certificate validation still run against the hostname. (Never "pin" by putting the IP in the URL with a `Host` header — that breaks TLS certificate validation with `ERR_TLS_CERT_ALTNAME_INVALID`.)
+4. **No redirects** — `fetchWithPinnedIp` never follows redirects (`https.request` has no redirect-following); a 3xx surfaces as an HTTP error. A 302 to an internal address is never chased.
+5. **10-second timeout** — `AbortController` with `setTimeout(controller.abort, 10_000)`.
+6. **Document ID match** — the resolved document's `id` field MUST equal the requested DID. If not, resolution fails.
+7. **Fallback resolvers don't get a free pass** — if a DeDi fallback resolver is configured, it is **not** tried when the primary fetch fails with an SSRF error. SSRF errors are security boundaries, not transient network issues.
 
 The `isPrivateIP` helper covers:
 

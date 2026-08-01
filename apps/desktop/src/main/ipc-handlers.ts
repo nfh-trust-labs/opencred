@@ -103,6 +103,7 @@ import {
   OpenCredError,
   sanitizeErrorMessage,
   resolveDnsForSsrf,
+  fetchWithPinnedIp,
   assertJwtSize,
   canonicalJsonSha256,
   detectCredentialInputFormat,
@@ -1936,6 +1937,13 @@ async function handleCredentialHistoryDelete(
 // Schema URL fetch handler
 // ---------------------------------------------------------------------------
 
+/**
+ * Maximum size for a fetched JSON Schema body. Real JSON Schemas are tens of
+ * kilobytes; anything past 1 MiB is a misconfiguration or an attempt to OOM
+ * the main process.
+ */
+const MAX_SCHEMA_FETCH_BYTES = 1024 * 1024;
+
 /** SCHEMA_FETCH_URL — fetch a JSON Schema from a remote URL. */
 async function handleSchemaFetchUrl(
   _event: IpcMainInvokeEvent,
@@ -1952,8 +1960,9 @@ async function handleSchemaFetchUrl(
     // address which can leave other records unchecked — `resolveDnsForSsrf`
     // validates every resolved IP and fails closed on DNS errors.
     const { hostname } = new URL(url);
+    let pinnedAddresses: string[];
     try {
-      await resolveDnsForSsrf(hostname);
+      pinnedAddresses = await resolveDnsForSsrf(hostname);
     } catch (err) {
       logger.warn("Schema fetch SSRF check failed", {
         hostname,
@@ -1965,22 +1974,44 @@ async function handleSchemaFetchUrl(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15_000);
 
+    // The connection is pinned to the addresses validated above — a plain
+    // `fetch(url)` would re-resolve the hostname, letting a rebinding DNS
+    // server swap in a private IP between the check and the fetch (TOCTOU).
     let response: Response;
+    let bodyText: string;
     try {
-      response = await fetch(url, {
+      response = await fetchWithPinnedIp(url, pinnedAddresses, {
         signal: controller.signal,
         headers: { Accept: "application/json" },
-        redirect: "error",
       });
+
+      if (!response.ok) {
+        return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+      }
+
+      bodyText = await readBodyWithSizeLimit(response, MAX_SCHEMA_FETCH_BYTES, controller.signal);
+    } catch (err) {
+      if (err instanceof ContextSizeLimitError) {
+        logger.warn("Schema fetch exceeds size limit", {
+          url,
+          limitBytes: MAX_SCHEMA_FETCH_BYTES,
+        });
+        return {
+          success: false,
+          error: `Schema document exceeds ${MAX_SCHEMA_FETCH_BYTES}-byte size limit`,
+        };
+      }
+      throw err;
     } finally {
       clearTimeout(timeout);
     }
 
-    if (!response.ok) {
-      return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+    let body: unknown;
+    try {
+      body = JSON.parse(bodyText);
+    } catch {
+      return { success: false, error: "Response is not valid JSON" };
     }
-
-    const body: unknown = await response.json();
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
       return { success: false, error: "Response is not a JSON object" };
     }

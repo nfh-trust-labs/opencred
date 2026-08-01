@@ -7,8 +7,7 @@
  * Spec: https://w3c-ccg.github.io/did-method-web/
  */
 
-import { promises as dns } from "node:dns";
-import { DIDResolutionError, isPrivateIP } from "@opencred/shared";
+import { DIDResolutionError, fetchWithPinnedIp, resolveDnsForSsrf } from "@opencred/shared";
 import type { DIDDocument, DIDResolutionResult, JWK, VerificationMethod } from "./types.js";
 import type { DIDResolver } from "./resolver.js";
 
@@ -431,6 +430,7 @@ export type DIDWebFallbackResolver = (did: string) => Promise<DIDResolutionResul
  * - No redirects followed
  * - 10-second fetch timeout
  * - SSRF prevention via DNS resolution + private IP check
+ * - DNS-rebinding prevention: the connection is pinned to the validated IPs
  *
  * Optionally accepts a fallback resolver (e.g., DeDi) that is tried
  * when standard HTTP resolution fails.
@@ -484,36 +484,32 @@ export class DIDWebResolver implements DIDResolver {
     const parsedUrl = new URL(url);
     const hostname = parsedUrl.hostname;
 
-    // DNS resolution + SSRF check: resolve the hostname and verify
-    // all returned IPs (IPv4 + IPv6) are public before making the HTTP request.
-    const [v4Result, v6Result] = await Promise.allSettled([
-      dns.resolve4(hostname),
-      dns.resolve6(hostname),
-    ]);
-    const addresses = [
-      ...(v4Result.status === "fulfilled" ? v4Result.value : []),
-      ...(v6Result.status === "fulfilled" ? v6Result.value : []),
-    ];
-
-    if (addresses.length === 0) {
+    // DNS resolution + SSRF check: resolve the hostname and verify all
+    // returned IPs (IPv4 + IPv6) are public before making the HTTP request.
+    // The validated addresses are then PINNED for the connection below —
+    // plain `fetch(url)` would re-resolve the hostname independently, and a
+    // rebinding DNS server could swap in a private IP between the check and
+    // the fetch (TOCTOU).
+    let addresses: string[];
+    try {
+      addresses = await resolveDnsForSsrf(hostname);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("SSRF protection")) {
+        throw new DIDResolutionError("SSRF protection: DID document host resolves to a private IP");
+      }
       throw new DIDResolutionError(`Failed to resolve hostname: ${hostname}`);
     }
 
-    for (const ip of addresses) {
-      if (isPrivateIP(ip)) {
-        throw new DIDResolutionError("SSRF protection: DID document host resolves to a private IP");
-      }
-    }
-
-    // Fetch with timeout and no redirects
+    // Fetch with timeout, no redirects, and the connection pinned to the
+    // validated addresses (the URL keeps the hostname so TLS certificate
+    // validation still runs against it).
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await fetchWithPinnedIp(url, addresses, {
         signal: controller.signal,
-        redirect: "error",
         headers: {
           Accept: "application/did+ld+json, application/json",
         },
