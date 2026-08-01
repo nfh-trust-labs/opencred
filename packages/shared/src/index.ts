@@ -11,6 +11,8 @@ export * from "./errors.js";
 // genuinely needs the schema, import it from `@opencred/shared/dist/config.js`
 // or move it into its own subpath export.
 export { isPrivateIP, resolveDnsForSsrf } from "./ssrf.js";
+export { fetchWithPinnedIp } from "./pinned-fetch.js";
+export type { PinnedFetchOptions } from "./pinned-fetch.js";
 export { canonicalJsonSha256 } from "./hash.js";
 export { detectCredentialInputFormat, isPdfBytes } from "./credential-format.js";
 export type { CredentialInputFormat } from "./credential-format.js";

@@ -6,8 +6,24 @@ import type { JWK } from "@opencred/did";
 import { signCredential } from "@opencred/crypto";
 import type { UnsignedCredential } from "@opencred/vc-core";
 import { setActiveSigner } from "../../signing/key-manager.js";
+import { fetchWithPinnedIp } from "@opencred/shared";
 import { generateTestKey, createTestApp, verifyViaApp } from "./helpers.js";
 import type { TestKeyPair } from "./helpers.js";
+
+// The did:web resolver fetches through `fetchWithPinnedIp` (connection
+// pinned to the DNS-validated addresses — DNS-rebinding TOCTOU prevention),
+// never through plain `fetch(url)`. Delegate the pinned fetch to the global
+// fetch stub these tests already manage; without this mock the resolver
+// would open REAL sockets to the mocked-DNS addresses.
+vi.mock("@opencred/shared", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    fetchWithPinnedIp: vi.fn((url: string | URL, _addresses: readonly string[], opts?: unknown) =>
+      globalThis.fetch(url, opts as RequestInit | undefined),
+    ),
+  };
+});
 
 let app: Hono;
 let testKey: TestKeyPair;
@@ -27,7 +43,11 @@ beforeEach(() => {
   setActiveSigner(testKey.signer);
 
   vi.spyOn(dns.promises, "resolve4").mockResolvedValue([PUBLIC_IP]);
-  vi.spyOn(dns.promises, "resolve6").mockRejectedValue(new Error("no AAAA records"));
+  // The rejection must carry a benign DNS code (ENODATA = "no records of
+  // this type") — resolveDnsForSsrf fails closed on any other DNS error.
+  vi.spyOn(dns.promises, "resolve6").mockRejectedValue(
+    Object.assign(new Error("no AAAA records"), { code: "ENODATA" }),
+  );
   globalThis.fetch = vi.fn();
 });
 
@@ -99,9 +119,12 @@ describe("did:web verification — valid resolution", () => {
     expect(result.code).toBe("VALID");
 
     expect(getDnsResolve4Mock()).toHaveBeenCalledWith("example.com");
-    expect(getFetchMock()).toHaveBeenCalledWith(
+    // The connection is pinned to the DNS-validated address; the URL keeps
+    // the hostname for TLS certificate validation.
+    expect(vi.mocked(fetchWithPinnedIp)).toHaveBeenCalledWith(
       "https://example.com/.well-known/did.json",
-      expect.objectContaining({ redirect: "error" }),
+      [PUBLIC_IP],
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 });
