@@ -249,8 +249,8 @@ VM$ docker images opencred:bootcamp        # should show one row
 > **Building from source instead?** Optional — only do this if you want to inspect or patch the server before issuing:
 >
 > ```
-> VM$ git clone https://github.com/nfh-trust-labs/opencred-releases.git
-> VM$ cd opencred-releases
+> VM$ git clone https://github.com/nfh-trust-labs/opencred.git
+> VM$ cd opencred
 > VM$ docker build -f apps/server/Dockerfile -t opencred:bootcamp .
 > ```
 >

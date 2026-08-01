@@ -75,8 +75,8 @@ If you want to inspect the Dockerfile, modify the schema engine, or work
 offline, build it yourself instead of pulling:
 
 ```bash
-git clone https://github.com/nfh-trust-labs/opencred-releases.git
-cd opencred-releases
+git clone https://github.com/nfh-trust-labs/opencred.git
+cd opencred
 
 # Build from the repo root — the Dockerfile path is relative.
 docker build -f apps/server/Dockerfile -t opencred:bootcamp .

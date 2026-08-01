@@ -6,7 +6,7 @@ name: Docker
 # Builds, scans, and pushes the apps/server Docker image.
 #
 # - PRs: build + Trivy vulnerability scan (validates Dockerfile compiles)
-# - Push to opencred-dev or main: build + scan
+# - Push to the integration branch or main: build + scan
 # - v* tags: build + scan + push to GHCR + smoke test
 # ==============================================================================
 
@@ -26,19 +26,19 @@ on:
       - ".github/workflows/docker.yml"
   push:
     branches: [opencred-dev, main, new-opencred-dev]
-    tags: ['v*']
+    tags: ["v*"]
     # Note: no paths filter on push — tags don't carry a changed-files diff,
     # so paths would prevent tag pushes from triggering. PRs still use paths.
   workflow_call:
     inputs:
       tag:
-        description: 'Tag to build and publish (e.g. v1.0.0). Must already exist.'
+        description: "Tag to build and publish (e.g. v1.0.0). Must already exist."
         required: false
         type: string
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build and publish (e.g. v1.0.0). Must already exist.'
+        description: "Tag to build and publish (e.g. v1.0.0). Must already exist."
         required: false
         type: string
 
@@ -130,7 +130,7 @@ jobs:
         with:
           # When called via workflow_call/dispatch with a `tag` input, build
           # at that tag rather than the caller's SHA (release-please runs on
-          # opencred-dev but creates a v* tag we want to build from).
+          # the integration branch but creates a v* tag we want to build from).
           ref: ${{ inputs.tag || github.ref }}
 
       # Required for cross-arch builds — emulates arm64 on the amd64 runner.

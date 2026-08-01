@@ -130,7 +130,7 @@ See the [Security documentation](docs/security/README.md) for the full threat mo
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the
-branch model (PRs target `opencred-dev`), commit conventions, and the DCO
+branch model (PRs target `new-opencred-dev`), commit conventions, and the DCO
 sign-off requirement. Security issues should be reported privately per
 [SECURITY.md](SECURITY.md).
 
@@ -140,8 +140,7 @@ sign-off requirement. Security issues should be reported privately per
 JSON-LD contexts, schemas) is attributed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-> **A note on the repo name:** this repository (`opencred-releases`) began as
-> the public release mirror for OpenCred and became the canonical source
-> repository when the project was open-sourced — the name was kept so that
-> auto-update feeds baked into already-installed desktop apps keep working.
-> Source code, issues, and releases all live here.
+> **Where things live:** this repository holds the source, issues, and
+> development. Release binaries are also published to
+> [`opencred-releases`](https://github.com/nfh-trust-labs/opencred-releases/releases),
+> which is the download page and the desktop auto-updater feed.

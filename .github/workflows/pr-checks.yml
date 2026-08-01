@@ -1,8 +1,8 @@
 name: PR Checks
 
 # Repo-policy checks that run on every PR:
-#  - branch-target guard: feature PRs must target opencred-dev, not main
-#    (main only accepts the opencred-dev promotion PR and release-please PRs)
+#  - branch-target guard: feature PRs must target the integration branch,
+#    not main (main only accepts the promotion PR and release-please PRs)
 #  - DCO: every commit must carry a Signed-off-by line (git commit -s)
 
 on:
@@ -26,7 +26,7 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_REPO: ${{ github.repository }}
         run: |
-          # Allowed onto main: the opencred-dev promotion PR and
+          # Allowed onto main: the integration-branch promotion PR and
           # release-please's own release PRs — both from branches in THIS
           # repo (never from a fork).
           # new-opencred-dev: pre-import name of the integration branch,
@@ -39,9 +39,9 @@ jobs:
                 ;;
             esac
           fi
-          echo "::error::PRs must target the 'opencred-dev' branch, not 'main'."
-          echo "::error::'main' only accepts the opencred-dev promotion PR and release-please PRs."
-          echo "::error::Please edit this PR's base branch to 'opencred-dev' (Edit button next to the PR title)."
+          echo "::error::PRs must target the 'new-opencred-dev' branch, not 'main'."
+          echo "::error::'main' only accepts the integration-branch promotion PR and release-please PRs."
+          echo "::error::Please edit this PR's base branch to 'new-opencred-dev' (Edit button next to the PR title)."
           exit 1
 
   dco:

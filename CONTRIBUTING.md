@@ -18,10 +18,10 @@ welcomes issues, docs improvements, and code contributions.
 | Branch | Purpose | Target your PR here? |
 |---|---|---|
 | `main` | Stable. Tracks the latest release; releases are tagged from it. | **No** (a CI check will redirect you) |
-| `opencred-dev` | Development. All feature/fix work integrates here. | **Yes** |
+| `new-opencred-dev` | Development. All feature/fix work integrates here. | **Yes** |
 
-Flow: feature branch → PR into `opencred-dev` (squash-merged) → periodically
-`opencred-dev` is promoted to `main` via a merge-commit PR, which triggers
+Flow: feature branch → PR into `new-opencred-dev` (squash-merged) → periodically
+the integration branch is promoted to `main` via a merge-commit PR, which triggers
 release automation (release-please) and a tagged release.
 
 Branch naming: `feat/<issue>-<short-description>`, `fix/<issue>-<short-description>`,
@@ -42,8 +42,8 @@ or `docs/<short-description>`.
 ## Development setup
 
 ```sh
-git clone https://github.com/nfh-trust-labs/opencred-releases.git
-cd opencred-releases
+git clone https://github.com/nfh-trust-labs/opencred.git
+cd opencred
 CI=true pnpm install
 pnpm build          # must exit 0 — schema-engine aborts on network failure
 pnpm test
@@ -57,7 +57,7 @@ developer guide (package layout, running the desktop app, e2e tests).
 
 1. Open or find an issue describing the change; discuss approach first for
    anything non-trivial.
-2. Branch from `opencred-dev`, keep the PR scoped to one concern.
+2. Branch from `new-opencred-dev`, keep the PR scoped to one concern.
 3. Add tests for new functionality (vitest, colocated in `src/__tests__/`).
 4. Update **all** documentation that references what you changed — API
    references, deployment guides, concepts docs, package READMEs. A change is

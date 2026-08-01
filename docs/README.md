@@ -6,7 +6,7 @@ OpenCred is published by [NFH Trust Labs](https://github.com/nfh-trust-labs).
 
 > **🧪 Beta release.** OpenCred is in early-access beta. Functionality is feature-complete and the protocols are stable, but desktop installer polish is still in progress — on first launch macOS shows a one-time approval prompt (see the [installation guide](desktop/installation.md#macos-first-launch)). Windows installers will follow.
 >
-> **Support:** for bug reports, feature requests, or questions, [open an issue](https://github.com/nfh-trust-labs/opencred-releases/issues).
+> **Support:** for bug reports, feature requests, or questions, [open an issue](https://github.com/nfh-trust-labs/opencred/issues).
 
 ## Get OpenCred
 
@@ -15,7 +15,7 @@ OpenCred is published by [NFH Trust Labs](https://github.com/nfh-trust-labs).
 | **Desktop** (macOS / Linux) | <https://github.com/nfh-trust-labs/opencred-releases/releases> | Download the `.dmg` / `.AppImage` / `.deb` for your platform |
 | **Docker server** | `ghcr.io/nfh-trust-labs/opencred/opencred-server:latest` | `docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest` |
 
-Both are public — no authentication required. The source code is open source (MIT) in the same repository.
+Both are public — no authentication required. The source code is open source (MIT) at <https://github.com/nfh-trust-labs/opencred>; release binaries are mirrored to the [opencred-releases](https://github.com/nfh-trust-labs/opencred-releases/releases) download repo.
 
 ## Start Here
 
@@ -129,6 +129,6 @@ For end users:
 
 * **Download a release**: <https://github.com/nfh-trust-labs/opencred-releases/releases>
 * **Pull the Docker image**: `docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest`
-* **Bug reports / feature requests**: <https://github.com/nfh-trust-labs/opencred-releases/issues>
+* **Bug reports / feature requests**: <https://github.com/nfh-trust-labs/opencred/issues>
 
 For contributors: product requirements live in [`docs/PRD.md`](PRD.md), and the contribution workflow (branch model, commit conventions, DCO) in [`CONTRIBUTING.md`](../CONTRIBUTING.md).

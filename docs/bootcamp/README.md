@@ -47,4 +47,4 @@ The DeDi sections (§3a and the §7 stretch sections in both tracks) require an 
 
 ## Support
 
-For bug reports, feature requests, or questions while working through the bootcamp, [open an issue](https://github.com/nfh-trust-labs/opencred-releases/issues).
+For bug reports, feature requests, or questions while working through the bootcamp, [open an issue](https://github.com/nfh-trust-labs/opencred/issues).

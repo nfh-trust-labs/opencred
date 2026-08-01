@@ -10,27 +10,33 @@
 ## Repository
 
 This is the canonical open-source repository for OpenCred
-(github.com/nfh-trust-labs/opencred-releases, MIT license). The repo name is
-historical — it began as the public release mirror, and the name was kept so
-auto-update feeds in already-installed desktop apps keep working. Source,
-issues, and releases all live here.
+(github.com/nfh-trust-labs/opencred, MIT license). Source, issues, and
+development all live here.
+
+Release artefacts are additionally mirrored to the public
+`nfh-trust-labs/opencred-releases` repo (see the `mirror-to-public` job in
+`desktop-release.yml`). That mirror is the download page and — critically —
+the feed that every installed desktop app polls for updates, because the
+feed URL is baked into shipped builds via electron-builder's `publish`
+config. Never remove the mirror step without a migration plan.
 
 ## Branch Model
 
 - **`main`** — default branch, stable. Tracks the latest release; releases
   are tagged from it. Never push or commit to `main` directly.
-- **`opencred-dev`** — development/integration branch. All feature branches
-  are created from `opencred-dev` and all PRs target `opencred-dev`.
+- **`new-opencred-dev`** — development/integration branch. All feature
+  branches are created from it and all PRs target it. (A rename to
+  `opencred-dev` is planned; workflows already accept both names.)
 
 Flow:
-1. Feature branch from `opencred-dev`: `feat/<issue>-<desc>` or `fix/<issue>-<desc>`.
-2. PR into `opencred-dev`, **squash-merged** with a conventional-commit title.
-3. Releasing = a **promotion PR** `opencred-dev` → `main`, merged with a
+1. Feature branch from `new-opencred-dev`: `feat/<issue>-<desc>` or `fix/<issue>-<desc>`.
+2. PR into `new-opencred-dev`, **squash-merged** with a conventional-commit title.
+3. Releasing = a **promotion PR** integration-branch → `main`, merged with a
    **merge commit** (NEVER squashed — release-please reads the individual
    commits on `main` to compute the version and changelog).
 4. release-please (running on `main`) opens the release PR; merging it tags
    `vX.Y.Z` and triggers the desktop + docker release pipelines.
-5. After a release, `main` is **back-merged into `opencred-dev`** so the
+5. After a release, `main` is **back-merged into the integration branch** so the
    version-bump/changelog commits reach dev (otherwise the next promotion
    conflicts).
 
@@ -110,12 +116,12 @@ If something conflicts, the PRD wins for product questions; the code +
 1. Read the issue fully before starting: `gh issue view <number>`.
 2. Claim it: `gh issue edit <number> --add-assignee @me`. If it already has
    an assignee, pick another.
-3. Feature branch from `opencred-dev` (naming above).
+3. Feature branch from `new-opencred-dev` (naming above).
 4. Stay scoped to the issue; new work discovered → new issue, not scope creep.
 5. Write tests for all new functionality.
 6. Open a PR referencing the issue (`Closes #<number>`). Note: auto-close
    only fires when the PR lands on the default branch — since PRs target
-   `opencred-dev`, close the issue manually after merge and post a
+   the integration branch, close the issue manually after merge and post a
    completion comment (what was implemented, deviations, follow-ups).
 
 ### Commits
@@ -161,7 +167,7 @@ describes it.
 1. Code implements what the issue describes — no more, no less.
 2. Tests exist and pass.
 3. No lint/type errors.
-4. PR reviewed and merged to `opencred-dev`.
+4. PR reviewed and merged to `new-opencred-dev`.
 5. Issue closed manually with a completion comment.
 6. No regressions — existing tests still pass.
 7. Documentation thoroughly updated (repo-wide grep sweep).

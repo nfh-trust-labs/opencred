@@ -8,7 +8,7 @@ and appreciate responsible disclosure.
 **Do not open a public issue for security vulnerabilities.**
 
 Preferred: use GitHub's private vulnerability reporting —
-[Security → Report a vulnerability](https://github.com/nfh-trust-labs/opencred-releases/security/advisories/new)
+[Security → Report a vulnerability](https://github.com/nfh-trust-labs/opencred/security/advisories/new)
 on this repository.
 
 Alternatively, email **dev@nfh-trust-labs.org** with subject line
