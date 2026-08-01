@@ -1,4 +1,4 @@
-<!-- PRs target the `opencred-dev` branch, not `main`. -->
+<!-- PRs target the `new-opencred-dev` branch, not `main`. -->
 
 ## Summary
 
@@ -14,7 +14,7 @@
 
 ## Checklist
 
-- [ ] PR targets `opencred-dev`
+- [ ] PR targets `new-opencred-dev`
 - [ ] Commits follow Conventional Commits and are signed off (`git commit -s`, DCO)
 - [ ] Tests added/updated and `pnpm test` passes
 - [ ] `pnpm lint` and `pnpm typecheck` pass

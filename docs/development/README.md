@@ -52,8 +52,8 @@ You also need:
 ## First-time setup
 
 ```bash
-git clone https://github.com/nfh-trust-labs/opencred-releases.git
-cd opencred-releases
+git clone https://github.com/nfh-trust-labs/opencred.git
+cd opencred
 
 # Install dependencies (frozen lockfile in CI; non-frozen locally is fine)
 pnpm install
@@ -83,7 +83,7 @@ cd packages/crypto && pnpm vitest
 
 ## Branching and PRs
 
-* **Permanent integration branch**: `opencred-dev`. All feature branches start here, and all PRs target it.
+* **Permanent integration branch**: `new-opencred-dev`. All feature branches start here, and all PRs target it.
 * **Branch naming**: `feat/<issue#>-<short-description>` for features, `fix/...` for bug fixes, `docs/...` for documentation, `spike/...` for spikes.
 * **Commits**: [Conventional Commits](https://www.conventionalcommits.org/) — `feat(package): description`, `fix(package): description`, etc.
 * **`main` is protected.** Never push to `main` directly. Never target a PR at `main`.
@@ -100,7 +100,7 @@ Per `CLAUDE.md`, an issue is only complete when **all** of the following are tru
 2. Tests exist and pass
 3. No lint or type errors
 4. PR is reviewed and approved (or self-reviewed)
-5. PR is merged to `opencred-dev`
+5. PR is merged to `new-opencred-dev`
 6. A completion comment is posted on the issue
 7. No regressions — existing tests still pass
 

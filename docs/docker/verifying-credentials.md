@@ -1,6 +1,6 @@
 # Verifying Credentials
 
-The Docker image's HTTP API and CLI both expose the same verification engine that powers the Desktop app. Use the HTTP API for service-to-service verification, the CLI for scripts and CI, and a library directly when embedding verification in another Node service — either the curated [`@opencred/verify`](https://github.com/nfh-trust-labs/opencred-releases/tree/main/sdk/verify) SDK (recommended for external verifiers) or the lower-level `@opencred/verification` package it's built on.
+The Docker image's HTTP API and CLI both expose the same verification engine that powers the Desktop app. Use the HTTP API for service-to-service verification, the CLI for scripts and CI, and a library directly when embedding verification in another Node service — either the curated [`@opencred/verify`](https://github.com/nfh-trust-labs/opencred/tree/main/packages/verify-sdk) SDK (recommended for external verifiers) or the lower-level `@opencred/verification` package it's built on.
 
 ## The three verification surfaces
 
@@ -8,7 +8,7 @@ The Docker image's HTTP API and CLI both expose the same verification engine tha
 |---|---|---|
 | HTTP API | Service-to-service verification, browser-side flows through a proxy | `POST /v1/credentials/verify` |
 | CLI | Scripts, CI checks, air-gapped batch verification | `opencred verify <input>` |
-| Library | Embedding verification into a TypeScript/Node service | `createVerifier()` from [`@opencred/verify`](https://github.com/nfh-trust-labs/opencred-releases/tree/main/sdk/verify) (or the lower-level `verifyCredential()` from `@opencred/verification`) |
+| Library | Embedding verification into a TypeScript/Node service | `createVerifier()` from [`@opencred/verify`](https://github.com/nfh-trust-labs/opencred/tree/main/packages/verify-sdk) (or the lower-level `verifyCredential()` from `@opencred/verification`) |
 
 All three return the same shape: a top-level `code`, a boolean `valid`, and a `checks` array breaking down which steps passed.
 
@@ -34,7 +34,7 @@ Exit code is `0` on `valid: true`, non-zero otherwise. Works fully offline for `
 
 ### Verifier path 2 — Library, embedded in your own service
 
-Add the curated **[`@opencred/verify`](https://github.com/nfh-trust-labs/opencred-releases/tree/main/sdk/verify)** SDK to your Node service and call it directly — no OpenCred container required at all:
+Add the curated **[`@opencred/verify`](https://github.com/nfh-trust-labs/opencred/tree/main/packages/verify-sdk)** SDK to your Node service and call it directly — no OpenCred container required at all:
 
 ```ts
 import { createVerifier } from "@opencred/verify";
@@ -60,7 +60,7 @@ const verify = createVerifier({
 });
 ```
 
-The SDK is a single bundled facade over `@opencred/verification`, `@opencred/did`, and `@opencred/dedi-client` — one dependency, dual ESM/CJS, no workspace setup. It is MIT-licensed and lives at [`packages/verify-sdk`](https://github.com/nfh-trust-labs/opencred-releases/tree/main/packages/verify-sdk) in this repository; today, install it from source (clone the repo, `pnpm install && pnpm build`, then `npm install <path>/packages/verify-sdk`). npm publication is on the roadmap.
+The SDK is a single bundled facade over `@opencred/verification`, `@opencred/did`, and `@opencred/dedi-client` — one dependency, dual ESM/CJS, no workspace setup. It is MIT-licensed and lives at [`packages/verify-sdk`](https://github.com/nfh-trust-labs/opencred/tree/main/packages/verify-sdk) in this repository; today, install it from source (clone the repo, `pnpm install && pnpm build`, then `npm install <path>/packages/verify-sdk`). npm publication is on the roadmap.
 
 > **Advanced — in-monorepo or fine-grained control:** if you need to wire DID resolvers, trust anchors, or the verification pipeline yourself (e.g. you're inside this monorepo or you want to swap in a custom DID method), drop down to the lower-level `@opencred/verification` library — see [Library](#library) below for the unwrapped API.
 

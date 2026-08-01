@@ -2,7 +2,7 @@
 
 The OpenCred Desktop Client is an Electron application for issuing and verifying W3C Verifiable Credentials. It is the primary OpenCred product: fully local, offline-capable, and signing always happens on the user's machine. The issuer's private key never leaves the device.
 
-> **🧪 Beta release.** OpenCred Desktop is in early-access beta. The signing, issuing, verifying, and packaging flows are feature-complete and stable. On first launch macOS shows a one-time security prompt — [Installation → macOS first launch](installation.md#macos-first-launch) walks through the approval step. **Support:** [open an issue](https://github.com/nfh-trust-labs/opencred-releases/issues).
+> **🧪 Beta release.** OpenCred Desktop is in early-access beta. The signing, issuing, verifying, and packaging flows are feature-complete and stable. On first launch macOS shows a one-time security prompt — [Installation → macOS first launch](installation.md#macos-first-launch) walks through the approval step. **Support:** [open an issue](https://github.com/nfh-trust-labs/opencred/issues).
 
 ## Pages in this section
 

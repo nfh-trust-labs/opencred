@@ -6,7 +6,7 @@ MIT-licensed SDK. Works fully offline for `did:key` / `did:jwk` credentials. Opt
 
 > **Status — v0.1.0, not yet npm-published.**
 > The SDK lives at `packages/verify-sdk/` in the
-> [OpenCred repository](https://github.com/nfh-trust-labs/opencred-releases).
+> [OpenCred repository](https://github.com/nfh-trust-labs/opencred).
 > To use it right now: see [Install from source](#install-from-source)
 > below. The maintainers will publish to npm under `@opencred/verify`
 > once the API has stabilized — at that point `npm install` will Just Work.
@@ -16,14 +16,14 @@ MIT-licensed SDK. Works fully offline for `did:key` / `did:jwk` credentials. Opt
 While the package is not yet on npm, build it from the repository:
 
 ```sh
-git clone https://github.com/nfh-trust-labs/opencred-releases.git
-cd opencred-releases
+git clone https://github.com/nfh-trust-labs/opencred.git
+cd opencred
 CI=true pnpm install && pnpm build
 
 # then, from your app:
 cd your-app
-npm install ../opencred-releases/packages/verify-sdk
-# (or: pnpm add ../opencred-releases/packages/verify-sdk)
+npm install ../opencred/packages/verify-sdk
+# (or: pnpm add ../opencred/packages/verify-sdk)
 ```
 
 Requires pnpm for the build step; the built package is self-contained (no dependency on other `@opencred/*` packages at runtime).
@@ -181,8 +181,8 @@ The set of checks depends on the credential's shape:
 
 ## Project
 
-Source: [github.com/nfh-trust-labs/opencred-releases](https://github.com/nfh-trust-labs/opencred-releases) under `packages/verify-sdk/`.
+Source: [github.com/nfh-trust-labs/opencred](https://github.com/nfh-trust-labs/opencred) under `packages/verify-sdk/`.
 
-Issues and questions: [opencred-releases/issues](https://github.com/nfh-trust-labs/opencred-releases/issues).
+Issues and questions: [opencred/issues](https://github.com/nfh-trust-labs/opencred/issues).
 
 This SDK is a bundled facade over the monorepo's `@opencred/verification`, `@opencred/did`, and `@opencred/dedi-client` packages — all in this repository. Nothing is fetched at install or runtime; the built `dist/` bundle is complete and self-contained.
