@@ -123,7 +123,7 @@ OpenCred enforces seven mandatory security invariants:
 4. **CSPRNG only.** All key generation uses `crypto.randomBytes`.
 5. **No secrets in error responses.** Error responses never leak key material, internal paths, or signing buffers.
 6. **JSON-LD contexts are bundled.** No remote context fetching at runtime.
-7. **SSRF protection for did:web.** Resolved IPs are validated as public, HTTPS only, no redirects, 10-second timeout.
+7. **SSRF protection for did:web.** Resolved IPs are validated as public and the connection is pinned to them (DNS-rebinding safe), HTTPS only, no redirects, 10-second timeout.
 
 See the [Security documentation](docs/security/README.md) for the full threat model and invariant enforcement details.
 

@@ -12,6 +12,7 @@ import {
 import type { DeDiClient } from "@opencred/dedi-client";
 import { DeDiClientError } from "@opencred/dedi-client";
 import type { DIDResolver } from "@opencred/did";
+import { fetchWithPinnedIp } from "@opencred/shared";
 import { gzipSync } from "node:zlib";
 
 vi.mock("node:dns/promises", () => ({
@@ -19,10 +20,20 @@ vi.mock("node:dns/promises", () => ({
   resolve6: vi.fn(),
 }));
 
+// The status-list fetch must go through `fetchWithPinnedIp` (connection
+// pinned to the DNS-validated IP) — a plain `fetch(url)` would re-resolve
+// the hostname and reopen the DNS-rebinding TOCTOU window. Everything else
+// in @opencred/shared stays real.
+vi.mock("@opencred/shared", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return { ...actual, fetchWithPinnedIp: vi.fn() };
+});
+
 import { resolve4, resolve6 } from "node:dns/promises";
 
 const mockResolve4 = vi.mocked(resolve4);
 const mockResolve6 = vi.mocked(resolve6);
+const mockPinnedFetch = vi.mocked(fetchWithPinnedIp);
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -327,17 +338,18 @@ describe("resolveAndValidateIp", () => {
 
 describe("checkBitstringStatusList — fetch timeout (P1-02)", () => {
   it("aborts the fetch after ~10s when the remote host stalls", async () => {
-    // Stub fetch so it observes the AbortSignal and rejects with AbortError
-    // as soon as the signal fires. We don't use real timers here — we just
-    // prove the signal is passed through.
-    const fetchSpy = vi.fn().mockImplementation((_url: string, opts: { signal: AbortSignal }) => {
-      return new Promise((_resolve, reject) => {
-        opts.signal.addEventListener("abort", () => {
-          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    // Stub the pinned fetch so it observes the AbortSignal and rejects with
+    // AbortError as soon as the signal fires. We don't use real timers here —
+    // we just prove the signal is passed through.
+    mockPinnedFetch.mockImplementation(
+      (_url: string | URL, _addresses: readonly string[], opts?: { signal?: AbortSignal }) => {
+        return new Promise((_resolve, reject) => {
+          opts?.signal?.addEventListener("abort", () => {
+            reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+          });
         });
-      });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
+      },
+    );
     vi.useFakeTimers();
 
     const resultPromise = checkBitstringStatusList({
@@ -352,13 +364,13 @@ describe("checkBitstringStatusList — fetch timeout (P1-02)", () => {
     const result = await resultPromise;
 
     expect(result.passed).toBe(false);
-    expect(fetchSpy).toHaveBeenCalledWith(
+    expect(mockPinnedFetch).toHaveBeenCalledWith(
       expect.any(String),
+      expect.any(Array),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
 
     vi.useRealTimers();
-    vi.unstubAllGlobals();
   });
 });
 
@@ -389,7 +401,7 @@ describe("checkBitstringStatusList", () => {
         },
       }),
     };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    mockPinnedFetch.mockResolvedValue(mockResponse as unknown as Response);
 
     const result = await checkBitstringStatusList({
       type: "BitstringStatusListEntry",
@@ -416,7 +428,7 @@ describe("checkBitstringStatusList", () => {
         },
       }),
     };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    mockPinnedFetch.mockResolvedValue(mockResponse as unknown as Response);
 
     const result = await checkBitstringStatusList({
       type: "BitstringStatusListEntry",
@@ -433,7 +445,7 @@ describe("checkBitstringStatusList", () => {
 
   it("should fail when status list fetch fails", async () => {
     const mockResponse = { ok: false, status: 500 };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    mockPinnedFetch.mockResolvedValue(mockResponse as unknown as Response);
 
     const result = await checkBitstringStatusList({
       type: "BitstringStatusListEntry",
@@ -471,7 +483,7 @@ describe("checkBitstringStatusList", () => {
         },
       }),
     };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    mockPinnedFetch.mockResolvedValue(mockResponse as unknown as Response);
 
     const result = await checkBitstringStatusList({
       type: "BitstringStatusListEntry",
@@ -626,34 +638,21 @@ describe("checkBitstringStatusList", () => {
     expect(result.detail).toContain("allowlist");
   });
 
-  it("should pass redirect: 'error' option to fetch", async () => {
-    const encodedList = createStatusListResponse([], 16);
-    const mockResponse = {
-      ok: true,
-      json: vi.fn().mockResolvedValue({
-        credentialSubject: {
-          type: "BitstringStatusList",
-          statusPurpose: "revocation",
-          encodedList,
-        },
-      }),
-    };
-    const fetchSpy = vi.fn().mockResolvedValue(mockResponse);
-    vi.stubGlobal("fetch", fetchSpy);
+  it("does not follow redirects — a 3xx surfaces as a failed check", async () => {
+    // fetchWithPinnedIp never follows redirects (https.request has no
+    // redirect-following); a redirect must not be chased to a host that was
+    // never SSRF-validated. A 3xx therefore surfaces as a non-ok response.
+    mockPinnedFetch.mockResolvedValue({ ok: false, status: 301 } as unknown as Response);
 
-    await checkBitstringStatusList({
+    const result = await checkBitstringStatusList({
       type: "BitstringStatusListEntry",
       statusPurpose: "revocation",
       statusListIndex: "0",
       statusListCredential: "https://example.com/status/1",
     });
 
-    expect(fetchSpy).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ redirect: "error" }),
-    );
-
-    vi.unstubAllGlobals();
+    expect(result.passed).toBe(false);
+    expect(result.detail).toContain("HTTP 301");
   });
 
   // --- #127: Size limit tests ---
@@ -673,7 +672,7 @@ describe("checkBitstringStatusList", () => {
         },
       }),
     };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    mockPinnedFetch.mockResolvedValue(mockResponse as unknown as Response);
 
     const result = await checkBitstringStatusList({
       type: "BitstringStatusListEntry",
@@ -693,8 +692,6 @@ describe("checkBitstringStatusList", () => {
   describe("DNS rebinding prevention", () => {
     it("should fail when DNS resolves to a private IP (rebinding attack)", async () => {
       mockResolve4.mockResolvedValue(["127.0.0.1"]);
-      const fetchSpy = vi.fn();
-      vi.stubGlobal("fetch", fetchSpy);
 
       const result = await checkBitstringStatusList({
         type: "BitstringStatusListEntry",
@@ -705,12 +702,10 @@ describe("checkBitstringStatusList", () => {
 
       expect(result.passed).toBe(false);
       expect(result.detail).toContain("DNS resolved to private/reserved IP");
-      expect(fetchSpy).not.toHaveBeenCalled();
-
-      vi.unstubAllGlobals();
+      expect(mockPinnedFetch).not.toHaveBeenCalled();
     });
 
-    it("should fetch with resolved IP in URL and Host header set to original hostname", async () => {
+    it("pins the validated IP for the connection while the URL keeps the hostname", async () => {
       mockResolve4.mockResolvedValue(["93.184.216.34"]);
       const encodedList = createStatusListResponse([], 16);
       const mockResponse = {
@@ -723,8 +718,7 @@ describe("checkBitstringStatusList", () => {
           },
         }),
       };
-      const fetchSpy = vi.fn().mockResolvedValue(mockResponse);
-      vi.stubGlobal("fetch", fetchSpy);
+      mockPinnedFetch.mockResolvedValue(mockResponse as unknown as Response);
 
       const result = await checkBitstringStatusList({
         type: "BitstringStatusListEntry",
@@ -734,22 +728,46 @@ describe("checkBitstringStatusList", () => {
       });
 
       expect(result.passed).toBe(true);
-      // Verify fetch was called with the resolved IP in the URL
-      const calledUrl = fetchSpy.mock.calls[0][0] as string;
-      expect(calledUrl).toContain("93.184.216.34");
-      expect(calledUrl).not.toContain("example.com");
-      // Verify Host header is set to original hostname
-      const calledOptions = fetchSpy.mock.calls[0][1] as { headers: Record<string, string> };
-      expect(calledOptions.headers["Host"]).toBe("example.com");
+      // The URL keeps the original hostname (TLS certificate validation runs
+      // against it) and the connection is pinned to the DNS-validated IP.
+      // (Putting the IP in the URL with a Host header — the previous
+      // approach — fails TLS validation with ERR_TLS_CERT_ALTNAME_INVALID.)
+      const [calledUrl, pinnedAddresses] = mockPinnedFetch.mock.calls[0];
+      expect(String(calledUrl)).toBe("https://example.com/status/1");
+      expect(pinnedAddresses).toEqual(["93.184.216.34"]);
+    });
 
-      vi.unstubAllGlobals();
+    it("connects directly to a validated literal-IP URL without DNS", async () => {
+      const encodedList = createStatusListResponse([], 16);
+      const mockResponse = {
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          credentialSubject: {
+            type: "BitstringStatusList",
+            statusPurpose: "revocation",
+            encodedList,
+          },
+        }),
+      };
+      mockPinnedFetch.mockResolvedValue(mockResponse as unknown as Response);
+
+      const result = await checkBitstringStatusList({
+        type: "BitstringStatusListEntry",
+        statusPurpose: "revocation",
+        statusListIndex: "0",
+        statusListCredential: "https://93.184.216.34/status/1",
+      });
+
+      expect(result.passed).toBe(true);
+      // Literal IP: no DNS involved, so nothing can rebind — the literal is
+      // its own pin.
+      expect(mockResolve4).not.toHaveBeenCalled();
+      expect(mockPinnedFetch.mock.calls[0][1]).toEqual(["93.184.216.34"]);
     });
 
     it("should fail when DNS resolution fails entirely", async () => {
       mockResolve4.mockRejectedValue(new Error("ENOTFOUND"));
       mockResolve6.mockRejectedValue(new Error("ENOTFOUND"));
-      const fetchSpy = vi.fn();
-      vi.stubGlobal("fetch", fetchSpy);
 
       const result = await checkBitstringStatusList({
         type: "BitstringStatusListEntry",
@@ -760,9 +778,7 @@ describe("checkBitstringStatusList", () => {
 
       expect(result.passed).toBe(false);
       expect(result.detail).toContain("DNS resolution failed");
-      expect(fetchSpy).not.toHaveBeenCalled();
-
-      vi.unstubAllGlobals();
+      expect(mockPinnedFetch).not.toHaveBeenCalled();
     });
   });
 
@@ -787,7 +803,7 @@ describe("checkBitstringStatusList", () => {
         },
       }),
     };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    mockPinnedFetch.mockResolvedValue(mockResponse as unknown as Response);
 
     const mockResolver = {
       resolve: vi.fn().mockResolvedValue({
@@ -823,7 +839,7 @@ describe("checkBitstringStatusList", () => {
         },
       }),
     };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    mockPinnedFetch.mockResolvedValue(mockResponse as unknown as Response);
 
     const result = await checkBitstringStatusList({
       type: "BitstringStatusListEntry",

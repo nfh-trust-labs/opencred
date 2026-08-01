@@ -89,8 +89,13 @@ must respect them.
    supply-chain attack vector.
 7. **did:web resolution requires SSRF protection.** When fetching DID
    documents for `did:web` verification, always validate that resolved IPs
-   are public (use `isPrivateIP` from `@opencred/shared`). HTTPS only, no
-   redirects, 10-second timeout.
+   are public (use `resolveDnsForSsrf` from `@opencred/shared`) AND pin the
+   connection to the validated addresses (use `fetchWithPinnedIp` from
+   `@opencred/shared`) — a plain `fetch(url)` after the DNS check
+   re-resolves the hostname and is vulnerable to DNS-rebinding TOCTOU.
+   Never "pin" by putting the IP in the URL with a `Host` header (breaks
+   TLS certificate validation). HTTPS only, no redirects, 10-second
+   timeout.
 
 ## Source of Truth
 
