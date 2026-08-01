@@ -75,17 +75,15 @@ If you want to inspect the Dockerfile, modify the schema engine, or work
 offline, build it yourself instead of pulling:
 
 ```bash
-git clone https://github.com/nfh-trust-labs/opencred.git
-cd opencred
-git checkout new-opencred-dev
+git clone https://github.com/nfh-trust-labs/opencred-releases.git
+cd opencred-releases
 
 # Build from the repo root — the Dockerfile path is relative.
 docker build -f apps/server/Dockerfile -t opencred:bootcamp .
 ```
 
-> The source repo is private. If `git clone` returns 404, pull the prebuilt
-> image instead — the bootcamp does not depend on you having read access to
-> the source.
+> Building from source is optional — pulling the prebuilt image is faster,
+> and the bootcamp does not depend on building locally.
 
 The build is multi-stage: it installs pnpm, builds every `@opencred/*` workspace
 package the server depends on, prunes dev deps, and copies the result into a
@@ -1204,7 +1202,7 @@ you outgrow the single-instance model.
 | `409 DEDI_RECORD_EXISTS` on `/v1/credentials/revoke` (response body has a `hint` field) | The hash you're publishing is already revoked in `vc-revocation-registry` from a prior run. The DeDi record uses the hash as `record_name`, so re-revoking the same VC is a duplicate-key collision. | This is "success on a prior run" — confirm with `POST /v1/credentials/revocation-status` (the response `hint` points there). For a fresh revoke demo, issue a NEW credential with `revocationRegistryUrl` set: every issue mints a fresh `urn:uuid:` → fresh hash → no collision. |
 | `409 DEDI_RECORD_EXISTS` on `/v1/keys/publish` (response body has a `hint` field) | This key was already published in a prior run — `opencred-key-registry` uses the slug of `DID#fragment` as `record_name`, so republishing the same key is a duplicate-key collision. | Skip the publish and call `POST /v1/keys/resolve` instead (the response `hint` points there) — the previous publish landed and the key record is available. To demo a fresh publish, use a unique `did:web:<your-domain>` you haven't published before. |
 | Container exits with `OPENCRED_DEDI_AUTH_TYPE is required when OPENCRED_DEDI_BASE_URL is set` (or similar) | Partial DeDi config | Either set the full DeDi quartet (URL + auth-type + namespace + auth secret) or unset `OPENCRED_DEDI_BASE_URL` entirely. Run `opencred config validate` to catch this before `docker run`. |
-| Startup log shows DeDi lookup URL with `%E2%80%9C` / `%E2%80%9D` wrapping your namespace (e.g. `/dedi/lookup/%E2%80%9Cverifaistudio.co%E2%80%9D` → `404 Namespace not found` → `401 Invalid API key`) | Your `OPENCRED_DEDI_NAMESPACE` (or API key) was pasted with **Unicode smart quotes** (`"…"` instead of ASCII `"…"`), usually from a chat app, docs page, or note-taking app that auto-corrects | Re-export with straight ASCII quotes — or no quotes at all if the value has no spaces: `export OPENCRED_DEDI_NAMESPACE=verifaistudio.co`. Verify before `docker run` with `printf '%s\n' "$OPENCRED_DEDI_NAMESPACE" \| od -c \| head -1` — anything other than plain ASCII bytes means a smart quote slipped in. |
+| Startup log shows DeDi lookup URL with `%E2%80%9C` / `%E2%80%9D` wrapping your namespace (e.g. `/dedi/lookup/%E2%80%9Cissuer.example%E2%80%9D` → `404 Namespace not found` → `401 Invalid API key`) | Your `OPENCRED_DEDI_NAMESPACE` (or API key) was pasted with **Unicode smart quotes** (`"…"` instead of ASCII `"…"`), usually from a chat app, docs page, or note-taking app that auto-corrects | Re-export with straight ASCII quotes — or no quotes at all if the value has no spaces: `export OPENCRED_DEDI_NAMESPACE=issuer.example`. Verify before `docker run` with `printf '%s\n' "$OPENCRED_DEDI_NAMESPACE" \| od -c \| head -1` — anything other than plain ASCII bytes means a smart quote slipped in. |
 | Build hangs at "fetching pnpm" | Conference Wi-Fi blocking npmjs.org | Use a phone hotspot, or distribute a pre-built image via `docker save`/`docker load` |
 | `port is already allocated` | Something is on 3100 already | Pick a different host port: `-p 3200:3100`, then point curl at `:3200`. The server still listens on 3100 inside the container. |
 

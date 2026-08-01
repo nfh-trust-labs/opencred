@@ -30,8 +30,7 @@ opencred/
     shared/              # Shared types, errors, config schema, SSRF helper
   docs/                  # This documentation
   CLAUDE.md              # Contributor protocol and the seven security invariants
-  OpenCred_PRD.md        # Product requirements (the source of truth)
-  implementation-plan.md # Phase plan derived from the PRD
+  docs/PRD.md            # Product requirements (the source of truth)
 ```
 
 See [Package layout](package-layout.md) for what each package exports and depends on.
@@ -52,11 +51,9 @@ You also need:
 
 ## First-time setup
 
-> **Source repo access:** OpenCred's source code is in a private NFH Trust Labs repository. The clone below requires read access — request it via the contact channels at <https://docs.opencred.global> if you need it.
-
 ```bash
-git clone https://github.com/nfh-trust-labs/opencred.git
-cd opencred
+git clone https://github.com/nfh-trust-labs/opencred-releases.git
+cd opencred-releases
 
 # Install dependencies (frozen lockfile in CI; non-frozen locally is fine)
 pnpm install
@@ -86,7 +83,7 @@ cd packages/crypto && pnpm vitest
 
 ## Branching and PRs
 
-* **Permanent integration branch**: `new-opencred-dev`. All feature branches start here, and all PRs target it.
+* **Permanent integration branch**: `opencred-dev`. All feature branches start here, and all PRs target it.
 * **Branch naming**: `feat/<issue#>-<short-description>` for features, `fix/...` for bug fixes, `docs/...` for documentation, `spike/...` for spikes.
 * **Commits**: [Conventional Commits](https://www.conventionalcommits.org/) — `feat(package): description`, `fix(package): description`, etc.
 * **`main` is protected.** Never push to `main` directly. Never target a PR at `main`.
@@ -103,7 +100,7 @@ Per `CLAUDE.md`, an issue is only complete when **all** of the following are tru
 2. Tests exist and pass
 3. No lint or type errors
 4. PR is reviewed and approved (or self-reviewed)
-5. PR is merged to `new-opencred-dev`
+5. PR is merged to `opencred-dev`
 6. A completion comment is posted on the issue
 7. No regressions — existing tests still pass
 
@@ -119,11 +116,11 @@ Before opening a PR:
 - [ ] No `Math.random()` in security-sensitive paths — see [Invariant 4](../security/invariants.md#4-csprng-only)
 - [ ] Logging changes don't introduce key material — see [Invariant 2](../security/invariants.md#2-never-log-key-material)
 - [ ] Error messages don't leak paths or buffers — see [Invariant 5](../security/invariants.md#5-no-secrets-in-error-responses)
-- [ ] PR body includes `Closes #<issue>` to auto-close the issue on merge
+- [ ] PR body references the issue (`Closes #<issue>`) — note the issue still needs a manual close + completion comment after merge, since PRs land on `opencred-dev`, not the default branch
 
 ## Related documentation
 
+* [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — contribution workflow
 * [`CLAUDE.md`](../../CLAUDE.md) — full contributor protocol
-* [`OpenCred_PRD.md`](../../OpenCred_PRD.md) — product requirements
-* [`implementation-plan.md`](../../implementation-plan.md) — phase plan
+* [`docs/PRD.md`](../PRD.md) — product requirements
 * [Security invariants](../security/invariants.md)

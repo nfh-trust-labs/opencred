@@ -1,8 +1,12 @@
 name: Release Please
 
+# NOTE (repo transition): this trigger is written for the merged-repo
+# branch model (releases cut from main). Until the public-repo import
+# completes, pushes to the legacy integration branch no longer trigger
+# release-please — releases are intentionally frozen until the import.
 on:
   push:
-    branches: [new-opencred-dev]
+    branches: [main]
 
 permissions:
   contents: write
@@ -21,7 +25,28 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-          target-branch: new-opencred-dev
+          target-branch: main
+
+  # After a release lands on main, merge the version-bump/changelog commits
+  # back into opencred-dev so the next promotion PR doesn't conflict on
+  # package.json / CHANGELOG.md.
+  back-merge:
+    name: Back-merge main into opencred-dev
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: opencred-dev
+          fetch-depth: 0
+      - name: Merge main into opencred-dev
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-edit origin/main
+          git push origin opencred-dev
 
   # Trigger desktop release builds when a release is created
   desktop-release:

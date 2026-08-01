@@ -30,3 +30,17 @@ apps/desktop/package.json.bak
 # and is NOT a submodule of this one. Ignored so accidental `git add` doesn't
 # re-create the orphan gitlink that broke CI (see #601).
 opencred-website/
+
+# Native addon build outputs (rebuilt per-platform; never committed)
+packages/signing/native/build/
+
+# Local-only working directories — demos, recordings, design scratch, and
+# locally downloaded release binaries. Not part of the distributed source tree.
+videos/
+demos/
+demo-fixtures/
+design-concepts/
+release-artifacts/
+
+# Internal open-sourcing working plan — not part of the distributed tree
+open-sourcing-plan.md
