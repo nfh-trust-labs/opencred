@@ -9,7 +9,25 @@ vi.mock("node:dns", () => ({
     resolve6: vi.fn().mockResolvedValue([]),
   },
 }));
-import { DeDiClientError } from "@opencred/shared";
+
+// `doFetch` now issues its request through `fetchWithPinnedIp` (DNS-rebinding
+// protection). Route the pinned fetch back through `globalThis.fetch` so these
+// tests keep observing the `(url, init)` pair they always did; the pinned
+// address set is asserted separately via the mock's own call record.
+vi.mock("@opencred/shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@opencred/shared")>();
+  return {
+    ...actual,
+    fetchWithPinnedIp: vi.fn(
+      async (
+        url: string | URL,
+        _addresses: readonly string[],
+        options?: Record<string, unknown>,
+      ): Promise<Response> => globalThis.fetch(url as string, options as RequestInit),
+    ),
+  };
+});
+import { DeDiClientError, fetchWithPinnedIp } from "@opencred/shared";
 import { DeDiApiClient } from "../api/api-client.js";
 import type { DeDiApiClientConfig } from "../api/api-client.js";
 
@@ -49,6 +67,7 @@ describe("DeDiApiClient", () => {
     vi.useFakeTimers();
     mockFetch = vi.fn<typeof globalThis.fetch>();
     globalThis.fetch = mockFetch;
+    vi.mocked(fetchWithPinnedIp).mockClear();
   });
 
   afterEach(() => {

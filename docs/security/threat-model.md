@@ -87,7 +87,15 @@ A user-supplied URL (e.g., a `did:web` identifier) tricks OpenCred into fetching
 | DNS-rebinding (TOCTOU) prevention — the connection is **pinned** to the validated addresses; DNS is never re-consulted between check and connect | `packages/shared/src/pinned-fetch.ts` (`fetchWithPinnedIp`: socket-level `lookup` override on a fresh non-keep-alive agent; the URL keeps the hostname so TLS SNI + certificate validation still run against it) |
 | Document ID must match requested DID | `packages/did/src/did-web.ts` (`resolveViaHttps`) |
 
-This mitigation is enforced at the boundary of every did:web fetch and is non-bypassable. The fallback resolver path is **not** tried on SSRF errors. The same validate-then-pin pattern protects every other outbound fetch of a semi-trusted URL: the status-list fetch (`packages/verification/src/checks.ts`), the schema-update fetch (`packages/schema-engine/src/schema-updater.ts`), and the desktop `SCHEMA_FETCH_URL` IPC handler (`apps/desktop/src/main/ipc-handlers.ts`).
+This mitigation is enforced at the boundary of every did:web fetch and is non-bypassable. The fallback resolver path is **not** tried on SSRF errors. The same validate-then-pin pattern protects every other outbound fetch of a semi-trusted URL:
+
+- the status-list fetch (`packages/verification/src/checks.ts`),
+- the schema-update fetch (`packages/schema-engine/src/schema-updater.ts`),
+- the desktop `SCHEMA_FETCH_URL` IPC handler (`apps/desktop/src/main/ipc-handlers.ts`),
+- batch webhook delivery to the operator-supplied `webhookUrl` (`apps/server/src/batch/webhook.ts`), and
+- every DeDi API request (`packages/dedi-client/src/api/api-client.ts`, `doFetch`), where the per-hostname DNS cache feeds the same validated address set to the pin.
+
+**Known gap**: the DeDi token/registration calls in `packages/dedi-client/src/api/auth.ts` still use a plain `fetch` against the operator-configured `baseUrl` and are not yet on the validate-then-pin path.
 
 **Residual risk**: a sophisticated attacker who controls a public DNS zone can set its A record to a public IP they also control, then have that public IP serve a malicious DID document. Mitigation is the document-ID match, the validity check, and the verifier's overall trust chain.
 

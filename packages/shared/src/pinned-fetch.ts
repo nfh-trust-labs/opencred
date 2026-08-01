@@ -1,5 +1,5 @@
 /**
- * DNS-rebinding-safe HTTPS GET.
+ * DNS-rebinding-safe HTTPS request.
  *
  * The SSRF pattern "validate the hostname's DNS, then `fetch(url)`" is a
  * TOCTOU hole: `fetch` re-resolves the hostname independently, so an
@@ -23,9 +23,27 @@ import { isIP } from "node:net";
 import { Readable } from "node:stream";
 import type { LookupFunction } from "node:net";
 
+/**
+ * Anything the platform `Response` constructor accepts as a body — string,
+ * `Uint8Array`, `Blob`, `FormData`, `URLSearchParams`, `ReadableStream`, … .
+ * Derived from the global `Response` constructor rather than naming
+ * `BodyInit`, which `@types/node` does not expose as a global type.
+ */
+export type PinnedFetchBody = NonNullable<ConstructorParameters<typeof Response>[0]>;
+
 export interface PinnedFetchOptions {
+  /** HTTP method. Defaults to `"GET"`. */
+  method?: string;
   /** Request headers. */
   headers?: Record<string, string>;
+  /**
+   * Request body. Any body init (string, `Uint8Array`, `Blob`, `FormData`,
+   * `URLSearchParams`, …). The body is normalized through the platform
+   * `Response` constructor, so a `FormData` body gets a correct
+   * `multipart/form-data; boundary=…` content type exactly as `fetch` would.
+   * An explicit `Content-Type` in `headers` always wins.
+   */
+  body?: PinnedFetchBody | null;
   /** Abort signal — aborting rejects the promise with an `AbortError`. */
   signal?: AbortSignal;
 }
@@ -34,7 +52,29 @@ export interface PinnedFetchOptions {
 const NULL_BODY_STATUSES = new Set([204, 205, 304]);
 
 /**
- * Perform an HTTPS GET that can only connect to `pinnedAddresses`.
+ * Normalize any body init to bytes plus the content type the platform would
+ * have derived for it. Buffering (rather than streaming) lets us send an
+ * accurate `Content-Length`, which is what `fetch` does for these body types
+ * and what the widest range of receivers expect. Bodies on this path are
+ * webhook payloads and DeDi API requests — small by construction.
+ */
+async function normalizeBody(body: PinnedFetchBody): Promise<{
+  bytes: Buffer;
+  contentType: string | null;
+}> {
+  const encoded = new Response(body);
+  const bytes = Buffer.from(await encoded.arrayBuffer());
+  return { bytes, contentType: encoded.headers.get("content-type") };
+}
+
+/** Case-insensitive header presence check. */
+function hasHeader(headers: Record<string, string>, name: string): boolean {
+  const wanted = name.toLowerCase();
+  return Object.keys(headers).some((key) => key.toLowerCase() === wanted);
+}
+
+/**
+ * Perform an HTTPS request that can only connect to `pinnedAddresses`.
  *
  * `pinnedAddresses` MUST be the output of an SSRF validation of the URL's
  * hostname (e.g. `resolveDnsForSsrf`) performed by the caller — this function
@@ -51,8 +91,10 @@ const NULL_BODY_STATUSES = new Set([204, 205, 304]);
  * @param url - The HTTPS URL to fetch. The hostname stays in the request so
  *   TLS SNI and certificate validation run against it.
  * @param pinnedAddresses - Pre-validated IP addresses (IPv4 and/or IPv6) the
- *   socket is allowed to connect to.
- * @param options - Headers and abort signal.
+ *   socket is allowed to connect to. Pass the FULL validated set, not just the
+ *   first entry, so Node's happy-eyeballs failover still works for multi-A /
+ *   dual-stack / CDN-fronted hosts.
+ * @param options - Method, headers, body, and abort signal.
  * @returns A standard `Response` whose body streams from the socket.
  */
 export async function fetchWithPinnedIp(
@@ -89,13 +131,28 @@ export async function fetchWithPinnedIp(
   // agent guarantees every request opens a new socket through pinnedLookup.
   const agent = new Agent({ keepAlive: false, lookup: pinnedLookup });
 
+  // Normalize the body (if any) BEFORE opening the socket, and derive the
+  // headers `fetch` would have set for it. An explicit caller-supplied
+  // `Content-Type` always wins, matching fetch semantics.
+  let payload: Buffer | undefined;
+  let headers = options.headers;
+  if (options.body !== undefined && options.body !== null) {
+    const { bytes, contentType } = await normalizeBody(options.body);
+    payload = bytes;
+    headers = { ...options.headers };
+    if (contentType !== null && !hasHeader(headers, "content-type")) {
+      headers["Content-Type"] = contentType;
+    }
+    headers["Content-Length"] = String(bytes.byteLength);
+  }
+
   return await new Promise<Response>((resolve, reject) => {
     const req = request(
       parsed,
       {
-        method: "GET",
+        method: options.method ?? "GET",
         agent,
-        headers: options.headers,
+        headers,
         signal: options.signal,
       },
       (res) => {
@@ -126,6 +183,10 @@ export async function fetchWithPinnedIp(
     req.on("error", (err) => {
       reject(err);
     });
-    req.end();
+    if (payload !== undefined) {
+      req.end(payload);
+    } else {
+      req.end();
+    }
   });
 }
