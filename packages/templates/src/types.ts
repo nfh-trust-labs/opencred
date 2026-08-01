@@ -12,7 +12,15 @@ export interface CredentialTemplate {
   svg: string;
 }
 
-/** Customization options applied by the issuer. */
+/**
+ * Customization options applied by the issuer.
+ *
+ * The SVG renderer validates these values before interpolation: color fields
+ * must be a hex color, bare color name, or numeric rgb()/hsl() function
+ * (anything else falls back to the default), and image data URIs must be
+ * base64 raster images — data:image/png, jpeg, gif, or webp (anything else,
+ * including SVG data URIs and remote URLs, is dropped).
+ */
 export interface TemplateCustomization {
   /** Primary color for the credential (CSS color string). */
   primaryColor?: string;

@@ -29,9 +29,13 @@ function isValidHexColor(value: string): boolean {
   return /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(value);
 }
 
-/** Validate a data URI for an image. */
+/**
+ * Validate a data URI for an image. Raster formats only — SVG is rejected
+ * because the template renderer refuses SVG data URIs (nested SVG can carry
+ * script), so accepting one here would silently drop the logo at export time.
+ */
 function isValidImageDataUri(value: string): boolean {
-  return /^data:image\/(png|jpeg|jpg|svg\+xml|webp);base64,/.test(value);
+  return /^data:image\/(png|jpeg|jpg|webp);base64,/.test(value);
 }
 
 interface BrandingState {
@@ -171,7 +175,7 @@ export function BrandingSettings() {
     setError(null);
 
     if (!file.type.startsWith("image/")) {
-      setError("Please select an image file (PNG, JPG, or SVG).");
+      setError("Please select an image file (PNG, JPG, or WebP).");
       return;
     }
 
@@ -447,13 +451,13 @@ export function BrandingSettings() {
               >
                 Upload Logo
               </button>
-              <span className="ml-2 text-xs text-txt-muted">PNG, JPG, or SVG (max 512 KB)</span>
+              <span className="ml-2 text-xs text-txt-muted">PNG, JPG, or WebP (max 512 KB)</span>
             </div>
           )}
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/svg+xml"
+            accept="image/png,image/jpeg,image/webp"
             onChange={(e) => handleImageSelect(e, "logoDataUri", setLogoError)}
             className="hidden"
           />
@@ -556,13 +560,13 @@ export function BrandingSettings() {
               >
                 Upload Seal
               </button>
-              <span className="ml-2 text-xs text-txt-muted">PNG, JPG, or SVG (max 512 KB)</span>
+              <span className="ml-2 text-xs text-txt-muted">PNG, JPG, or WebP (max 512 KB)</span>
             </div>
           )}
           <input
             ref={sealInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/svg+xml"
+            accept="image/png,image/jpeg,image/webp"
             onChange={(e) => handleImageSelect(e, "sealDataUri", setSealError)}
             className="hidden"
           />
