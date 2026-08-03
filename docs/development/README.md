@@ -30,8 +30,7 @@ opencred/
     shared/              # Shared types, errors, config schema, SSRF helper
   docs/                  # This documentation
   CLAUDE.md              # Contributor protocol and the seven security invariants
-  OpenCred_PRD.md        # Product requirements (the source of truth)
-  implementation-plan.md # Phase plan derived from the PRD
+  docs/PRD.md            # Product requirements (the source of truth)
 ```
 
 See [Package layout](package-layout.md) for what each package exports and depends on.
@@ -51,8 +50,6 @@ You also need:
 * (Windows) `softhsm2` if you want to run PKCS#11 tests locally
 
 ## First-time setup
-
-> **Source repo access:** OpenCred's source code is in a private NFH Trust Labs repository. The clone below requires read access — request it via the contact channels at <https://docs.opencred.global> if you need it.
 
 ```bash
 git clone https://github.com/nfh-trust-labs/opencred.git
@@ -119,11 +116,11 @@ Before opening a PR:
 - [ ] No `Math.random()` in security-sensitive paths — see [Invariant 4](../security/invariants.md#4-csprng-only)
 - [ ] Logging changes don't introduce key material — see [Invariant 2](../security/invariants.md#2-never-log-key-material)
 - [ ] Error messages don't leak paths or buffers — see [Invariant 5](../security/invariants.md#5-no-secrets-in-error-responses)
-- [ ] PR body includes `Closes #<issue>` to auto-close the issue on merge
+- [ ] PR body references the issue (`Closes #<issue>`) — note the issue still needs a manual close + completion comment after merge, since PRs land on `opencred-dev`, not the default branch
 
 ## Related documentation
 
+* [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — contribution workflow
 * [`CLAUDE.md`](../../CLAUDE.md) — full contributor protocol
-* [`OpenCred_PRD.md`](../../OpenCred_PRD.md) — product requirements
-* [`implementation-plan.md`](../../implementation-plan.md) — phase plan
+* [`docs/PRD.md`](../PRD.md) — product requirements
 * [Security invariants](../security/invariants.md)

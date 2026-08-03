@@ -6,7 +6,7 @@ OpenCred is published by [NFH Trust Labs](https://github.com/nfh-trust-labs).
 
 > **🧪 Beta release.** OpenCred is in early-access beta. Functionality is feature-complete and the protocols are stable, but desktop installer polish is still in progress — on first launch macOS shows a one-time approval prompt (see the [installation guide](desktop/installation.md#macos-first-launch)). Windows installers will follow.
 >
-> **Support:** for bug reports, feature requests, or questions, [open an issue](https://github.com/nfh-trust-labs/opencred-releases/issues).
+> **Support:** for bug reports, feature requests, or questions, [open an issue](https://github.com/nfh-trust-labs/opencred/issues).
 
 ## Get OpenCred
 
@@ -15,7 +15,7 @@ OpenCred is published by [NFH Trust Labs](https://github.com/nfh-trust-labs).
 | **Desktop** (macOS / Linux) | <https://github.com/nfh-trust-labs/opencred-releases/releases> | Download the `.dmg` / `.AppImage` / `.deb` for your platform |
 | **Docker server** | `ghcr.io/nfh-trust-labs/opencred/opencred-server:latest` | `docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest` |
 
-Both are public — no authentication required. The source code is private; bug reports and contact channels are listed in this documentation.
+Both are public — no authentication required. The source code is open source (MIT) at <https://github.com/nfh-trust-labs/opencred>; release binaries are mirrored to the [opencred-releases](https://github.com/nfh-trust-labs/opencred-releases/releases) download repo.
 
 ## Start Here
 
@@ -123,12 +123,12 @@ Standalone reference documents for quick access:
 
 ## Source of Truth
 
-OpenCred's source code is maintained in a private repository at NFH Trust Labs. Distributed binaries (Desktop installers, the Docker image) are public; source, issues, and per-PR review history are not.
+OpenCred is open source under the [MIT license](../LICENSE). Source code, issues, and releases all live in this repository.
 
 For end users:
 
 * **Download a release**: <https://github.com/nfh-trust-labs/opencred-releases/releases>
 * **Pull the Docker image**: `docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest`
-* **Bug reports / feature requests**: <https://github.com/nfh-trust-labs/opencred-releases/issues>
+* **Bug reports / feature requests**: <https://github.com/nfh-trust-labs/opencred/issues>
 
-For internal contributors with source access: requirements live in `OpenCred_PRD.md`, the implementation plan in `implementation-plan.md`, per-issue work on the private repo's GitHub Issues, and the contributor protocol in `CLAUDE.md`.
+For contributors: product requirements live in [`docs/PRD.md`](PRD.md), and the contribution workflow (branch model, commit conventions, DCO) in [`CONTRIBUTING.md`](../CONTRIBUTING.md).

@@ -2,9 +2,12 @@ name: CI
 
 on:
   pull_request:
-    branches: [new-opencred-dev, main]
+    # new-opencred-dev is the pre-import name of the integration branch —
+    # kept during the repo transition so CI runs on in-flight PRs; remove
+    # it in the public-repo import commit.
+    branches: [opencred-dev, main, new-opencred-dev]
   push:
-    branches: [new-opencred-dev]
+    branches: [opencred-dev, new-opencred-dev]
 
 jobs:
   lint:

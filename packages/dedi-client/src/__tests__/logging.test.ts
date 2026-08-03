@@ -9,6 +9,25 @@ vi.mock("node:dns", () => ({
     resolve6: vi.fn().mockResolvedValue([]),
   },
 }));
+
+// `doFetch` issues its request through `fetchWithPinnedIp` (DNS-rebinding
+// protection). Route it back through `globalThis.fetch` so these logging
+// assertions keep observing the same request sequence as before — the token
+// fetches in `auth.ts` still use `globalThis.fetch` directly, so a single
+// stub continues to serve both paths in order.
+vi.mock("@opencred/shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@opencred/shared")>();
+  return {
+    ...actual,
+    fetchWithPinnedIp: vi.fn(
+      async (
+        url: string | URL,
+        _addresses: readonly string[],
+        options?: Record<string, unknown>,
+      ): Promise<Response> => globalThis.fetch(url as string, options as RequestInit),
+    ),
+  };
+});
 import { DeDiClientError } from "@opencred/shared";
 import { DeDiApiClient } from "../api/api-client.js";
 import { DeDiClient } from "../adapter/client.js";

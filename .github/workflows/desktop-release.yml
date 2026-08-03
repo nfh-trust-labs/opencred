@@ -2,7 +2,7 @@ name: Desktop Release
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_call:
     inputs:
       tag:
@@ -10,13 +10,13 @@ on:
         # string when release_created is false (the `if:` guard in the
         # caller still gates execution, but GitHub validates inputs at
         # parse time — declaring `tag` here is what makes that pass).
-        description: 'Tag to build and publish (e.g. v1.0.0). Must already exist.'
+        description: "Tag to build and publish (e.g. v1.0.0). Must already exist."
         required: false
         type: string
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build and publish (e.g. v1.0.0). Must already exist.'
+        description: "Tag to build and publish (e.g. v1.0.0). Must already exist."
         required: true
         type: string
 
@@ -267,16 +267,28 @@ jobs:
           # to interpret CSC_LINK="" as a file path → resolves to cwd →
           # fails with "apps/desktop not a file". Setting
           # CSC_IDENTITY_AUTO_DISCOVERY=false alone is not enough.
+          # forceCodeSigning is true in package.json so a signed build that
+          # silently loses its certificate FAILS instead of shipping an
+          # unsigned artefact (which would break the auto-updater's
+          # integrity guarantee for existing installs). The deliberate
+          # unsigned paths below opt out explicitly and say so in the log.
+          EB_SIGNING_ARGS=""
           if [ "${{ runner.os }}" = "macOS" ] && [ "$SIGN_MAC" != "true" ]; then
             unset CSC_LINK CSC_KEY_PASSWORD
             unset APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_ID_PASSWORD
             export CSC_IDENTITY_AUTO_DISCOVERY=false
+            EB_SIGNING_ARGS="--config.forceCodeSigning=false"
             echo "Building UNSIGNED macOS artefacts (no MAC_CSC_LINK)"
           fi
           if [ "${{ runner.os }}" = "Windows" ] && [ "$SIGN_WIN" != "true" ]; then
             unset WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
             export CSC_IDENTITY_AUTO_DISCOVERY=false
+            EB_SIGNING_ARGS="--config.forceCodeSigning=false"
             echo "Building UNSIGNED Windows artefacts (no WIN_CSC_LINK)"
+          fi
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            # Linux targets (AppImage/deb) have no code-signing concept.
+            EB_SIGNING_ARGS="--config.forceCodeSigning=false"
           fi
           # --config.npmRebuild=false: electron-builder must not invoke its
           # bundled @electron/rebuild — it hangs 60+ min on Windows pnpm
@@ -284,7 +296,7 @@ jobs:
           # rebuilt for each TARGET arch by the beforePack hook instead
           # (scripts/electron-builder-hooks.cjs, #641/#642), which is not
           # affected by npmRebuild=false.
-          npx electron-builder $EB_ARGS --publish never --config.npmRebuild=false
+          npx electron-builder $EB_ARGS --publish never --config.npmRebuild=false $EB_SIGNING_ARGS
 
       # Verify Mac artefacts are properly code-signed, Gatekeeper-approved
       # and notarisation-stapled BEFORE publishing. Without this, a broken
@@ -432,22 +444,86 @@ jobs:
           retention-days: 30
 
   # ----------------------------------------------------------------------
+  # Generate SHA256SUMS for the user-facing installers and attach them to
+  # this repo's release. The `mirror-to-public` job below then copies the
+  # full artefact set (installers + blockmaps + latest*.yml + SHA256SUMS)
+  # to nfh-trust-labs/opencred-releases.
+  # ----------------------------------------------------------------------
+  checksums:
+    name: Attach SHA256SUMS
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve release tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release artefacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          SOURCE_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p artefacts
+          cd artefacts
+          gh release download "$RELEASE_TAG" \
+            --repo "$SOURCE_REPO" \
+            --pattern '*.dmg' \
+            --pattern '*.zip' \
+            --pattern '*.exe' \
+            --pattern '*.msi' \
+            --pattern '*.AppImage' \
+            --pattern '*.deb'
+          ls -la
+
+      - name: Generate and upload SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          SOURCE_REPO: ${{ github.repository }}
+        working-directory: artefacts
+        run: |
+          set -e
+          shopt -s nullglob
+          files=(*.dmg *.zip *.exe *.msi *.AppImage *.deb)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No user-facing artefacts to checksum"
+            exit 1
+          fi
+          sha256sum "${files[@]}" > SHA256SUMS
+          echo "Generated SHA256SUMS:"
+          cat SHA256SUMS
+          gh release upload "$RELEASE_TAG" SHA256SUMS --clobber --repo "$SOURCE_REPO"
+
+  # ----------------------------------------------------------------------
   # Mirror release artefacts to the public nfh-trust-labs/opencred-releases
-  # repo so end users can download .dmg / .AppImage / .deb / latest*.yml
-  # without authenticating to a private repo.
+  # repo.
   #
-  # Source of truth remains the private repo's GitHub Release. This job
-  # downloads the same verified artefacts that were just uploaded there
-  # and re-uploads them to the public mirror under the matching tag.
+  # This repo is the source of truth for source, issues, and releases. The
+  # mirror exists because electron-builder's `publish` config (baked into
+  # every shipped desktop build via app-update.yml) points at
+  # opencred-releases — so that repo IS the auto-updater feed for all
+  # installed apps, and it is also the download page users are pointed to.
+  # Removing this job would silently stop updates for existing installs.
   #
   # Requires repo secret PUBLIC_RELEASES_TOKEN: a fine-grained PAT or
   # GitHub App token with `contents: write` on
   # nfh-trust-labs/opencred-releases. GITHUB_TOKEN cannot be used here
-  # because it is scoped to the source repo only.
+  # because it is scoped to this repo only.
   # ----------------------------------------------------------------------
   mirror-to-public:
     name: Mirror to public releases repo
-    needs: release
+    needs: checksums
     runs-on: ubuntu-latest
     steps:
       - name: Resolve release tag
@@ -462,7 +538,7 @@ jobs:
             echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Download artefacts from private release
+      - name: Download artefacts from this repo's release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
@@ -470,9 +546,8 @@ jobs:
         run: |
           mkdir -p mirror-artefacts
           cd mirror-artefacts
-          # Pull every uploaded artefact. Blockmaps are mirrored too —
-          # electron-updater pulls them from the mirror to compute
-          # differential updates.
+          # Blockmaps and latest*.yml are mirrored too — electron-updater
+          # reads them from the mirror for differential updates.
           gh release download "$RELEASE_TAG" \
             --repo "$SOURCE_REPO" \
             --pattern '*.dmg' \
@@ -482,21 +557,9 @@ jobs:
             --pattern '*.AppImage' \
             --pattern '*.deb' \
             --pattern '*.blockmap' \
-            --pattern 'latest*.yml'
+            --pattern 'latest*.yml' \
+            --pattern 'SHA256SUMS'
           ls -la
-
-      - name: Generate SHA256SUMS
-        working-directory: mirror-artefacts
-        run: |
-          shopt -s nullglob
-          files=(*.dmg *.zip *.exe *.msi *.AppImage *.deb)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "::warning::No user-facing artefacts to checksum"
-          else
-            sha256sum "${files[@]}" > SHA256SUMS
-            echo "Generated SHA256SUMS:"
-            cat SHA256SUMS
-          fi
 
       - name: Publish to public mirror repo
         env:
@@ -518,7 +581,7 @@ jobs:
             gh release create "$RELEASE_TAG" \
               --repo "$MIRROR_REPO" \
               --title "$RELEASE_TAG" \
-              --notes "Public release artefacts for $RELEASE_TAG. Verify downloads with the included SHA256SUMS file. Bug reports and feature requests: https://github.com/nfh-trust-labs/opencred-releases/issues."
+              --notes "Release artefacts for $RELEASE_TAG. Verify downloads with the included SHA256SUMS file. Source code, issues, and release notes: https://github.com/nfh-trust-labs/opencred/releases/tag/$RELEASE_TAG"
           fi
           gh release upload "$RELEASE_TAG" "${actual[@]}" --clobber --repo "$MIRROR_REPO"
           echo "Mirrored ${#actual[@]} artefacts to $MIRROR_REPO release $RELEASE_TAG"

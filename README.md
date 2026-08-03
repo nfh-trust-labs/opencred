@@ -20,7 +20,7 @@ Open-source toolkit for issuing and verifying W3C Verifiable Credentials.
 
 ### Desktop
 
-Download the latest release for your platform from the [Releases](https://github.com/nfh-trust-labs/opencred/releases) page.
+Download the latest release for your platform from the [Releases](https://github.com/nfh-trust-labs/opencred-releases/releases) page.
 
 See the [Desktop User Guide](docs/desktop/README.md) for installation and first-launch instructions.
 
@@ -123,10 +123,24 @@ OpenCred enforces seven mandatory security invariants:
 4. **CSPRNG only.** All key generation uses `crypto.randomBytes`.
 5. **No secrets in error responses.** Error responses never leak key material, internal paths, or signing buffers.
 6. **JSON-LD contexts are bundled.** No remote context fetching at runtime.
-7. **SSRF protection for did:web.** Resolved IPs are validated as public, HTTPS only, no redirects, 10-second timeout.
+7. **SSRF protection for did:web.** Resolved IPs are validated as public and the connection is pinned to them (DNS-rebinding safe), HTTPS only, no redirects, 10-second timeout.
 
 See the [Security documentation](docs/security/README.md) for the full threat model and invariant enforcement details.
 
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the
+branch model (PRs target `new-opencred-dev`), commit conventions, and the DCO
+sign-off requirement. Security issues should be reported privately per
+[SECURITY.md](SECURITY.md).
+
 ## License
 
-Copyright NFH Trust Labs. See [LICENSE](LICENSE) for details.
+[MIT](LICENSE) © 2026 NFH Trust Labs. Bundled third-party material (fonts,
+JSON-LD contexts, schemas) is attributed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+> **Where things live:** this repository holds the source, issues, and
+> development. Release binaries are also published to
+> [`opencred-releases`](https://github.com/nfh-trust-labs/opencred-releases/releases),
+> which is the download page and the desktop auto-updater feed.

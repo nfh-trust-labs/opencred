@@ -2,31 +2,31 @@
 
 Verify W3C Verifiable Credentials issued by OpenCred — from any Node service, with zero issuer-side infrastructure.
 
-Source-available SDK. Works fully offline for `did:key` / `did:jwk` credentials. Optional DeDi integration for revocation checks and `did:web` discovery fallback.
+MIT-licensed SDK. Works fully offline for `did:key` / `did:jwk` credentials. Optional DeDi integration for revocation checks and `did:web` discovery fallback.
 
-> **Status — v0.1.0 source-available, not yet npm-published.**
-> The source and a self-contained bundled artefact (in `dist/`) are
-> committed to [`opencred-releases`](https://github.com/nfh-trust-labs/opencred-releases)
-> under `sdk/verify/`. To use it right now: see [Install from source](#install-from-source)
+> **Status — v0.1.0, not yet npm-published.**
+> The SDK lives at `packages/verify-sdk/` in the
+> [OpenCred repository](https://github.com/nfh-trust-labs/opencred).
+> To use it right now: see [Install from source](#install-from-source)
 > below. The maintainers will publish to npm under `@opencred/verify`
 > once the API has stabilized — at that point `npm install` will Just Work.
 
 ## Install from source
 
-While the package is not yet on npm, install it directly from the public mirror repository:
+While the package is not yet on npm, build it from the repository:
 
 ```sh
-# Option A — clone and link via npm/pnpm/yarn file: spec
-git clone https://github.com/nfh-trust-labs/opencred-releases.git
-cd your-app
-npm install ../opencred-releases/sdk/verify
-# (or: pnpm add ../opencred-releases/sdk/verify)
+git clone https://github.com/nfh-trust-labs/opencred.git
+cd opencred
+CI=true pnpm install && pnpm build
 
-# Option B — install directly from the GitHub URL pointing at a release tag
-npm install github:nfh-trust-labs/opencred-releases#main --workspace=sdk/verify
+# then, from your app:
+cd your-app
+npm install ../opencred/packages/verify-sdk
+# (or: pnpm add ../opencred/packages/verify-sdk)
 ```
 
-The package is built ahead of time: the `dist/` directory committed to the repo contains the bundled, self-contained code. No build step is needed at install time.
+Requires pnpm for the build step; the built package is self-contained (no dependency on other `@opencred/*` packages at runtime).
 
 Requires Node.js 20 or later. Works in any modern Node runtime — long-running services, AWS Lambda, Cloudflare Workers (with the Node compat flag), Bun, Deno (via `npm:` specifier).
 
@@ -177,12 +177,12 @@ The set of checks depends on the credential's shape:
 
 ## License
 
-See [`LICENSE`](./LICENSE) and the project-wide [`NOTICE.md`](../../NOTICE.md) for full terms. Installation and use in your own services for verifying OpenCred-issued credentials is permitted; redistribution as a separate package, modification, or use in commercial production deployments serving third parties requires prior written permission from NFH Trust Labs.
+[MIT](./LICENSE) — same as the rest of OpenCred. Third-party attributions are collected in the project-wide [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md).
 
 ## Project
 
-Source: [github.com/nfh-trust-labs/opencred-releases](https://github.com/nfh-trust-labs/opencred-releases) under `sdk/verify/`.
+Source: [github.com/nfh-trust-labs/opencred](https://github.com/nfh-trust-labs/opencred) under `packages/verify-sdk/`.
 
-Issues and questions: [opencred-releases/issues](https://github.com/nfh-trust-labs/opencred-releases/issues).
+Issues and questions: [opencred/issues](https://github.com/nfh-trust-labs/opencred/issues).
 
-The verification engine and DID resolvers wrapped by this SDK are developed in a private monorepo (`nfh-trust-labs/opencred`) and bundled into the published artefact. Nothing else is fetched at install or runtime — the `dist/` directory is the complete, self-contained code.
+This SDK is a bundled facade over the monorepo's `@opencred/verification`, `@opencred/did`, and `@opencred/dedi-client` packages — all in this repository. Nothing is fetched at install or runtime; the built `dist/` bundle is complete and self-contained.

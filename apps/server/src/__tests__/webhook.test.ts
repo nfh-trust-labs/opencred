@@ -1,17 +1,33 @@
 /**
  * Tests for batch webhook delivery.
+ *
+ * Delivery goes through `fetchWithPinnedIp`, so the SSRF/DNS-rebinding
+ * assertions here are about WHAT IS PINNED (the full validated address set)
+ * and about DNS never being consulted a second time — not about a rewritten
+ * URL. The previous implementation rewrote the URL to the IP and sent a
+ * `Host:` header, which broke TLS certificate validation
+ * (ERR_TLS_CERT_ALTNAME_INVALID) against every real HTTPS endpoint.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHmac } from "node:crypto";
-import { deliverWebhook, type WebhookPayload } from "../batch/webhook.js";
 
 // Mock dns resolution
 vi.mock("node:dns/promises", () => ({
   resolve: vi.fn().mockResolvedValue(["93.184.216.34"]), // example.com public IP
 }));
 
+// Mock only the pinned fetch; everything else in @opencred/shared stays real
+// (notably `isPrivateIP`, which the SSRF check depends on).
+vi.mock("@opencred/shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@opencred/shared")>();
+  return { ...actual, fetchWithPinnedIp: vi.fn() };
+});
+
 const dnsPromises = await import("node:dns/promises");
+const shared = await import("@opencred/shared");
+const { deliverWebhook } = await import("../batch/webhook.js");
+type WebhookPayload = import("../batch/webhook.js").WebhookPayload;
 
 const SAMPLE_PAYLOAD: WebhookPayload = {
   jobId: "test-job-123",
@@ -25,37 +41,42 @@ const SAMPLE_PAYLOAD: WebhookPayload = {
 const TEST_SECRET = "test-webhook-secret";
 const TEST_URL = "https://example.com/webhook";
 
-describe("deliverWebhook", () => {
-  const originalFetch = globalThis.fetch;
+/** Arguments of one `fetchWithPinnedIp` call. */
+type PinnedCall = [string | URL, readonly string[], Record<string, unknown>];
 
+describe("deliverWebhook", () => {
   beforeEach(() => {
+    vi.mocked(dnsPromises.resolve).mockReset();
     vi.mocked(dnsPromises.resolve).mockResolvedValue(["93.184.216.34"]);
+    vi.mocked(shared.fetchWithPinnedIp).mockReset();
   });
 
   afterEach(() => {
-    globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
   });
 
-  function mockFetch(...responses: Array<Response | Error>): Array<Array<unknown>> {
-    const calls: Array<Array<unknown>> = [];
+  /** Queue up responses (or errors) for successive pinned-fetch calls. */
+  function mockPinnedFetch(...responses: Array<Response | Error>): PinnedCall[] {
+    const calls: PinnedCall[] = [];
     let idx = 0;
-    globalThis.fetch = ((...args: unknown[]) => {
-      calls.push(args);
-      const resp = responses[idx++];
-      if (resp instanceof Error) return Promise.reject(resp);
-      return Promise.resolve(resp);
-    }) as typeof fetch;
+    vi.mocked(shared.fetchWithPinnedIp).mockImplementation(
+      (url, addresses, options): Promise<Response> => {
+        calls.push([url, addresses, (options ?? {}) as Record<string, unknown>]);
+        const resp = responses[idx++];
+        if (resp instanceof Error) return Promise.reject(resp);
+        return Promise.resolve(resp);
+      },
+    );
     return calls;
   }
 
   it("computes correct HMAC-SHA256 signature", async () => {
-    const calls = mockFetch(new Response("ok", { status: 200 }));
+    const calls = mockPinnedFetch(new Response("ok", { status: 200 }));
 
     await deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, TEST_SECRET);
 
     expect(calls).toHaveLength(1);
-    const headers = (calls[0][1] as RequestInit).headers as Record<string, string>;
+    const headers = calls[0][2]["headers"] as Record<string, string>;
 
     const expectedBody = JSON.stringify(SAMPLE_PAYLOAD);
     const expectedSig = `sha256=${createHmac("sha256", TEST_SECRET).update(expectedBody).digest("hex")}`;
@@ -64,10 +85,12 @@ describe("deliverWebhook", () => {
     expect(headers["X-OpenCred-Event"]).toBe("batch.completed");
     expect(headers["Content-Type"]).toBe("application/json");
     expect(headers["User-Agent"]).toBe("OpenCred-Server");
+    expect(calls[0][2]["method"]).toBe("POST");
+    expect(calls[0][2]["body"]).toBe(expectedBody);
   });
 
   it("refuses delivery when secret is empty (LOW-04)", async () => {
-    const calls = mockFetch(new Response("ok", { status: 200 }));
+    const calls = mockPinnedFetch(new Response("ok", { status: 200 }));
 
     // Empty secret is a programming error at this layer — the route-level
     // guard is responsible for rejecting webhookUrl+missing-secret requests
@@ -81,7 +104,7 @@ describe("deliverWebhook", () => {
   });
 
   it("retries on failure and succeeds on third attempt", async () => {
-    const calls = mockFetch(
+    const calls = mockPinnedFetch(
       new Error("network error"),
       new Response("error", { status: 500 }),
       new Response("ok", { status: 200 }),
@@ -93,7 +116,7 @@ describe("deliverWebhook", () => {
   });
 
   it("throws after all retries exhausted", async () => {
-    mockFetch(
+    mockPinnedFetch(
       new Response("error", { status: 500 }),
       new Response("error", { status: 502 }),
       new Response("error", { status: 503 }),
@@ -105,7 +128,7 @@ describe("deliverWebhook", () => {
   });
 
   it("rejects non-HTTPS URLs", async () => {
-    const calls = mockFetch();
+    const calls = mockPinnedFetch();
 
     await expect(
       deliverWebhook("http://example.com/webhook", SAMPLE_PAYLOAD, TEST_SECRET),
@@ -116,7 +139,7 @@ describe("deliverWebhook", () => {
 
   it("rejects webhook URLs that resolve to private IPs", async () => {
     vi.mocked(dnsPromises.resolve).mockResolvedValue(["192.168.1.1"]);
-    const calls = mockFetch();
+    const calls = mockPinnedFetch();
 
     await expect(deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, TEST_SECRET)).rejects.toThrow(
       "Webhook URL resolves to private IP",
@@ -127,10 +150,24 @@ describe("deliverWebhook", () => {
 
   it("rejects webhook URLs that resolve to loopback IPs", async () => {
     vi.mocked(dnsPromises.resolve).mockResolvedValue(["127.0.0.1"]);
+    const calls = mockPinnedFetch();
 
     await expect(deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, TEST_SECRET)).rejects.toThrow(
       "Webhook URL resolves to private IP",
     );
+
+    expect(calls).toHaveLength(0);
+  });
+
+  it("rejects when ANY resolved address is private, even if the first is public", async () => {
+    vi.mocked(dnsPromises.resolve).mockResolvedValue(["93.184.216.34", "169.254.169.254"]);
+    const calls = mockPinnedFetch();
+
+    await expect(deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, TEST_SECRET)).rejects.toThrow(
+      "Webhook URL resolves to private IP",
+    );
+
+    expect(calls).toHaveLength(0);
   });
 
   it("payload shape contains only metadata, never credential content", () => {
@@ -163,56 +200,63 @@ describe("deliverWebhook", () => {
   });
 
   it("succeeds on first attempt with 2xx response", async () => {
-    mockFetch(new Response("accepted", { status: 202 }));
+    mockPinnedFetch(new Response("accepted", { status: 202 }));
 
     await expect(deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, TEST_SECRET)).resolves.toBeUndefined();
   });
 
-  // DNS rebinding protection tests
-  it("fetches using validated IP, not original hostname (DNS rebinding protection)", async () => {
-    vi.mocked(dnsPromises.resolve).mockResolvedValue(["93.184.216.34"]);
-    const calls = mockFetch(new Response("ok", { status: 200 }));
+  // ── DNS-rebinding (TOCTOU) protection ──────────────────────────────
+
+  it("keeps the original hostname in the URL so TLS validates against it", async () => {
+    const calls = mockPinnedFetch(new Response("ok", { status: 200 }));
 
     await deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, TEST_SECRET);
 
-    expect(calls).toHaveLength(1);
-    const fetchedUrl = calls[0][0] as string;
-    // The URL should contain the resolved IP, not the original hostname
-    expect(fetchedUrl).toContain("93.184.216.34");
-    expect(fetchedUrl).not.toContain("example.com");
-    // Original hostname should be passed via Host header
-    const headers = (calls[0][1] as RequestInit).headers as Record<string, string>;
-    expect(headers.Host).toBe("example.com");
+    expect(String(calls[0][0])).toBe(TEST_URL);
+    // No `Host` override — that is what broke certificate validation before.
+    const headers = calls[0][2]["headers"] as Record<string, string>;
+    expect(headers["Host"]).toBeUndefined();
   });
 
-  it("wraps IPv6 addresses in brackets when rewriting URL", async () => {
-    vi.mocked(dnsPromises.resolve).mockResolvedValue(["2606:2800:220:1:248:1893:25c8:1946"]);
-    const calls = mockFetch(new Response("ok", { status: 200 }));
+  it("pins the connection to the validated addresses", async () => {
+    vi.mocked(dnsPromises.resolve).mockResolvedValue(["93.184.216.34"]);
+    const calls = mockPinnedFetch(new Response("ok", { status: 200 }));
 
     await deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, TEST_SECRET);
 
-    expect(calls).toHaveLength(1);
-    const fetchedUrl = calls[0][0] as string;
-    expect(fetchedUrl).toContain("[2606:2800:220:1:248:1893:25c8:1946]");
-    const headers = (calls[0][1] as RequestInit).headers as Record<string, string>;
-    expect(headers.Host).toBe("example.com");
+    expect(calls[0][1]).toEqual(["93.184.216.34"]);
   });
 
-  it("preserves path and query when rewriting URL to validated IP", async () => {
-    vi.mocked(dnsPromises.resolve).mockResolvedValue(["93.184.216.34"]);
-    const calls = mockFetch(new Response("ok", { status: 200 }));
+  it("pins the FULL resolved address set, not just the first (multi-A / dual-stack hosts)", async () => {
+    const resolved = ["93.184.216.34", "93.184.216.35", "2606:2800:220:1:248:1893:25c8:1946"];
+    vi.mocked(dnsPromises.resolve).mockResolvedValue(resolved);
+    const calls = mockPinnedFetch(new Response("ok", { status: 200 }));
+
+    await deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, TEST_SECRET);
+
+    expect(calls[0][1]).toEqual(resolved);
+  });
+
+  it("preserves path and query in the pinned request URL", async () => {
+    const calls = mockPinnedFetch(new Response("ok", { status: 200 }));
 
     await deliverWebhook("https://example.com/hooks/batch?token=abc", SAMPLE_PAYLOAD, TEST_SECRET);
 
-    const fetchedUrl = new URL(calls[0][0] as string);
-    expect(fetchedUrl.hostname).toBe("93.184.216.34");
-    expect(fetchedUrl.pathname).toBe("/hooks/batch");
-    expect(fetchedUrl.searchParams.get("token")).toBe("abc");
+    const requested = new URL(String(calls[0][0]));
+    expect(requested.hostname).toBe("example.com");
+    expect(requested.pathname).toBe("/hooks/batch");
+    expect(requested.searchParams.get("token")).toBe("abc");
   });
 
-  it("retries all use the validated IP, not the original hostname", async () => {
-    vi.mocked(dnsPromises.resolve).mockResolvedValue(["93.184.216.34"]);
-    const calls = mockFetch(
+  it("resolves DNS once and pins every retry to the SAME validated addresses (rebinding)", async () => {
+    // A rebinding resolver: the first answer is public (passes validation),
+    // every later answer is the cloud-metadata address. With the connection
+    // pinned there is no second lookup for the attacker to poison.
+    vi.mocked(dnsPromises.resolve)
+      .mockResolvedValueOnce(["93.184.216.34"])
+      .mockResolvedValue(["169.254.169.254"]);
+
+    const calls = mockPinnedFetch(
       new Response("error", { status: 500 }),
       new Response("error", { status: 502 }),
       new Response("ok", { status: 200 }),
@@ -220,11 +264,12 @@ describe("deliverWebhook", () => {
 
     await deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, TEST_SECRET);
 
+    // DNS was consulted exactly once, before validation.
+    expect(vi.mocked(dnsPromises.resolve)).toHaveBeenCalledTimes(1);
     expect(calls).toHaveLength(3);
     for (const call of calls) {
-      const fetchedUrl = call[0] as string;
-      expect(fetchedUrl).toContain("93.184.216.34");
-      expect(fetchedUrl).not.toContain("example.com");
+      expect(call[1]).toEqual(["93.184.216.34"]);
+      expect(call[1]).not.toContain("169.254.169.254");
     }
   });
 
@@ -234,11 +279,11 @@ describe("deliverWebhook", () => {
   it("signature verifies against OPENCRED_WEBHOOK_SECRET but NOT against OPENCRED_API_KEY", async () => {
     const webhookSecret = "webhook-secret-with-enough-entropy-32chars";
     const apiKey = "api-key-that-should-NOT-sign-webhooks-32chars";
-    const calls = mockFetch(new Response("ok", { status: 200 }));
+    const calls = mockPinnedFetch(new Response("ok", { status: 200 }));
 
     await deliverWebhook(TEST_URL, SAMPLE_PAYLOAD, webhookSecret);
 
-    const headers = (calls[0][1] as RequestInit).headers as Record<string, string>;
+    const headers = calls[0][2]["headers"] as Record<string, string>;
     const bodyString = JSON.stringify(SAMPLE_PAYLOAD);
     const expectedWithWebhookSecret = `sha256=${createHmac("sha256", webhookSecret)
       .update(bodyString)

@@ -84,6 +84,20 @@ vi.mock("node:fs/promises", () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
+// `ssrfSafeFetch` pins the connection to the DNS-validated addresses via
+// `fetchWithPinnedIp` (DNS-rebinding TOCTOU prevention). Delegate the pinned
+// fetch to the global fetch stub so the existing tests keep a single mock
+// surface; the SSRF/DNS validation logic itself stays real.
+vi.mock("@opencred/shared", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    fetchWithPinnedIp: vi.fn((url: string | URL, _addresses: readonly string[], opts?: unknown) =>
+      (globalThis.fetch as typeof fetch)(url, opts as RequestInit | undefined),
+    ),
+  };
+});
+
 function makeConfig(overrides?: Partial<SchemaUpdateConfig>): SchemaUpdateConfig {
   return {
     manifestUrl: "https://schemas.example.com/manifest.json",
@@ -116,6 +130,21 @@ describe("checkForUpdates", () => {
 
     expect(result).toBe(registry);
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("pins the DNS-validated addresses for the manifest fetch (DNS rebinding)", async () => {
+    const registry = seedRegistry([]);
+    const manifest = makeManifest([]);
+    mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(manifest) });
+
+    await checkForUpdates(makeConfig(), registry);
+
+    const { fetchWithPinnedIp } = await import("@opencred/shared");
+    expect(vi.mocked(fetchWithPinnedIp)).toHaveBeenCalledWith(
+      "https://schemas.example.com/manifest.json",
+      ["93.184.216.34"],
+      expect.anything(),
+    );
   });
 
   it("fetches, verifies checksum, and registers a new schema", async () => {

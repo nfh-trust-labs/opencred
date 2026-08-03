@@ -62,7 +62,8 @@ The base package everything depends on.
 |---|---|
 | `errors.ts` | `OpenCredError`, `ValidationError`, `AuthenticationError`, `AuthorizationError`, `NotFoundError`, `ConflictError`, `PayloadTooLargeError`, `RateLimitError`, `CryptoError`, `DIDResolutionError`, `SchemaValidationError`, `DelegationError`, `DeDiClientError`, `SessionExpiredError`, `VerificationError`, `NotImplementedError` |
 | `config.ts` | Zod env schema, `loadConfig()`, `EnvConfig` type |
-| `ssrf.ts` | `isPrivateIP(ip)` for SSRF prevention (used by the did:web resolver) |
+| `ssrf.ts` | `isPrivateIP(ip)` and `resolveDnsForSsrf(hostname)` for SSRF prevention (used by the did:web resolver) |
+| `pinned-fetch.ts` | `fetchWithPinnedIp(url, addresses, opts)` — DNS-rebinding-safe HTTPS request (any method, optional body) that connects only to pre-validated IPs while keeping the hostname for TLS validation |
 
 ### `packages/vc-core` — `@opencred/vc-core`
 

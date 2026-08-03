@@ -1,6 +1,7 @@
 {
   "name": "@opencred/desktop",
   "version": "1.9.1",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "description": "OpenCred Desktop — offline credential issuance and signing",
@@ -84,7 +85,7 @@
   "build": {
     "appId": "io.opencred.desktop",
     "productName": "OpenCred",
-    "forceCodeSigning": false,
+    "forceCodeSigning": true,
     "directories": {
       "output": "out",
       "buildResources": "build"

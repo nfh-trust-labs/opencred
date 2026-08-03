@@ -13,7 +13,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { resolveDnsForSsrf } from "@opencred/shared";
+import { fetchWithPinnedIp, resolveDnsForSsrf } from "@opencred/shared";
 import type { SchemaDefinition } from "./types.js";
 import type { SchemaRegistry } from "./schema-registry.js";
 
@@ -80,7 +80,9 @@ function compareSemver(a: string, b: string): number {
  *
  * Uses `resolveDnsForSsrf`, which validates every resolved A and AAAA
  * address, rather than `dns.lookup`, which returns only a single address
- * and could leave other records unchecked.
+ * and could leave other records unchecked. The connection is then pinned
+ * to the validated addresses via `fetchWithPinnedIp` (DNS-rebinding TOCTOU
+ * prevention).
  */
 async function ssrfSafeFetch(url: string, timeoutMs: number): Promise<Response> {
   const parsed = new URL(url);
@@ -88,11 +90,13 @@ async function ssrfSafeFetch(url: string, timeoutMs: number): Promise<Response> 
     throw new Error(`Non-HTTPS URL rejected: ${url}`);
   }
 
-  await resolveDnsForSsrf(parsed.hostname);
+  // The validated addresses are pinned for the connection — a plain
+  // `fetch(url)` would re-resolve the hostname, letting a rebinding DNS
+  // server swap in a private IP between the check and the fetch (TOCTOU).
+  const pinnedAddresses = await resolveDnsForSsrf(parsed.hostname);
 
-  return fetch(url, {
+  return fetchWithPinnedIp(url, pinnedAddresses, {
     signal: AbortSignal.timeout(timeoutMs),
-    redirect: "error",
   });
 }
 

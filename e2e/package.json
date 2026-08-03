@@ -1,6 +1,7 @@
 {
   "name": "@opencred/e2e-matrix",
   "version": "0.0.0",
+  "license": "MIT",
   "private": true,
   "description": "Credential-matrix E2E harness — issues and verifies every valid {proof format × algorithm × DID method × export format} cell against the built Docker image, with env-gated DeDi key-lifecycle cells. Not part of the unit-test run; see README.",
   "type": "module",

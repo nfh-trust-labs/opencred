@@ -1,6 +1,6 @@
 import { promises as dns } from "node:dns";
 import { isIP } from "node:net";
-import { DeDiClientError, isPrivateIP } from "@opencred/shared";
+import { DeDiClientError, fetchWithPinnedIp, isPrivateIP } from "@opencred/shared";
 import { CircuitBreaker } from "../circuit-breaker.js";
 import type { DeDiLogger } from "../logger.js";
 import { noopLogger } from "../logger.js";
@@ -554,8 +554,12 @@ export class DeDiApiClient {
   private async doFetch(path: string, init?: RequestInit): Promise<Response> {
     const method = init?.method ?? "GET";
     const url = `${this.config.baseUrl}${path}`;
-    // SSRF re-check on every request — see `bulkUpload` for rationale.
-    await this.assertHostIsPublic(url);
+    // SSRF re-check on every request — see `bulkUpload` for rationale. The
+    // validated addresses are returned so the connection can be PINNED to
+    // them: `globalThis.fetch(url)` re-resolves the hostname independently,
+    // which reopens the DNS-rebinding TOCTOU window this check exists to
+    // close.
+    const pinnedAddresses = await this.assertHostIsPublic(url);
     const token = await this.tokenManager.getToken();
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.effectiveTimeoutMs);
@@ -569,17 +573,31 @@ export class DeDiApiClient {
       // (JSON strings, typed-array bodies) pre-P2-08 got the JSON
       // header by default and still does. See Anand's P2-08.
       const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
-      const response = await globalThis.fetch(url, {
-        ...init,
+      const headers: Record<string, string> = {
+        ...(init?.body && !isFormData ? { "Content-Type": "application/json" } : {}),
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(init?.headers as Record<string, string> | undefined),
+      };
+      // Pinned to the addresses `assertHostIsPublic` just validated. The URL
+      // keeps its hostname, so TLS SNI + certificate validation are unchanged;
+      // only the socket-level DNS lookup is overridden. The FULL resolved set
+      // is pinned so multi-A-record / dual-stack / CDN-fronted DeDi hosts keep
+      // Node's happy-eyeballs failover.
+      const response = await fetchWithPinnedIp(url, pinnedAddresses, {
+        method,
+        body: init?.body,
+        headers,
         signal: controller.signal,
-        redirect: "error",
-        headers: {
-          ...(init?.body && !isFormData ? { "Content-Type": "application/json" } : {}),
-          Accept: "application/json",
-          Authorization: `Bearer ${token}`,
-          ...init?.headers,
-        },
       });
+      // `https.request` never follows redirects. Preserve the previous
+      // `redirect: "error"` semantics — where fetch threw and the catch below
+      // mapped it to a 502 network error — rather than surfacing the 3xx as an
+      // HTTP status. A redirect must not be chased to a host that was never
+      // SSRF-validated.
+      if (response.status >= 300 && response.status < 400) {
+        throw new Error("refused to follow redirect from DeDi host");
+      }
       this.logger.info(`DeDi response`, {
         method,
         path,
@@ -598,7 +616,10 @@ export class DeDiApiClient {
         });
         throw error;
       }
-      if (error instanceof DOMException && error.name === "AbortError") {
+      // Aborts arrive as a `DOMException` from `fetch` but as Node's own
+      // `AbortError` (an `Error` with `code: "ABORT_ERR"`) from
+      // `https.request`. Accept both so a timeout still maps to 504.
+      if (isAbortError(error)) {
         this.logger.error(`DeDi request timed out`, { method, path, durationMs });
         throw new DeDiClientError(
           `DeDi API request timed out after ${this.effectiveTimeoutMs}ms`,
@@ -626,8 +647,13 @@ export class DeDiApiClient {
    * loopback, or link-local. Run on every request (not just at
    * construction) so that DNS rebinding between calls cannot sneak
    * traffic into internal networks.
+   *
+   * Returns the validated addresses so the caller can PIN the connection to
+   * them. Without the pin, the check is only advisory: the subsequent fetch
+   * performs its own DNS lookup, and an attacker-controlled resolver can
+   * answer that second query with a private address (TOCTOU).
    */
-  private async assertHostIsPublic(requestUrl: string): Promise<void> {
+  private async assertHostIsPublic(requestUrl: string): Promise<string[]> {
     let parsed: URL;
     try {
       parsed = new URL(requestUrl);
@@ -645,7 +671,8 @@ export class DeDiApiClient {
           400,
         );
       }
-      return;
+      // A literal-IP host is already its own pin.
+      return [hostname];
     }
 
     // Hostname — resolve both A and AAAA records and require every
@@ -684,7 +711,20 @@ export class DeDiApiClient {
         );
       }
     }
+
+    return addresses;
   }
+}
+
+/**
+ * Recognise an abort/timeout error from either `fetch` (a `DOMException`
+ * named `AbortError`) or `https.request` (Node's `AbortError`, an `Error`
+ * with `code: "ABORT_ERR"`).
+ */
+function isAbortError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const candidate = error as { name?: unknown; code?: unknown };
+  return candidate.name === "AbortError" || candidate.code === "ABORT_ERR";
 }
 
 /**

@@ -1,0 +1,76 @@
+name: PR Checks
+
+# Repo-policy checks that run on every PR:
+#  - branch-target guard: feature PRs must target the integration branch,
+#    not main (main only accepts the promotion PR and release-please PRs)
+#  - DCO: every commit must carry a Signed-off-by line (git commit -s)
+
+on:
+  pull_request:
+    # new-opencred-dev is the pre-import name of the integration branch —
+    # kept during the repo transition; remove it in the public-repo import.
+    branches: [main, opencred-dev, new-opencred-dev]
+
+permissions:
+  contents: read
+
+jobs:
+  branch-target-guard:
+    name: Branch target guard
+    if: github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check that only promotion/release PRs target main
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          # Allowed onto main: the integration-branch promotion PR and
+          # release-please's own release PRs — both from branches in THIS
+          # repo (never from a fork).
+          # new-opencred-dev: pre-import name of the integration branch,
+          # allowed during the repo transition; remove at import.
+          if [ "$HEAD_REPO" = "$BASE_REPO" ]; then
+            case "$HEAD_REF" in
+              opencred-dev|new-opencred-dev|release-please--*)
+                echo "Promotion/release PR — allowed onto main."
+                exit 0
+                ;;
+            esac
+          fi
+          echo "::error::PRs must target the 'new-opencred-dev' branch, not 'main'."
+          echo "::error::'main' only accepts the integration-branch promotion PR and release-please PRs."
+          echo "::error::Please edit this PR's base branch to 'new-opencred-dev' (Edit button next to the PR title)."
+          exit 1
+
+  dco:
+    name: DCO sign-off
+    # Gate feature PRs only (base = the integration branch). PRs targeting
+    # main are exempt: release-please's bot commits carry no sign-off, and
+    # the promotion PR's squash commits already passed this gate when they
+    # landed on the integration branch.
+    if: github.base_ref != 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check Signed-off-by on every commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -e
+          missing=0
+          while read -r sha; do
+            if ! git log -1 --format=%B "$sha" | grep -qi '^Signed-off-by: .*<.*@.*>'; then
+              echo "::error::Commit $sha is missing a Signed-off-by line."
+              missing=1
+            fi
+          done < <(git rev-list --no-merges "$BASE_SHA".."$HEAD_SHA")
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::All commits need a DCO sign-off. Amend with: git rebase --signoff $BASE_SHA && git push --force-with-lease"
+            exit 1
+          fi
+          echo "All commits carry a Signed-off-by line."

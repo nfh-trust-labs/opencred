@@ -383,7 +383,7 @@ The container ships HTTP-only. Always terminate TLS at a reverse proxy (nginx, C
 
 ### SSRF Protection
 
-When resolving `did:web` DIDs during verification, the server validates that resolved IPs are public (rejects private/loopback addresses including IPv4-mapped IPv6). HTTPS only, no redirects, 10-second timeout.
+When resolving `did:web` DIDs during verification, the server validates that resolved IPs are public (rejects private/loopback addresses including IPv4-mapped IPv6) and pins the connection to the validated addresses, so a rebinding DNS server cannot swap in a private IP between the check and the fetch. HTTPS only, no redirects, 10-second timeout.
 
 ### Key Material
 

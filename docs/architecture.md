@@ -195,7 +195,7 @@ OpenCred's security model is built around seven mandatory invariants enforced th
 
 2. **Bundled JSON-LD contexts.** The `@opencred/vc-core` package ships all required JSON-LD contexts in `src/contexts/`. Contexts are never fetched from the network at runtime, preventing supply-chain attacks through malicious context documents.
 
-3. **SSRF protection.** `did:web` resolution and any outbound HTTP calls validate that target IPs are public. Private, loopback, link-local, and IPv4-mapped IPv6 addresses are rejected. HTTPS only, no redirects, 10-second timeout.
+3. **SSRF protection.** `did:web` resolution and any outbound HTTP calls validate that target IPs are public. Private, loopback, link-local, and IPv4-mapped IPv6 addresses are rejected. The connection is then pinned to the validated addresses (`fetchWithPinnedIp` in `@opencred/shared`), closing the DNS-rebinding TOCTOU window. HTTPS only, no redirects, 10-second timeout.
 
 4. **Sanitized error responses.** All errors flow through the `OpenCredError` hierarchy, which guarantees a consistent JSON shape with no key material, file paths, or internal state. The server's verify endpoint additionally strips `detail` fields from verification checks before returning them to the caller.
 

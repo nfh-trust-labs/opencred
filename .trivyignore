@@ -34,6 +34,14 @@ CVE-2024-21538
 # glob (eslint/typescript transitive)
 CVE-2025-64756
 
+# brace-expansion 1.x/2.x (minimatch/eslint/typescript transitive) —
+# CVE-2026-14257 (ReDoS) is only fixed in the 5.x line; no 1.x/2.x
+# backport exists (1.1.18 / 2.1.4 are the latest as of 2026-07-31, both
+# still flagged). Forcing 5.x would break the CommonJS minimatch@3 chain.
+# Brace patterns in this image are internal globs, never attacker input.
+# Revisit when upstream backports the fix.
+CVE-2026-14257
+
 # minimatch (eslint/typescript transitive)
 CVE-2026-26996
 CVE-2026-27903

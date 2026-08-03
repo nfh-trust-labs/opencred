@@ -8,8 +8,24 @@ import {
   DIDWebResolver,
   verifyDidWeb,
 } from "../did-web.js";
-import { DIDResolutionError } from "@opencred/shared";
+import { DIDResolutionError, fetchWithPinnedIp } from "@opencred/shared";
 import type { JWK } from "../types.js";
+
+// The resolver must NEVER call plain `fetch(url)` — that would re-resolve
+// the hostname and reopen the DNS-rebinding TOCTOU window. All HTTP goes
+// through `fetchWithPinnedIp`, which we mock here; `resolveDnsForSsrf` (and
+// everything else in @opencred/shared) stays real so the DNS-level spies in
+// these tests exercise the actual validation logic.
+vi.mock("@opencred/shared", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return { ...actual, fetchWithPinnedIp: vi.fn() };
+});
+const mockPinnedFetch = vi.mocked(fetchWithPinnedIp);
+
+/** DNS error with a `code` — `resolveDnsForSsrf` treats ENODATA/ENOTFOUND as benign. */
+function dnsError(code: string): Error {
+  return Object.assign(new Error(`query ${code}`), { code });
+}
 
 const sampleJwk: JWK = {
   kty: "EC",
@@ -279,17 +295,21 @@ describe("DIDWebResolver", () => {
   it("should reject when hostname resolves to a private IP (SSRF protection)", async () => {
     const dns = await import("node:dns");
     vi.spyOn(dns.promises, "resolve4").mockResolvedValue(["127.0.0.1"]);
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(dnsError("ENODATA"));
 
     await expect(resolver.resolve("did:web:evil.example.com")).rejects.toThrow("SSRF protection");
+    expect(mockPinnedFetch).not.toHaveBeenCalled();
   });
 
   it("should reject when DNS resolution fails", async () => {
     const dns = await import("node:dns");
-    vi.spyOn(dns.promises, "resolve4").mockRejectedValue(new Error("ENOTFOUND"));
+    vi.spyOn(dns.promises, "resolve4").mockRejectedValue(dnsError("ENOTFOUND"));
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(dnsError("ENOTFOUND"));
 
     await expect(resolver.resolve("did:web:nonexistent.example.com")).rejects.toThrow(
       "Failed to resolve hostname",
     );
+    expect(mockPinnedFetch).not.toHaveBeenCalled();
   });
 
   it("should resolve a valid did:web with mocked fetch", async () => {
@@ -298,12 +318,12 @@ describe("DIDWebResolver", () => {
 
     const dns = await import("node:dns");
     vi.spyOn(dns.promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(dnsError("ENODATA"));
 
-    const mockResponse = {
+    mockPinnedFetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue(expectedDoc),
-    };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    } as unknown as Response);
 
     const result = await resolver.resolve(did);
 
@@ -318,11 +338,12 @@ describe("DIDWebResolver", () => {
     expect(result.didResolutionMetadata.contentType).toBe("application/did+ld+json");
     expect(result.didDocumentMetadata).toEqual({});
 
-    // Verify fetch was called with correct URL and options
-    expect(fetch).toHaveBeenCalledWith(
+    // Verify the pinned fetch was called with the URL (hostname preserved
+    // for TLS validation) and the DNS-validated addresses.
+    expect(mockPinnedFetch).toHaveBeenCalledWith(
       "https://example.com/.well-known/did.json",
+      ["93.184.216.34"],
       expect.objectContaining({
-        redirect: "error",
         headers: { Accept: "application/did+ld+json, application/json" },
       }),
     );
@@ -331,12 +352,9 @@ describe("DIDWebResolver", () => {
   it("should reject when HTTP response is not ok", async () => {
     const dns = await import("node:dns");
     vi.spyOn(dns.promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(dnsError("ENODATA"));
 
-    const mockResponse = {
-      ok: false,
-      status: 404,
-    };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    mockPinnedFetch.mockResolvedValue({ ok: false, status: 404 } as unknown as Response);
 
     await expect(resolver.resolve("did:web:example.com")).rejects.toThrow("HTTP 404");
   });
@@ -344,13 +362,13 @@ describe("DIDWebResolver", () => {
   it("should reject when DID document ID does not match", async () => {
     const dns = await import("node:dns");
     vi.spyOn(dns.promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(dnsError("ENODATA"));
 
     const wrongDoc = generateDidWebDocument("did:web:wrong.com", sampleJwk);
-    const mockResponse = {
+    mockPinnedFetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue(wrongDoc),
-    };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    } as unknown as Response);
 
     await expect(resolver.resolve("did:web:example.com")).rejects.toThrow(
       "DID document ID mismatch",
@@ -360,16 +378,103 @@ describe("DIDWebResolver", () => {
   it("should reject when response is not valid JSON", async () => {
     const dns = await import("node:dns");
     vi.spyOn(dns.promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(dnsError("ENODATA"));
 
-    const mockResponse = {
+    mockPinnedFetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockRejectedValue(new SyntaxError("Unexpected token")),
-    };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    } as unknown as Response);
 
     await expect(resolver.resolve("did:web:example.com")).rejects.toThrow(
       "Failed to parse DID document",
     );
+  });
+});
+
+describe("DIDWebResolver — DNS rebinding (TOCTOU) protection", () => {
+  const resolver = new DIDWebResolver();
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("pins ALL DNS-validated addresses (A + AAAA) for the connection", async () => {
+    const did = "did:web:example.com";
+    const doc = generateDidWebDocument(did, sampleJwk);
+
+    const dns = await import("node:dns");
+    vi.spyOn(dns.promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
+    vi.spyOn(dns.promises, "resolve6").mockResolvedValue(["2606:2800:220:1:248:1893:25c8:1946"]);
+
+    mockPinnedFetch.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(doc),
+    } as unknown as Response);
+
+    await resolver.resolve(did);
+
+    // The fetch is pinned to exactly the addresses that passed the SSRF
+    // check — the transport (fetchWithPinnedIp) cannot connect anywhere else.
+    expect(mockPinnedFetch).toHaveBeenCalledTimes(1);
+    expect(mockPinnedFetch.mock.calls[0][1]).toEqual([
+      "93.184.216.34",
+      "2606:2800:220:1:248:1893:25c8:1946",
+    ]);
+  });
+
+  it("never issues an unpinned global fetch", async () => {
+    const did = "did:web:example.com";
+    const doc = generateDidWebDocument(did, sampleJwk);
+
+    const dns = await import("node:dns");
+    vi.spyOn(dns.promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(dnsError("ENODATA"));
+
+    const unpinnedFetch = vi.fn();
+    vi.stubGlobal("fetch", unpinnedFetch);
+    mockPinnedFetch.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(doc),
+    } as unknown as Response);
+
+    await resolver.resolve(did);
+
+    // A plain fetch(url) would re-resolve the hostname — the rebinding hole.
+    expect(unpinnedFetch).not.toHaveBeenCalled();
+    expect(mockPinnedFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-resolve DNS between validation and fetch (rebinding window closed)", async () => {
+    const did = "did:web:rebind.example.com";
+    const doc = generateDidWebDocument(did, sampleJwk);
+
+    const dns = await import("node:dns");
+    // Classic rebinding attacker: first answer is public (passes the SSRF
+    // check), every subsequent answer is the cloud metadata endpoint.
+    const resolve4 = vi
+      .spyOn(dns.promises, "resolve4")
+      .mockResolvedValueOnce(["93.184.216.34"])
+      .mockResolvedValue(["169.254.169.254"]);
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(dnsError("ENODATA"));
+
+    mockPinnedFetch.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(doc),
+    } as unknown as Response);
+
+    await resolver.resolve(did);
+
+    // DNS is consulted exactly once; the fetch is pinned to the address from
+    // that single validated resolution, so the attacker's rebound record is
+    // never used.
+    expect(resolve4).toHaveBeenCalledTimes(1);
+    expect(mockPinnedFetch.mock.calls[0][1]).toEqual(["93.184.216.34"]);
   });
 });
 
@@ -395,17 +500,16 @@ describe("verifyDidWeb", () => {
     doc: ReturnType<typeof generateDidWebDocument>,
   ): Promise<void> {
     const dns = await import("node:dns");
-    // `DIDWebResolver.resolveViaHttps` does `Promise.allSettled([resolve4,
-    // resolve6])`. We need to stub BOTH or the unstubbed call falls through
-    // to real DNS in CI, the SSRF check runs against actual public IPs, and
-    // `fetch` (also unstubbed in that path) hits the real network — making
-    // the test environment-dependent and flaky.
+    // `resolveDnsForSsrf` resolves BOTH families. We need to stub both or
+    // the unstubbed call falls through to real DNS in CI, making the test
+    // environment-dependent and flaky. The rejection must carry a benign
+    // DNS code (ENODATA) or the fail-closed logic blocks the resolution.
     vi.spyOn(dns.promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
-    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(new Error("no AAAA"));
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue(doc) }),
-    );
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(dnsError("ENODATA"));
+    mockPinnedFetch.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(doc),
+    } as unknown as Response);
   }
 
   it("returns accessible:true when the DID resolves and no key check is requested", async () => {
@@ -444,8 +548,8 @@ describe("verifyDidWeb", () => {
     const dns = await import("node:dns");
     // Reject BOTH DNS families so the SSRF guard doesn't fall through to a
     // real AAAA-only lookup in CI. See note in mockSuccessfulFetch.
-    vi.spyOn(dns.promises, "resolve4").mockRejectedValue(new Error("ENOTFOUND"));
-    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(new Error("ENOTFOUND"));
+    vi.spyOn(dns.promises, "resolve4").mockRejectedValue(dnsError("ENOTFOUND"));
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(dnsError("ENOTFOUND"));
 
     const result = await verifyDidWeb(did);
 
@@ -458,12 +562,12 @@ describe("verifyDidWeb", () => {
   it("does not crash and reports failure when the document has no verificationMethod", async () => {
     const dns = await import("node:dns");
     vi.spyOn(dns.promises, "resolve4").mockResolvedValue(["93.184.216.34"]);
-    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(new Error("no AAAA"));
+    vi.spyOn(dns.promises, "resolve6").mockRejectedValue(dnsError("ENODATA"));
     const docWithoutVm = { "@context": "https://www.w3.org/ns/did/v1", id: did };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue(docWithoutVm) }),
-    );
+    mockPinnedFetch.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(docWithoutVm),
+    } as unknown as Response);
 
     const result = await verifyDidWeb(did, { expectedPublicKey: sampleJwk });
 
