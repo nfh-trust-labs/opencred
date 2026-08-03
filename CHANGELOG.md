@@ -4,6 +4,43 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.10.0](https://github.com/nfh-trust-labs/opencred/compare/v1.9.1...v1.10.0) (2026-08-03)
+
+
+### Features
+
+* **dedi-client,shared:** serialise per-key status writes + honour Retry-After on 429 ([#687](https://github.com/nfh-trust-labs/opencred/issues/687)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **desktop:** app icon + Muesli-style DMG so the OpenCred logo ships ([#647](https://github.com/nfh-trust-labs/opencred/issues/647)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **desktop:** bundle brand fonts + macOS hiddenInset title bar ([#648](https://github.com/nfh-trust-labs/opencred/issues/648)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **desktop:** sequential #key-N did:web rotation (closes [#662](https://github.com/nfh-trust-labs/opencred/issues/662)) ([#665](https://github.com/nfh-trust-labs/opencred/issues/665)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **did,server:** stateless sequential #key-N did:web rotation (closes [#653](https://github.com/nfh-trust-labs/opencred/issues/653)) ([#663](https://github.com/nfh-trust-labs/opencred/issues/663)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **e2e:** credential-matrix harness — every valid cell issued + verified against the Docker image ([#685](https://github.com/nfh-trust-labs/opencred/issues/685)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* embed did.json snapshot on each key record, drop did-documents registry ([#671](https://github.com/nfh-trust-labs/opencred/issues/671)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **packaging:** drop OPENCRED1: prefix from QR payloads for MOSIP/Inji interop ([#645](https://github.com/nfh-trust-labs/opencred/issues/645)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690)), closes [#644](https://github.com/nfh-trust-labs/opencred/issues/644)
+* relicense under MIT and prepare the repo for open-sourcing ([#735](https://github.com/nfh-trust-labs/opencred/issues/735)) ([ddb0493](https://github.com/nfh-trust-labs/opencred/commit/ddb04931c93830a2de4c4091088bc9e8da928e8d))
+* **schema-engine:** embed IES ElectricityCredential v1.2 + MeterDataCredential v0.6 ([#698](https://github.com/nfh-trust-labs/opencred/issues/698)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690)), closes [#696](https://github.com/nfh-trust-labs/opencred/issues/696)
+* **server,signing:** Cloud HSM signers surface publicKeyJwk — unblocks DeDi key lifecycle for KMS ([#683](https://github.com/nfh-trust-labs/opencred/issues/683)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690)), closes [#675](https://github.com/nfh-trust-labs/opencred/issues/675)
+* **server:** GET /v1/keys/did-document for Path A self-hosters ([#643](https://github.com/nfh-trust-labs/opencred/issues/643)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **signing:** PKCS[#11](https://github.com/nfh-trust-labs/opencred/issues/11) and OS-cert signers surface publicKeyJwk ([#688](https://github.com/nfh-trust-labs/opencred/issues/688)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690)), closes [#676](https://github.com/nfh-trust-labs/opencred/issues/676)
+* **verification,desktop:** surface revocation reason in verifier UI ([#658](https://github.com/nfh-trust-labs/opencred/issues/658) Phase A) ([#667](https://github.com/nfh-trust-labs/opencred/issues/667)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+
+
+### Bug Fixes
+
+* **ci:** bound CI job runtime + stop 100k-row batch test starving the event loop ([#690](https://github.com/nfh-trust-labs/opencred/issues/690)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690)), closes [#693](https://github.com/nfh-trust-labs/opencred/issues/693)
+* **dedi-client,server:** repair did:web→DeDi resolution + rotation doc-landing (found via live DeDi) ([#692](https://github.com/nfh-trust-labs/opencred/issues/692)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **dedi-client:** document + harden setKeyStatus optimistic concurrency ([#666](https://github.com/nfh-trust-labs/opencred/issues/666)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **desktop:** rebuild native addons per target arch + fail builds on .node arch mismatch ([#699](https://github.com/nfh-trust-labs/opencred/issues/699)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690)), closes [#641](https://github.com/nfh-trust-labs/opencred/issues/641) [#642](https://github.com/nfh-trust-labs/opencred/issues/642)
+* **desktop:** restore package.json dependencies stripped by accident in [#703](https://github.com/nfh-trust-labs/opencred/issues/703) ([#704](https://github.com/nfh-trust-labs/opencred/issues/704)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **desktop:** route did:web rotate IPC through rotateDIDWeb ([#631](https://github.com/nfh-trust-labs/opencred/issues/631)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* production-readiness hardening — vc-jwt envelope verification, SDK totality, RSA boot, retry/shutdown fixes ([#684](https://github.com/nfh-trust-labs/opencred/issues/684)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **security:** close DNS-rebinding TOCTOU in all SSRF-checked fetches ([#742](https://github.com/nfh-trust-labs/opencred/issues/742)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **security:** pin resolved IPs for webhook delivery and DeDi API fetches ([#746](https://github.com/nfh-trust-labs/opencred/issues/746)) ([55e0b0f](https://github.com/nfh-trust-labs/opencred/commit/55e0b0f7ae5b5963e57cf621f250b52f62523c53))
+* **server:** rename unused `key` param in auto-publish test mocks ([#655](https://github.com/nfh-trust-labs/opencred/issues/655)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **signing,server:** override signer VM ID to did:web when method=web ([#632](https://github.com/nfh-trust-labs/opencred/issues/632)) ([#634](https://github.com/nfh-trust-labs/opencred/issues/634)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+* **templates:** escape and validate all SVG renderer interpolations (security HIGH-3) ([#743](https://github.com/nfh-trust-labs/opencred/issues/743)) ([04ab49e](https://github.com/nfh-trust-labs/opencred/commit/04ab49ee1a95a7c848dc751f1f988ad3f7b9dd76))
+* **verification:** algorithm coverage — PS256 vc-jwt allowlist + RSA/P-384/Ed25519 round-trip tests ([#686](https://github.com/nfh-trust-labs/opencred/issues/686)) ([b63a248](https://github.com/nfh-trust-labs/opencred/commit/b63a24863da94a1abf54a6587340e169b37c6690))
+
 ## [1.9.1](https://github.com/nfh-trust-labs/opencred/compare/v1.9.0...v1.9.1) (2026-07-03)
 
 ### Bug Fixes
