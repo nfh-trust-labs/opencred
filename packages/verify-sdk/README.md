@@ -138,7 +138,7 @@ One-shot helpers — equivalent to `createVerifier(options)(...)` but discard th
 
 ### `detectFormat(input)` → `CredentialFormat`
 
-Returns the detected wire format without verifying. Useful for routing. The `CredentialFormat` union is `"data-integrity" | "vc-jwt" | "sd-jwt-vc" | "jws"`. For PDF inputs and PixelPass QR data strings, the SDK decodes them before reaching `detectFormat` — call `verifyPdf` directly for PDFs, and pass the QR string straight to `verify(input)` to let the SDK route internally.
+Returns the detected wire format without verifying. Useful for routing. The `CredentialFormat` union is `"data-integrity" | "jws-2020" | "vc-jwt" | "sd-jwt-vc" | "jws"` — `"jws-2020"` is a JSON credential carrying a JsonWebSignature2020 embedded proof (detached JWS in `proof.jws`). For PDF inputs and PixelPass QR data strings, the SDK decodes them before reaching `detectFormat` — call `verifyPdf` directly for PDFs, and pass the QR string straight to `verify(input)` to let the SDK route internally.
 
 ## Result shape
 

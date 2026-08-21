@@ -1,6 +1,8 @@
 import { VerificationError, assertJwtSize } from "@opencred/shared";
 import type { VerifiableCredential } from "@opencred/vc-core";
+import { isCanonicalizingProofFormat } from "@opencred/crypto";
 import { verifyDataIntegrity } from "./data-integrity.js";
+import { verifyJws2020Proof } from "./jws-2020.js";
 import { verifyJwsProof } from "./jws-proof.js";
 import {
   verifyVcJwt,
@@ -36,6 +38,21 @@ import type {
 export function detectFormat(input: VerificationInput): CredentialFormat {
   if (typeof input === "object" && input !== null) {
     if ("proof" in input) {
+      const proof = (input as { proof?: unknown }).proof;
+      if (
+        typeof proof === "object" &&
+        proof !== null &&
+        (proof as Record<string, unknown>)["type"] === "JsonWebSignature2020" &&
+        typeof (proof as Record<string, unknown>)["jws"] === "string" &&
+        // The vc-jwt envelope shape (proof.jwt) takes precedence — a stray
+        // `jws` member on an envelope must not reroute classification, or
+        // detectFormat would diverge from verifyCredential's envelope-first
+        // dispatch and label a never-verified proof.jws as the operative
+        // signature.
+        typeof (proof as Record<string, unknown>)["jwt"] !== "string"
+      ) {
+        return "jws-2020";
+      }
       return "data-integrity";
     }
     throw new VerificationError(
@@ -118,9 +135,12 @@ export async function verifyCredential(
   let credentialStatus: Record<string, unknown> | undefined;
   let credentialForRevocationHash: unknown;
 
-  if (format === "data-integrity") {
+  if (isCanonicalizingProofFormat(format)) {
     const credential = input as unknown as VerifiableCredential;
-    const signatureCheck = await verifyDataIntegrity(credential, config.didResolver);
+    const signatureCheck =
+      format === "jws-2020"
+        ? await verifyJws2020Proof(credential, config.didResolver)
+        : await verifyDataIntegrity(credential, config.didResolver);
     checks.push(signatureCheck);
 
     if (!signatureCheck.passed) {
@@ -300,7 +320,7 @@ export async function verifyCredential(
   // nfh-trust-labs/opencred#316. Credentials without `x5c` (e.g. did:web with
   // self-published keys) are unaffected — the check returns passed without
   // requiring trust anchors.
-  if (format === "data-integrity") {
+  if (isCanonicalizingProofFormat(format)) {
     const x509Check = await checkX509Chain(input as Record<string, unknown>, {
       didResolver: config.didResolver,
       trustAnchors: config.trustAnchors,

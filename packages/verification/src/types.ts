@@ -34,7 +34,7 @@ export interface CredentialVerificationResult {
 /**
  * Supported credential formats for verification.
  */
-export type CredentialFormat = "data-integrity" | "vc-jwt" | "sd-jwt-vc" | "jws";
+export type CredentialFormat = "data-integrity" | "jws-2020" | "vc-jwt" | "sd-jwt-vc" | "jws";
 
 /**
  * Configuration for the verification engine.

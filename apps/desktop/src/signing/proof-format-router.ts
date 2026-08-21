@@ -1,9 +1,9 @@
 /**
  * Proof format router — central routing for two-phase signing across all proof formats.
  *
- * Routes the UI's 3-value proof format choice ("vc-jwt" | "data-integrity" | "sd-jwt-vc")
- * to the correct crypto functions. "data-integrity" auto-selects ecdsa-rdfc-2019 or
- * eddsa-rdfc-2022 based on the signer's algorithm.
+ * Routes the UI's proof format choice ("vc-jwt" | "data-integrity" | "jws-2020" |
+ * "sd-jwt-vc") to the correct crypto functions. "data-integrity" auto-selects
+ * ecdsa-rdfc-2019 or eddsa-rdfc-2022 based on the signer's algorithm.
  *
  * SECURITY INVARIANTS:
  *  - The private key never leaves the issuer's machine.
@@ -19,6 +19,8 @@ import {
   completeProof,
   prepareEdDsaProof,
   completeEdDsaProof,
+  prepareJws2020Proof,
+  completeJws2020Proof,
   prepareSdJwtVcProof,
   completeSdJwtVcProof,
 } from "@opencred/crypto";
@@ -71,6 +73,8 @@ export async function signWithFormat(
       return signVcJwt(signer, unsignedCredential, options);
     case "data-integrity":
       return signDataIntegrity(signer, unsignedCredential, options);
+    case "jws-2020":
+      return signJws2020(signer, unsignedCredential, options);
     case "sd-jwt-vc":
       return signSdJwtVc(signer, unsignedCredential, options);
     default:
@@ -145,6 +149,28 @@ async function signDataIntegrity(
     const signatureBytes = await signer.sign(dataToSign);
     signedCredential = completeProof(unsignedCredential, proofConfig, signatureBytes);
   }
+
+  return {
+    signedOutput: JSON.stringify(signedCredential),
+    isCompactToken: false,
+  };
+}
+
+/**
+ * JsonWebSignature2020 two-phase signing — detached RFC 7797 JWS embedded
+ * proof. Works with all key algorithms (ES256/ES384/EdDSA/PS256).
+ */
+async function signJws2020(
+  signer: Signer,
+  unsignedCredential: UnsignedCredential,
+  options: SignWithFormatOptions,
+): Promise<SignWithFormatResult> {
+  const prepared = await prepareJws2020Proof(unsignedCredential, signer.algorithm, {
+    verificationMethod: options.verificationMethod,
+    proofPurpose: "assertionMethod",
+  });
+  const signatureBytes = await signer.sign(prepared.dataToSign);
+  const signedCredential = completeJws2020Proof(prepared, signatureBytes);
 
   return {
     signedOutput: JSON.stringify(signedCredential),

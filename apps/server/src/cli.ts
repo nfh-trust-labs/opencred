@@ -31,6 +31,8 @@ import {
   completeProof,
   prepareEdDsaProof,
   completeEdDsaProof,
+  prepareJws2020Proof,
+  completeJws2020Proof,
   prepareSdJwtVcProof,
   completeSdJwtVcProof,
   sha256Hex,
@@ -171,7 +173,7 @@ function buildCustomization(opts: {
   return customization;
 }
 
-type CliProofFormat = "vc-jwt" | "data-integrity" | "sd-jwt-vc";
+type CliProofFormat = "vc-jwt" | "data-integrity" | "jws-2020" | "sd-jwt-vc";
 
 async function signCredential(
   unsigned: UnsignedCredential,
@@ -219,6 +221,18 @@ async function signCredential(
         signedCredential = completeProof(unsigned, proofConfig, signatureBytes);
       }
 
+      return JSON.stringify(signedCredential, null, 2);
+    }
+
+    case "jws-2020": {
+      // JsonWebSignature2020 embedded proof — detached RFC 7797 JWS over the
+      // canonicalized credential. Works with all key algorithms.
+      const prepared = await prepareJws2020Proof(unsigned, signer.algorithm, {
+        verificationMethod: signer.id,
+        proofPurpose: "assertionMethod",
+      });
+      const signatureBytes = await signer.sign(prepared.dataToSign);
+      const signedCredential = completeJws2020Proof(prepared, signatureBytes);
       return JSON.stringify(signedCredential, null, 2);
     }
 
@@ -464,7 +478,11 @@ export function createProgram(): Command {
     .requiredOption("--schema <id>", "Schema ID to validate against")
     .requiredOption("--input <file>", "JSON file with credentialSubject data")
     .requiredOption("--key <pem-path>", "Path to signing key file (PEM/JWK/PFX)")
-    .option("--proof-format <format>", "Proof format: vc-jwt, data-integrity, sd-jwt-vc", "vc-jwt")
+    .option(
+      "--proof-format <format>",
+      "Proof format: vc-jwt, data-integrity, jws-2020, sd-jwt-vc",
+      "vc-jwt",
+    )
     .requiredOption("--output <file>", "Output file path for the signed credential")
     .option("--primary-color <hex>", "Primary branding color (e.g. #1a56db)")
     .option("--logo <file>", "Path to issuer logo image file (PNG/JPG/SVG)")
@@ -579,7 +597,11 @@ export function createProgram(): Command {
     .requiredOption("--input <csv-file>", "CSV file with credential data")
     .requiredOption("--key <pem-path>", "Path to signing key file (PEM/JWK/PFX)")
     .requiredOption("--output-dir <dir>", "Output directory for issued credentials")
-    .option("--proof-format <format>", "Proof format: vc-jwt, data-integrity, sd-jwt-vc", "vc-jwt")
+    .option(
+      "--proof-format <format>",
+      "Proof format: vc-jwt, data-integrity, jws-2020, sd-jwt-vc",
+      "vc-jwt",
+    )
     .option("--primary-color <hex>", "Primary branding color (e.g. #1a56db)")
     .option("--logo <file>", "Path to issuer logo image file (PNG/JPG/SVG)")
     .option("--issuer-name <name>", "Issuer display name (overrides DID in output)")

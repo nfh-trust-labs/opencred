@@ -163,7 +163,7 @@ All of this happens **on the VM**, not on your laptop.
 > modify the server before issuing, see the optional "Building from
 > source" callout right after the `docker pull` step.
 
-Generate a signing key. EC P-256 supports all three proof formats:
+Generate a signing key. EC P-256 supports all four proof formats:
 
 ```
 VM$ mkdir -p ~/keys
@@ -386,7 +386,7 @@ LOCAL$ jq -n --arg c "$(jq -r '.credential.proof.jwt' credential.json)" '{creden
     -d @- | jq
 ```
 
-`vc-jwt` is the server's default and works with every bundled schema. Repeat the issue call with `"proofFormat": "data-integrity"` or `"proofFormat": "sd-jwt-vc"` (and `selectiveDisclosureClaims: ["/credentialSubject/role"]` for the latter) to see the other two formats; `data-integrity` requires a JSON-LD context that does not redefine W3C-protected terms, otherwise the server returns `CRYPTO_ERROR`.
+`vc-jwt` is the server's default and works with every bundled schema. Repeat the issue call with `"proofFormat": "data-integrity"`, `"proofFormat": "jws-2020"`, or `"proofFormat": "sd-jwt-vc"` (and `selectiveDisclosureClaims: ["/credentialSubject/role"]` for the last) to see the other formats; `data-integrity` requires a JSON-LD context that does not redefine W3C-protected terms, otherwise the server returns `CRYPTO_ERROR`.
 
 The tamper test is the same — flip a byte of `credentialSubject.name` and
 re-verify. `valid: true` becomes `valid: false`.
@@ -457,7 +457,7 @@ inline package)**.
 the last issue request returned (object for data-integrity / vc-jwt,
 compact string for sd-jwt-vc).
 
-#### Works with all three proof formats
+#### Works with all four proof formats
 
 | `proofFormat` | `credential` shape in the request | What the QR encodes |
 |---|---|---|

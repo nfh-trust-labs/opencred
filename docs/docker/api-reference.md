@@ -799,12 +799,12 @@ The request is parsed by `issueRequestSchema` in `apps/server/src/routes/credent
 {
   schemaId?: string;                // optional when inlineSchema is set
   inlineSchema?: Record<string, unknown>; // optional pasted JSON Schema
-  inlineContext?: Record<string, unknown>; // optional JSON-LD context for data-integrity
+  inlineContext?: Record<string, unknown>; // optional JSON-LD context for data-integrity / jws-2020
   issuerDid: string;
   credentialSubject: Record<string, unknown>;
   validFrom: string;
   validUntil?: string;
-  proofFormat?: "vc-jwt" | "data-integrity" | "sd-jwt-vc";  // default "vc-jwt"
+  proofFormat?: "vc-jwt" | "data-integrity" | "jws-2020" | "sd-jwt-vc";  // default "vc-jwt"
   additionalTypes?: string[];
   subjectDid?: string;
   selectiveDisclosureClaims?: string[];
@@ -823,18 +823,18 @@ The request is parsed by `issueRequestSchema` in `apps/server/src/routes/credent
 |---|---|---|---|
 | `schemaId` | `string` | Yes (unless `inlineSchema` set) | Built-in schema id (e.g. `functional-identity/v1`, `electricity/v1`, `ies/electricity-credential/v1.2`, `ies/meter-data-credential/v0.6`, `open-badges/v3`, `traceability/commercial-invoice/v1`). Use `GET /v1/schemas` to list all available ids. The `credentialSubject` is validated against this schema. |
 | `inlineSchema` | `object` | Yes (unless `schemaId` set) | A pasted JSON Schema document. The server compiles it ad-hoc and validates `credentialSubject` against it without registry lookup. Supports both subject-only and full W3C VC 2.0 envelope schemas (with `properties.credentialSubject`). The schema's `$schema` declaration is stripped before compilation so subject-only schemas declaring Draft 2020-12 still validate under Ajv 8 defaults. |
-| `inlineContext` | `object` | No | A JSON-LD context document attached to the credential when `proofFormat=data-integrity`. Required (or supply `credentialSchemaUrl` to a context) for inline-schema credentials with `data-integrity` — RDFC-1.0 safe mode rejects undefined terms. `vc-jwt` and `sd-jwt-vc` ignore this field. |
+| `inlineContext` | `object` | No | A JSON-LD context document attached to the credential when `proofFormat` is `data-integrity` or `jws-2020` (both canonicalize the credential). Required (or supply `credentialSchemaUrl` to a context) for inline-schema credentials with those formats — RDFC-1.0 safe mode rejects undefined terms. `vc-jwt` and `sd-jwt-vc` ignore this field. |
 | `issuerDid` | `string` | Yes | The issuer's DID. Must match the `id` of the active signer (the server uses the active signer regardless, but downstream verifiers will compare these). |
 | `credentialSubject` | `object` | Yes | The credential claims. Validated against the JSON Schema bound to `schemaId`. |
 | `validFrom` | `string` | Yes | ISO-8601 timestamp marking the start of the credential's validity. |
 | `validUntil` | `string` | No | ISO-8601 timestamp for expiry. |
-| `proofFormat` | `string` | No (default `vc-jwt`) | Proof format. `data-integrity` is **not** supported with RSA keys (returns `500 CRYPTO_ERROR` — use `vc-jwt` or `sd-jwt-vc` instead). |
+| `proofFormat` | `string` | No (default `vc-jwt`) | Proof format. `data-integrity` is **not** supported with RSA keys (returns `500 CRYPTO_ERROR` — use `vc-jwt`, `jws-2020`, or `sd-jwt-vc` instead). `jws-2020` produces a JsonWebSignature2020 embedded proof with a detached RFC 7797 JWS (`proof.jws = "<header>..<signature>"`, header `{"alg", "b64": false, "crit": ["b64"]}`) and works with **all** key algorithms; the JWS-2020 suite context is appended to `@context` automatically. |
 | `additionalTypes` | `string[]` | No | Extra `type` values to add to the credential beyond `VerifiableCredential`. |
 | `subjectDid` | `string` | No | Subject DID. When set, written to `credentialSubject.id`. |
 | `selectiveDisclosureClaims` | `string[]` | No | JSON pointer-style paths into `credentialSubject` whose values become selectively disclosable when `proofFormat=sd-jwt-vc`. |
 | `revocationRegistryUrl` | `string` | No | URL of a DeDi status list. When set, the server generates a `urn:uuid:` credential id, computes a SHA-256 revocation hash from the UUID, and adds a `credentialStatus` block of type `dedi`. |
 | `credentialSchemaUrl` | `string` | No | URL of an external JSON Schema. When set, written to the credential's `credentialSchema` field with `type: "JsonSchema"`. |
-| `packageFormats` | `string[]` | No | Optional packaging formats to render alongside the signed credential. Works with all three `proofFormat` values, including `sd-jwt-vc` — for compact tokens the QR embeds the raw token verbatim and the PDF layout is driven by the decoded JWT payload. |
+| `packageFormats` | `string[]` | No | Optional packaging formats to render alongside the signed credential. Works with all four `proofFormat` values, including `sd-jwt-vc` — for compact tokens the QR embeds the raw token verbatim and the PDF layout is driven by the decoded JWT payload. |
 
 **Security: `rejectKeyMaterial()` defense-in-depth check**
 
@@ -848,7 +848,7 @@ This is in addition to Zod schema parsing — Zod silently drops unknown fields,
 
 **Response: `200 OK`**
 
-For `vc-jwt` and `data-integrity` (JSON credentials):
+For `vc-jwt`, `data-integrity`, and `jws-2020` (JSON credentials):
 
 ```json
 {
@@ -889,7 +889,7 @@ For `sd-jwt-vc` (compact token):
 
 | Field | Type | Description |
 |---|---|---|
-| `credential` | `object` _or_ `string` | The signed credential. An object for `vc-jwt` and `data-integrity`; a compact string token for `sd-jwt-vc`. |
+| `credential` | `object` _or_ `string` | The signed credential. An object for `vc-jwt`, `data-integrity`, and `jws-2020`; a compact string token for `sd-jwt-vc`. |
 | `proofFormat` | `string` | Echoes the requested proof format. |
 | `isCompactToken` | `boolean` | `true` only when `proofFormat=sd-jwt-vc`. |
 | `packagedOutputs` | `array` _(optional)_ | Present only when `packageFormats` was set. Each entry: `{ format, data, mimeType, suggestedFileName, encoding }`. Binary outputs (PDF, PNG) are base64-encoded. |
@@ -922,7 +922,7 @@ curl -s http://localhost:3100/v1/credentials/issue \
 | `400` | `VALIDATION_ERROR` | The request body failed Zod parsing, contained a forbidden key, or contained a PEM string. The response includes `details[]` for Zod errors. |
 | `400` | `SCHEMA_VALIDATION_ERROR` | `credentialSubject` did not satisfy the JSON Schema bound to `schemaId`. The response includes a `validationErrors` array. |
 | `401` | `AUTHENTICATION_ERROR` | Missing, malformed, or invalid `Authorization` header. |
-| `500` | `CRYPTO_ERROR` | `proofFormat=data-integrity` was requested with an RSA key. Switch to `vc-jwt` or `sd-jwt-vc`. |
+| `500` | `CRYPTO_ERROR` | `proofFormat=data-integrity` was requested with an RSA key. Switch to `vc-jwt`, `jws-2020`, or `sd-jwt-vc`. |
 | `500` | `INTERNAL_ERROR` | Any unhandled error. The original error is logged but not echoed to the response. |
 
 Example `400 VALIDATION_ERROR` body when a private key field is smuggled in:
@@ -1153,7 +1153,7 @@ Starts a batch-issuance job from a CSV payload. Returns a `jobId` immediately an
   issuerDid: string;
   validFrom: string;
   validUntil?: string;
-  proofFormat?: "vc-jwt" | "data-integrity" | "sd-jwt-vc";  // default "vc-jwt"
+  proofFormat?: "vc-jwt" | "data-integrity" | "jws-2020" | "sd-jwt-vc";  // default "vc-jwt"
   additionalTypes?: string[];
   revocationRegistryUrl?: string;  // must be a valid URL
   credentialSchemaUrl?: string;    // must be a valid URL

@@ -4,6 +4,7 @@ import { CredentialBuilder, isValidSubjectUri } from "../credential-builder.js";
 import {
   W3C_CREDENTIALS_V2_CONTEXT,
   DATA_INTEGRITY_V1_CONTEXT,
+  JWS_2020_V1_CONTEXT,
   TRACEABILITY_V1_CONTEXT,
 } from "../types.js";
 import { createDocumentLoader, getBundledContextUrls } from "../document-loader.js";
@@ -1076,11 +1077,12 @@ describe("Document Loader", () => {
 
     expect(urls).toContain(W3C_CREDENTIALS_V2_CONTEXT);
     expect(urls).toContain(DATA_INTEGRITY_V1_CONTEXT);
-    // v1 schema library: 2 base (W3C credentials, Data Integrity) + 2
-    // upstream (Open Badges 3.0, Traceability v1) + 8 OpenCred-defined
-    // credential contexts (electricity, immunization, prescription,
-    // test-result, insurance-policy, functional-identity,
+    expect(urls).toContain(JWS_2020_V1_CONTEXT);
+    // v1 schema library: 3 base (W3C credentials, Data Integrity, JWS-2020
+    // suite) + 2 upstream (Open Badges 3.0, Traceability v1) + 8
+    // OpenCred-defined credential contexts (electricity, immunization,
+    // prescription, test-result, insurance-policy, functional-identity,
     // employment-offer-letter, business-entity).
-    expect(urls.size).toBe(12);
+    expect(urls.size).toBe(13);
   });
 });

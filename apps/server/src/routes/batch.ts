@@ -224,7 +224,7 @@ const batchRequestSchema = z.object({
   issuerDid: z.string(),
   validFrom: z.string(),
   validUntil: z.string().optional(),
-  proofFormat: z.enum(["vc-jwt", "data-integrity", "sd-jwt-vc"]).default("vc-jwt"),
+  proofFormat: z.enum(["vc-jwt", "data-integrity", "jws-2020", "sd-jwt-vc"]).default("vc-jwt"),
   additionalTypes: z.array(z.string()).optional(),
   revocationRegistryUrl: z.string().url().optional(),
   credentialSchemaUrl: z.string().url().optional(),

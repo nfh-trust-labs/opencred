@@ -216,6 +216,49 @@
           }
         },
         {
+          "name": "POST /v1/credentials/issue (jws-2020)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.credential) {",
+                  "    // vc-jwt: credential is a JSON-LD object whose proof.jwt holds the",
+                  "    //   compact JWS — the verify endpoint wants just that JWT string.",
+                  "    // sd-jwt-vc: credential is already a compact ~-delimited string.",
+                  "    // data-integrity: credential is the JSON-LD VC; stringify wholesale.",
+                  "    let asString;",
+                  "    if (typeof body.credential === 'string') {",
+                  "        asString = body.credential;",
+                  "    } else if (body.credential.proof && typeof body.credential.proof.jwt === 'string') {",
+                  "        asString = body.credential.proof.jwt;",
+                  "    } else {",
+                  "        asString = JSON.stringify(body.credential);",
+                  "    }",
+                  "    pm.collectionVariables.set('lastCredential', asString);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schemaId\": \"functional-identity/v1\",\n  \"issuerDid\": \"{{issuerDid}}\",\n  \"credentialSubject\": {\n    \"name\": \"Jane Doe\",\n    \"role\": \"Bootcamp Attendee\",\n    \"validFrom\": \"2026-04-27T00:00:00Z\"\n  },\n  \"validFrom\": \"2026-04-27T00:00:00Z\",\n  \"proofFormat\": \"jws-2020\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/credentials/issue",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "credentials", "issue"]
+            },
+            "description": "Issue a JSON-LD VC with a JsonWebSignature2020 embedded proof (`proofFormat: jws-2020`). The credential stays plain JSON and `proof.jws` carries a detached RFC 7797 JWS (`<header>..<signature>`, header `{\"alg\", \"b64\": false, \"crit\": [\"b64\"]}`). Works with **all** key algorithms, including RSA. The JWS-2020 suite context is appended to `@context` automatically."
+          }
+        },
+        {
           "name": "POST /v1/credentials/issue (sd-jwt-vc, selective disclosure)",
           "event": [
             {

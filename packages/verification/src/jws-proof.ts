@@ -51,7 +51,17 @@ export async function verifyJwsProof(
 
   let header: Record<string, unknown>;
   try {
-    header = JSON.parse(Buffer.from(parts[0], "base64url").toString());
+    // JSON.parse can succeed with non-object values (null in particular
+    // would make the property accesses below throw).
+    const parsed: unknown = JSON.parse(Buffer.from(parts[0], "base64url").toString());
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {
+        name: "signature",
+        passed: false,
+        detail: "JWS protected header is not a JSON object",
+      };
+    }
+    header = parsed as Record<string, unknown>;
   } catch {
     return { name: "signature", passed: false, detail: "Failed to decode JWS protected header" };
   }

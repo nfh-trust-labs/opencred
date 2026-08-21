@@ -24,9 +24,23 @@
 
 import { z } from "zod";
 import { isValidSubjectUri } from "@opencred/vc-core";
+import type { UiProofFormat } from "./ipc-types.js";
 
-/** Mirror of `UiProofFormat` from ipc-types.ts. */
-const uiProofFormatSchema = z.enum(["vc-jwt", "data-integrity", "sd-jwt-vc"]);
+/**
+ * Mirror of `UiProofFormat` from ipc-types.ts. The mapped record forces
+ * compile-time exhaustiveness both ways — adding a member to UiProofFormat
+ * without listing it here (or vice versa) is a type error, not a silent
+ * runtime IPC rejection.
+ */
+const UI_PROOF_FORMAT_VALUES: { [K in UiProofFormat]: K } = {
+  "vc-jwt": "vc-jwt",
+  "data-integrity": "data-integrity",
+  "jws-2020": "jws-2020",
+  "sd-jwt-vc": "sd-jwt-vc",
+};
+const uiProofFormatSchema = z.enum(
+  Object.values(UI_PROOF_FORMAT_VALUES) as [UiProofFormat, ...UiProofFormat[]],
+);
 
 /**
  * Zod schema for `BuildAndSignRequest`. Field-by-field mirror of the

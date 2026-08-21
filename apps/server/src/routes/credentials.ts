@@ -27,6 +27,9 @@ import {
   completeProof,
   prepareEdDsaProof,
   completeEdDsaProof,
+  prepareJws2020Proof,
+  completeJws2020Proof,
+  isCanonicalizingProofFormat,
   prepareSdJwtVcProof,
   completeSdJwtVcProof,
 } from "@opencred/crypto";
@@ -320,7 +323,7 @@ const issueRequestSchema = z
     credentialSubject: z.record(z.unknown()),
     validFrom: z.string(),
     validUntil: z.string().optional(),
-    proofFormat: z.enum(["vc-jwt", "data-integrity", "sd-jwt-vc"]).default("vc-jwt"),
+    proofFormat: z.enum(["vc-jwt", "data-integrity", "jws-2020", "sd-jwt-vc"]).default("vc-jwt"),
     additionalTypes: z.array(z.string()).optional(),
     // HIGH-02: reject `credentialSubject.id` values whose URI scheme is not
     // one of `did:*`, `urn:uuid:*`, or `https://*` before they reach the
@@ -446,15 +449,16 @@ credentials.post("/credentials/issue", async (c) => {
   }
   builder.setCredentialSubject(subject);
 
-  // Add JSON-LD context for Data Integrity proofs (required for RDFC-1.0
-  // canonicalization with safe mode). VC-JWT and SD-JWT-VC don't need this —
-  // fields are preserved as-is in the JWT payload.
+  // Add JSON-LD context for canonicalizing proof formats (required for
+  // RDFC-1.0 canonicalization with safe mode) — both Data Integrity and
+  // JWS-2020 canonicalize the credential. VC-JWT and SD-JWT-VC don't need
+  // this — fields are preserved as-is in the JWT payload.
   //
   // Priority for inline-schema credentials:
   //   1. parsed.inlineContext  — caller pasted a context alongside the schema
   //   2. registry context for schemaId (when schemaId is in the registry)
   // Without a context, RDFC-1.0 safe mode will reject undefined terms.
-  if (parsed.proofFormat === "data-integrity") {
+  if (isCanonicalizingProofFormat(parsed.proofFormat)) {
     if (parsed.inlineContext) {
       builder.addContext(parsed.inlineContext);
     } else if (parsed.schemaId) {
@@ -618,6 +622,22 @@ credentials.post("/credentials/issue", async (c) => {
         signedCredential = completeProof(unsigned, proofConfig, signatureBytes);
       }
 
+      signedOutput = JSON.stringify(signedCredential);
+      break;
+    }
+
+    case "jws-2020": {
+      // JsonWebSignature2020 embedded proof — detached RFC 7797 JWS over the
+      // canonicalized credential. Works with all key algorithms (ES256/ES384/
+      // EdDSA/PS256). The signed document may gain the JWS-2020 suite context
+      // in `@context`, so the credential comes from completeJws2020Proof's
+      // prepared document, never the pre-preparation `unsigned` object.
+      const prepared = await prepareJws2020Proof(unsigned, signer.algorithm, {
+        verificationMethod: signer.id,
+        proofPurpose: "assertionMethod",
+      });
+      const signatureBytes = await signer.sign(prepared.dataToSign);
+      const signedCredential = completeJws2020Proof(prepared, signatureBytes);
       signedOutput = JSON.stringify(signedCredential);
       break;
     }

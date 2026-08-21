@@ -55,7 +55,7 @@ A headless HTTP API server built on Hono, designed to run as a Docker container 
 
 ### `@opencred/crypto`
 
-Cryptographic primitives for key generation, signing, and proof construction. Supports ECDSA (P-256, P-384), EdDSA (Ed25519), and RSA (2048, 3072, 4096). Provides functions for VC-JWT, Data Integrity, and SD-JWT-VC proof preparation and completion. Includes JCS canonicalization and revocation hash computation.
+Cryptographic primitives for key generation, signing, and proof construction. Supports ECDSA (P-256, P-384), EdDSA (Ed25519), and RSA (2048, 3072, 4096). Provides functions for VC-JWT, Data Integrity, JWS-2020 (JsonWebSignature2020), and SD-JWT-VC proof preparation and completion. Includes JCS canonicalization and revocation hash computation.
 
 ### `@opencred/vc-core`
 
@@ -75,7 +75,7 @@ Provides a `CompositeDIDResolver` that routes resolution by method prefix.
 
 Composite credential verification engine. Runs a pipeline of checks:
 
-- Signature verification (VC-JWT, Data Integrity, SD-JWT-VC)
+- Signature verification (VC-JWT, Data Integrity, JWS-2020, SD-JWT-VC)
 - Date validation (validFrom/validUntil)
 - X.509 certificate chain validation (for DSC-backed credentials)
 - Revocation status check (via DeDi or Bitstring Status List)
