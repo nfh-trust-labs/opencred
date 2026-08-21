@@ -1,6 +1,6 @@
 # JWS-2020 proof format — implementation notes
 
-*2026-08-21 · branch `claude/jws-support-484508` · commit `1afcce58` (not yet pushed)*
+*2026-08-21 · branch `claude/jws-support-484508` · commit `54960264` · PR: https://github.com/nfh-trust-labs/opencred/pull/751*
 *Context: DigiLocker integration request forwarded by Srikanth (Fwd: FW: Re:Digilocker Integration fixes, 2026-08-20)*
 
 ## What was built
@@ -85,3 +85,18 @@ issuance failed with a safe-mode canonicalization error.
   hosted context and omit/set `credentialSchemaUrl` accordingly. If they want the
   `india-energy-stack.github.io` context bundled, that's a schema-engine pin update.
 - Reply email to Srikanth/DigiLocker still to be sent (draft on request).
+
+## Post-review addendum (high-effort /code-review before PR)
+
+10 confirmed findings; 7 fixed in the amended commit: desktop IPC zod enum was
+missing jws-2020 (feature DOA on desktop — now compile-time-guarded via an
+exhaustive mapped record), null-JSON header crash (500 DoS on verify — fixed in
+both the jws-2020 and pre-existing compact-JWS verifiers), base64url signature
+malleability, detectFormat envelope-precedence divergence, PDF branch type
+guard, bootcamp/architecture doc misses, and a shared
+`isCanonicalizingProofFormat` predicate replacing five inline gates.
+3 deferred as follow-ups (listed in the PR): verifier's whitelist proof-config
+rebuild drops external issuers' extra signed fields (nonce/expires — pending
+DigiLocker's actual proof shape), five-site signing-block dedup (pre-existing
+pattern across all formats), delegating detached-JWS verify to jose
+flattenedVerify.

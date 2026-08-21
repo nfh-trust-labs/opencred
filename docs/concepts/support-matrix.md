@@ -13,7 +13,7 @@ The contract for what OpenCred can issue and verify, across both products (Deskt
 
 **Why RSA × data-integrity is excluded**: the supported Data Integrity cryptosuites (`ecdsa-rdfc-2019`, `eddsa-rdfc-2022`) have no RSA variant. The issuance endpoint rejects the combination with a clear error; RSA issuers use `vc-jwt`, `jws-2020`, or `sd-jwt-vc`.
 
-**Note on `jws-2020`**: the JsonWebSignature2020 embedded proof (added for DigiLocker-style verifiers) is not yet part of the nightly E2E matrix harness — coverage lives in the package/integration test suites.
+**Note on `jws-2020`**: the JsonWebSignature2020 embedded proof is not yet part of the nightly E2E matrix harness — coverage lives in the package/integration test suites.
 
 ## Issuer identity (DID method) × key type
 

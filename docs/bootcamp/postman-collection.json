@@ -255,7 +255,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["v1", "credentials", "issue"]
             },
-            "description": "Issue a JSON-LD VC with a JsonWebSignature2020 embedded proof (`proofFormat: jws-2020`). The credential stays plain JSON and `proof.jws` carries a detached RFC 7797 JWS (`<header>..<signature>`, header `{\"alg\", \"b64\": false, \"crit\": [\"b64\"]}`). Works with **all** key algorithms, including RSA. The JWS-2020 suite context is appended to `@context` automatically. Required by DigiLocker-style verifiers."
+            "description": "Issue a JSON-LD VC with a JsonWebSignature2020 embedded proof (`proofFormat: jws-2020`). The credential stays plain JSON and `proof.jws` carries a detached RFC 7797 JWS (`<header>..<signature>`, header `{\"alg\", \"b64\": false, \"crit\": [\"b64\"]}`). Works with **all** key algorithms, including RSA. The JWS-2020 suite context is appended to `@context` automatically."
           }
         },
         {

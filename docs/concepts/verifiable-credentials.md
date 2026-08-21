@@ -60,7 +60,7 @@ OpenCred supports four proof formats. The choice affects compatibility, key type
 
 * **Data Integrity** uses the [W3C Data Integrity 1.0](https://www.w3.org/TR/vc-data-integrity/) framework with the `ecdsa-rdfc-2019` or `eddsa-rdfc-2022` cryptosuite. RSA is not supported in this format.
 * **VC-JWT** wraps the credential as a JWT signed by the issuer's key. It is the default format because it works with every algorithm OpenCred supports.
-* **JWS 2020** ([JsonWebSignature2020](https://www.w3.org/community/reports/credentials/CG-FINAL-lds-jws2020-20220721/)) embeds a proof whose `jws` field is a detached RFC 7797 JWS (`<header>..<signature>`, header `{"alg", "b64": false, "crit": ["b64"]}`) over the RDFC-1.0-canonicalized credential. Works with every algorithm. Some existing verifier ecosystems (e.g. DigiLocker) require this shape. The suite context `https://w3id.org/security/suites/jws-2020/v1` is bundled and appended to `@context` automatically at issuance.
+* **JWS 2020** ([JsonWebSignature2020](https://www.w3.org/community/reports/credentials/CG-FINAL-lds-jws2020-20220721/)) embeds a proof whose `jws` field is a detached RFC 7797 JWS (`<header>..<signature>`, header `{"alg", "b64": false, "crit": ["b64"]}`) over the RDFC-1.0-canonicalized credential. Works with every algorithm. Some existing verifier ecosystems require this shape. The suite context `https://w3id.org/security/suites/jws-2020/v1` is bundled and appended to `@context` automatically at issuance.
 * **SD-JWT VC** ([IETF draft](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/)) supports selective disclosure: the issuer marks claims as selectively disclosable, and the holder reveals only chosen claims to a verifier.
 
 The implementation lives in `packages/crypto`:

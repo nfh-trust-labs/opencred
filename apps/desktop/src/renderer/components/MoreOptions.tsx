@@ -33,7 +33,7 @@ const PROOF_FORMAT_HINTS: Record<UiProofFormat, string> = {
   "vc-jwt": "Most widely supported format. Works with standard JWT libraries.",
   "data-integrity": "Uses JSON-LD canonicalization. Required for linked data ecosystems.",
   "jws-2020":
-    "JsonWebSignature2020 embedded proof with a detached JWS. Used by DigiLocker-style verifiers.",
+    "JsonWebSignature2020 embedded proof with a detached JWS. Required by some verifier ecosystems.",
   "sd-jwt-vc": "Allows holders to selectively disclose individual fields.",
 };
 
