@@ -86,7 +86,7 @@ export async function verifyDataIntegrity(
  * in the resolved DID document, this function returns `undefined` — there is
  * NO fallback to credential-controlled data.
  */
-async function resolvePublicKeyFromVerificationMethod(
+export async function resolvePublicKeyFromVerificationMethod(
   verificationMethod: string,
   didResolver?: DIDResolver,
 ): Promise<KeyObject | undefined> {

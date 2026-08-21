@@ -25,12 +25,15 @@ interface MoreOptionsProps {
 const PROOF_FORMAT_LABELS: Record<UiProofFormat, string> = {
   "vc-jwt": "VC-JWT",
   "data-integrity": "Data Integrity",
+  "jws-2020": "JWS 2020",
   "sd-jwt-vc": "SD-JWT-VC",
 };
 
 const PROOF_FORMAT_HINTS: Record<UiProofFormat, string> = {
   "vc-jwt": "Most widely supported format. Works with standard JWT libraries.",
   "data-integrity": "Uses JSON-LD canonicalization. Required for linked data ecosystems.",
+  "jws-2020":
+    "JsonWebSignature2020 embedded proof with a detached JWS. Used by DigiLocker-style verifiers.",
   "sd-jwt-vc": "Allows holders to selectively disclose individual fields.",
 };
 

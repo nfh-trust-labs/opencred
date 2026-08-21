@@ -6,7 +6,7 @@ Open-source toolkit for issuing and verifying W3C Verifiable Credentials.
 
 - **Desktop app** (Electron) for interactive credential issuance with local signing
 - **Docker image** for headless cloud deployment with an HTTP API
-- **W3C VC 2.0 compliant** -- supports vc-jwt, data-integrity, and sd-jwt-vc proof formats
+- **W3C VC 2.0 compliant** -- supports vc-jwt, data-integrity, jws-2020 (JsonWebSignature2020), and sd-jwt-vc proof formats
 - **36 bundled credential schemas** across 8 categories (identity, education, health, energy, finance, traceability, open badges, DIF), including the India Energy Stack `ies/electricity-credential/v1.2` and `ies/meter-data-credential/v0.6`
 - **DeDi integration** for revocation and directory services
 - **did:web issuance and key rotation** -- self-host the DID Document at your domain or publish to DeDi's `public_key_registry`; rotate keys in-place via `POST /v1/keys/rotate` without changing the DID

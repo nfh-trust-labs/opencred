@@ -113,8 +113,8 @@ export interface SignCredentialResponse {
 // Build and Sign (full flow)
 // ---------------------------------------------------------------------------
 
-/** UI-facing proof format union (3 user-visible choices). */
-export type UiProofFormat = "vc-jwt" | "data-integrity" | "sd-jwt-vc";
+/** UI-facing proof format union (one entry per user-visible choice). */
+export type UiProofFormat = "vc-jwt" | "data-integrity" | "jws-2020" | "sd-jwt-vc";
 
 export interface BuildAndSignRequest {
   /** The schema ID to validate against. */

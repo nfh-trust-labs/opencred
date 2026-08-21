@@ -39,6 +39,7 @@ Custom schemas appear on the Home screen alongside built-in templates. They can 
 |--------|--------|---------------------|-------------------|
 | `vc-jwt` (default) | JSON-LD with embedded JWT proof | No | All (ECDSA, Ed25519, RSA) |
 | `data-integrity` | JSON-LD with Data Integrity proof | No | ECDSA (P-256, P-384), Ed25519 only |
+| `jws-2020` | JSON-LD with detached-JWS (JsonWebSignature2020) proof | No | All (ECDSA, Ed25519, RSA) |
 | `sd-jwt-vc` | Compact SD-JWT token | Yes | All (ECDSA, Ed25519, RSA) |
 
 ## Batch Issuance

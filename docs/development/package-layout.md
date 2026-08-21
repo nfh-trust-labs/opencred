@@ -117,7 +117,7 @@ Multi-format verification orchestrator.
 | Export | Purpose |
 |---|---|
 | `verifyCredential(input, config)` | Top-level entry — auto-detects format and runs all checks |
-| `detectFormat(input)` | Returns `data-integrity` / `vc-jwt` / `sd-jwt-vc` / `jws` |
+| `detectFormat(input)` | Returns `data-integrity` / `jws-2020` / `vc-jwt` / `sd-jwt-vc` / `jws` |
 | `verifyDataIntegrity` | Data Integrity proof verification |
 | `verifyVcJwt`, `extractVcJwtCredentialFields`, `crossValidateVcJwtClaims` | VC-JWT verification |
 | `verifySdJwtVc`, `parseSdJwtVc`, `processDisclosures` | SD-JWT VC verification |

@@ -45,7 +45,19 @@ export {
   completeJwsProof,
   signCredentialAuto,
   defaultProofFormat,
+  isCanonicalizingProofFormat,
 } from "./jws-proof.js";
+
+export {
+  prepareJws2020Proof,
+  completeJws2020Proof,
+  signCredentialJws2020,
+  ensureJws2020Context,
+  jws2020ProtectedHeader,
+  computeJws2020VerifyData,
+  buildJws2020SigningInput,
+} from "./jws-2020.js";
+export type { Jws2020ProofConfig, Jws2020PreparedProof } from "./jws-2020.js";
 export {
   jcsCanonicalize,
   computeRevocationHash,

@@ -20,6 +20,7 @@
 
 import * as crypto from "node:crypto";
 import { CryptoError } from "@opencred/shared";
+import { isCanonicalizingProofFormat } from "@opencred/crypto";
 import { CredentialBuilder } from "@opencred/vc-core";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
 import type { SchemaRegistry, ValidationResult } from "@opencred/schema-engine";
@@ -163,10 +164,12 @@ export async function buildAndSign(
   }
   builder.setCredentialSubject(subject);
 
-  // Add JSON-LD context for Data Integrity proofs (required for RDFC-1.0 canonicalization).
-  // VC-JWT and SD-JWT-VC don't need this — fields are preserved as-is in the JWT payload.
+  // Add JSON-LD context for canonicalizing proof formats (required for
+  // RDFC-1.0 canonicalization) — both Data Integrity and JWS-2020 canonicalize
+  // the credential. VC-JWT and SD-JWT-VC don't need this — fields are
+  // preserved as-is in the JWT payload.
   const proofFormat = options.proofFormat ?? "vc-jwt";
-  if (proofFormat === "data-integrity") {
+  if (isCanonicalizingProofFormat(proofFormat)) {
     // Priority: built-in schema URL > DeDi URL > inline context
     const builtInContextUrl = getRegistry().getContextForType(options.schemaId);
     if (builtInContextUrl) {

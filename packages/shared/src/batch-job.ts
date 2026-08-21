@@ -42,9 +42,9 @@
  * If this type ever drifts from the engine's `ProofFormat`, the impl PR
  * must surface a build break; consider re-exporting the engine type from
  * a neutral package in the future. For now keep the values in sync
- * manually — there are only three.
+ * manually — the members must match the engine's union exactly.
  */
-export type BatchJobProofFormat = "vc-jwt" | "data-integrity" | "sd-jwt-vc";
+export type BatchJobProofFormat = "vc-jwt" | "data-integrity" | "jws-2020" | "sd-jwt-vc";
 
 /**
  * Per-row data as produced by the CSV parser. Mirrors the public shape

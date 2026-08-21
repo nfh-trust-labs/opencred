@@ -91,6 +91,7 @@ import { buildAndSign, listSchemas, getSchemaDefinition } from "../signing/local
 
 const logger = createLogger("ipc");
 import { signWithFormat } from "../signing/proof-format-router.js";
+import { isCanonicalizingProofFormat } from "@opencred/crypto";
 import type { UiProofFormat } from "../shared/ipc-types.js";
 import { generateKeyPairSync, createPublicKey, randomUUID, createHash } from "node:crypto";
 import { packageCredential } from "../packaging/packager.js";
@@ -662,8 +663,9 @@ async function handleBuildAndSign(
       })();
       builder.setSchema({ id: credentialSchemaId, type: "JsonSchema" });
 
-      // Add JSON-LD context for Data Integrity proofs on inline/custom schemas
-      if (proofFormat === "data-integrity") {
+      // Add JSON-LD context for canonicalizing proof formats (data-integrity
+      // and jws-2020) on inline/custom schemas
+      if (isCanonicalizingProofFormat(proofFormat)) {
         if (request.contextUrl) {
           builder.addContext(request.contextUrl);
         } else if (request.inlineContext) {
