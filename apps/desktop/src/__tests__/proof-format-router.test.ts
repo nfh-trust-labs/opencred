@@ -71,6 +71,29 @@ describe("signWithFormat", () => {
     expect(parsed.proof.type).toBe("DataIntegrityProof");
   });
 
+  it("jws-2020 produces a detached JsonWebSignature2020 embedded proof", async () => {
+    const { signer } = createSoftwareSigner(pemKeyPath);
+    const unsigned = buildUnsignedCredential();
+
+    const result = await signWithFormat(signer, unsigned, "jws-2020", {
+      verificationMethod: signer.id,
+    });
+
+    expect(result.isCompactToken).toBe(false);
+    const parsed = JSON.parse(result.signedOutput);
+    expect(parsed.proof.type).toBe("JsonWebSignature2020");
+    expect(parsed.proof.jwt).toBeUndefined();
+    expect(parsed.proof.proofPurpose).toBe("assertionMethod");
+    expect(parsed.proof.verificationMethod).toBe(signer.id);
+    expect(parsed["@context"]).toContain("https://w3id.org/security/suites/jws-2020/v1");
+
+    const jwsParts = (parsed.proof.jws as string).split(".");
+    expect(jwsParts).toHaveLength(3);
+    expect(jwsParts[1]).toBe(""); // detached payload
+    const header = JSON.parse(Buffer.from(jwsParts[0], "base64url").toString());
+    expect(header).toEqual({ alg: "ES256", b64: false, crit: ["b64"] });
+  });
+
   it("data-integrity with RSA throws CryptoError", async () => {
     const rsaSigner: Signer = {
       id: "did:web:test.example#key-rsa",

@@ -9,6 +9,7 @@ export type {
 
 export { verifyCredential, detectFormat } from "./verifier.js";
 export { verifyDataIntegrity } from "./data-integrity.js";
+export { verifyJws2020Proof } from "./jws-2020.js";
 export { verifyJwsProof } from "./jws-proof.js";
 export {
   verifyVcJwt,

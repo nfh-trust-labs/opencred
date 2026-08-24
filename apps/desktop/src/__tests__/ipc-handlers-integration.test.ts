@@ -907,6 +907,33 @@ describe("IPC Handler Integration Tests", () => {
       expect(signed.proof.jwt).toBeDefined();
     });
 
+    it("jws-2020: should sign through the full IPC path (zod schema included)", async () => {
+      const { keyId } = await importTestKey();
+
+      const result = await buildAndSign({
+        keyId,
+        schemaId: "functional-identity/v1",
+        issuerDid: "did:key:z6Mktest",
+        credentialSubject: {
+          name: "Jane Doe",
+          role: "Medical Practitioner",
+          validFrom: "2025-06-15T00:00:00Z",
+        },
+        validFrom: "2025-01-01T00:00:00Z",
+        proofFormat: "jws-2020",
+      });
+
+      if (!result.success) {
+        throw new Error(`Build & sign failed: ${result.error} (code: ${result.errorCode})`);
+      }
+      expect(result.proofFormat).toBe("jws-2020");
+
+      const signed = JSON.parse(result.signedCredential!);
+      expect(signed.proof.type).toBe("JsonWebSignature2020");
+      expect(signed.proof.jwt).toBeUndefined();
+      expect((signed.proof.jws as string).split(".")[1]).toBe(""); // detached
+    });
+
     it("data-integrity: should sign with education schema and did:key issuer", async () => {
       const { keyId } = await importTestKey();
 

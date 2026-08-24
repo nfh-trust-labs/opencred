@@ -595,7 +595,7 @@ Build, validate, and sign a Verifiable Credential. The signing key is loaded at 
 | `credentialSubject` | object | Yes | -- | Credential claims, validated against the schema |
 | `validFrom` | string (ISO 8601) | Yes | -- | Start of validity period |
 | `validUntil` | string (ISO 8601) | No | -- | End of validity period |
-| `proofFormat` | enum | No | `vc-jwt` | `vc-jwt`, `data-integrity`, or `sd-jwt-vc` |
+| `proofFormat` | enum | No | `vc-jwt` | `vc-jwt`, `data-integrity`, `jws-2020`, or `sd-jwt-vc` |
 | `additionalTypes` | string[] | No | -- | Extra credential type URIs |
 | `subjectDid` | string | No | -- | Subject DID (set as `credentialSubject.id`) |
 | `selectiveDisclosureClaims` | string[] | No | -- | Claims for SD-JWT-VC selective disclosure |
@@ -657,7 +657,7 @@ Build, validate, and sign a Verifiable Credential. The signing key is loaded at 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `credential` | object or string | Signed credential. Object for vc-jwt/data-integrity; compact string for sd-jwt-vc |
+| `credential` | object or string | Signed credential. Object for vc-jwt/data-integrity/jws-2020; compact string for sd-jwt-vc |
 | `proofFormat` | string | The proof format used |
 | `isCompactToken` | boolean | `true` only for sd-jwt-vc |
 | `packagedOutputs` | array (optional) | Present when `packageFormats` was specified and credential is not a compact token |
@@ -665,6 +665,7 @@ Build, validate, and sign a Verifiable Credential. The signing key is loaded at 
 **Notes:**
 
 - `data-integrity` proofs require ECDSA (P-256, P-384) or Ed25519. RSA keys return `500 CRYPTO_ERROR`.
+- `jws-2020` produces a [JsonWebSignature2020](https://www.w3.org/community/reports/credentials/CG-FINAL-lds-jws2020-20220721/) embedded proof: the credential stays plain JSON and `proof.jws` carries a detached RFC 7797 JWS (`<header>..<signature>`, header `{"alg", "b64": false, "crit": ["b64"]}`). Works with **all** key algorithms (ES256/ES384/EdDSA/PS256). The JWS-2020 suite context (`https://w3id.org/security/suites/jws-2020/v1`) is appended to the credential's `@context` automatically.
 - `packagedOutputs` is only included when `packageFormats` is specified and the credential is not a compact token.
 - The `credentialSubject` is validated against the JSON Schema bound to `schemaId`. Invalid fields return `400 SCHEMA_VALIDATION_ERROR`.
 
@@ -892,7 +893,7 @@ Start a batch issuance job from CSV data. Returns `202 Accepted` immediately; pr
 | `issuerDid` | string | Yes | -- | Issuer DID |
 | `validFrom` | string (ISO 8601) | Yes | -- | Start of validity |
 | `validUntil` | string (ISO 8601) | No | -- | End of validity |
-| `proofFormat` | enum | No | `vc-jwt` | `vc-jwt`, `data-integrity`, or `sd-jwt-vc` |
+| `proofFormat` | enum | No | `vc-jwt` | `vc-jwt`, `data-integrity`, `jws-2020`, or `sd-jwt-vc` |
 | `additionalTypes` | string[] | No | -- | Extra credential type URIs |
 | `revocationRegistryUrl` | URL | No | -- | DeDi revocation registry URL |
 | `credentialSchemaUrl` | URL | No | -- | External JSON Schema URL |

@@ -9,7 +9,7 @@
 A few notes before you start:
 
 - **OpenCred is not a hosted service.** You run your own server, generate your own key, and sign in your own container. NFH Trust Labs sees nothing.
-- **Use EC P-256 keys, not RSA.** The `data-integrity` proof format is unsupported on RSA — P-256 lets you demo all three proof formats (`vc-jwt`, `data-integrity`, `sd-jwt-vc`) without surprises.
+- **Use EC P-256 keys, not RSA.** The `data-integrity` proof format is unsupported on RSA — P-256 lets you demo all four proof formats (`vc-jwt`, `data-integrity`, `jws-2020`, `sd-jwt-vc`) without surprises.
 - **Use `functional-identity/v1` as the demo schema.** It's in the built-in registry, required fields are minimal (`name`, `role`, `validFrom`), and produces a satisfying-looking VC.
 - **Don't enable `OPENCRED_DEV_MODE_NO_AUTH`.** Generate an API key — it's 15 seconds and keeps the right mental model that the server is a signing oracle. The server refuses to start with this flag if `NODE_ENV=production`.
 
@@ -104,7 +104,7 @@ These both live on **your** filesystem only. Nothing leaves your laptop.
 mkdir -p ~/opencred-bootcamp/keys
 cd ~/opencred-bootcamp
 
-# EC P-256 private key in PKCS#8 PEM — works with all three proof formats.
+# EC P-256 private key in PKCS#8 PEM — works with all four proof formats.
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
   -out keys/issuer-key.pem
 chmod 600 keys/issuer-key.pem
@@ -472,7 +472,7 @@ returned and posts it correctly.
 
 Either path produces the same `outputs[]`/`packagedOutputs[]` array.
 
-#### Works with all three proof formats
+#### Works with all four proof formats
 
 | `proofFormat` | What `credential` looks like in the request | What the QR encodes |
 |---|---|---|
@@ -1311,7 +1311,7 @@ All under `/v1/*`. Auth: `Authorization: Bearer $OPENCRED_API_KEY` except where 
 | `GET /v1/keys` | required | Metadata about the loaded signer (no key material) |
 | `GET /v1/schemas` | required | Built-in schema registry — useful when an `id` is rejected |
 | `POST /v1/credentials/issue` | required | Build, validate, sign a VC. Pass either `schemaId` (built-in) or `inlineSchema` (your pasted JSON Schema), or both. |
-| `POST /v1/credentials/verify` | required | Verify a VC (any of the three proof formats) |
+| `POST /v1/credentials/verify` | required | Verify a VC (any of the four proof formats) |
 | `POST /v1/credentials/batch` | required | CSV-driven bulk issuance |
 | `POST /v1/credentials/revocation-hash` | required | Compute the SHA-256 hash for a DeDi revocation entry |
 | `POST /v1/credentials/revoke` | required | Revoke a credential via DeDi (only when DeDi is configured) |

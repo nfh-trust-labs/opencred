@@ -22,9 +22,9 @@ beforeEach(() => {
   setActiveSigner(testKey.signer);
 });
 
-const PROOF_FORMATS = ["data-integrity", "vc-jwt", "sd-jwt-vc"] as const;
+const PROOF_FORMATS = ["data-integrity", "vc-jwt", "jws-2020", "sd-jwt-vc"] as const;
 
-describe("multi-format interop — same subject, 3 proof formats, all verify", () => {
+describe("multi-format interop — same subject, 4 proof formats, all verify", () => {
   for (const proofFormat of PROOF_FORMATS) {
     it(`issue + verify round-trip: ${proofFormat}`, async () => {
       const issuerDid = testKey.signer.id.split("#")[0];
@@ -71,7 +71,7 @@ describe("multi-format interop — same subject, 3 proof formats, all verify", (
     });
   }
 
-  it("all 3 formats produce structurally distinct outputs", async () => {
+  it("all 4 formats produce structurally distinct outputs", async () => {
     const issuerDid = testKey.signer.id.split("#")[0];
     const results: Map<string, unknown> = new Map();
 
@@ -111,6 +111,24 @@ describe("multi-format interop — same subject, 3 proof formats, all verify", (
       unknown
     >;
     expect(vcJwtProof.jwt).toBeDefined();
+
+    const jws2020 = results.get("jws-2020") as {
+      credential: Record<string, unknown>;
+      isCompactToken: boolean;
+    };
+    expect(jws2020.isCompactToken).toBe(false);
+    expect(typeof jws2020.credential).toBe("object");
+    const jws2020Proof = (jws2020.credential as Record<string, unknown>).proof as Record<
+      string,
+      unknown
+    >;
+    expect(jws2020Proof.type).toBe("JsonWebSignature2020");
+    expect(jws2020Proof.jwt).toBeUndefined();
+    expect(typeof jws2020Proof.jws).toBe("string");
+    expect((jws2020Proof.jws as string).split(".")[1]).toBe(""); // detached payload
+    expect(jws2020Proof.created).toBeDefined();
+    expect(jws2020Proof.proofPurpose).toBe("assertionMethod");
+    expect(jws2020Proof.verificationMethod).toBeDefined();
 
     const sdJwt = results.get("sd-jwt-vc") as { credential: string; isCompactToken: boolean };
     expect(sdJwt.isCompactToken).toBe(true);

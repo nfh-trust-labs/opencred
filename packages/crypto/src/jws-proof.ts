@@ -79,6 +79,19 @@ export function defaultProofFormat(_algorithm: SigningAlgorithm): ProofFormat {
 }
 
 /**
+ * True when the format signs RDFC-1.0 (URDNA2015) canonicalized data and
+ * therefore needs every credential term defined in a loaded JSON-LD context
+ * (strict/safe mode rejects undefined terms). Issuance surfaces use this to
+ * decide whether to attach the schema's JSON-LD context to the credential.
+ *
+ * Accepts any string so callers holding sibling unions (UI formats,
+ * verification's CredentialFormat) can use it without casting.
+ */
+export function isCanonicalizingProofFormat(format: string): boolean {
+  return format === "data-integrity" || format === "eddsa-di" || format === "jws-2020";
+}
+
+/**
  * Auto-dispatch credential signing to the appropriate proof format.
  *
  * When `proofFormat` is omitted, defaults to VC-JWT for all algorithms.
@@ -114,6 +127,13 @@ export async function signCredentialAuto(
       return signCredentialJws(unsignedVC, signingKey, {
         verificationMethod: options.verificationMethod,
       });
+    case "jws-2020": {
+      const { signCredentialJws2020 } = await import("./jws-2020.js");
+      return signCredentialJws2020(unsignedVC, signingKey, {
+        verificationMethod: options.verificationMethod,
+        proofPurpose: options.proofPurpose ?? "assertionMethod",
+      });
+    }
     case "vc-jwt": {
       const { signCredentialVcJwt } = await import("./vc-jwt-signing.js");
       return signCredentialVcJwt(unsignedVC as unknown as Record<string, unknown>, signingKey, {
