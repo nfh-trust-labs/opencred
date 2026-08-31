@@ -4,6 +4,20 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.11.0](https://github.com/nfh-trust-labs/opencred/compare/v1.10.0...v1.11.0) (2026-08-31)
+
+
+### Features
+
+* add jws-2020 (JsonWebSignature2020) proof format ([#752](https://github.com/nfh-trust-labs/opencred/issues/752)) ([52693a9](https://github.com/nfh-trust-labs/opencred/commit/52693a9917f2997ae11c50f2404fdcd6c3ebb70f))
+* **vc-core,schema-engine:** bundle hosted IES ElectricityCredential v1.2 context ([#755](https://github.com/nfh-trust-labs/opencred/issues/755)) ([2a33125](https://github.com/nfh-trust-labs/opencred/commit/2a33125eac38aadb14e292e79ceb3f893a6dcf38))
+
+
+### Bug Fixes
+
+* **ci:** grant packages:write so the chained docker.yml can start ([#754](https://github.com/nfh-trust-labs/opencred/issues/754)) ([5bb0c38](https://github.com/nfh-trust-labs/opencred/commit/5bb0c380070e95a8d38cc1e3dd1b0ffcbab860f3))
+* **ci:** resolve the release tag correctly when chained from release-please ([#748](https://github.com/nfh-trust-labs/opencred/issues/748)) ([9fee54c](https://github.com/nfh-trust-labs/opencred/commit/9fee54c737c809d7429499b2dc97ea8949f04855))
+
 ## [1.10.0](https://github.com/nfh-trust-labs/opencred/compare/v1.9.1...v1.10.0) (2026-08-03)
 
 
