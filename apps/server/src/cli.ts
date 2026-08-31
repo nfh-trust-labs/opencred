@@ -33,6 +33,7 @@ import {
   completeEdDsaProof,
   prepareJws2020Proof,
   completeJws2020Proof,
+  isCanonicalizingProofFormat,
   prepareSdJwtVcProof,
   completeSdJwtVcProof,
   sha256Hex,
@@ -514,8 +515,16 @@ export function createProgram(): Command {
         for (const t of input.additionalTypes as string[]) builder.addType(t);
       }
 
-      const unsigned = builder.build();
       const proofFormat = opts.proofFormat as CliProofFormat;
+      // Canonicalizing proof formats (data-integrity / jws-2020) need every
+      // credential term defined in a loaded JSON-LD context — attach the
+      // schema's registered context, mirroring /v1/credentials/issue.
+      if (isCanonicalizingProofFormat(proofFormat)) {
+        const contextUrl = registry.getContextForType(opts.schema);
+        if (contextUrl) builder.addContext(contextUrl);
+      }
+
+      const unsigned = builder.build();
       const output = await signCredential(unsigned, signer, proofFormat, opts.schema);
 
       const outputPath = resolve(opts.output);
