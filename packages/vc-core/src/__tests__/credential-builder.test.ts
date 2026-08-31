@@ -5,6 +5,7 @@ import {
   W3C_CREDENTIALS_V2_CONTEXT,
   DATA_INTEGRITY_V1_CONTEXT,
   JWS_2020_V1_CONTEXT,
+  IES_ELECTRICITY_V1_2_CONTEXT,
   TRACEABILITY_V1_CONTEXT,
 } from "../types.js";
 import { createDocumentLoader, getBundledContextUrls } from "../document-loader.js";
@@ -1078,11 +1079,23 @@ describe("Document Loader", () => {
     expect(urls).toContain(W3C_CREDENTIALS_V2_CONTEXT);
     expect(urls).toContain(DATA_INTEGRITY_V1_CONTEXT);
     expect(urls).toContain(JWS_2020_V1_CONTEXT);
+    expect(urls).toContain(IES_ELECTRICITY_V1_2_CONTEXT);
     // v1 schema library: 3 base (W3C credentials, Data Integrity, JWS-2020
-    // suite) + 2 upstream (Open Badges 3.0, Traceability v1) + 8
-    // OpenCred-defined credential contexts (electricity, immunization,
-    // prescription, test-result, insurance-policy, functional-identity,
-    // employment-offer-letter, business-entity).
-    expect(urls.size).toBe(13);
+    // suite) + 3 upstream (Open Badges 3.0, Traceability v1, IES
+    // ElectricityCredential v1.2) + 8 OpenCred-defined credential contexts
+    // (electricity, immunization, prescription, test-result,
+    // insurance-policy, functional-identity, employment-offer-letter,
+    // business-entity).
+    expect(urls.size).toBe(14);
+  });
+
+  it("serves the IES context as a pinned snapshot with @import inlined", () => {
+    const loader = createDocumentLoader();
+    const result = loader(IES_ELECTRICITY_V1_2_CONTEXT);
+    expect(result.document).toHaveProperty("@context");
+    // jsonld.js does not implement JSON-LD 1.1 `@import`; the bundled
+    // snapshot must have every import merged in or canonicalization of
+    // credentials carrying this context fails with "invalid scoped context".
+    expect(JSON.stringify(result.document)).not.toContain("@import");
   });
 });

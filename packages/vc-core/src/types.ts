@@ -82,6 +82,20 @@ export const DATA_INTEGRITY_V1_CONTEXT = "https://w3id.org/security/data-integri
 /** The W3C JSON Web Signature 2020 suite context URI. */
 export const JWS_2020_V1_CONTEXT = "https://w3id.org/security/suites/jws-2020/v1";
 
+/**
+ * The hosted IES ElectricityCredential v1.2 context URI.
+ *
+ * The bundled copy is a pinned snapshot with the upstream `@import`
+ * statements inlined (merged per JSON-LD 1.1 `@import` semantics —
+ * semantically identical to the hosted document): jsonld.js does not
+ * implement `@import`, so the raw upstream context fails processing with
+ * "invalid scoped context". Re-pin by re-fetching the hosted context AND
+ * its `@import` targets, re-inlining, and re-running the bundled-context
+ * tests.
+ */
+export const IES_ELECTRICITY_V1_2_CONTEXT =
+  "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.jsonld";
+
 // ---------------------------------------------------------------------------
 // OpenCred schema library — context URIs
 // ---------------------------------------------------------------------------
