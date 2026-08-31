@@ -28,7 +28,9 @@ import type { SchemaDefinition } from "../types.js";
 
 export const iesElectricityCredentialV1_2Schema: Record<string, unknown> = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://github.com/beckn/DEG/blob/main/specification/schema/ElectricityCredential/v1.2/schema.json",
+  // Hosted canonical URL — verifier-facing; replaces the repository blob
+  // link previously used here.
+  $id: "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/schema.json",
   title: "ElectricityCredential v1.2",
   description:
     "Bundled (self-contained) JSON Schema for ElectricityCredential v1.2. All power and capacity fields use QuantitativeValue {value, unit} with short unit aliases (W, kW, MW, kWh, MWh, kVA, MVA, kVAR, MVAR, V, kV) mapped to QUDT IRIs via JSON-LD context. Renamed from v1.1: ratedPowerKw→ratedPower, maxExportKw→maxExport, maxImportKw→maxImport, nominalPowerKw→nominalPower, storageCapacityKwh→storageCapacity, ratedApparentPowerKva→ratedApparentPower, maxReactivePowerKvar→maxReactivePower, minReactivePowerKvar→minReactivePower, nominalVoltageKv→nominalVoltage, sanctionedLoadKw→sanctionedLoad, contractMaxDemandKw→contractMaxDemand. Subschemas: EnergyResource/v2.1, EnergyResourceCommon/v1.1, MeterServiceProfile/v1.1.",
@@ -866,6 +868,11 @@ const iesElectricityCredentialV1_2Checksum = canonicalJsonSha256(
 export const iesElectricityCredentialV1_2Definition: SchemaDefinition = {
   id: "ies/electricity-credential/v1.2",
   schema: iesElectricityCredentialV1_2Schema,
+  // Hosted JSON-LD context — required for canonicalizing proof formats
+  // (data-integrity / jws-2020). A pinned, @import-inlined snapshot is
+  // bundled in @opencred/vc-core under this URL.
+  contextUrl:
+    "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.jsonld",
   version: "1.2.0",
   lastUpdated: "2026-06-12T00:00:00Z",
   checksum: iesElectricityCredentialV1_2Checksum,
