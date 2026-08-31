@@ -1,0 +1,516 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "schema": "https://schema.org/",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "deg": "https://schema.nfh.global/deg#",
+    "ElectricityCredential": {
+      "@id": "deg:ElectricityCredential",
+      "@context": {
+        "@version": 1.1
+      }
+    },
+    "customerProfile": {
+      "@id": "deg:customerProfile",
+      "@type": "@id",
+      "@context": {
+        "@version": 1.1,
+        "@protected": true,
+        "customerNumber": {
+          "@id": "deg:customerNumber",
+          "@type": "xsd:string"
+        },
+        "idRef": {
+          "@id": "deg:idRef",
+          "@type": "@id",
+          "@context": {
+            "issuedBy": {
+              "@id": "deg:issuedBy",
+              "@type": "@id"
+            },
+            "subjectId": {
+              "@id": "deg:subjectId",
+              "@type": "xsd:string"
+            }
+          }
+        },
+        "energyResources": {
+          "@id": "deg:energyResources",
+          "@type": "@id",
+          "@container": "@set",
+          "@context": {
+            "@version": 1.1,
+            "schema": "https://schema.org/",
+            "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+            "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+            "xsd": "http://www.w3.org/2001/XMLSchema#",
+            "qudt": "http://qudt.org/schema/qudt/",
+            "beckn": "https://schema.nfh.global/core/v2.0/",
+            "deg": "https://schema.nfh.global/deg#",
+            "W": "http://qudt.org/vocab/unit/W",
+            "kW": "http://qudt.org/vocab/unit/KiloW",
+            "MW": "http://qudt.org/vocab/unit/MegaW",
+            "kWh": "http://qudt.org/vocab/unit/KiloW-HR",
+            "MWh": "http://qudt.org/vocab/unit/MegaW-HR",
+            "kVA": "http://qudt.org/vocab/unit/KiloV-A",
+            "MVA": "http://qudt.org/vocab/unit/MegaV-A",
+            "kVAR": "http://qudt.org/vocab/unit/KiloV-A_Reactive",
+            "MVAR": "http://qudt.org/vocab/unit/MegaV-A_Reactive",
+            "V": "http://qudt.org/vocab/unit/V",
+            "kV": "http://qudt.org/vocab/unit/KiloV",
+            "EnergyResource": "deg:EnergyResource",
+            "id": "@id",
+            "type": {
+              "@id": "deg:resourceType",
+              "@type": "xsd:string"
+            },
+            "subResources": {
+              "@id": "deg:subResources",
+              "@container": "@list"
+            },
+            "parentResources": {
+              "@id": "deg:parentResources",
+              "@container": "@list"
+            },
+            "attributes": {
+              "@id": "deg:attributes",
+              "@type": "@id"
+            },
+            "make": {
+              "@id": "deg:make",
+              "@type": "xsd:string"
+            },
+            "model": {
+              "@id": "deg:model",
+              "@type": "xsd:string"
+            },
+            "telemetryProvider": {
+              "@id": "deg:telemetryProvider",
+              "@type": "xsd:string"
+            },
+            "commissioningDate": {
+              "@id": "deg:commissioningDate",
+              "@type": "xsd:dateTime"
+            },
+            "location": {
+              "@id": "deg:location",
+              "@type": "@id"
+            },
+            "ratedPower": {
+              "@id": "deg:ratedPower",
+              "@context": {
+                "value": {
+                  "@id": "qudt:value",
+                  "@type": "xsd:decimal"
+                },
+                "unit": {
+                  "@id": "qudt:unit",
+                  "@type": "@vocab"
+                },
+                "@vocab": "http://qudt.org/vocab/unit/"
+              }
+            },
+            "maxExport": {
+              "@id": "deg:maxExport",
+              "@context": {
+                "value": {
+                  "@id": "qudt:value",
+                  "@type": "xsd:decimal"
+                },
+                "unit": {
+                  "@id": "qudt:unit",
+                  "@type": "@vocab"
+                },
+                "@vocab": "http://qudt.org/vocab/unit/"
+              }
+            },
+            "maxImport": {
+              "@id": "deg:maxImport",
+              "@context": {
+                "value": {
+                  "@id": "qudt:value",
+                  "@type": "xsd:decimal"
+                },
+                "unit": {
+                  "@id": "qudt:unit",
+                  "@type": "@vocab"
+                },
+                "@vocab": "http://qudt.org/vocab/unit/"
+              }
+            },
+            "meterCapability": {
+              "@id": "deg:meterCapability",
+              "@type": "xsd:string"
+            },
+            "energyDirection": {
+              "@id": "deg:energyDirection",
+              "@type": "xsd:string"
+            },
+            "functions": {
+              "@id": "deg:functions",
+              "@container": "@list"
+            },
+            "feeder": {
+              "@id": "deg:feeder",
+              "@type": "xsd:string"
+            },
+            "bus": {
+              "@id": "deg:bus",
+              "@type": "xsd:string"
+            },
+            "communicationTechnology": {
+              "@id": "deg:communicationTechnology",
+              "@type": "xsd:string"
+            },
+            "applicationProtocol": {
+              "@id": "deg:applicationProtocol",
+              "@type": "xsd:string"
+            },
+            "nominalPower": {
+              "@id": "deg:nominalPower",
+              "@context": {
+                "value": {
+                  "@id": "qudt:value",
+                  "@type": "xsd:decimal"
+                },
+                "unit": {
+                  "@id": "qudt:unit",
+                  "@type": "@vocab"
+                },
+                "@vocab": "http://qudt.org/vocab/unit/"
+              }
+            },
+            "efficiency": {
+              "@id": "deg:efficiency",
+              "@type": "xsd:decimal"
+            },
+            "storageCapacity": {
+              "@id": "deg:storageCapacity",
+              "@context": {
+                "value": {
+                  "@id": "qudt:value",
+                  "@type": "xsd:decimal"
+                },
+                "unit": {
+                  "@id": "qudt:unit",
+                  "@type": "@vocab"
+                },
+                "@vocab": "http://qudt.org/vocab/unit/"
+              }
+            },
+            "storageType": {
+              "@id": "deg:storageType",
+              "@type": "xsd:string"
+            },
+            "stateOfHealthPct": {
+              "@id": "deg:stateOfHealthPct",
+              "@type": "xsd:decimal"
+            },
+            "connectorType": {
+              "@id": "deg:connectorType",
+              "@type": "xsd:string"
+            },
+            "controlProtocol": {
+              "@id": "deg:controlProtocol",
+              "@type": "xsd:string"
+            },
+            "v2xProtocol": {
+              "@id": "deg:v2xProtocol",
+              "@type": "xsd:string"
+            },
+            "ratedApparentPower": {
+              "@id": "deg:ratedApparentPower",
+              "@context": {
+                "value": {
+                  "@id": "qudt:value",
+                  "@type": "xsd:decimal"
+                },
+                "unit": {
+                  "@id": "qudt:unit",
+                  "@type": "@vocab"
+                },
+                "@vocab": "http://qudt.org/vocab/unit/"
+              }
+            },
+            "maxReactivePower": {
+              "@id": "deg:maxReactivePower",
+              "@context": {
+                "value": {
+                  "@id": "qudt:value",
+                  "@type": "xsd:decimal"
+                },
+                "unit": {
+                  "@id": "qudt:unit",
+                  "@type": "@vocab"
+                },
+                "@vocab": "http://qudt.org/vocab/unit/"
+              }
+            },
+            "minReactivePower": {
+              "@id": "deg:minReactivePower",
+              "@context": {
+                "value": {
+                  "@id": "qudt:value",
+                  "@type": "xsd:decimal"
+                },
+                "unit": {
+                  "@id": "qudt:unit",
+                  "@type": "@vocab"
+                },
+                "@vocab": "http://qudt.org/vocab/unit/"
+              }
+            },
+            "rideThroughCategory": {
+              "@id": "deg:rideThroughCategory",
+              "@type": "xsd:string"
+            },
+            "operatingMode": {
+              "@id": "deg:operatingMode",
+              "@type": "xsd:string"
+            },
+            "voltVarEnabled": {
+              "@id": "deg:voltVarEnabled",
+              "@type": "xsd:boolean"
+            },
+            "freqDroopEnabled": {
+              "@id": "deg:freqDroopEnabled",
+              "@type": "xsd:boolean"
+            },
+            "enterServiceRampTimeSec": {
+              "@id": "deg:enterServiceRampTimeSec",
+              "@type": "xsd:decimal"
+            },
+            "loadCategory": {
+              "@id": "deg:loadCategory",
+              "@type": "xsd:string"
+            },
+            "nominalVoltage": {
+              "@id": "deg:nominalVoltage",
+              "@context": {
+                "value": {
+                  "@id": "qudt:value",
+                  "@type": "xsd:decimal"
+                },
+                "unit": {
+                  "@id": "qudt:unit",
+                  "@type": "@vocab"
+                },
+                "@vocab": "http://qudt.org/vocab/unit/"
+              }
+            },
+            "zone": {
+              "@id": "deg:zone",
+              "@type": "xsd:string"
+            },
+            "substationId": {
+              "@id": "deg:substationId",
+              "@type": "xsd:string"
+            },
+            "feederCode": {
+              "@id": "deg:feederCode",
+              "@type": "xsd:string"
+            }
+          }
+        },
+        "consumptionProfiles": {
+          "@id": "deg:consumptionProfiles",
+          "@type": "@id",
+          "@container": "@set",
+          "@context": {
+            "@version": 1.1,
+            "deg": "https://schema.nfh.global/deg#",
+            "qudt": "http://qudt.org/schema/qudt/",
+            "xsd": "http://www.w3.org/2001/XMLSchema#",
+            "W": "http://qudt.org/vocab/unit/W",
+            "kW": "http://qudt.org/vocab/unit/KiloW",
+            "MW": "http://qudt.org/vocab/unit/MegaW",
+            "kWh": "http://qudt.org/vocab/unit/KiloW-HR",
+            "MWh": "http://qudt.org/vocab/unit/MegaW-HR",
+            "kVA": "http://qudt.org/vocab/unit/KiloV-A",
+            "MVA": "http://qudt.org/vocab/unit/MegaV-A",
+            "kVAR": "http://qudt.org/vocab/unit/KiloV-A_Reactive",
+            "MVAR": "http://qudt.org/vocab/unit/MegaV-A_Reactive",
+            "V": "http://qudt.org/vocab/unit/V",
+            "kV": "http://qudt.org/vocab/unit/KiloV",
+            "MeterServiceProfile": {
+              "@id": "deg:MeterServiceProfile"
+            },
+            "meterId": {
+              "@id": "deg:meterId"
+            },
+            "tariffCategoryCode": {
+              "@id": "deg:tariffCategoryCode"
+            },
+            "premisesType": {
+              "@id": "deg:premisesType"
+            },
+            "connectionType": {
+              "@id": "deg:connectionType"
+            },
+            "paymentMode": {
+              "@id": "deg:paymentMode"
+            },
+            "serviceStatus": {
+              "@id": "deg:serviceStatus"
+            },
+            "billingCycleDay": {
+              "@id": "deg:billingCycleDay",
+              "@type": "xsd:integer"
+            },
+            "sanctionedLoad": {
+              "@id": "deg:sanctionedLoad",
+              "@context": {
+                "value": {
+                  "@id": "qudt:value",
+                  "@type": "xsd:decimal"
+                },
+                "unit": {
+                  "@id": "qudt:unit",
+                  "@type": "@vocab"
+                },
+                "@vocab": "http://qudt.org/vocab/unit/"
+              }
+            },
+            "sanctionedExportLoad": {
+              "@id": "deg:sanctionedExportLoad",
+              "@context": {
+                "value": {
+                  "@id": "qudt:value",
+                  "@type": "xsd:decimal"
+                },
+                "unit": {
+                  "@id": "qudt:unit",
+                  "@type": "@vocab"
+                },
+                "@vocab": "http://qudt.org/vocab/unit/"
+              }
+            },
+            "contractMaxDemand": {
+              "@id": "deg:contractMaxDemand",
+              "@context": {
+                "value": {
+                  "@id": "qudt:value",
+                  "@type": "xsd:decimal"
+                },
+                "unit": {
+                  "@id": "qudt:unit",
+                  "@type": "@vocab"
+                },
+                "@vocab": "http://qudt.org/vocab/unit/"
+              }
+            },
+            "@protected": true
+          }
+        }
+      }
+    },
+    "customerDetails": {
+      "@id": "deg:customerDetails",
+      "@type": "@id",
+      "@context": {
+        "@version": 1.1,
+        "deg": "https://schema.nfh.global/deg#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#",
+        "schema": "https://schema.org/",
+        "beckn": "https://schema.nfh.global/",
+        "CustomerDetails": {
+          "@id": "deg:CustomerDetails"
+        },
+        "fullName": {
+          "@id": "schema:name",
+          "@type": "xsd:string"
+        },
+        "serviceConnectionDate": {
+          "@id": "deg:serviceConnectionDate",
+          "@type": "xsd:dateTime"
+        },
+        "careOf": {
+          "@id": "deg:careOf",
+          "@context": {
+            "name": {
+              "@id": "schema:name",
+              "@type": "xsd:string"
+            },
+            "relationship": {
+              "@id": "deg:relationship",
+              "@type": "xsd:string"
+            }
+          }
+        },
+        "installationAddress": {
+          "@id": "beckn:Location",
+          "@type": "@id",
+          "@context": {
+            "geo": {
+              "@id": "beckn:geo",
+              "@type": "@id",
+              "@context": {
+                "type": {
+                  "@id": "beckn:geoType",
+                  "@type": "xsd:string"
+                },
+                "coordinates": {
+                  "@id": "beckn:coordinates",
+                  "@container": "@list"
+                },
+                "bbox": {
+                  "@id": "beckn:bbox",
+                  "@container": "@list"
+                },
+                "geometries": {
+                  "@id": "beckn:geometries",
+                  "@container": "@list"
+                }
+              }
+            },
+            "address": {
+              "@id": "beckn:address",
+              "@type": "@id",
+              "@context": {
+                "streetAddress": {
+                  "@id": "beckn:streetAddress",
+                  "@type": "xsd:string"
+                },
+                "extendedAddress": {
+                  "@id": "beckn:extendedAddress",
+                  "@type": "xsd:string"
+                },
+                "addressLocality": {
+                  "@id": "beckn:addressLocality",
+                  "@type": "xsd:string"
+                },
+                "addressRegion": {
+                  "@id": "beckn:addressRegion",
+                  "@type": "xsd:string"
+                },
+                "addressCountry": {
+                  "@id": "beckn:addressCountry",
+                  "@type": "xsd:string"
+                },
+                "postalCode": {
+                  "@id": "beckn:postalCode",
+                  "@type": "xsd:string"
+                }
+              }
+            }
+          }
+        },
+        "@protected": true
+      }
+    },
+    "credentialStatus": {
+      "@id": "deg:credentialStatus",
+      "@type": "@id",
+      "@context": {
+        "statusPurpose": {
+          "@id": "deg:statusPurpose",
+          "@type": "xsd:string"
+        },
+        "statusListCredential": {
+          "@id": "deg:statusListCredential",
+          "@type": "@id"
+        }
+      }
+    }
+  }
+}

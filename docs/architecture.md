@@ -85,7 +85,7 @@ Returns a structured result with per-check pass/fail status and a top-level code
 
 ### `@opencred/schema-engine`
 
-JSON Schema registry with 36 bundled credential schemas across 8 categories: identity, education, health, energy, finance, traceability, open badges, and DIF — including the India Energy Stack schemas `ies/electricity-credential/v1.2` and `ies/meter-data-credential/v0.6` (bundled fully offline; remote `$ref`s inlined at embed time). Provides schema validation via AJV, schema listing and lookup, and schema generation from field examples. Supports optional remote schema updates from a manifest URL.
+JSON Schema registry with 36 bundled credential schemas across 8 categories: identity, education, health, energy, finance, traceability, open badges, and DIF — including the India Energy Stack schemas `ies/electricity-credential/v1.2` and `ies/meter-data-credential/v0.6` (bundled fully offline; remote `$ref`s inlined at embed time; the electricity schema also registers its hosted JSON-LD context, bundled with upstream `@import`s inlined, enabling canonicalizing proof formats). Provides schema validation via AJV, schema listing and lookup, and schema generation from field examples. Supports optional remote schema updates from a manifest URL.
 
 ### `@opencred/templates`
 

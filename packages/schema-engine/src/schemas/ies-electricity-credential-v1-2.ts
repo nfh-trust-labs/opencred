@@ -866,6 +866,11 @@ const iesElectricityCredentialV1_2Checksum = canonicalJsonSha256(
 export const iesElectricityCredentialV1_2Definition: SchemaDefinition = {
   id: "ies/electricity-credential/v1.2",
   schema: iesElectricityCredentialV1_2Schema,
+  // Hosted JSON-LD context — required for canonicalizing proof formats
+  // (data-integrity / jws-2020). A pinned, @import-inlined snapshot is
+  // bundled in @opencred/vc-core under this URL.
+  contextUrl:
+    "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.jsonld",
   version: "1.2.0",
   lastUpdated: "2026-06-12T00:00:00Z",
   checksum: iesElectricityCredentialV1_2Checksum,

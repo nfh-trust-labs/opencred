@@ -16,6 +16,7 @@ import {
   W3C_CREDENTIALS_V2_CONTEXT,
   DATA_INTEGRITY_V1_CONTEXT,
   JWS_2020_V1_CONTEXT,
+  IES_ELECTRICITY_V1_2_CONTEXT,
   TRACEABILITY_V1_CONTEXT,
   OPEN_BADGES_V3_CONTEXT,
   OPENCRED_ELECTRICITY_V1_CONTEXT,
@@ -31,6 +32,7 @@ import {
   credentialsV2,
   dataIntegrityV1,
   jws2020V1,
+  iesElectricityV12,
   traceabilityV1,
   openBadgesV3,
   electricityV1,
@@ -61,6 +63,9 @@ const BUNDLED_CONTEXTS: ReadonlyMap<string, Record<string, unknown>> = new Map([
   [W3C_CREDENTIALS_V2_CONTEXT, credentialsV2],
   [DATA_INTEGRITY_V1_CONTEXT, dataIntegrityV1],
   [JWS_2020_V1_CONTEXT, jws2020V1],
+  // Pinned snapshot of the hosted IES context with upstream `@import`
+  // statements inlined — see IES_ELECTRICITY_V1_2_CONTEXT in types.ts.
+  [IES_ELECTRICITY_V1_2_CONTEXT, iesElectricityV12],
   // Referenced upstream contexts bundled at build time
   [TRACEABILITY_V1_CONTEXT, traceabilityV1],
   [OPEN_BADGES_V3_CONTEXT, openBadgesV3],
