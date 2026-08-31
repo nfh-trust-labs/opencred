@@ -9,6 +9,12 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # Chaining into docker.yml via workflow_call requires this: docker.yml
+  # declares `packages: write` (GHCR push) at workflow level, and a called
+  # workflow's permissions cannot exceed the caller's. Without it the run
+  # dies at startup with `startup_failure` and zero jobs — the same symptom
+  # that forced the #533 revert.
+  packages: write
 
 jobs:
   release-please:
