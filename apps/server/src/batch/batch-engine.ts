@@ -20,6 +20,8 @@ import {
   completeVcJwtProof,
   completeProof,
   completeEdDsaProof,
+  prepareJws2020Proof,
+  completeJws2020Proof,
   prepareSdJwtVcProof,
   completeSdJwtVcProof,
   precomputeProofConfig,
@@ -89,7 +91,7 @@ export interface BatchProgress {
   cancelled: boolean;
 }
 
-export type ProofFormat = "vc-jwt" | "data-integrity" | "sd-jwt-vc";
+export type ProofFormat = "vc-jwt" | "data-integrity" | "jws-2020" | "sd-jwt-vc";
 
 export interface BatchConfig {
   schemaId: string;
@@ -330,6 +332,20 @@ export function createBatchEngine(
             } else {
               rowResult.credential = completeProof(unsigned, proofConfig, signatureBytes);
             }
+            rowResult.isCompactToken = false;
+            break;
+          }
+          case "jws-2020": {
+            // JsonWebSignature2020 embedded proof — detached RFC 7797 JWS.
+            // Works with all key algorithms. Each row carries its own
+            // `created` timestamp; the proof-config precompute optimization
+            // used by data-integrity does not apply here yet.
+            const prepared = await prepareJws2020Proof(unsigned, signer.algorithm, {
+              verificationMethod: signer.id,
+              proofPurpose: "assertionMethod",
+            });
+            const signatureBytes = await signer.sign(prepared.dataToSign);
+            rowResult.credential = completeJws2020Proof(prepared, signatureBytes);
             rowResult.isCompactToken = false;
             break;
           }
@@ -710,6 +726,20 @@ export function createStreamingBatchEngine(
             } else {
               rowResult.credential = completeProof(unsigned, proofConfig, signatureBytes);
             }
+            rowResult.isCompactToken = false;
+            break;
+          }
+          case "jws-2020": {
+            // JsonWebSignature2020 embedded proof — detached RFC 7797 JWS.
+            // Works with all key algorithms. Each row carries its own
+            // `created` timestamp; the proof-config precompute optimization
+            // used by data-integrity does not apply here yet.
+            const prepared = await prepareJws2020Proof(unsigned, signer.algorithm, {
+              verificationMethod: signer.id,
+              proofPurpose: "assertionMethod",
+            });
+            const signatureBytes = await signer.sign(prepared.dataToSign);
+            rowResult.credential = completeJws2020Proof(prepared, signatureBytes);
             rowResult.isCompactToken = false;
             break;
           }

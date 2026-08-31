@@ -4,14 +4,16 @@ The contract for what OpenCred can issue and verify, across both products (Deskt
 
 ## Algorithm × proof format
 
-| Algorithm | `vc-jwt` | `data-integrity` | `sd-jwt-vc` |
-|---|---|---|---|
-| P-256 (ES256) | ✅ | ✅ (`ecdsa-rdfc-2019`) | ✅ |
-| P-384 (ES384) | ✅ | ✅ (`ecdsa-rdfc-2019`) | ✅ |
-| Ed25519 (EdDSA) | ✅ | ✅ (`eddsa-rdfc-2022`) | ✅ |
-| RSA-2048/3072/4096 (PS256) | ✅ | ❌ **excluded by design** | ✅ |
+| Algorithm | `vc-jwt` | `data-integrity` | `jws-2020` | `sd-jwt-vc` |
+|---|---|---|---|---|
+| P-256 (ES256) | ✅ | ✅ (`ecdsa-rdfc-2019`) | ✅ | ✅ |
+| P-384 (ES384) | ✅ | ✅ (`ecdsa-rdfc-2019`) | ✅ | ✅ |
+| Ed25519 (EdDSA) | ✅ | ✅ (`eddsa-rdfc-2022`) | ✅ | ✅ |
+| RSA-2048/3072/4096 (PS256) | ✅ | ❌ **excluded by design** | ✅ | ✅ |
 
-**Why RSA × data-integrity is excluded**: the supported Data Integrity cryptosuites (`ecdsa-rdfc-2019`, `eddsa-rdfc-2022`) have no RSA variant. The issuance endpoint rejects the combination with a clear error; RSA issuers use `vc-jwt` or `sd-jwt-vc`.
+**Why RSA × data-integrity is excluded**: the supported Data Integrity cryptosuites (`ecdsa-rdfc-2019`, `eddsa-rdfc-2022`) have no RSA variant. The issuance endpoint rejects the combination with a clear error; RSA issuers use `vc-jwt`, `jws-2020`, or `sd-jwt-vc`.
+
+**Note on `jws-2020`**: the JsonWebSignature2020 embedded proof is not yet part of the nightly E2E matrix harness — coverage lives in the package/integration test suites.
 
 ## Issuer identity (DID method) × key type
 

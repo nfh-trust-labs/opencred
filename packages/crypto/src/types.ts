@@ -145,4 +145,10 @@ export interface SdJwtVcPreparedProof {
 /**
  * Union of all supported proof formats.
  */
-export type ProofFormat = "data-integrity" | "eddsa-di" | "jws" | "vc-jwt" | "sd-jwt-vc";
+export type ProofFormat =
+  | "data-integrity"
+  | "eddsa-di"
+  | "jws"
+  | "jws-2020"
+  | "vc-jwt"
+  | "sd-jwt-vc";

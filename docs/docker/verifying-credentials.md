@@ -91,7 +91,7 @@ Layer DeDi on top with the same `OPENCRED_DEDI_*` env vars if you need revocatio
 
 ### Verifier path 4 — Any conformant W3C VC verifier
 
-OpenCred-issued credentials follow the W3C VC Data Model 2.0 with standard proof formats (`vc-jwt` / `data-integrity` / `sd-jwt-vc`). Any conformant verifier should accept them — the MOSIP Inji wallet, generic JOSE libraries (`jose`, `jsonwebtoken`, `python-jose`), and other VC verification toolkits.
+OpenCred-issued credentials follow the W3C VC Data Model 2.0 with standard proof formats (`vc-jwt` / `data-integrity` / `jws-2020` / `sd-jwt-vc`). Any conformant verifier should accept them — the MOSIP Inji wallet, generic JOSE libraries (`jose`, `jsonwebtoken`, `python-jose`), and other VC verification toolkits.
 
 The receiver needs:
 

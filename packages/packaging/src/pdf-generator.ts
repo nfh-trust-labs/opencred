@@ -244,6 +244,27 @@ function decodeJwsEnvelopeForDisplay(
   };
 }
 
+/**
+ * Display-only decode of the JWS `alg` from a JsonWebSignature2020 embedded
+ * proof's detached JWS (`proof: { ..., jws: "<header>..<signature>" }`).
+ * Returns undefined when the value isn't a decodable detached JWS.
+ */
+function decodeDetachedJwsAlg(jws: unknown): string | undefined {
+  if (typeof jws !== "string") return undefined;
+  const headerSegment = jws.split(".")[0];
+  if (!headerSegment) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(headerSegment, "base64url").toString("utf8"));
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const alg = (parsed as Record<string, unknown>)["alg"];
+      return typeof alg === "string" ? alg : undefined;
+    }
+  } catch {
+    // Not decodable — omit the Algorithm row.
+  }
+  return undefined;
+}
+
 const NOOP_LOGGER: PackagingLogger = { warn: () => {}, debug: () => {} };
 
 /**
@@ -561,14 +582,17 @@ export async function generatePdf(
       }
 
       // -- digital signature ---------------------------------------------
-      // Three shapes flow through:
+      // Four shapes flow through:
       //   1. A real Data Integrity VC — proof fields mandatory; warn +
       //      "(unknown)" if missing.
       //   2. The vc-jwt envelope (proof.type "JsonWebSignature2020" with the
       //      compact token at proof.jwt — the canonical issuance output).
       //      The signature metadata lives INSIDE the token: render JWS alg,
       //      header kid, payload iat via a display-only decode (#693).
-      //   3. A synthetic shape from a compact JWT/SD-JWT (caller set
+      //   3. A JsonWebSignature2020 embedded proof (proof.jws detached JWS,
+      //      `proofFormat: "jws-2020"`) — alg from the JWS header,
+      //      created/verificationMethod from the proof itself.
+      //   4. A synthetic shape from a compact JWT/SD-JWT (caller set
       //      qrPayloadOverride) — missing fields expected, skip silently.
       sectionHeading("Digital Signature");
       const isSyntheticProof = options?.qrPayloadOverride !== undefined;
@@ -602,6 +626,17 @@ export async function generatePdf(
         if (jwsDisplay.alg) sigField("Algorithm", jwsDisplay.alg);
         if (jwsDisplay.issuedAt) sigField("Created", formatDate(jwsDisplay.issuedAt));
         if (jwsDisplay.kid) sigField("Verification Method", jwsDisplay.kid);
+      } else if (proof["type"] === "JsonWebSignature2020" && typeof proof["jws"] === "string") {
+        // JsonWebSignature2020 embedded proof (`proofFormat: "jws-2020"`):
+        // no cryptosuite by design — the algorithm lives in the detached
+        // JWS protected header; created/verificationMethod are real proof
+        // fields.
+        const detachedAlg = decodeDetachedJwsAlg(proof["jws"]);
+        if (detachedAlg) sigField("Algorithm", detachedAlg);
+        const jwsProofCreated = asString(proof["created"]);
+        if (jwsProofCreated) sigField("Created", formatDate(jwsProofCreated));
+        const jwsProofVm = asString(proof["verificationMethod"]);
+        if (jwsProofVm) sigField("Verification Method", jwsProofVm);
       } else {
         // Synthetic compact-token proofs carry the JWS `alg` (display-only,
         // set by the apps' decode-for-display); Data Integrity proofs never

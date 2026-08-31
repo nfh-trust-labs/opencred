@@ -31,7 +31,7 @@ opencred issue \
 | `--schema <id>` | Yes | -- | Schema ID to validate against |
 | `--input <file>` | Yes | -- | JSON file with credential subject data |
 | `--key <pem-path>` | Yes | -- | Path to signing key file (PEM, JWK, PFX) |
-| `--proof-format <format>` | No | `vc-jwt` | `vc-jwt`, `data-integrity`, `sd-jwt-vc` |
+| `--proof-format <format>` | No | `vc-jwt` | `vc-jwt`, `data-integrity`, `jws-2020`, `sd-jwt-vc` |
 | `--output <file>` | Yes | -- | Output file path |
 | `--primary-color <hex>` | No | -- | Primary branding color (e.g. `#1a56db`) |
 | `--logo <file>` | No | -- | Path to issuer logo image file (PNG/JPG/SVG) |

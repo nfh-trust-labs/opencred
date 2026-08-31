@@ -79,6 +79,9 @@ export const W3C_CREDENTIALS_V2_CONTEXT = "https://www.w3.org/ns/credentials/v2"
 /** The W3C Data Integrity v1 context URI. */
 export const DATA_INTEGRITY_V1_CONTEXT = "https://w3id.org/security/data-integrity/v1";
 
+/** The W3C JSON Web Signature 2020 suite context URI. */
+export const JWS_2020_V1_CONTEXT = "https://w3id.org/security/suites/jws-2020/v1";
+
 // ---------------------------------------------------------------------------
 // OpenCred schema library — context URIs
 // ---------------------------------------------------------------------------

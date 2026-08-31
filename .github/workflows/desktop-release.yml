@@ -373,10 +373,24 @@ jobs:
           GITHUB_REF_NAME: ${{ github.ref_name }}
         run: |
           if [ -n "$INPUT_TAG" ]; then
-            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            TAG="$INPUT_TAG"
           else
-            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            TAG="$GITHUB_REF_NAME"
           fi
+          # Guard: when this workflow is reached via `workflow_call` from
+          # release-please (which runs on a push to `main`), `github.ref_name`
+          # is the BRANCH name, not the tag. Without this check the run
+          # publishes artefacts to a bogus release literally named `main` and
+          # marks it Latest, while the real vX.Y.Z release stays empty.
+          case "$TAG" in
+            v[0-9]*) ;;
+            *)
+              echo "::error::Refusing to publish: resolved tag '$TAG' is not a vX.Y.Z tag."
+              echo "::error::Pass the tag explicitly (workflow_call/dispatch input 'tag')."
+              exit 1
+              ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Publish to GitHub release
         shell: bash
@@ -463,10 +477,24 @@ jobs:
           GITHUB_REF_NAME: ${{ github.ref_name }}
         run: |
           if [ -n "$INPUT_TAG" ]; then
-            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            TAG="$INPUT_TAG"
           else
-            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            TAG="$GITHUB_REF_NAME"
           fi
+          # Guard: when this workflow is reached via `workflow_call` from
+          # release-please (which runs on a push to `main`), `github.ref_name`
+          # is the BRANCH name, not the tag. Without this check the run
+          # publishes artefacts to a bogus release literally named `main` and
+          # marks it Latest, while the real vX.Y.Z release stays empty.
+          case "$TAG" in
+            v[0-9]*) ;;
+            *)
+              echo "::error::Refusing to publish: resolved tag '$TAG' is not a vX.Y.Z tag."
+              echo "::error::Pass the tag explicitly (workflow_call/dispatch input 'tag')."
+              exit 1
+              ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Download release artefacts
         env:
@@ -533,10 +561,24 @@ jobs:
           GITHUB_REF_NAME: ${{ github.ref_name }}
         run: |
           if [ -n "$INPUT_TAG" ]; then
-            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            TAG="$INPUT_TAG"
           else
-            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            TAG="$GITHUB_REF_NAME"
           fi
+          # Guard: when this workflow is reached via `workflow_call` from
+          # release-please (which runs on a push to `main`), `github.ref_name`
+          # is the BRANCH name, not the tag. Without this check the run
+          # publishes artefacts to a bogus release literally named `main` and
+          # marks it Latest, while the real vX.Y.Z release stays empty.
+          case "$TAG" in
+            v[0-9]*) ;;
+            *)
+              echo "::error::Refusing to publish: resolved tag '$TAG' is not a vX.Y.Z tag."
+              echo "::error::Pass the tag explicitly (workflow_call/dispatch input 'tag')."
+              exit 1
+              ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Download artefacts from this repo's release
         env:

@@ -47,10 +47,29 @@ jobs:
           git push origin new-opencred-dev
 
   # Trigger desktop release builds when a release is created
+  # Pass the tag explicitly. This workflow runs on a push to `main`, so
+  # inside the called workflow `github.ref_name` is "main", NOT the tag —
+  # without this input the release job publishes to a bogus release named
+  # `main` and marks it Latest (observed on v1.10.0). The called workflow
+  # declares `tag` as an optional input precisely so this can be passed.
   desktop-release:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     uses: ./.github/workflows/desktop-release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets: inherit
+
+  # Docker publish is gated on `refs/tags/v*`, but GitHub suppresses
+  # tag-push triggers for tags created with GITHUB_TOKEN (the anti-loop
+  # rule in the NOTE below), so a release-please tag never triggers it.
+  # Chaining it here with an explicit tag is what makes the image publish.
+  docker-release:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    uses: ./.github/workflows/docker.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
     secrets: inherit
 
   # NOTE: The chained workflow_call into docker.yml + the `with: tag: ...`
