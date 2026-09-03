@@ -40,4 +40,4 @@ Of particular interest — violations of the project's
 | Version | Supported |
 |---|---|
 | Latest minor release (see [Releases](https://github.com/nfh-trust-labs/opencred-releases/releases)) | ✅ |
-| Older releases | ❌ — please upgrade; the desktop app self-updates |
+| Older releases | ❌ — please upgrade from the [releases page](https://github.com/nfh-trust-labs/opencred-releases/releases); auto-update is unavailable while builds are unsigned (see [docs/desktop/release-signing.md](docs/desktop/release-signing.md)) |

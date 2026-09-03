@@ -1,8 +1,8 @@
 # Installing OpenCred Desktop
 
-OpenCred Desktop runs on macOS and Linux. Release builds bundle Node.js and Electron — there are no additional runtime dependencies.
+OpenCred Desktop runs on macOS, Windows, and Linux. Release builds bundle Node.js and Electron — there are no additional runtime dependencies.
 
-> **🧪 Beta release.** This is an early-access build. On macOS, the first launch requires a one-time approval — see [macOS first launch](#macos-first-launch) below. Linux installs run without prompts. Windows installers are not yet published.
+> On macOS, the first launch requires a one-time approval — see [macOS first launch](#macos-first-launch) below. Windows may show a SmartScreen prompt on first run — see [Windows first launch](#windows-first-launch). Linux installs run without prompts.
 >
 > **Support:** [open an issue](https://github.com/nfh-trust-labs/opencred/issues) for bugs, feature requests, or questions.
 
@@ -10,9 +10,9 @@ OpenCred Desktop runs on macOS and Linux. Release builds bundle Node.js and Elec
 
 | Platform | Minimum version | Architecture | Status |
 |---|---|---|---|
-| macOS | 12 Monterey or later | Universal (Intel x64 + Apple Silicon arm64) | Supported |
+| macOS | 12 Monterey or later | x64 (Intel) and arm64 (Apple Silicon) — separate downloads | Supported |
 | Linux | Ubuntu 20.04 or equivalent | x64 | Supported |
-| Windows | Windows 10 or later | x64 | Coming in a later beta |
+| Windows | Windows 10 or later | x64 | Supported |
 
 ## Installing from a Release
 
@@ -22,15 +22,17 @@ Download the installer for your platform from the **public release page**: <http
 
 | Platform | File | How to install |
 |---|---|---|
-| macOS | `OpenCred-<version>.dmg` | Open the DMG and drag OpenCred.app to Applications. |
+| macOS (Apple Silicon) | `OpenCred-<version>-arm64.dmg` | Open the DMG and drag OpenCred.app to Applications. |
+| macOS (Intel) | `OpenCred-<version>.dmg` | Open the DMG and drag OpenCred.app to Applications. |
+| Windows | `OpenCred.Setup.<version>.exe` | Run the installer and follow the prompts. |
 | Linux | `OpenCred-<version>.AppImage` | Make the file executable (`chmod +x OpenCred-<version>.AppImage`) and run it. |
-| Linux (Debian/Ubuntu) | `opencred-desktop_<version>_amd64.deb` | `sudo dpkg -i opencred-desktop_<version>_amd64.deb` |
+| Linux (Debian/Ubuntu) | `OpenCred-<version>-amd64.deb` | `sudo dpkg -i OpenCred-<version>-amd64.deb` |
 
 Each release also publishes a `SHA256SUMS` file. Verify integrity with `sha256sum -c SHA256SUMS --ignore-missing` (or `shasum -a 256 -c` on macOS) before running the installer.
 
 ### macOS first launch
 
-The first time you open OpenCred on macOS, you'll see a one-time security prompt: *"OpenCred cannot be opened because the developer cannot be verified."* This is expected during the beta — to allow the app to launch:
+The first time you open OpenCred on macOS, you'll see a one-time security prompt: *"OpenCred cannot be opened because the developer cannot be verified."* This appears because current builds are not notarized by Apple — to allow the app to launch:
 
 1. Open **Finder → Applications**.
 2. **Right-click** (or Ctrl-click) on `OpenCred.app` and choose **Open**.
@@ -44,11 +46,11 @@ The first time you open OpenCred on macOS, you'll see a one-time security prompt
 > open /Applications/OpenCred.app
 > ```
 
-**During the beta, OpenCred does not auto-update on macOS.** Check the [releases page](https://github.com/nfh-trust-labs/opencred-releases/releases) periodically for new versions and reinstall using the same approval step above.
+**Auto-update is unavailable while builds are unsigned** — see [Release signing status](release-signing.md). Check the [releases page](https://github.com/nfh-trust-labs/opencred-releases/releases) periodically for new versions and reinstall using the same approval step above.
 
 ### Windows first launch
 
-> **Beta:** Windows installers are not currently published. Subscribe to releases on the [public releases repo](https://github.com/nfh-trust-labs/opencred-releases/releases) to be notified when Windows builds ship.
+If Windows SmartScreen reports *"Windows protected your PC"* when you run the installer, click **More info** and then **Run anyway**. Verify the installer's checksum against `SHA256SUMS` first (see above) — SmartScreen is reacting to the publisher's reputation, not to the file's integrity. As on macOS, auto-update is unavailable while builds are unsigned; install new versions from the releases page.
 
 ### Linux signature
 
