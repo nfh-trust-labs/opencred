@@ -4,15 +4,15 @@ OpenCred is a local-first platform for issuing and verifying W3C Verifiable Cred
 
 OpenCred is published by [NFH Trust Labs](https://github.com/nfh-trust-labs).
 
-> **🧪 Beta release.** OpenCred is in early-access beta. Functionality is feature-complete and the protocols are stable, but desktop installer polish is still in progress — on first launch macOS shows a one-time approval prompt (see the [installation guide](desktop/installation.md#macos-first-launch)). Windows installers will follow.
+> **Open source.** OpenCred is open source under the [MIT licence](https://github.com/nfh-trust-labs/opencred/blob/main/LICENSE). Source code, issues, and release notes live at [github.com/nfh-trust-labs/opencred](https://github.com/nfh-trust-labs/opencred); contributions are welcome — see [CONTRIBUTING.md](https://github.com/nfh-trust-labs/opencred/blob/main/CONTRIBUTING.md). Desktop installers ship for macOS, Windows, and Linux. On first launch macOS shows a one-time approval prompt (see the [installation guide](desktop/installation.md#macos-first-launch)).
 >
-> **Support:** for bug reports, feature requests, or questions, [open an issue](https://github.com/nfh-trust-labs/opencred/issues).
+> **Support:** for bug reports, feature requests, or questions, [open an issue](https://github.com/nfh-trust-labs/opencred/issues). Security vulnerabilities go through [private reporting](https://github.com/nfh-trust-labs/opencred/security/advisories/new), not a public issue.
 
 ## Get OpenCred
 
 | | Where | How |
 |---|---|---|
-| **Desktop** (macOS / Linux) | <https://github.com/nfh-trust-labs/opencred-releases/releases> | Download the `.dmg` / `.AppImage` / `.deb` for your platform |
+| **Desktop** (macOS / Windows / Linux) | <https://github.com/nfh-trust-labs/opencred-releases/releases> | Download the `.dmg` (Apple Silicon or Intel) / `.exe` / `.AppImage` / `.deb` for your platform |
 | **Docker server** | `ghcr.io/nfh-trust-labs/opencred/opencred-server:latest` | `docker pull ghcr.io/nfh-trust-labs/opencred/opencred-server:latest` |
 
 Both are public — no authentication required. The source code is open source (MIT) at <https://github.com/nfh-trust-labs/opencred>; release binaries are mirrored to the [opencred-releases](https://github.com/nfh-trust-labs/opencred-releases/releases) download repo.

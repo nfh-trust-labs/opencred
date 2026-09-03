@@ -29,6 +29,7 @@
 * [Issuing credentials](desktop/issuing-credentials.md)
 * [Verifying credentials](desktop/verifying-credentials.md)
 * [Settings and logging](desktop/settings-and-logging.md)
+* [Release signing status](desktop/release-signing.md)
 
 ## Docker Image
 
