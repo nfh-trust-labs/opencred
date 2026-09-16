@@ -922,7 +922,7 @@ curl -s http://localhost:3100/v1/credentials/issue \
 | `400` | `VALIDATION_ERROR` | The request body failed Zod parsing, contained a forbidden key, or contained a PEM string. The response includes `details[]` for Zod errors. |
 | `400` | `SCHEMA_VALIDATION_ERROR` | `credentialSubject` did not satisfy the JSON Schema bound to `schemaId`. The response includes a `validationErrors` array. |
 | `401` | `AUTHENTICATION_ERROR` | Missing, malformed, or invalid `Authorization` header. |
-| `500` | `CRYPTO_ERROR` | `proofFormat=data-integrity` was requested with an RSA key. Switch to `vc-jwt`, `jws-2020`, or `sd-jwt-vc`. |
+| `500` | `CRYPTO_ERROR` | `proofFormat=data-integrity` was requested with an RSA key (switch to `vc-jwt`, `jws-2020`, or `sd-jwt-vc`), **or** strict JSON-LD canonicalization rejected the credential for `data-integrity` / `jws-2020`. In the second case the message starts with `JSON-LD canonicalization rejected the credential (strict mode)` and names the offending field — an undefined `credentialSubject` property, or an `id` / `@id`-typed value that is not an absolute URI (e.g. `"LSW002975"` instead of `"urn:ies:meter:LSW002975"`). Fix the data, pass an `inlineContext`, or use `vc-jwt`. |
 | `500` | `INTERNAL_ERROR` | Any unhandled error. The original error is logged but not echoed to the response. |
 
 Example `400 VALIDATION_ERROR` body when a private key field is smuggled in:
@@ -1519,7 +1519,7 @@ Zod parse failures from request body validation use the same envelope and add a 
 | `SESSION_EXPIRED` | 410 | `SessionExpiredError` | Ephemeral session payload expired (TTL elapsed). |
 | `PAYLOAD_TOO_LARGE` | 413 | `PayloadTooLargeError` | Request body exceeded the configured limit. |
 | `RATE_LIMIT_EXCEEDED` | 429 | `RateLimitError` | Client hit a rate limit. |
-| `CRYPTO_ERROR` | 500 | `CryptoError` | Signing or proof construction failed (e.g. RSA + `data-integrity`). |
+| `CRYPTO_ERROR` | 500 | `CryptoError` | Signing or proof construction failed (e.g. RSA + `data-integrity`, or strict JSON-LD canonicalization rejected an undefined field / non-URI identifier for `data-integrity` / `jws-2020` — the message names it). |
 | `DID_RESOLUTION_ERROR` | 500 | `DIDResolutionError` | A DID could not be resolved. |
 | `DEDI_CLIENT_ERROR` | 502 | `DeDiClientError` | DeDi registry call failed. |
 | `DEDI_RECORD_EXISTS` | 409 | `DeDiRecordExistsError` | The record being published is already in DeDi (idempotent failure mode — a prior call succeeded). Response carries a `hint` field pointing at the read endpoint that confirms the prior state. Returned by `POST /v1/credentials/revoke` (hint → `/v1/credentials/revocation-status`) and `POST /v1/keys/publish` (hint → `/v1/keys/resolve`). |

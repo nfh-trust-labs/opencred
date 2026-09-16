@@ -63,6 +63,19 @@ OpenCred supports four proof formats. The choice affects compatibility, key type
 * **JWS 2020** ([JsonWebSignature2020](https://www.w3.org/community/reports/credentials/CG-FINAL-lds-jws2020-20220721/)) embeds a proof whose `jws` field is a detached RFC 7797 JWS (`<header>..<signature>`, header `{"alg", "b64": false, "crit": ["b64"]}`) over the RDFC-1.0-canonicalized credential. Works with every algorithm. Some existing verifier ecosystems require this shape. The suite context `https://w3id.org/security/suites/jws-2020/v1` is bundled and appended to `@context` automatically at issuance.
 * **SD-JWT VC** ([IETF draft](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/)) supports selective disclosure: the issuer marks claims as selectively disclosable, and the holder reveals only chosen claims to a verifier.
 
+### Strict canonicalization (`data-integrity` and `jws-2020`)
+
+Both embedded-proof formats sign the RDFC-1.0 (URDNA2015) canonical form of the credential, and OpenCred always canonicalizes in **strict (safe) mode**. Anything JSON-LD would otherwise drop silently is *not covered by the signature*, so instead of signing a credential that a verifier could later tamper with, issuance fails with a `CRYPTO_ERROR` whose message starts with `JSON-LD canonicalization rejected the credential (strict mode)` and names the offending field or value. The common causes:
+
+| Message says | Cause | Fix |
+|---|---|---|
+| `property "x" is not defined in the credential's JSON-LD @context` | A `credentialSubject` field that no context in `@context` defines. | Remove the field, pass an `inlineContext` that defines it, or issue with `vc-jwt` (which does not canonicalize). |
+| `identifier "x" (an id / @id value) is not an absolute URI` | An `id` value (the credential's, the subject's, or a nested object's such as an IES `energyResources[].id`) that is a bare string like a meter or customer number. | Use an absolute URI: `urn:ies:meter:LSW002975`, `did:…`, `https://…`. |
+| `value "x" is used where the @context expects a URI reference` | A term the context types as `@id` (e.g. IES `idRef.issuedBy`) holds a display name instead of a URI. | Use the issuer's DID or URL. |
+| `type "x" is not defined in the credential's JSON-LD @context` | A `type` value that is neither a defined term nor an absolute URI. | Use a type the context defines, or add a context that defines it. |
+
+`vc-jwt` and `sd-jwt-vc` carry the credential verbatim inside the token and are not subject to these rules — but a JSON-LD verifier consuming an embedded-proof credential applies the same rules, so fixing the data is the right answer when the consumer needs `data-integrity` or `jws-2020`.
+
 The implementation lives in `packages/crypto`:
 
 * `prepareVcJwtProof` / `completeVcJwtProof` — VC-JWT

@@ -66,6 +66,53 @@ describe("IES electricity-credential v1.2 — jws-2020 issuance", () => {
     expect(verdict.valid).toBe(true);
   });
 
+  it("names the offending field when strict canonicalization rejects the payload (opencred-releases #13)", async () => {
+    // A bare meter number as `energyResources[].id` is the shape that
+    // produced the opaque "Failed to prepare JWS-2020 proof: Safe mode
+    // validation error." report. The response must say which value is wrong.
+    const issuerDid = testKey.signer.id.split("#")[0];
+    const res = await issueViaApp(app, {
+      schemaId: "ies/electricity-credential/v1.2",
+      issuerDid,
+      credentialSubject: {
+        customerProfile: {
+          customerNumber: "900000902588",
+          energyResources: [
+            { id: "LSW002975", type: "METER", attributes: { meterCapability: "AMI" } },
+          ],
+        },
+      },
+      validFrom: "2026-08-01T00:00:00Z",
+      proofFormat: "jws-2020",
+    });
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("CRYPTO_ERROR");
+    expect(body.error.message).not.toContain("Safe mode validation error");
+    expect(body.error.message).toContain('identifier "LSW002975"');
+    expect(body.error.message).toContain("is not an absolute URI");
+  });
+
+  it("names an undefined credentialSubject property under strict canonicalization", async () => {
+    const issuerDid = testKey.signer.id.split("#")[0];
+    const res = await issueViaApp(app, {
+      schemaId: "ies/electricity-credential/v1.2",
+      issuerDid,
+      credentialSubject: {
+        customerProfile: {
+          customerNumber: "900000902588",
+          energyResources: [{ id: "urn:ies:meter:LSW002975", type: "METER" }],
+          mobileNumber: "9594673877",
+        },
+      },
+      validFrom: "2026-08-01T00:00:00Z",
+      proofFormat: "jws-2020",
+    });
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.message).toContain('property "mobileNumber" is not defined');
+  });
+
   it("issues with data-integrity too (same canonicalization path)", async () => {
     const issuerDid = testKey.signer.id.split("#")[0];
     const res = await issueViaApp(app, {

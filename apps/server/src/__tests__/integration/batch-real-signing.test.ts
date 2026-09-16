@@ -159,7 +159,12 @@ describe("batch real signing (cross-package integration)", () => {
     const errorRows = resultsBody.results.filter((r) => r.status === "error");
     expect(errorRows.length).toBe(3);
     for (const row of errorRows) {
-      expect(row.error).toContain("Safe mode validation error");
+      // The per-row error names the undefined term rather than echoing
+      // jsonld's opaque "Safe mode validation error." (opencred-releases #13).
+      expect(row.error).toContain("JSON-LD canonicalization rejected the credential");
+      expect(row.error).toMatch(
+        /property "\w+" is not defined in the credential's JSON-LD @context/,
+      );
     }
   });
 

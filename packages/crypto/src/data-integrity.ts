@@ -69,16 +69,100 @@ export async function canonicalize(
   // The `safe` option is supported by jsonld 8.x at runtime but not yet in
   // @types/jsonld, so we cast the options to include it.  Strict mode is
   // ON by default (`safe: true`); see the JSDoc above for the rationale.
-  const result = await jsonld.canonize(
-    document as _jsonldNs.JsonLdDocument,
-    {
-      algorithm: "URDNA2015",
-      format: "application/n-quads",
-      documentLoader: createJsonLdDocumentLoader(),
-      safe: options?.strict ?? true,
-    } as _jsonldNs.Options.Normalize & { safe: boolean },
-  );
-  return result as string;
+  try {
+    const result = await jsonld.canonize(
+      document as _jsonldNs.JsonLdDocument,
+      {
+        algorithm: "URDNA2015",
+        format: "application/n-quads",
+        documentLoader: createJsonLdDocumentLoader(),
+        safe: options?.strict ?? true,
+      } as _jsonldNs.Options.Normalize & { safe: boolean },
+    );
+    return result as string;
+  } catch (error) {
+    // jsonld's safe-mode failure is the opaque string "Safe mode validation
+    // error." — the *reason* (which term / which value) is only on
+    // `error.details.event`. Surface it, or callers see a 500 and have no
+    // way to find the offending field (opencred-releases #13).
+    const described = describeSafeModeViolation(error);
+    if (described) {
+      throw new CryptoError(described, { cause: error });
+    }
+    throw error;
+  }
+}
+
+/**
+ * Shape of the `jsonld.ValidationError` jsonld.js raises in safe mode: the
+ * failing event is attached under `details.event` and its `details` carry
+ * the offending term / value (which one depends on `code`).
+ */
+interface JsonLdSafeModeError {
+  name?: unknown;
+  details?: { event?: { code?: unknown; message?: unknown; details?: Record<string, unknown> } };
+}
+
+/** Cap quoted values so an oversized field cannot bloat the error message. */
+const MAX_QUOTED_VALUE_LENGTH = 80;
+
+function quoteValue(value: unknown): string {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  if (text === undefined) return "<undefined>";
+  return text.length > MAX_QUOTED_VALUE_LENGTH
+    ? `"${text.slice(0, MAX_QUOTED_VALUE_LENGTH)}…"`
+    : `"${text}"`;
+}
+
+const SAFE_MODE_PREFIX = "JSON-LD canonicalization rejected the credential (strict mode)";
+const SAFE_MODE_FORMAT_HINT =
+  "Fix the field in the credential, attach a JSON-LD context that defines it, or issue with the vc-jwt proof format (which does not canonicalize).";
+
+/**
+ * Translate a jsonld.js safe-mode validation error into an actionable
+ * message naming the offending term or value. Returns `undefined` when
+ * `error` is not a safe-mode failure so the caller can rethrow it as-is.
+ *
+ * Event codes are the ones jsonld.js treats as unsafe (see `_notSafeEventCodes`
+ * in jsonld/lib/events.js); the most common ones for credential issuance get a
+ * tailored explanation, the rest fall back to jsonld's own event message.
+ */
+export function describeSafeModeViolation(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const { name, details } = error as JsonLdSafeModeError;
+  const event = details?.event;
+  if (name !== "jsonld.ValidationError" || !event || typeof event.code !== "string") {
+    return undefined;
+  }
+  const d = event.details ?? {};
+
+  let reason: string;
+  switch (event.code) {
+    case "invalid property":
+      reason = `property ${quoteValue(d["property"])} is not defined in the credential's JSON-LD @context, so it would be silently dropped from the signed data`;
+      break;
+    case "relative @id reference":
+      reason = `identifier ${quoteValue(d["id"])} (an \`id\` / @id value) is not an absolute URI — identifiers must be absolute URIs such as urn:…, did:… or https://…`;
+      break;
+    case "relative object reference":
+      reason = `value ${quoteValue(d["object"])} is used where the @context expects a URI reference (a term typed @id) but is not an absolute URI`;
+      break;
+    case "relative @type reference":
+      reason = `type ${quoteValue(d["type"])} is not defined in the credential's JSON-LD @context and is not an absolute URI`;
+      break;
+    case "relative @vocab reference":
+      reason = `value ${quoteValue(d["value"] ?? d["id"])} is not a term defined in the credential's JSON-LD @context (a term typed @vocab)`;
+      break;
+    case "invalid @language value":
+      reason = `@language value ${quoteValue(d["language"])} is not a valid BCP 47 language tag`;
+      break;
+    default: {
+      const message = typeof event.message === "string" ? event.message : event.code;
+      const detailText = Object.keys(d).length > 0 ? ` (${quoteValue(d)})` : "";
+      reason = `${message.replace(/\.$/, "")}${detailText} [jsonld: ${event.code}]`;
+    }
+  }
+  return `${SAFE_MODE_PREFIX}: ${reason}. ${SAFE_MODE_FORMAT_HINT}`;
 }
 
 /**
