@@ -4,6 +4,7 @@ import { CryptoError } from "@opencred/shared";
 import type { UnsignedCredential, VerifiableCredential } from "@opencred/vc-core";
 import {
   canonicalize,
+  describeSafeModeViolation,
   prepareProof,
   completeProof,
   signCredential,
@@ -526,6 +527,137 @@ describe("canonicalize — strict mode (safe canonicalization)", () => {
     const canonical = await canonicalize(unsignedVC as unknown as Record<string, unknown>);
     expect(typeof canonical).toBe("string");
     expect(canonical.length).toBeGreaterThan(0);
+  });
+});
+
+describe("canonicalize — strict-mode diagnostics (opencred-releases #13)", () => {
+  // jsonld.js reports every safe-mode failure as the opaque string
+  // "Safe mode validation error." with the actual reason buried in
+  // `error.details.event`. Issuers integrating against the server only saw
+  // "Failed to prepare JWS-2020 proof: Safe mode validation error." and had
+  // no way to find the offending field. Each case below pins the message
+  // for one real-world failure shape.
+  const IES_CONTEXT =
+    "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.jsonld";
+  const iesCredential = (credentialSubject: Record<string, unknown>) => ({
+    "@context": ["https://www.w3.org/ns/credentials/v2", IES_CONTEXT],
+    id: "urn:uuid:5f507370-6684-5bc9-8539-8cd5bc278337",
+    type: ["VerifiableCredential", "ElectricityCredential"],
+    issuer: "did:web:issuer.example",
+    validFrom: "2026-09-01T00:00:00Z",
+    credentialSubject,
+  });
+
+  it("names an undefined property", async () => {
+    await expect(
+      canonicalize(
+        iesCredential({
+          customerProfile: {
+            customerNumber: "900000902588",
+            energyResources: [{ id: "urn:ies:meter:LSW002975", type: "METER" }],
+            mobileNumber: "9594673877",
+          },
+        }),
+      ),
+    ).rejects.toThrow(
+      /property "mobileNumber" is not defined in the credential's JSON-LD @context/,
+    );
+  });
+
+  it("names a non-URI `id` (relative @id reference) — e.g. a bare meter number", async () => {
+    await expect(
+      canonicalize(
+        iesCredential({
+          customerProfile: {
+            customerNumber: "900000902588",
+            energyResources: [{ id: "LSW002975", type: "METER" }],
+          },
+        }),
+      ),
+    ).rejects.toThrow(/identifier "LSW002975" \(an `id` \/ @id value\) is not an absolute URI/);
+  });
+
+  it("names a non-URI value of an @id-typed term (relative object reference)", async () => {
+    await expect(
+      canonicalize(
+        iesCredential({
+          customerProfile: {
+            customerNumber: "900000902588",
+            idRef: { issuedBy: "Example Utility", subjectId: "ca:900000902588" },
+            energyResources: [{ id: "urn:ies:meter:LSW002975", type: "METER" }],
+          },
+        }),
+      ),
+    ).rejects.toThrow(/value "Example Utility" is used where the @context expects a URI reference/);
+  });
+
+  it("throws a CryptoError that keeps the jsonld error as `cause` and never the raw opaque message", async () => {
+    const error = await canonicalize(
+      iesCredential({
+        customerProfile: {
+          customerNumber: "1",
+          energyResources: [{ id: "LSW002975", type: "METER" }],
+        },
+      }),
+    ).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CryptoError);
+    const cryptoError = error as CryptoError;
+    expect(cryptoError.message).not.toBe("Safe mode validation error.");
+    expect(cryptoError.message).toMatch(/JSON-LD canonicalization rejected the credential/);
+    expect(cryptoError.message).toMatch(/vc-jwt/);
+    expect((cryptoError.cause as { name?: string } | undefined)?.name).toBe(
+      "jsonld.ValidationError",
+    );
+  });
+
+  it("truncates oversized offending values", async () => {
+    const longName = "x".repeat(500);
+    const error = await canonicalize(
+      iesCredential({
+        customerProfile: {
+          customerNumber: "1",
+          energyResources: [{ id: "urn:ies:meter:1", type: "METER" }],
+          [longName]: "v",
+        },
+      }),
+    ).catch((e: unknown) => e as Error);
+    expect((error as Error).message.length).toBeLessThan(500);
+    expect((error as Error).message).toContain("…");
+  });
+
+  it("signCredential propagates the descriptive message unchanged", async () => {
+    const credential = iesCredential({
+      customerProfile: {
+        customerNumber: "1",
+        energyResources: [{ id: "LSW002975", type: "METER" }],
+      },
+    }) as unknown as UnsignedCredential;
+    const signingKey = createTestSigningKey("did:web:issuer.example#key-1");
+    await expect(signCredential(credential, signingKey, defaultProofOptions)).rejects.toThrow(
+      /identifier "LSW002975"/,
+    );
+  });
+
+  it("describeSafeModeViolation ignores errors that are not jsonld safe-mode failures", () => {
+    expect(describeSafeModeViolation(new Error("boom"))).toBeUndefined();
+    expect(describeSafeModeViolation(null)).toBeUndefined();
+    expect(describeSafeModeViolation({ name: "jsonld.ValidationError" })).toBeUndefined();
+  });
+
+  it("describeSafeModeViolation falls back to jsonld's event message for unmapped codes", () => {
+    const message = describeSafeModeViolation({
+      name: "jsonld.ValidationError",
+      details: {
+        event: {
+          code: "blank node predicate",
+          message: "Dropping blank node predicate.",
+          details: { property: "_:b0" },
+        },
+      },
+    });
+    expect(message).toMatch(
+      /Dropping blank node predicate \(.*_:b0.*\) \[jsonld: blank node predicate\]/,
+    );
   });
 });
 

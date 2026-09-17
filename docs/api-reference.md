@@ -665,6 +665,7 @@ Build, validate, and sign a Verifiable Credential. The signing key is loaded at 
 **Notes:**
 
 - `data-integrity` proofs require ECDSA (P-256, P-384) or Ed25519. RSA keys return `500 CRYPTO_ERROR`.
+- `data-integrity` and `jws-2020` canonicalize the credential in strict JSON-LD mode. A field no context defines, or an `id` / `@id`-typed value that is not an absolute URI (e.g. a bare meter number), returns `500 CRYPTO_ERROR` with a message beginning `JSON-LD canonicalization rejected the credential (strict mode)` that names the offending field or value. See [Strict canonicalization](concepts/verifiable-credentials.md#strict-canonicalization-data-integrity-and-jws-2020).
 - `jws-2020` produces a [JsonWebSignature2020](https://www.w3.org/community/reports/credentials/CG-FINAL-lds-jws2020-20220721/) embedded proof: the credential stays plain JSON and `proof.jws` carries a detached RFC 7797 JWS (`<header>..<signature>`, header `{"alg", "b64": false, "crit": ["b64"]}`). Works with **all** key algorithms (ES256/ES384/EdDSA/PS256). The JWS-2020 suite context (`https://w3id.org/security/suites/jws-2020/v1`) is appended to the credential's `@context` automatically.
 - `packagedOutputs` is only included when `packageFormats` is specified and the credential is not a compact token.
 - The `credentialSubject` is validated against the JSON Schema bound to `schemaId`. Invalid fields return `400 SCHEMA_VALIDATION_ERROR`.
@@ -676,7 +677,7 @@ Build, validate, and sign a Verifiable Credential. The signing key is loaded at 
 | 400 | `VALIDATION_ERROR` | Zod parsing failed, forbidden key detected, or PEM string found |
 | 400 | `SCHEMA_VALIDATION_ERROR` | `credentialSubject` did not match the schema |
 | 401 | `AUTHENTICATION_ERROR` | Missing or invalid Bearer token |
-| 500 | `CRYPTO_ERROR` | `data-integrity` requested with RSA key |
+| 500 | `CRYPTO_ERROR` | `data-integrity` requested with RSA key, or strict JSON-LD canonicalization rejected the credential (`data-integrity` / `jws-2020`) — the message names the undefined field or non-URI identifier |
 | 500 | `INTERNAL_ERROR` | Unhandled error |
 
 **Example:**
