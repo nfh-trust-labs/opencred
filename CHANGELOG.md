@@ -4,6 +4,13 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.11.1](https://github.com/nfh-trust-labs/opencred/compare/v1.11.0...v1.11.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* **crypto:** name the offending field when strict canonicalization rejects a credential ([#761](https://github.com/nfh-trust-labs/opencred/issues/761)) ([442c928](https://github.com/nfh-trust-labs/opencred/commit/442c92809104f590d1e2ee7f61c11e384d78bce3))
+
 ## [1.11.0](https://github.com/nfh-trust-labs/opencred/compare/v1.10.0...v1.11.0) (2026-08-31)
 
 
