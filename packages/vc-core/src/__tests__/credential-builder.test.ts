@@ -6,6 +6,7 @@ import {
   DATA_INTEGRITY_V1_CONTEXT,
   JWS_2020_V1_CONTEXT,
   IES_ELECTRICITY_V1_2_CONTEXT,
+  IES_ELECTRICITY_V1_2_INLINE_CONTEXT,
   TRACEABILITY_V1_CONTEXT,
 } from "../types.js";
 import { createDocumentLoader, getBundledContextUrls } from "../document-loader.js";
@@ -1080,13 +1081,14 @@ describe("Document Loader", () => {
     expect(urls).toContain(DATA_INTEGRITY_V1_CONTEXT);
     expect(urls).toContain(JWS_2020_V1_CONTEXT);
     expect(urls).toContain(IES_ELECTRICITY_V1_2_CONTEXT);
+    expect(urls).toContain(IES_ELECTRICITY_V1_2_INLINE_CONTEXT);
     // v1 schema library: 3 base (W3C credentials, Data Integrity, JWS-2020
-    // suite) + 3 upstream (Open Badges 3.0, Traceability v1, IES
-    // ElectricityCredential v1.2) + 8 OpenCred-defined credential contexts
-    // (electricity, immunization, prescription, test-result,
-    // insurance-policy, functional-identity, employment-offer-letter,
-    // business-entity).
-    expect(urls.size).toBe(14);
+    // suite) + 4 upstream (Open Badges 3.0, Traceability v1, IES
+    // ElectricityCredential v1.2 and its flat inline companion) + 8
+    // OpenCred-defined credential contexts (electricity, immunization,
+    // prescription, test-result, insurance-policy, functional-identity,
+    // employment-offer-letter, business-entity).
+    expect(urls.size).toBe(15);
   });
 
   it("serves the IES context as a pinned snapshot with @import inlined", () => {
@@ -1097,5 +1099,16 @@ describe("Document Loader", () => {
     // snapshot must have every import merged in or canonicalization of
     // credentials carrying this context fails with "invalid scoped context".
     expect(JSON.stringify(result.document)).not.toContain("@import");
+  });
+
+  it("serves the flat IES inline context (issue #764) with every field defined at top level", () => {
+    const loader = createDocumentLoader();
+    const result = loader(IES_ELECTRICITY_V1_2_INLINE_CONTEXT);
+    const context = (result.document as { "@context": Record<string, unknown> })["@context"];
+    expect(JSON.stringify(result.document)).not.toContain("@import");
+    // The fields DigiLocker reported as MISSING_KEY must be defined directly.
+    for (const term of ["meterId", "tariffCategoryCode", "sanctionedLoad", "postalCode", "geo"]) {
+      expect(context).toHaveProperty(term);
+    }
   });
 });

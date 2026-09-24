@@ -4,6 +4,7 @@ import type { SchemaCategory, SchemaDefinition, SchemaManifest } from "./types.j
 export class SchemaRegistry {
   private readonly schemas = new Map<string, SchemaDefinition>();
   private readonly typeToContext = new Map<string, string>();
+  private readonly typeToContexts = new Map<string, string[]>();
   private cachedManifest: SchemaManifest | null = null;
 
   /**
@@ -15,6 +16,7 @@ export class SchemaRegistry {
     this.schemas.set(def.id, def);
     if (def.contextUrl) {
       this.typeToContext.set(def.id, def.contextUrl);
+      this.typeToContexts.set(def.id, [...(def.precedingContextUrls ?? []), def.contextUrl]);
     }
     this.cachedManifest = null;
   }
@@ -55,6 +57,16 @@ export class SchemaRegistry {
 
   getContextForType(type: string): string | undefined {
     return this.typeToContext.get(type);
+  }
+
+  /**
+   * Every JSON-LD context to attach when issuing `type` with a
+   * canonicalizing proof format, in `@context` order: the schema's
+   * `precedingContextUrls`, then its `contextUrl`. Empty when the schema
+   * has no registered context.
+   */
+  getContextsForType(type: string): string[] {
+    return [...(this.typeToContexts.get(type) ?? [])];
   }
 
   /**

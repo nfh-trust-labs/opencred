@@ -12,6 +12,8 @@ import { setActiveSigner } from "../../signing/key-manager.js";
 
 const IES_CONTEXT =
   "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.jsonld";
+const IES_INLINE_CONTEXT =
+  "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.inline.jsonld";
 
 let app: Hono;
 let testKey: TestKeyPair;
@@ -51,8 +53,15 @@ describe("IES electricity-credential v1.2 — jws-2020 issuance", () => {
 
     const body = (await res.json()) as { credential: Record<string, unknown> };
     const cred = body.credential;
-    expect(cred["@context"]).toContain(IES_CONTEXT);
-    expect(cred["@context"]).toContain("https://w3id.org/security/suites/jws-2020/v1");
+    // The flat inline context precedes v1.2 so DigiLocker (no `@import`
+    // support) sees every field, while v1.2's definitions still win
+    // (issue #764).
+    expect(cred["@context"]).toEqual([
+      "https://www.w3.org/ns/credentials/v2",
+      IES_INLINE_CONTEXT,
+      IES_CONTEXT,
+      "https://w3id.org/security/suites/jws-2020/v1",
+    ]);
 
     const proof = cred.proof as Record<string, unknown>;
     expect(proof.type).toBe("JsonWebSignature2020");
@@ -124,7 +133,9 @@ describe("IES electricity-credential v1.2 — jws-2020 issuance", () => {
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { credential: Record<string, unknown> };
-    expect(body.credential["@context"]).toContain(IES_CONTEXT);
+    const context = body.credential["@context"] as string[];
+    expect(context.indexOf(IES_INLINE_CONTEXT)).toBeGreaterThan(-1);
+    expect(context.indexOf(IES_INLINE_CONTEXT)).toBeLessThan(context.indexOf(IES_CONTEXT));
     const verifyRes = await verifyViaApp(app, body.credential);
     const verdict = (await verifyRes.json()) as { valid: boolean };
     expect(verdict.valid).toBe(true);

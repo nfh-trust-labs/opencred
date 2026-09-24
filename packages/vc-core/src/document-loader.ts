@@ -17,6 +17,7 @@ import {
   DATA_INTEGRITY_V1_CONTEXT,
   JWS_2020_V1_CONTEXT,
   IES_ELECTRICITY_V1_2_CONTEXT,
+  IES_ELECTRICITY_V1_2_INLINE_CONTEXT,
   TRACEABILITY_V1_CONTEXT,
   OPEN_BADGES_V3_CONTEXT,
   OPENCRED_ELECTRICITY_V1_CONTEXT,
@@ -33,6 +34,7 @@ import {
   dataIntegrityV1,
   jws2020V1,
   iesElectricityV12,
+  iesElectricityV12Inline,
   traceabilityV1,
   openBadgesV3,
   electricityV1,
@@ -66,6 +68,8 @@ const BUNDLED_CONTEXTS: ReadonlyMap<string, Record<string, unknown>> = new Map([
   // Pinned snapshot of the hosted IES context with upstream `@import`
   // statements inlined — see IES_ELECTRICITY_V1_2_CONTEXT in types.ts.
   [IES_ELECTRICITY_V1_2_CONTEXT, iesElectricityV12],
+  // Pinned snapshot of the hosted flat companion context (issue #764).
+  [IES_ELECTRICITY_V1_2_INLINE_CONTEXT, iesElectricityV12Inline],
   // Referenced upstream contexts bundled at build time
   [TRACEABILITY_V1_CONTEXT, traceabilityV1],
   [OPEN_BADGES_V3_CONTEXT, openBadgesV3],
