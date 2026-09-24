@@ -57,6 +57,30 @@ describe("SchemaRegistry", () => {
     expect(registry.getContextForType("unknown")).toBeUndefined();
   });
 
+  it("getContextsForType lists precedingContextUrls before contextUrl", () => {
+    registry.register(
+      makeDef({
+        id: "withpre",
+        contextUrl: "https://example.invalid/main/v1",
+        precedingContextUrls: ["https://example.invalid/flat/v1"],
+      }),
+    );
+    expect(registry.getContextsForType("withpre")).toEqual([
+      "https://example.invalid/flat/v1",
+      "https://example.invalid/main/v1",
+    ]);
+    expect(registry.getContextForType("withpre")).toBe("https://example.invalid/main/v1");
+  });
+
+  it("getContextsForType returns only contextUrl when there are no preceding contexts", () => {
+    registry.register(makeDef({ id: "withctx", contextUrl: "https://example.invalid/withctx/v1" }));
+    expect(registry.getContextsForType("withctx")).toEqual(["https://example.invalid/withctx/v1"]);
+  });
+
+  it("getContextsForType returns an empty list for unmapped id", () => {
+    expect(registry.getContextsForType("unknown")).toEqual([]);
+  });
+
   it("computeChecksum returns a stable SHA-256 hex digest (legacy helper)", () => {
     const a = SchemaRegistry.computeChecksum({ type: "object" });
     const b = SchemaRegistry.computeChecksum({ type: "object" });

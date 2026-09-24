@@ -462,9 +462,8 @@ credentials.post("/credentials/issue", async (c) => {
     if (parsed.inlineContext) {
       builder.addContext(parsed.inlineContext);
     } else if (parsed.schemaId) {
-      const builtInContextUrl = getRegistry().getContextForType(parsed.schemaId);
-      if (builtInContextUrl) {
-        builder.addContext(builtInContextUrl);
+      for (const contextUrl of getRegistry().getContextsForType(parsed.schemaId)) {
+        builder.addContext(contextUrl);
       }
     }
   }

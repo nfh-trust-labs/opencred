@@ -873,6 +873,13 @@ export const iesElectricityCredentialV1_2Definition: SchemaDefinition = {
   // bundled in @opencred/vc-core under this URL.
   contextUrl:
     "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.jsonld",
+  // Flat companion context for verifiers that don't resolve `@import`
+  // (DigiLocker). Must precede `contextUrl` so v1.2's definitions win and
+  // the canonical RDF is unchanged — see IES_ELECTRICITY_V1_2_INLINE_CONTEXT
+  // in @opencred/vc-core (issue #764).
+  precedingContextUrls: [
+    "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.inline.jsonld",
+  ],
   version: "1.2.0",
   lastUpdated: "2026-06-12T00:00:00Z",
   checksum: iesElectricityCredentialV1_2Checksum,

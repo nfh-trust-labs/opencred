@@ -595,7 +595,7 @@ Build, validate, and sign a Verifiable Credential. The signing key is loaded at 
 | `credentialSubject` | object | Yes | -- | Credential claims, validated against the schema |
 | `validFrom` | string (ISO 8601) | Yes | -- | Start of validity period |
 | `validUntil` | string (ISO 8601) | No | -- | End of validity period |
-| `proofFormat` | enum | No | `vc-jwt` | `vc-jwt`, `data-integrity`, `jws-2020`, or `sd-jwt-vc` |
+| `proofFormat` | enum | No | `vc-jwt` | `vc-jwt`, `data-integrity`, `jws-2020`, or `sd-jwt-vc`. The canonicalizing formats (`data-integrity`, `jws-2020`) attach the schema's registered JSON-LD context(s); for `ies/electricity-credential/v1.2` that is `…/v1.2/context.inline.jsonld` followed by `…/v1.2/context.jsonld` (see [Verifiable Credentials](concepts/verifiable-credentials.md#ies-electricitycredential-contexts)) |
 | `additionalTypes` | string[] | No | -- | Extra credential type URIs |
 | `subjectDid` | string | No | -- | Subject DID (set as `credentialSubject.id`) |
 | `selectiveDisclosureClaims` | string[] | No | -- | Claims for SD-JWT-VC selective disclosure |

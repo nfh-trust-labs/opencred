@@ -86,6 +86,23 @@ The implementation lives in `packages/crypto`:
 
 The `prepare/complete` split exists so that the actual signing operation can run elsewhere (hardware token, OS cert store, Cloud KMS) without exposing the unsigned credential or the signing buffer to a remote service.
 
+### IES ElectricityCredential contexts
+
+With `data-integrity` or `jws-2020`, an `ies/electricity-credential/v1.2` credential lists two IES contexts, in this order:
+
+```json
+"@context": [
+  "https://www.w3.org/ns/credentials/v2",
+  "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.inline.jsonld",
+  "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.jsonld",
+  "https://w3id.org/security/suites/jws-2020/v1"
+]
+```
+
+The hosted v1.2 `context.jsonld` pulls most field definitions in with JSON-LD 1.1 `@import`. Verifiers that do not resolve `@import` (DigiLocker's, for one) cannot see those fields and reject the credential with `MISSING_KEY`. `context.inline.jsonld` is IES's flat companion that defines every field directly, so those verifiers find them.
+
+The order matters. In JSON-LD a later context overrides an earlier one, so v1.2 comes **last**: its definitions (and their scoped contexts) win, and the canonical form OpenCred signs is byte-identical to a credential that lists v1.2 alone. Credentials issued before the inline context was added therefore verify exactly as before. Listed after v1.2, the flat file would replace `customerProfile` / `customerDetails` with plain IRIs and strict canonicalization would reject values such as `energyResources[].type`. Both contexts are bundled; neither is fetched at runtime.
+
 ## Building Credentials
 
 OpenCred constructs unsigned credentials with `CredentialBuilder` from `packages/vc-core`:

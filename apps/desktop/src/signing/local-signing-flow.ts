@@ -171,9 +171,11 @@ export async function buildAndSign(
   const proofFormat = options.proofFormat ?? "vc-jwt";
   if (isCanonicalizingProofFormat(proofFormat)) {
     // Priority: built-in schema URL > DeDi URL > inline context
-    const builtInContextUrl = getRegistry().getContextForType(options.schemaId);
-    if (builtInContextUrl) {
-      builder.addContext(builtInContextUrl);
+    const builtInContextUrls = getRegistry().getContextsForType(options.schemaId);
+    if (builtInContextUrls.length > 0) {
+      for (const contextUrl of builtInContextUrls) {
+        builder.addContext(contextUrl);
+      }
     } else if (options.contextUrl) {
       builder.addContext(options.contextUrl);
     } else if (options.inlineContext) {
