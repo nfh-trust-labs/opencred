@@ -4,6 +4,13 @@ All notable changes to OpenCred are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.11.2](https://github.com/nfh-trust-labs/opencred/compare/v1.11.1...v1.11.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **vc-core:** attach IES v1.2 inline context for verifiers without [@import](https://github.com/import) support ([#765](https://github.com/nfh-trust-labs/opencred/issues/765)) ([d65fbf3](https://github.com/nfh-trust-labs/opencred/commit/d65fbf3408c274a14bdcae34dc5e8ee90097e584)), closes [#764](https://github.com/nfh-trust-labs/opencred/issues/764)
+
 ## [1.11.1](https://github.com/nfh-trust-labs/opencred/compare/v1.11.0...v1.11.1) (2026-09-17)
 
 
