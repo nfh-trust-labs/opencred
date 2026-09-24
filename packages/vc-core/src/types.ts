@@ -96,6 +96,24 @@ export const JWS_2020_V1_CONTEXT = "https://w3id.org/security/suites/jws-2020/v1
 export const IES_ELECTRICITY_V1_2_CONTEXT =
   "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.jsonld";
 
+/**
+ * The hosted IES ElectricityCredential v1.2 *inline* context URI — a flat,
+ * single-level companion to {@link IES_ELECTRICITY_V1_2_CONTEXT} that defines
+ * every field directly instead of via `@import`.
+ *
+ * Verifiers that do not resolve `@import` (DigiLocker's, as of 2026-09)
+ * reject v1.2 credentials with `MISSING_KEY` unless this context is also
+ * listed. Issuance places it *before* the v1.2 context: JSON-LD gives later
+ * contexts precedence, so v1.2's term definitions (and their scoped
+ * contexts) win and the canonical RDF — and therefore every signature — is
+ * byte-identical to a credential that lists v1.2 alone. Listed *after*
+ * v1.2 it would replace `customerProfile` / `customerDetails` with plain
+ * IRIs, dropping their scoped contexts and failing strict canonicalization
+ * (issue #764). The bundled copy is a pinned snapshot of the hosted file.
+ */
+export const IES_ELECTRICITY_V1_2_INLINE_CONTEXT =
+  "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.inline.jsonld";
+
 // ---------------------------------------------------------------------------
 // OpenCred schema library — context URIs
 // ---------------------------------------------------------------------------

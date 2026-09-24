@@ -23,6 +23,13 @@ export interface SchemaDefinition {
   id: string;
   schema: Record<string, unknown>;
   contextUrl?: string;
+  /**
+   * Extra JSON-LD context URLs attached at issuance *before* `contextUrl`
+   * (canonicalizing proof formats only). JSON-LD gives later contexts
+   * precedence, so these can add definitions for verifiers with limited
+   * JSON-LD support without changing what `contextUrl` defines.
+   */
+  precedingContextUrls?: string[];
   /** Semver version string for this schema (e.g. "1.0.0"). */
   version: string;
   /** ISO 8601 timestamp of when this schema was last updated. */

@@ -520,8 +520,9 @@ export function createProgram(): Command {
       // credential term defined in a loaded JSON-LD context — attach the
       // schema's registered context, mirroring /v1/credentials/issue.
       if (isCanonicalizingProofFormat(proofFormat)) {
-        const contextUrl = registry.getContextForType(opts.schema);
-        if (contextUrl) builder.addContext(contextUrl);
+        for (const contextUrl of registry.getContextsForType(opts.schema)) {
+          builder.addContext(contextUrl);
+        }
       }
 
       const unsigned = builder.build();

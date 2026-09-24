@@ -388,6 +388,15 @@ describe("IES schemas (bundled)", () => {
       });
       expect(result.valid).toBe(false);
     });
+
+    it("attaches the flat inline context before the v1.2 context (issue #764)", () => {
+      // Order matters: JSON-LD gives later contexts precedence, so v1.2 must
+      // come last for its scoped definitions to win.
+      expect(registry.getContextsForType("ies/electricity-credential/v1.2")).toEqual([
+        "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.inline.jsonld",
+        "https://india-energy-stack.github.io/ies-accelerator/schemas/ElectricityCredential/v1.2/context.jsonld",
+      ]);
+    });
   });
 
   describe("MeterDataCredential v0.6", () => {
