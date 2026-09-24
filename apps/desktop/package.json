@@ -70,7 +70,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.0",
-    "electron": "^33.2.0",
+    "electron": "^39.8.10",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.28.0",
     "happy-dom": "^20.8.9",
